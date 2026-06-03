@@ -73,6 +73,9 @@ BZIP2SRC := compressors/bzip2/blocksort.c compressors/bzip2/bzlib.c compressors/
 BZIP3SRC := compressors/bzip3/libbz3.c
 BROTLISRC := $(wildcard compressors/brotli/common/*.c compressors/brotli/enc/*.c compressors/brotli/dec/*.c)
 SNAPPYSRC := compressors/snappy/snappy.cc compressors/snappy/snappy-c.cc compressors/snappy/snappy-sinksource.cc compressors/snappy/snappy-stubs-internal.cc
+LIBDEFLATE_CORE_SRC := $(wildcard compressors/libdeflate/lib/*.c)
+LIBDEFLATE_X86_SRC  := $(wildcard compressors/libdeflate/lib/x86/*.c)
+LIBDEFLATE_ARM_SRC  := $(wildcard compressors/libdeflate/lib/arm/*.c)
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH
 LZ5INC  := -Icompressors/lz5
@@ -81,6 +84,7 @@ BZIP2INC := -Icompressors/bzip2
 BZIP3INC := -Icompressors/bzip3 -DVERSION='"1.5.3"' -Wno-unused-function
 BROTLIINC := -Icompressors/brotli/include
 SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
+LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall
 
 # Download URLs
@@ -156,9 +160,13 @@ BROTLI_ENC_OBJ := $(patsubst compressors/brotli/enc/%.c,compressors/brotli/enc/%
 BROTLI_DEC_OBJ := $(patsubst compressors/brotli/dec/%.c,compressors/brotli/dec/%.o,$(wildcard compressors/brotli/dec/*.c))
 BROTLIOBJ := $(BROTLI_COMMON_OBJ) $(BROTLI_ENC_OBJ) $(BROTLI_DEC_OBJ)
 SNAPPYOBJ := $(SNAPPYSRC:.cc=.o)
+LIBDEFLATE_CORE_OBJ := $(LIBDEFLATE_CORE_SRC:.c=.o)
+LIBDEFLATE_X86_OBJ  := $(LIBDEFLATE_X86_SRC:.c=.o)
+LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
+LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_OBJ)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LDLIBS) -o $@
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@
@@ -188,6 +196,16 @@ $(BROTLI_DEC_OBJ): compressors/brotli/dec/%.o: compressors/brotli/dec/%.c
 # Snappy is C++; uses g++ directly
 $(SNAPPYOBJ): compressors/snappy/%.o: compressors/snappy/%.cc
 	$(CXX) $(ZPAQ_CXXFLAGS) $(SNAPPYINC) -c $< -o $@
+
+# libdeflate: pure C, multi-subdir (like brotli). Use disjoint vars to avoid warnings.
+$(LIBDEFLATE_CORE_OBJ): compressors/libdeflate/lib/%.o: compressors/libdeflate/lib/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(LIBDEFLATEINC) -c $< -o $@
+
+$(LIBDEFLATE_X86_OBJ): compressors/libdeflate/lib/x86/%.o: compressors/libdeflate/lib/x86/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(LIBDEFLATEINC) -c $< -o $@
+
+$(LIBDEFLATE_ARM_OBJ): compressors/libdeflate/lib/arm/%.o: compressors/libdeflate/lib/arm/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(LIBDEFLATEINC) -c $< -o $@
 
 # Debug
 debug: ZPAQ_CXXFLAGS = -g -O0 -Wall -Wextra -pthread
