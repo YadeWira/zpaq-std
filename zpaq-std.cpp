@@ -8531,6 +8531,14 @@ extern "C" {
 }
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "compressors/snappy/snappy-c.h"
+#ifdef __cplusplus
+}
+#endif
+
 
 
 
@@ -52600,6 +52608,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  bzip2: BWT+HF (1=fast/100K, 9=best/900K, default 9)");
 		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 5)");
 		scrivi_riga(" ", "  brotli: Google (0=fast, 11=default, 11=max)");
+		scrivi_riga(" ", "  snappy: Google (1=default, 2=best; very fast, like lz4)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -55002,6 +55011,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="flzma2") g_ma_level=5;
 					else if (g_ma_algorithm=="lizard") g_ma_level=17;
 					else if (g_ma_algorithm=="brotli") g_ma_level=11;
+					else if (g_ma_algorithm=="snappy") g_ma_level=1;
 					else g_ma_level=9;
 				}
 				if (g_ma_level<1) g_ma_level=1;
@@ -55024,12 +55034,16 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					if (g_ma_level>11) g_ma_level=11;
 				}
+				else if (g_ma_algorithm=="snappy")
+				{
+					if (g_ma_level>2) g_ma_level=2;
+				}
 				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy")
 					g_ma_algorithm="";
 			}
 		}
@@ -58693,6 +58707,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t bz2_orig= 0;
 			int64_t bz3_orig= 0;
 			int64_t brotli_orig= 0;
+			int64_t snappy_orig= 0;
 			while (d.findFilename())
 			{
 				StringBuffer cmt;
@@ -58771,6 +58786,15 @@ ThreadReturn decompressThread(void *arg)
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &brotli_orig);
+					}
+					auto msn = cs.find("zpaqstd-ma:snappy");
+					if (msn != string::npos)
+					{
+						int lvl;
+						const char* p = cs.c_str() + msn + 17;
+						while (*p && *p != ':') p++;
+						if (*p == ':')
+							sscanf(p + 1, "%d:%ld", &lvl, &snappy_orig);
 					}
 				}
 				while (out.size() < output_size && d.decompress(1 << 14))
@@ -58886,6 +58910,19 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = brotli_orig;
+			}
+			// snappy decompress segment data if compressed externally
+			else if (snappy_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(snappy_orig);
+				size_t dstLen=(size_t)snappy_orig;
+				snappy_status src2=snappy_uncompress((const char*)out.data(),out.size(),&decomp2[0],&dstLen);
+				if (src2!=SNAPPY_OK||(int64_t)dstLen!=snappy_orig)
+					error("31319 snappy decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = snappy_orig;
 			}
 			if (out.size() < output_size)
 			{
@@ -101005,6 +101042,28 @@ int Jidac::add()
 									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								delete[] brotlibuf;
+							}
+						}
+					}
+					else if (g_ma_algorithm=="snappy" && sb.size()>16)
+					{
+						int64_t orig_size=sb.size();
+						size_t dstCap=snappy_max_compressed_length((size_t)orig_size);
+						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+						{
+							char* snbuf=new(std::nothrow) char[dstCap];
+							if (snbuf)
+							{
+								size_t snsz=dstCap;
+								snappy_status src2=snappy_compress((const char*)sb.data(),(size_t)orig_size,snbuf,&snsz);
+								if (src2==SNAPPY_OK&&snsz>0&&(int64_t)snsz<orig_size-16)
+								{
+									sb.reset();
+									sb.write(snbuf,(int)snsz);
+									m="04,0";
+									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+								}
+								delete[] snbuf;
 							}
 						}
 					}
