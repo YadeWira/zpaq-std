@@ -4,7 +4,7 @@ A deduplicated, multi-version archiver (fork of [zpaq](http://mattmahoney.net/zp
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
-This fork was originally derived from `fcorbelli/zpaq-std` (a fork of the public-domain zpaq 7.15 by Matt Mahoney). It is now independently maintained by [YadeWira](https://github.com/YadeWira) with a focus on **bundled compression backends** that can be chosen at archive time without touching the host system. See [CONTRIBUTORS](CONTRIBUTORS) for the full list of attributions.
+This fork was originally derived from `fcorbelli/zpaqfranz` by Franco Corbelli (which itself is a fork of the public-domain zpaq 7.15 by Matt Mahoney, 2009–2016). It is now independently maintained by [YadeWira](https://github.com/YadeWira) under the same name as Franco's other fork, `zpaq-std`, with a focus on **bundled compression backends** that can be chosen at archive time without touching the host system. See [CONTRIBUTORS](CONTRIBUTORS) for the full list of attributions.
 
 ---
 

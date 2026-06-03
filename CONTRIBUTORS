@@ -15,7 +15,12 @@ Maintainer
 Upstream lineage (acknowledgements, not contributors to this fork)
 ------------------------------------------------------------------
 - Matt Mahoney — original author of zpaq 7.15 (2009–2016), the deduplicated
-  journaling archiver that zpaq-std is built on. <http://mattmahoney.net/zpaq.html>
+  journaling archiver at the root of the zpaq family tree. <http://mattmahoney.net/zpaq.html>
+- Franco Corbelli — author of `zpaqfranz` (this fork's direct ancestor) and
+  of `zpaq-std` (a sibling fork of the same name). Both forks added
+  production features (HW acceleration, SFX, SFTP, FRANZEN, etc.) on top
+  of Mahoney's zpaq 7.15 and kept the codebase as a single C++ file.
+  See https://github.com/fcorbelli/zpaqfranz and https://github.com/fcorbelli/zpaq-std.
 - The `compressors/` directory contains verbatim source code from:
     * LZ4 by Yann Collet
     * zstd by Yann Collet / Meta
@@ -28,7 +33,9 @@ Upstream lineage (acknowledgements, not contributors to this fork)
   Each library keeps its original copyright and license. See the individual
   source files in compressors/ for details.
 
-This fork began from the public repository at https://github.com/fcorbelli/zpaq-std
-and is a derivative work in the spirit of the MIT license, with substantial
-new code by YadeWira (the bundled-compressors architecture, the 9-algorithm
-`ma:` switch family, the test infrastructure, and the documentation).
+This fork began from the public repository at https://github.com/fcorbelli/zpaqfranz
+(the `zpaqfranz.cpp` file was renamed to `zpaq-std.cpp` as part of the fork,
+but the source code itself is Franco Corbelli's). It is a derivative work
+in the spirit of the MIT license, with substantial new code by YadeWira
+(the bundled-compressors architecture, the 9-algorithm `ma:` switch family,
+the test infrastructure, and the documentation).
