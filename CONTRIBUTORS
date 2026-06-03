@@ -1,0 +1,34 @@
+Contributors to zpaq-std
+========================
+
+This file lists the people who have contributed code, ideas, or substantial
+work to this fork of zpaq-std.
+
+Maintainer
+----------
+- YadeWira (Yade Bravo) <https://github.com/YadeWira>
+  Sole maintainer of the YadeWira/zpaq-std fork.
+  Owns the `-ma:algo:N` switch family, the bundled-compressors architecture
+  (compressors/), the Makefile, README.md, and WORKFLOW.md.
+
+
+Upstream lineage (acknowledgements, not contributors to this fork)
+------------------------------------------------------------------
+- Matt Mahoney — original author of zpaq 7.15 (2009–2016), the deduplicated
+  journaling archiver that zpaq-std is built on. <http://mattmahoney.net/zpaq.html>
+- The `compressors/` directory contains verbatim source code from:
+    * LZ4 by Yann Collet
+    * zstd by Yann Collet / Meta
+    * fast-lzma2 by Conor McCarthy
+    * LZ5 by Przemysław Skibinski / Simon Hahne / Paul Sanja-Luminari
+    * Lizard by Przemysław Skibinski
+    * bzip2 by Julian Seward
+    * bzip3 by Kamila Szewczyk
+    * brotli by Google (Jyrki Alakuijala, et al.)
+  Each library keeps its original copyright and license. See the individual
+  source files in compressors/ for details.
+
+This fork began from the public repository at https://github.com/fcorbelli/zpaq-std
+and is a derivative work in the spirit of the MIT license, with substantial
+new code by YadeWira (the bundled-compressors architecture, the 9-algorithm
+`ma:` switch family, the test infrastructure, and the documentation).

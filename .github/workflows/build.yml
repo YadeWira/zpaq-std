@@ -1,0 +1,26 @@
+name: Build zpaq-std
+
+on:
+  push:
+    paths:
+      - 'zpaq-std.cpp'    # Trigger solo se cambia zpaq-std.cpp
+  workflow_dispatch:       # Permette di lanciare manualmente il workflow
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Compile zpaq-std.exe
+        run: |
+          set SOURCE_DATE_EPOCH=1735689600
+          g++ -O3 -s -DGUI -DHWSHA2 -DHWBLAKE3 zpaq-std.cpp -o zpaq-std.exe -pthread -static -Wall -Wpedantic -frandom-seed=1234 -lurlmon
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4   # <--- qui usiamo la versione aggiornata!
+        with:
+          name: zpaq-std-64bit
+          path: zpaq-std.exe

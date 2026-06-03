@@ -1,0 +1,138 @@
+# zpaq-std
+
+A deduplicated, multi-version archiver (fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney), maintained as a **single-file C++ program** with **9 bundled, swappable external compression algorithms** and **zero system dependencies**.
+
+Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
+
+This fork was originally derived from `fcorbelli/zpaq-std` (a fork of the public-domain zpaq 7.15 by Matt Mahoney). It is now independently maintained by [YadeWira](https://github.com/YadeWira) with a focus on **bundled compression backends** that can be chosen at archive time without touching the host system. See [CONTRIBUTORS](CONTRIBUTORS) for the full list of attributions.
+
+---
+
+## What it does
+
+- **Deduplicated** — identical blocks across files and versions are stored once
+- **Versioned** — each run is a new "snapshot" inside the same `.zpaq` file
+- **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive
+- **Append-only** — never modifies existing data; ideal for incremental cloud sync
+- **Self-verifying** — triple-checksums (CRC-32, XXHASH64, SHA-1) per block, with optional SHA-2/SHA-3/Whirlpool/BLAKE3
+- **Single file** — no repositories, no databases, no temp files; one `.zpaq` is the whole backup
+
+---
+
+## External compression: `-ma:algo:N`
+
+The killer feature of this fork. You can pick **which external algorithm compresses each block**, without installing anything — everything is bundled under `compressors/`.
+
+| Switch | Algorithm | Range | Default | Best for |
+|---|---|---|---|---|
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 v1.10.0 | 1–12 | 9 | speed (fastest) |
+| `-ma:zstd:N` | zstd v1.5.7 | 1–22 | 3 | balanced (general purpose) |
+| `-ma:flzma2:N` | fast-lzma2 v1.0.1 | 1–10 | 5 | LZMA2 fast, 2–8× faster than ref |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 | 1–15 | 9 | LZ4-compatible, denser |
+| `-ma:lizard:N` | Lizard v2.1 | 10–49 | 17 | LZ4-class with better ratio |
+| `-ma:bzip2:N` | bzip2 v1.0.8 | 1–9 | 9 | BWT+HF, classic |
+| `-ma:bzip3:N` | bzip3 v1.5.3 | 1–9 | 5 | BWT+ANS, modern bzip2 successor |
+| `-ma:brotli:N` | brotli v1.2.0 | 0–11 | 11 | Google's compressor (text) |
+
+If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).
+
+### Example
+
+```bash
+# Speed: zstd level 3 (good for nightly backups)
+zpaq-std a backup.zpaq /data -ma:zstd:3
+
+# Best ratio for text: brotli 11
+zpaq-std a docs.zpaq ~/Documents -ma:brotli:11
+
+# Old-school bzip2
+zpaq-std a legacy.zpaq archive.tar -ma:bzip2:9
+
+# Mixed (one algo per file)
+zpaq-std a mixed.zpaq bigfile.bin -ma:flzma2:5
+zpaq-std a mixed.zpaq *.txt  -ma:brotli:11
+```
+
+The chosen algo and original size are recorded in each block's metadata as `zpaqstd-ma:<algo>:<level>:<origSize>`, so a single archive can mix algos freely and decompress correctly even if the embedded bitstream changes.
+
+---
+
+## No system dependencies
+
+All 9 libraries live inside `compressors/`:
+
+```
+compressors/
+├── lz4/         2 .c  + 2 .h
+├── zstd/        1 .c  + 2 .h   (amalgamated)
+├── fl2/        13 .c + 22 .h   (fast-lzma2)
+├── lz5/         2 .c  + 4 .h
+├── lizard/     10 .c + 26 .h
+├── bzip2/       7 .c  + 2 .h
+├── bzip3/       1 .c  + 4 .h
+└── brotli/     35 .c + 71 .h   (enc+dec+common)
+```
+
+Total: **71 source files, ~8.5 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
+
+---
+
+## Build
+
+Requires only a C++ compiler (g++, clang++) and GNU make. pthread for multithreading.
+
+```bash
+make              # optimized build
+make debug        # with -O0 -g
+make static       # static binary (NAS, containers, rescue)
+make test         # run zpaq-std's built-in autotest
+make check        # show configuration
+```
+
+Cross-compile:
+```bash
+make CROSS_COMPILE=aarch64-linux-gnu-
+```
+
+On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
+
+The output is a single `zpaq-std` binary, ~5.8 MB.
+
+---
+
+## Install
+
+```bash
+make install            # to /usr/local/bin (or PREFIX=/opt)
+make install-clean      # install and remove local build
+make install-nointel    # disable JIT explicitly
+```
+
+On FreeBSD/OpenBSD/NetBSD use `gmake`.
+
+---
+
+## Usage
+
+The classic 7z-style verbs:
+- `a` archive files into the .zpaq
+- `x` extract (optionally `-until N` to pick a version, `-to dir/`)
+- `l` list contents of a version
+- `i` show all versions and their stats
+- `c` compare / verify
+
+See `zpaq-std h <command>` for full help, or `zpaq-std h voodoo` for the full list of switches (the new `-ma:*` family is documented there).
+
+---
+
+## Why a fork
+
+The original zpaq 7.15 (Matt Mahoney, 2009–2016) is unmaintained. This fork preserves the single-file C++ codebase of its upstream lineage and adds the **bundled-compressor** philosophy: pick the algorithm at archive time, no host setup needed.
+
+See [CONTRIBUTORS](CONTRIBUTORS) for full attributions.
+
+---
+
+## License
+
+MIT (see `LICENSE` and `COPYING`). Third-party libraries in `compressors/` keep their original licenses (BSD, Apache 2.0, etc.).
