@@ -1,10 +1,12 @@
 # zpaq-std
 
-A deduplicated, multi-version archiver (fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney), maintained as a **single-file C++ program** with **9 bundled, swappable external compression algorithms** and **zero system dependencies**.
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
+
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **9 bundled, swappable external compression algorithms** and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
-This fork was originally derived from `fcorbelli/zpaqfranz` by Franco Corbelli (which itself is a fork of the public-domain zpaq 7.15 by Matt Mahoney, 2009–2016). It is now independently maintained by [YadeWira](https://github.com/YadeWira) under the same name as Franco's other fork, `zpaq-std`, with a focus on **bundled compression backends** that can be chosen at archive time without touching the host system. See [CONTRIBUTORS](CONTRIBUTORS) for the full list of attributions.
+This is **YadeWira's personal fork**. The new work here is the bundled-compressors architecture: pick the algorithm at archive time, no host setup needed. The base code (the deduplication engine, the journaling archiver, the single-file C++ layout) is Franco Corbelli's, derived in turn from Matt Mahoney's public-domain zpaq 7.15. See [CONTRIBUTORS](CONTRIBUTORS) for the full attribution chain.
 
 ---
 

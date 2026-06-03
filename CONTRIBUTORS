@@ -7,7 +7,7 @@ work to this fork of zpaq-std.
 Maintainer
 ----------
 - YadeWira (Yade Bravo) <https://github.com/YadeWira>
-  Sole maintainer of the YadeWira/zpaq-std fork.
+  Creator and sole maintainer of this fork (YadeWira/zpaq-std).
   Owns the `-ma:algo:N` switch family, the bundled-compressors architecture
   (compressors/), the Makefile, README.md, and WORKFLOW.md.
 
