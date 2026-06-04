@@ -140,8 +140,8 @@ else if (g_ma_algorithm=="flzma2") g_ma_level=5;
 else if (g_ma_algorithm=="lizard") g_ma_level=17;
 else if (g_ma_algorithm=="brotli") g_ma_level=11;
 else if (g_ma_algorithm=="snappy") g_ma_level=1;
-else if (g_ma_algorithm=="libdeflate") g_ma_level=6;
-else if (g_ma_algorithm=="lzlib") g_ma_level=6;
+else if (g_ma_algorithm=="deflate") g_ma_level=6;
+else if (g_ma_algorithm=="lz") g_ma_level=6;
 else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3") g_ma_level=9;
 else if (g_ma_algorithm=="zlib") g_ma_level=6;       // ← add
 ```
@@ -168,7 +168,7 @@ if (g_ma_algorithm!="lz4"&&...&&g_ma_algorithm!="lzlib")
     g_ma_algorithm="";
 ```
 
-(extend this with `&&g_ma_algorithm!="zlib"`). The 12 currently-valid algos are: `lz4`, `lz4hc`, `lz4f`, `zstd`, `flzma2`, `lz5`, `lz5hc`, `lz5f`, `lizard`, `bzip2`, `bzip3`, `brotli`, `snappy`, `libdeflate`, `lzlib`.
+(extend this with `&&g_ma_algorithm!="zlib"`). The 12 currently-valid algos are: `lz4`, `lz4hc`, `lz4f`, `zstd`, `flzma2`, `lz5`, `lz5hc`, `lz5f`, `lizard`, `bzip2`, `bzip3`, `brotli`, `snappy`, `deflate`, `lz`.
 
 #### 5. Compress dispatch (~line 100800)
 
@@ -313,9 +313,13 @@ Google's snappy code has deliberate `unsigned < 0` style checks. Suppressed by `
 
 libdeflate has explicit `void*` returns in `lib_aligned_malloc.c` that g++ refuses to implicitly cast. The Makefile's `LIBDEFLATE_*_OBJ` rules use `$(CC)` (not `$(CXX)`) for this reason. If you see this error, the wrong rule matched. Verify the static pattern rules are in place for `lib/`, `lib/x86/`, `lib/arm/`.
 
-### "lzlib: output stalls forever on small inputs" or lzlib:6 produces 0 bytes
+### "lzlib: output stalls forever on small inputs" or `-ma:lz:6` produces 0 bytes
 
 The lzlib 1.16 stream API needs `LZ_compress_open` to be configured with a member size large enough to hold the whole input. Our wrapper uses `0x1000000000000ULL` for that. If you see stalls, check `lzlib_compress_wrapper` in zpaq-std.cpp: the `member_size` arg is critical.
+
+### "-ma:lzlib" or "-ma:libdeflate" now errors out as unknown
+
+These long names were renamed to `-ma:lz` and `-ma:deflate` (shorter to type). The switch name and the per-segment marker `zpaqstd-ma:<algo>` both changed. Any archive created with the old names will extract fine (the marker is preserved), but you must use the new names going forward. Run `zpaq-std h voodoo` to see the current list.
 
 ### "make: *** No rule to make target compressors/bzip3/libbz3.o"
 
@@ -362,7 +366,7 @@ for i in 1 2 3; do cp zeros.bin "f$i.bin"; done
 declare -A ALGOS=(
     [lz4]=1 [lz4hc]=9 [zstd]=3 [flzma2]=5 [lz5]=9
     [lizard]=17 [bzip2]=9 [bzip3]=5 [brotli]=6
-    [snappy]=1 [libdeflate]=6 [lzlib]=6
+    [snappy]=1 [deflate]=6 [lz]=6
 )
 
 for algo in "${!ALGOS[@]}"; do
@@ -390,8 +394,8 @@ for i in $(seq 1 12); do cp zeros.bin "f$i.bin"; done
 "$ZS" a mixed.zpaq f7.bin  -ma:bzip3:5     -nochecksum >/dev/null
 "$ZS" a mixed.zpaq f8.bin  -ma:brotli:6    -nochecksum >/dev/null
 "$ZS" a mixed.zpaq f9.bin  -ma:snappy:1    -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f10.bin -ma:libdeflate:6 -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f11.bin -ma:lzlib:6     -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f10.bin -ma:deflate:6  -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f11.bin -ma:lz:6        -nochecksum >/dev/null
 "$ZS" a mixed.zpaq f12.bin -ma:brotli:11   -nochecksum >/dev/null
 "$ZS" x mixed.zpaq -to out/ -force >/dev/null
 for i in $(seq 1 12); do

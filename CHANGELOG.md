@@ -22,8 +22,8 @@
 | `bzip3` | bzip3 v1.5.3 (block_size = level × 100 KB) | 1–9 | 5 | 1 .c |
 | `brotli` | brotli v1.2.0 | 0–11 | 11 | 35 .c |
 | `snappy` | Snappy v1.2.1 (Google, BSD-3) | 1–2 | 1 | 9 .cpp/.h (C++ with C wrapper) |
-| `libdeflate` | libdeflate v1.24 (ebiggers, MIT) | 0–12 | 6 | 39 .c (core + lib/x86 + lib/arm) |
-| `lzlib` | lzlib v1.16 (lzip maintainers, BSD-2) | 0–9 | 6 | 14 .c (single-TU wrapper) |
+| `deflate` | libdeflate v1.24 (ebiggers, MIT) | 0–12 | 6 | 39 .c (core + lib/x86 + lib/arm) |
+| `lz` | lzlib v1.16 (lzip maintainers, BSD-2) | 0–9 | 6 | 14 .c (single-TU wrapper) |
 
 **Build system**
 

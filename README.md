@@ -36,8 +36,8 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:bzip3:N` | bzip3 v1.5.3 | 1–9 | 5 | BWT+ANS, modern bzip2 successor |
 | `-ma:brotli:N` | brotli v1.2.0 | 0–11 | 11 | Google's compressor (text) |
 | `-ma:snappy:N` | Snappy v1.2.1 | 1–2 | 1 | Google's, like lz4 but tighter |
-| `-ma:libdeflate:N` | libdeflate v1.24 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
-| `-ma:lzlib:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
+| `-ma:deflate:N` | libdeflate v1.24 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
+| `-ma:lz:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
 
 If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).
 

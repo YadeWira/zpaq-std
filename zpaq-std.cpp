@@ -52680,8 +52680,8 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 5)");
 		scrivi_riga(" ", "  brotli: Google (0=fast, 11=default, 11=max)");
 		scrivi_riga(" ", "  snappy: Google (1=default, 2=best; very fast, like lz4)");
-		scrivi_riga(" ", "  libdeflate: deflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
-		scrivi_riga(" ", "  lzlib: lzip/LZMA (0=fast/64K, 6=default/8M, 9=best/32M dict)");
+		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
+		scrivi_riga(" ", "  lz: lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M dict)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -55085,8 +55085,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="lizard") g_ma_level=17;
 					else if (g_ma_algorithm=="brotli") g_ma_level=11;
 					else if (g_ma_algorithm=="snappy") g_ma_level=1;
-					else if (g_ma_algorithm=="libdeflate") g_ma_level=6;
-					else if (g_ma_algorithm=="lzlib") g_ma_level=6;
+					else if (g_ma_algorithm=="deflate") g_ma_level=6;
+					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else g_ma_level=9;
 				}
 				if (g_ma_level<1) g_ma_level=1;
@@ -55113,11 +55113,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					if (g_ma_level>2) g_ma_level=2;
 				}
-				else if (g_ma_algorithm=="libdeflate")
+				else if (g_ma_algorithm=="deflate")
 				{
 					if (g_ma_level>12) g_ma_level=12;
 				}
-				else if (g_ma_algorithm=="lzlib")
+				else if (g_ma_algorithm=="lz")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
@@ -55126,9 +55126,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="libdeflate"&&g_ma_algorithm!="lzlib")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy libdeflate lzlib";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz";
 					error(msg.c_str());
 				}
 			}
@@ -58884,7 +58884,7 @@ ThreadReturn decompressThread(void *arg)
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &snappy_orig);
 					}
-					auto mld = cs.find("zpaqstd-ma:libdeflate");
+					auto mld = cs.find("zpaqstd-ma:deflate");
 					if (mld != string::npos)
 					{
 						int lvl;
@@ -58893,7 +58893,7 @@ ThreadReturn decompressThread(void *arg)
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &libdeflate_orig);
 					}
-					auto mlz = cs.find("zpaqstd-ma:lzlib");
+					auto mlz = cs.find("zpaqstd-ma:lz");
 					if (mlz != string::npos)
 					{
 						int lvl;
@@ -101206,7 +101206,7 @@ int Jidac::add()
 							}
 						}
 					}
-					else if (g_ma_algorithm=="libdeflate" && sb.size()>16)
+					else if (g_ma_algorithm=="deflate" && sb.size()>16)
 					{
 						int64_t orig_size=sb.size();
 						struct libdeflate_compressor* ldcmp=libdeflate_alloc_compressor(g_ma_level);
@@ -101232,7 +101232,7 @@ int Jidac::add()
 							libdeflate_free_compressor(ldcmp);
 						}
 					}
-					else if (g_ma_algorithm=="lzlib" && sb.size()>16)
+					else if (g_ma_algorithm=="lz" && sb.size()>16)
 					{
 						int64_t orig_size=sb.size();
 						size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
