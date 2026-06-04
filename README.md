@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **9 bundled, swappable external compression algorithms** and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **12 bundled, swappable external compression algorithms** and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -35,6 +35,9 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:bzip2:N` | bzip2 v1.0.8 | 1–9 | 9 | BWT+HF, classic |
 | `-ma:bzip3:N` | bzip3 v1.5.3 | 1–9 | 5 | BWT+ANS, modern bzip2 successor |
 | `-ma:brotli:N` | brotli v1.2.0 | 0–11 | 11 | Google's compressor (text) |
+| `-ma:snappy:N` | Snappy v1.2.1 | 1–2 | 1 | Google's, like lz4 but tighter |
+| `-ma:libdeflate:N` | libdeflate v1.24 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
+| `-ma:lzlib:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
 
 If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).
 
@@ -61,7 +64,7 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ## No system dependencies
 
-All 9 libraries live inside `compressors/`:
+All 12 libraries live inside `compressors/`:
 
 ```
 compressors/
@@ -70,12 +73,15 @@ compressors/
 ├── fl2/        13 .c + 22 .h   (fast-lzma2)
 ├── lz5/         2 .c  + 4 .h
 ├── lizard/     10 .c + 26 .h
-├── bzip2/       7 .c  + 2 .h
-├── bzip3/       1 .c  + 4 .h
-└── brotli/     35 .c + 71 .h   (enc+dec+common)
+├── bzip2/       7 .c  +  2 .h
+├── bzip3/       1 .c  +  4 .h
+├── brotli/     35 .c + 71 .h   (enc+dec+common)
+├── snappy/      7 .cpp + 6 .h  (Google, BSD-3)
+├── libdeflate/ 39 .c  +  4 .h  (ebiggers, MIT; core+lib/x86+lib/arm)
+└── lzlib/      13 .c  +  1 .h  (lzip, BSD-2; single-TU wrapper)
 ```
 
-Total: **71 source files, ~8.5 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
+Total: **93 source files, ~9.7 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
 
 ---
 
@@ -98,7 +104,7 @@ make CROSS_COMPILE=aarch64-linux-gnu-
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
-The output is a single `zpaq-std` binary, ~5.8 MB.
+The output is a single `zpaq-std` binary, ~6.1 MB.
 
 ---
 

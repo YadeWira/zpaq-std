@@ -30,6 +30,9 @@ Upstream lineage (acknowledgements, not contributors to this fork)
     * bzip2 by Julian Seward
     * bzip3 by Kamila Szewczyk
     * brotli by Google (Jyrki Alakuijala, et al.)
+    * Snappy by Google (Jyrki Alakuijala, et al.) — BSD-3
+    * libdeflate by Eric Biggers (ebiggers) — MIT
+    * lzlib by Antonio Diaz Diaz and the lzip maintainers — BSD-2
   Each library keeps its original copyright and license. See the individual
   source files in compressors/ for details.
 
@@ -37,5 +40,5 @@ This fork began from the public repository at https://github.com/fcorbelli/zpaqf
 (the `zpaqfranz.cpp` file was renamed to `zpaq-std.cpp` as part of the fork,
 but the source code itself is Franco Corbelli's). It is a derivative work
 in the spirit of the MIT license, with substantial new code by YadeWira
-(the bundled-compressors architecture, the 9-algorithm `ma:` switch family,
+(the bundled-compressors architecture, the 12-algorithm `ma:` switch family,
 the test infrastructure, and the documentation).

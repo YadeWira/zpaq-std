@@ -37,7 +37,10 @@ zpaq-std/
 │   ├── lizard/            ← Lizard v2.1        (10 .c)
 │   ├── bzip2/             ← bzip2 v1.0.8       (7 .c)
 │   ├── bzip3/             ← bzip3 v1.5.3       (1 .c)
-│   └── brotli/            ← brotli v1.2.0      (35 .c)
+│   ├── brotli/            ← brotli v1.2.0      (35 .c, enc+dec+common)
+│   ├── snappy/            ← Snappy v1.2.1      (7 .cpp + 6 .h, Google, BSD-3, C++ w/ C wrapper)
+│   ├── libdeflate/        ← libdeflate v1.24   (39 .c, ebiggers, MIT, core+lib/x86+lib/arm)
+│   └── lzlib/             ← lzlib v1.16        (13 .c + 1 .h, lzip, BSD-2, single-TU wrapper)
 ├── man/                   ← man pages (zpaq-std.1, zpaq-std.pod)
 ├── docker/                ← Dockerfile for CI
 └── .github/workflows/     ← CI build matrix
@@ -45,7 +48,7 @@ zpaq-std/
 
 **The single C++ source `zpaq-std.cpp` is the whole program.** The `compressors/` directory is plain C source code from the upstream libraries, copied verbatim. We do **not** modify it (except for adding `-Wno-unused-function` to bzip3 via Makefile).
 
-Total bundled source: **~71 .c files, 8.5 MB**. Total `zpaq-std.cpp`: ~100k lines, ~3.5 MB.
+Total bundled source: **~93 source files, 9.7 MB**. Total `zpaq-std.cpp`: ~100k lines, ~3.5 MB.
 
 ---
 
@@ -136,6 +139,9 @@ if (g_ma_algorithm=="zstd") g_ma_level=3;
 else if (g_ma_algorithm=="flzma2") g_ma_level=5;
 else if (g_ma_algorithm=="lizard") g_ma_level=17;
 else if (g_ma_algorithm=="brotli") g_ma_level=11;
+else if (g_ma_algorithm=="snappy") g_ma_level=1;
+else if (g_ma_algorithm=="libdeflate") g_ma_level=6;
+else if (g_ma_algorithm=="lzlib") g_ma_level=6;
 else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3") g_ma_level=9;
 else if (g_ma_algorithm=="zlib") g_ma_level=6;       // ← add
 ```
@@ -158,11 +164,11 @@ else if (g_ma_algorithm=="zlib")                       // ← add
 And the validation list:
 
 ```cpp
-if (g_ma_algorithm!="lz4"&&...&&g_ma_algorithm!="brotli")
+if (g_ma_algorithm!="lz4"&&...&&g_ma_algorithm!="lzlib")
     g_ma_algorithm="";
 ```
 
-(extend this with `&&g_ma_algorithm!="zlib"`).
+(extend this with `&&g_ma_algorithm!="zlib"`). The 12 currently-valid algos are: `lz4`, `lz4hc`, `lz4f`, `zstd`, `flzma2`, `lz5`, `lz5hc`, `lz5f`, `lizard`, `bzip2`, `bzip3`, `brotli`, `snappy`, `libdeflate`, `lzlib`.
 
 #### 5. Compress dispatch (~line 100800)
 
@@ -242,7 +248,9 @@ Add a row to the compression table in `README.md`, and a one-liner under `CHANGE
 |---|---|
 | **kanzi-cpp 2.5.3** | C++ OOP framework (`namespace kanzi`, `class BlockCompressor`); no clean one-shot `compress(buf, len)` API. Has a C ABI but it uses `FILE*` (not memory buffers). Would need a `std::stringstream` wrapper and 50 .cpp files of C++ dependencies. Tried; deferred. |
 | **lrzip 0.651** | File-level archiver; API is `rzip_fd(fd_in, fd_out)`, not memory buffers. Not a block compression library. |
-| **xz / liblzma** | Already covered by `flzma2` (fast-lzma2). xz is too slow at high levels for our use. |
+| **LZO / QuickLZ** | LZO is GPL-2.0+, QuickLZ is GPL-3.0-or-Commercial. Either would force the whole fork to GPL, breaking the MIT license. |
+| **xz / liblzma** | Already covered by `flzma2` (fast-lzma2) and `lzlib` (full LZMA). xz 5.8.x has integration headaches (internal header paths, duplicate `lzma_block_coder` symbols needing `-fcommon`, `--whole-archive` link for preset symbols, CRC64 check removed). Not worth 4+ hours for marginal value. |
+| **srep / SuperREP 3.93a** | Bulat Ziganshin's LZ77 preprocessor with dictionary > RAM via SHA1 hashing. Last commit Nov 2014 (hg changeset 3011), author pivoted to FastECC and BSLab. Open source (FreeArc license, BSD-like) but 11+ .cpp files of FreeArc framework needed (`Common.h`, `MultiThreading.h`, `Encryption/`, `LZMA2/C/`, …) for the stream wrapper. Niche value (VMs, DB dumps, multi-rotation logs) — only worth integrating if a concrete repetitive-data workload exists. |
 
 If you want to revisit one of these, see the API references in:
 - https://github.com/flanglet/kanzi-cpp/blob/master/API_REFERENCE.md
@@ -293,6 +301,22 @@ Three static pattern rules share the same `$(BROTLIOBJ)` list. The fix is in pla
 
 bzip3's `libsais.h` has many `static inline` functions that gcc flags as unused. Suppressed by `-Wno-unused-function` in `BZIP3INC` (line 80). Don't remove that flag unless you patch libsais.h.
 
+### "error: 'unique_ptr' is not a member of 'std'" or "snappy-stubs-internal.h" errors at compile
+
+snappy is **C++** code from Google, not C. It must be compiled with `$(CXX)` (g++/clang++), not `$(CC)`. The Makefile's `SNAPPYOBJ` rule uses `$(CXX) $(SNAPPYINC) -c $< -o $@` for this reason. If you see "snappy.cc:1: error: 'std' was not declared" the wrong compiler got picked. Check the pattern rule at the `SNAPPYOBJ` line.
+
+### "warning: comparison of integer expressions of different signedness" (snappy)
+
+Google's snappy code has deliberate `unsigned < 0` style checks. Suppressed by `-Wno-sign-compare` in `SNAPPYINC`. Don't remove that flag.
+
+### "error: cannot convert 'void*' to 'libdeflate_aligned_malloc_return_t*'" (libdeflate)
+
+libdeflate has explicit `void*` returns in `lib_aligned_malloc.c` that g++ refuses to implicitly cast. The Makefile's `LIBDEFLATE_*_OBJ` rules use `$(CC)` (not `$(CXX)`) for this reason. If you see this error, the wrong rule matched. Verify the static pattern rules are in place for `lib/`, `lib/x86/`, `lib/arm/`.
+
+### "lzlib: output stalls forever on small inputs" or lzlib:6 produces 0 bytes
+
+The lzlib 1.16 stream API needs `LZ_compress_open` to be configured with a member size large enough to hold the whole input. Our wrapper uses `0x1000000000000ULL` for that. If you see stalls, check `lzlib_compress_wrapper` in zpaq-std.cpp: the `member_size` arg is critical.
+
 ### "make: *** No rule to make target compressors/bzip3/libbz3.o"
 
 The static pattern rule for bzip3 isn't matching. Verify line 170:
@@ -338,6 +362,7 @@ for i in 1 2 3; do cp zeros.bin "f$i.bin"; done
 declare -A ALGOS=(
     [lz4]=1 [lz4hc]=9 [zstd]=3 [flzma2]=5 [lz5]=9
     [lizard]=17 [bzip2]=9 [bzip3]=5 [brotli]=6
+    [snappy]=1 [libdeflate]=6 [lzlib]=6
 )
 
 for algo in "${!ALGOS[@]}"; do
@@ -353,23 +378,26 @@ for algo in "${!ALGOS[@]}"; do
     fi
 done
 
-# Mixed archive (all 9 in one)
+# Mixed archive (all 12 in one)
 rm -rf out/ mixed.zpaq
-for i in $(seq 1 9); do cp zeros.bin "f$i.bin"; done
-"$ZS" a mixed.zpaq f1.bin -ma:zstd:3   -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f2.bin -ma:lz4:9    -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f3.bin -ma:flzma2:5 -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f4.bin -ma:lz5:9    -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f5.bin -ma:lizard:17 -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f6.bin -ma:bzip2:9  -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f7.bin -ma:bzip3:5  -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f8.bin -ma:brotli:6 -nochecksum >/dev/null
-"$ZS" a mixed.zpaq f9.bin -ma:brotli:11 -nochecksum >/dev/null
+for i in $(seq 1 12); do cp zeros.bin "f$i.bin"; done
+"$ZS" a mixed.zpaq f1.bin  -ma:zstd:3      -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f2.bin  -ma:lz4:9       -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f3.bin  -ma:flzma2:5    -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f4.bin  -ma:lz5:9       -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f5.bin  -ma:lizard:17   -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f6.bin  -ma:bzip2:9     -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f7.bin  -ma:bzip3:5     -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f8.bin  -ma:brotli:6    -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f9.bin  -ma:snappy:1    -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f10.bin -ma:libdeflate:6 -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f11.bin -ma:lzlib:6     -nochecksum >/dev/null
+"$ZS" a mixed.zpaq f12.bin -ma:brotli:11   -nochecksum >/dev/null
 "$ZS" x mixed.zpaq -to out/ -force >/dev/null
-for i in $(seq 1 9); do
+for i in $(seq 1 12); do
     cmp -s "f$i.bin" "out/f$i.bin" || { echo "MIXED f$i MISMATCH" >&2; exit 1; }
 done
-echo "MIXED 9-algo archive  MATCH"
+echo "MIXED 12-algo archive  MATCH"
 ```
 
 Run it after every code change. It catches the most common integration bugs (offset bugs in decompress, marker-prefix mismatches, level-clamp errors, etc.) in ~5 seconds.

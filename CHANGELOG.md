@@ -2,11 +2,12 @@
 
 **Bundled external compression algorithms (no system dependencies)**
 
-- New `-ma:<algo>:<level>` switch family for 9 bundled compression algorithms
+- New `-ma:<algo>:<level>` switch family for 12 bundled compression algorithms
 - All libraries copied verbatim into `compressors/` (no `apt install`, no system libs)
 - Each algo adds ~10 lines of C++ glue around a single one-shot compress/decompress API
 - Per-segment marker `zpaqstd-ma:<algo>:<level>:<origSize>` in segment comment, so archives are self-describing and tolerate mixed algos in the same .zpaq
 - Default level per algo; if external output is larger than `orig - 16` the original is kept (no regression)
+- **Fail-loud validation**: unknown `-ma:` algo name (e.g. `-ma:lz6:9`) now errors out with the full list of valid algos, instead of silently doing nothing (zpaq's internal DCE+CM still runs, masking the typo)
 
 **Algorithms added**
 
@@ -20,26 +21,34 @@
 | `bzip2` | bzip2 v1.0.8 | 1–9 | 9 | 7 .c |
 | `bzip3` | bzip3 v1.5.3 (block_size = level × 100 KB) | 1–9 | 5 | 1 .c |
 | `brotli` | brotli v1.2.0 | 0–11 | 11 | 35 .c |
+| `snappy` | Snappy v1.2.1 (Google, BSD-3) | 1–2 | 1 | 9 .cpp/.h (C++ with C wrapper) |
+| `libdeflate` | libdeflate v1.24 (ebiggers, MIT) | 0–12 | 6 | 39 .c (core + lib/x86 + lib/arm) |
+| `lzlib` | lzlib v1.16 (lzip maintainers, BSD-2) | 0–9 | 6 | 14 .c (single-TU wrapper) |
 
 **Build system**
 
-- Makefile extended with 3 pattern-rule styles: single-dir (lz4/zstd), multi-dir (fl2/lz5/lizard), and multi-subdir with disjoint static pattern rules (brotli common/enc/dec)
-- All 3 brotli subdirs now use separate `BROTLI_*_OBJ` variables to avoid "overriding recipe" warnings
+- Makefile extended with 4 pattern-rule styles: single-dir (lz4/zstd/lzlib), multi-dir (fl2/lz5/lizard), multi-subdir with disjoint static pattern rules (brotli common/enc/dec; libdeflate core/x86/arm), and C++ with `$(CXX)` (snappy uses Google C++ code with a C wrapper)
+- All 3 brotli subdirs and 3 libdeflate subdirs use separate `*_OBJ` variables to avoid "overriding recipe" warnings
 - `BZIP3INC` adds `-Wno-unused-function` to silence `libsais.h` static-include noise
+- `SNAPPYINC` adds `-Wno-sign-compare` to silence Google's deliberate `unsigned < 0` checks
+- lzlib single-TU wrapper pattern: 13 sub-`*.c` files all `#included` from one `lzlib.c` translation unit, exposing only `lzlib_compress_wrapper` / `lzlib_decompress_wrapper` to the rest of zpaq
 - Bonus: fixed pre-existing `%.o: compressors/X/%.c` pattern rules (path only on prereq side) that silently matched the default `cc -c` rule and skipped our flags. The fl2/lz5/lizard .o files were only working because they were pre-built and never recompiled.
 
 **Documentation**
 
 - New `WORKFLOW.md` with a 5-step recipe for adding a new algorithm, a round-trip test script, and a troubleshooting section (for your siblings continuing the work)
-- `README.md` rewritten to highlight the 9 bundled algos and the no-system-deps philosophy
+- `README.md` rewritten to highlight the 12 bundled algos and the no-system-deps philosophy
+- `BENCHMARKS.md` updated with per-algo and mixed-archive test results for all 12 algos
 - `.gitignore` added (excludes `zpaq-std` binary, `tmp/`, `test-files/`, editor cruft)
 
 **Tested**
 
-- 8 single-algo round-trips on 4 MiB of zeros: all MATCH
-- 1 mixed archive with 9 files (one per algo): all MATCH
+- 11 single-algo round-trips on 4 MiB of zeros: all MATCH
+- 1 mixed archive with 12 files (one per algo): all MATCH
+- `-ma:lz6:9` (typo) now errors out with the list of valid algos
 - Clean build with `make` produces 0 warnings, 0 errors
-- Binary ~5.83 MB
+- Binary ~6.09 MB
+- Total bundle: 93 source files, ~9.7 MB
 
 ### [63.3b] - 2025-09-23
 
