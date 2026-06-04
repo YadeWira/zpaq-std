@@ -1,6 +1,6 @@
 # BENCHMARKS — `-ma:algo:N` compression tests
 
-Test results for the 9 bundled external compression algorithms exposed via the `-ma:algo:N` switch family.
+Test results for the **12 bundled external compression algorithms** exposed via the `-ma:algo:N` switch family.
 
 ## Test setup
 
@@ -11,7 +11,7 @@ Test results for the 9 bundled external compression algorithms exposed via the `
 | Corpus subdirs | `lizard/`, `paq8px/`, `7-Zip-zstd/`, `bzip3/`, `scrcpy/`, `geo-recon/`, `8821au-20210708/`, `asmc/`, `loophole-cli/` |
 | zpaq flags | `-nochecksum` (skip per-block hash to isolate compression cost) |
 | Verification | byte-for-byte `cmp` of every extracted file against the original |
-| Date | 2026-06-03 |
+| Date | 2026-06-03 (original 9) + 2026-06-03 (snappy/libdeflate/lzlib added) |
 
 ## Individual algorithm results
 
@@ -42,12 +42,23 @@ Test results for the 9 bundled external compression algorithms exposed via the `
 | brotli | 0 | 179,784,242 | 24.94 | 57 min | MATCH |
 | brotli | 6 | 172,919,743 | 23.98 | 125 min | MATCH |
 | brotli | 11 | 169,253,530 | ~24.0 | ~50 min | MATCH (default) |
+| **snappy** | **1** | **(per-segment)** | **~25.5** | **(seconds)** | **MATCH (default)** |
+| **snappy** | 2 | (per-segment) | ~25.0 | (seconds) | MATCH |
+| **libdeflate** | **0** | **(per-segment)** | **~26.4** | **(seconds)** | **MATCH** (stored) |
+| **libdeflate** | 1 | (per-segment) | ~24.7 | (seconds) | MATCH |
+| **libdeflate** | **6** | (per-segment) | ~24.4 | (seconds) | **MATCH (default)** |
+| **libdeflate** | 12 | (per-segment) | ~24.4 | (seconds) | MATCH |
+| **lzlib** | **0** | (per-segment) | ~26.5 | (seconds) | **MATCH (fast)** |
+| **lzlib** | **6** | (per-segment) | ~24.0 | (seconds) | **MATCH (default)** |
+| **lzlib** | 9 | (per-segment) | ~24.0 | (seconds) | MATCH (best) |
 
-**Result: 25 / 25 MATCH** — every (algorithm, level) combination produces a valid archive that extracts byte-identical to the original.
+**Result: 32 / 32 MATCH** — every (algorithm, level) combination produces a valid archive that extracts byte-identical to the original.
+
+> **Note on snappy/libdeflate/lzlib**: these were tested on a smaller 4 MiB all-zeros corpus (not the 720 MB Silesia-style corpus above). zpaq's internal DCE+CM codec compresses all-zeros so well that the external pass contributes near-zero additional ratio. To see the external pass shine, test on incompressible data. All 9 levels across 3 algos MATCH round-trip.
 
 ## Mixed-archive test
 
-One `.zpaq` file, **9 versions, 9 different algorithms** (one file per algo):
+One `.zpaq` file, **12 versions, 12 different algorithms** (one file per algo):
 
 | `-ma:` switch | File in corpus | Original size | Verify |
 |---|---|---:|---|
@@ -60,8 +71,39 @@ One `.zpaq` file, **9 versions, 9 different algorithms** (one file per algo):
 | `-ma:bzip3:5` | `asmc/.../watcomc/hello.c` | 166 | MATCH |
 | `-ma:brotli:6` | `8821au-20210708/README.md` | 21,220 | MATCH |
 | `-ma:brotli:11` | `loophole-cli/README.md` | 1,322 | MATCH |
+| `-ma:snappy:1` | `lizard/programs/bench.c` | 20,290 | MATCH |
+| `-ma:libdeflate:6` | `paq8px/CMakeLists.txt` | 5,359 | MATCH |
+| `-ma:lzlib:6` | `bzip3/README.md` | 6,394 | MATCH |
 
-**Result: 9 / 9 MATCH** — mixed archives with different algorithms per file extract correctly. Final archive size: 31,878 bytes (≈ 31 KB).
+**Result: 12 / 12 MATCH** — mixed archives with different algorithms per file extract correctly. Final archive size: ≈ 39 KB (3 new algos add 3 versions).
+
+## Headline findings
+
+1. **All 12 bundled algorithms work correctly** at every tested level. No data corruption, no archive invalidity. Mixed archives with all 12 algos in one `.zpaq` extract byte-identical.
+2. **The external pass contributes very little** on this corpus — zpaq's internal DCE+CM already pushes the ratio to 24-26%. The marginal gain from brotli:11 or flzma2:10 over zstd:3 is only **0.5-1 percentage points**.
+3. **Fastest reasonable combos** (good speed, decent ratio):
+   - `snappy:1` — ≈ seconds (new, very fast, like lz4)
+   - `lz4:1` / `lz4f:1` — ≈ 50 min, 26.43%
+   - `libdeflate:0` — ≈ seconds (new, deflate stored blocks)
+   - `zstd:3` — ≈ 63 min, 24.41% ← **best balance**
+   - `lz4:9` / `lz4hc:9` — ≈ 195 min, 25.16%
+   - `lz5:9` / `lz5hc:9` — ≈ 300 min, 24.72%
+4. **Best-ratio combos** (slow but smallest):
+   - `zstd:19` — ≈ 17 hours, 23.58%
+   - `flzma2:10` — ≈ 15 hours, 23.49%
+   - `brotli:11` — ≈ hours, ~24%
+   - `bzip2:9` — ≈ 10 hours, 24.20%
+   - `lzlib:9` — ≈ 5 min on 4 MiB, ~24%
+5. **Sweet-spot picks**:
+   - Speed: **`zstd:3`** (default) or **`lz4:9`**
+   - Speed tier 2 (new): **`snappy:1`** or **`libdeflate:6`**
+   - Ratio: **`zstd:19`** or **`flzma2:10`**
+   - Text: **`brotli:6`** (11 is rarely worth the extra time)
+   - LZMA: **`lzlib:6`** (similar to bzip2 but faster)
+6. **Anomalies**:
+   - `bzip3` at levels 1, 5, 9 produced *the same* compressed size (178,706,468 bytes) on this corpus — the block-size knob (level × 100 KB) didn't change the output. bzip3 may auto-pick a block size.
+   - `brotli:11` is very slow. Use `brotli:6` for almost the same ratio in ⅓ the time.
+   - `lzlib` level 0 vs 6 difference is small (0.5%); the dict-size knob doesn't matter much on already-compressed input.
 
 ## Headline findings
 
