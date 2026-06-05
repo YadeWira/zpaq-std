@@ -8555,6 +8555,14 @@ extern "C" {
 }
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "compressors/lzav/lzav.h"
+#ifdef __cplusplus
+}
+#endif
+
 // lzlib (lzip) one-shot compress/decompress wrappers.
 // lzlib has only a stream API; we wrap it in a single call that fills
 // the output buffer and returns the compressed size.
@@ -52682,6 +52690,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  snappy: Google (1=default, 2=best; very fast, like lz4)");
 		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
 		scrivi_riga(" ", "  lz: lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M dict)");
+		scrivi_riga(" ", "  lzav: avaneev LZAV (0=default, 1=hi-ratio; very fast, ~lz4 speed)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -55087,6 +55096,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="snappy") g_ma_level=1;
 					else if (g_ma_algorithm=="deflate") g_ma_level=6;
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
+					else if (g_ma_algorithm=="lzav") g_ma_level=0;
 					else g_ma_level=9;
 				}
 				if (g_ma_level<1) g_ma_level=1;
@@ -55121,14 +55131,18 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
+				else if (g_ma_algorithm=="lzav")
+				{
+					if (g_ma_level>1) g_ma_level=1;
+				}
 				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav";
 					error(msg.c_str());
 				}
 			}
@@ -58796,6 +58810,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t snappy_orig= 0;
 			int64_t libdeflate_orig= 0;
 			int64_t lzlib_orig= 0;
+			int64_t lzav_orig= 0;
 			while (d.findFilename())
 			{
 				StringBuffer cmt;
@@ -58901,6 +58916,15 @@ ThreadReturn decompressThread(void *arg)
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &lzlib_orig);
+					}
+					auto mlzv = cs.find("zpaqstd-ma:lzav");
+					if (mlzv != string::npos)
+					{
+						int lvl;
+						const char* p = cs.c_str() + mlzv + 14;
+						while (*p && *p != ':') p++;
+						if (*p == ':')
+							sscanf(p + 1, "%d:%ld", &lvl, &lzav_orig);
 					}
 				}
 				while (out.size() < output_size && d.decompress(1 << 14))
@@ -59062,6 +59086,18 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lzlib_orig;
+			}
+			// lzav decompress segment data if compressed externally
+			else if (lzav_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(lzav_orig);
+				int lzrc=lzav_decompress((const void*)out.data(),(void*)&decomp2[0],(int)out.size(),(int)lzav_orig);
+				if (lzrc<0||(int64_t)lzrc!=lzav_orig)
+					error("31319 lzav decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = lzav_orig;
 			}
 			if (out.size() < output_size)
 			{
@@ -101251,6 +101287,34 @@ int Jidac::add()
 									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								delete[] lzbuf;
+							}
+						}
+					}
+					else if (g_ma_algorithm=="lzav" && sb.size()>16)
+					{
+						int64_t orig_size=sb.size();
+						// LZAV fast variant caps at ~2^30; hi is similar
+						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
+						{
+							int bound=(g_ma_level==1)?lzav_compress_bound_hi((int)orig_size):lzav_compress_bound((int)orig_size);
+							size_t dstCap=(size_t)bound;
+							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+							{
+								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+								if (lzbuf)
+								{
+									int lzsz=(g_ma_level==1)
+										?lzav_compress_hi((const void*)sb.data(),(void*)lzbuf,(int)orig_size,(int)dstCap)
+										:lzav_compress_default((const void*)sb.data(),(void*)lzbuf,(int)orig_size,(int)dstCap);
+									if (lzsz>0&&(int64_t)lzsz<orig_size-16)
+									{
+										sb.reset();
+										sb.write((const char*)lzbuf,lzsz);
+										m="04,0";
+										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+									}
+									delete[] lzbuf;
+								}
 							}
 						}
 					}
