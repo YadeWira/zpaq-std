@@ -79,6 +79,7 @@ LIBDEFLATE_ARM_SRC  := $(wildcard compressors/libdeflate/lib/arm/*.c)
 LZLIBSRC := compressors/lzlib/lzlib.c
 LZAVSRC  := compressors/lzav/lzav.h
 HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
+LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH
 LZ5INC  := -Icompressors/lz5
@@ -91,6 +92,7 @@ LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompres
 LZLIBINC := -Icompressors/lzlib
 LZAVINC  := -Icompressors/lzav
 HSINC    := -Icompressors/hs
+LZFSEINC := -Icompressors/lzfse
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall
 
 # Download URLs
@@ -172,9 +174,10 @@ LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
 LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_OBJ)
 LZLIBOBJ := $(LZLIBSRC:.c=.o)
 HSOBJ    := $(HSSRC:.c=.o)
+LZFSEOBJ := $(LZFSESRC:.c=.o)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(LDLIBS) -o $@
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@
@@ -222,6 +225,10 @@ $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c
 # heatshrink: encoder, decoder and one-shot wrapper
 $(HSOBJ): compressors/hs/%.o: compressors/hs/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(HSINC) -c $< -o $@
+
+# LZFSE: encoder, decoder, base, FSE, LZVN tables
+$(LZFSEOBJ): compressors/lzfse/%.o: compressors/lzfse/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(LZFSEINC) -c $< -o $@
 
 # Debug
 debug: ZPAQ_CXXFLAGS = -g -O0 -Wall -Wextra -pthread
