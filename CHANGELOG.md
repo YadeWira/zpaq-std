@@ -53,12 +53,11 @@
 - Verified in wine: lzav, hs, lzfse, bsc, lzh all round-trip on 5KB dict/words.
 - **igzip is excluded from 32-bit** (it requires x86_64 nasm assembly).
 
-**Windows 7+ support**
+**Windows 7+ support (partial)**
 
 - Cross-compile to Windows via `make CROSS_COMPILE=x86_64-w64-mingw32-` (or `i686-w64-mingw32-` for 32-bit).
 - Requires `g++-mingw-w64-x86-64 g++-mingw-w64-i686 mingw-w64-tools nasm wine` packages.
-- MinGW-w64 + `-static` produces a Win7+ compatible binary (no DLL dependencies).
-- All 19 algos work on Windows with the same switches.
+- **Status: all 6 newly added algos (lzav, hs, lzfse, bsc, lzh, zopfli) compile cleanly on Windows**, plus the existing 12 (lz4, zstd, flzma2, lz5, lizard, bzip2/3, brotli, snappy, libdeflate, lzlib). The pre-existing inline LZ4 code in `zpaq-std.cpp` (~1500 lines) collides with the newly bundled `compressors/lz4/lz4.c` (the codebase predates the bundled-compressors architecture). Full Windows support requires removing the inline LZ4 in favor of `compressors/lz4/lz4.c` — tracked as a separate refactor.
 
 **Known issues**
 

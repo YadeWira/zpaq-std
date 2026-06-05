@@ -119,7 +119,7 @@ make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (MinGW-w64)
 
 The 32-bit Linux build (`make m32`) uses `g++-multilib` and forces the older C++ ABI (`-D_GLIBCXX_USE_CXX11_ABI=0`) so it links against `libstdc++-32`. Useful for i386 distros and wine testing.
 
-The Windows cross-compile requires `g++-mingw-w64-x86-64 g++-mingw-w64-i686 mingw-w64-tools nasm`. All 18 algos compile cleanly on Windows; the resulting `.exe` runs on Windows 7 and later (MinGW-w64 runtime is statically linked via `-static -static-libgcc -static-libstdc++`).
+The Windows cross-compile via `make CROSS_COMPILE=x86_64-w64-mingw32-` (or `i686-w64-mingw32-`) is **partially supported** — the new external compressors (lzav, hs, lzfse, bsc, lzh, zopfli) all compile cleanly on Windows, but the build requires removing ~1500 lines of inlined LZ4 code that zpaqfranz embedded directly in `zpaq-std.cpp` (lines ~6700-8400) and switching to the now-bundled `compressors/lz4/lz4.c`. That refactor is tracked as a follow-up.
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
