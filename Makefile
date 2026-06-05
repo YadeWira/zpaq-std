@@ -99,7 +99,7 @@ LZFSEINC := -Icompressors/lzfse
 ZOPFLIINC := -Icompressors/zopfli
 BSCINC    := -Icompressors/bsc/libbsc -Icompressors/bsc/lzp -Icompressors/bsc/coder -Icompressors/bsc/coder/qlfc -Icompressors/bsc/bwt -Icompressors/bsc/bwt/libsais -Icompressors/bsc/st -Icompressors/bsc/adler32 -Icompressors/bsc/platform -Icompressors/bsc/filters
 LZHAMINC  := -Icompressors/lzham
-ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall
+ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
 
 # Download URLs
 SOURCE_URL_NIGHTLY  := http://www.francocorbelli.it/zpaq-std.cpp
@@ -111,7 +111,7 @@ CXXFLAGS ?= -O3
 CPPFLAGS ?=
 
 # Project-required flags (always present; user flags are appended)
-ZPAQ_CXXFLAGS := -Wall -pthread $(CXXFLAGS)
+ZPAQ_CXXFLAGS := -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
 ZPAQ_CPPFLAGS := $(CPPFLAGS)
 
 # Intel-specific flags (added only on x86)
@@ -251,6 +251,13 @@ $(BSCOBJ): compressors/bsc/%.o: compressors/bsc/%.cpp
 # LZHAM (richgel999): LZMA-class codec. C++ library, all .cpp files.
 $(LZHAMOBJ): compressors/lzham/%.o: compressors/lzham/%.cpp
 	$(CXX) $(ZPAQ_CXXFLAGS) $(LZHAMINC) -c $< -o $@
+
+# 32-bit build (i386/i686 Linux). Uses g++-multilib's 32-bit libstdc++ +
+# zlib via the _GLIBCXX_USE_CXX11_ABI=0 override (added to ZPAQ_CXXFLAGS)
+# to link against the older 32-bit C++ runtime. JIT (x86) still works.
+m32: clean
+	CXXFLAGS="-m32" CFLAGS="-m32" make build
+	@echo "32-bit build completed (i386/i686)"
 
 # Debug
 debug: ZPAQ_CXXFLAGS = -g -O0 -Wall -Wextra -pthread
