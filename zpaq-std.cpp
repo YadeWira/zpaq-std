@@ -8565,6 +8565,7 @@ extern "C" {
 extern "C" {
 #include "compressors/zopfli/defines.h"
 #include "compressors/zopfli/deflate.h"
+#include "compressors/bsc/libbsc.h"
 }
 #ifdef __cplusplus
 }
@@ -52709,6 +52710,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  hs: atomicobject heatshrink (0..2: 2KB/8KB/32KB window; tiny, embedded-grade)");
 		scrivi_riga(" ", "  lzfse: Apple LZFSE (0=default; high ratio on text/structured data)");
 		scrivi_riga(" ", "  zop: MrKrzYch00 zopfli (1..15 iter; very slow, best deflate ratio)");
+		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -55174,14 +55176,20 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level<1) g_ma_level=15;
 					if (g_ma_level>15) g_ma_level=15;
 				}
+				else if (g_ma_algorithm=="bsc")
+				{
+					/* bsc block sorter index: ST3..ST5 (1=fast, 9=high ratio) */
+					if (g_ma_level<1) g_ma_level=3;
+					if (g_ma_level>9) g_ma_level=9;
+				}
 				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="zop")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="zop"&&g_ma_algorithm!="bsc")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse zop";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse zop bsc";
 					error(msg.c_str());
 				}
 			}
@@ -58851,6 +58859,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lzlib_orig= 0;
 			int64_t lzav_orig= 0;
 			int64_t lzfse_orig= 0;
+			int64_t bsc_orig= 0;
 			int64_t hs_orig= 0;
 			while (d.findFilename())
 			{
@@ -58975,6 +58984,15 @@ ThreadReturn decompressThread(void *arg)
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &lzfse_orig);
+					}
+					auto mbsc = cs.find("zpaqstd-ma:bsc");
+					if (mbsc != string::npos)
+					{
+						int lvl;
+						const char* p = cs.c_str() + mbsc + 13;
+						while (*p && *p != ':') p++;
+						if (*p == ':')
+							sscanf(p + 1, "%d:%ld", &lvl, &bsc_orig);
 					}
 					auto mhs = cs.find("zpaqstd-ma:hs");
 					if (mhs != string::npos)
@@ -59169,6 +59187,22 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lzfse_orig;
+			}
+			// bsc decompress segment data if compressed externally
+			else if (bsc_orig > 0)
+			{
+				static int bsc_init_done=0;
+				if (!bsc_init_done) { bsc_init(0); bsc_init_done=1; }
+				string decomp2;
+				decomp2.resize(bsc_orig);
+				int rc=bsc_decompress((const unsigned char*)out.data(),(int)out.size(),(unsigned char*)&decomp2[0],(int)bsc_orig,0);
+				if (rc<0)
+					error("31319 bsc decompression failed");
+				/* bsc_decompress returns LIBBSC_NO_ERROR (0) on success;
+				 * the actual decompressed size is bsc_orig. */
+				out.reset();
+				out.write(decomp2.data(),(int)bsc_orig);
+				output_size = bsc_orig;
 			}
 			// heatshrink decompress segment data if compressed externally
 			else if (hs_orig > 0)
@@ -101494,6 +101528,40 @@ int Jidac::add()
 									ma_comment="zpaqstd-ma:deflate:"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								if (outptr) free(outptr);
+							}
+						}
+					}
+					else if (g_ma_algorithm=="bsc" && sb.size()>16)
+					{
+						/* libbsc: block sorting (BWT/ST) + LZP + QLFC coder, very slow.
+						 * levels: 1=fast (ST3), 9=high (ST5) */
+						int64_t orig_size=sb.size();
+						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
+						{
+							/* bsc_compress needs n + LIBBSC_HEADER_SIZE in output */
+							static int bsc_init_done=0;
+							if (!bsc_init_done) { bsc_init(0); bsc_init_done=1; }
+							size_t dstCap=(size_t)orig_size+1024;
+							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+							{
+								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+								if (lzbuf)
+								{
+									/* block sorter: ST3=3, ST4=4, ST5=5 (mapped from level 1..9) */
+									int blocksorter=LIBBSC_BLOCKSORTER_ST3+(g_ma_level-1)/3;
+									if (blocksorter>LIBBSC_BLOCKSORTER_ST5) blocksorter=LIBBSC_BLOCKSORTER_ST5;
+									int rc=bsc_compress((const unsigned char*)sb.data(),lzbuf,
+										(int)orig_size,0,0,
+										blocksorter, LIBBSC_DEFAULT_CODER, 0);
+									if (rc>0&&(int64_t)rc<orig_size-16)
+									{
+										sb.reset();
+										sb.write((const char*)lzbuf,rc);
+										m="04,0";
+										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+									}
+									delete[] lzbuf;
+								}
 							}
 						}
 					}
