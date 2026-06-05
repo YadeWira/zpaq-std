@@ -80,6 +80,7 @@ LZLIBSRC := compressors/lzlib/lzlib.c
 LZAVSRC  := compressors/lzav/lzav.h
 HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
+ZOPFLISRC := compressors/zopfli/adler.c compressors/zopfli/blocksplitter.c compressors/zopfli/cache.c compressors/zopfli/crc32.c compressors/zopfli/deflate.c compressors/zopfli/gzip_container.c compressors/zopfli/hash.c compressors/zopfli/inthandler.c compressors/zopfli/katajainen.c compressors/zopfli/lz77.c compressors/zopfli/squeeze.c compressors/zopfli/tree.c compressors/zopfli/util.c compressors/zopfli/zlib_container.c compressors/zopfli/zip_container.c compressors/zopfli/zopfli_lib.c
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH
 LZ5INC  := -Icompressors/lz5
@@ -93,6 +94,7 @@ LZLIBINC := -Icompressors/lzlib
 LZAVINC  := -Icompressors/lzav
 HSINC    := -Icompressors/hs
 LZFSEINC := -Icompressors/lzfse
+ZOPFLIINC := -Icompressors/zopfli
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall
 
 # Download URLs
@@ -175,9 +177,10 @@ LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_O
 LZLIBOBJ := $(LZLIBSRC:.c=.o)
 HSOBJ    := $(HSSRC:.c=.o)
 LZFSEOBJ := $(LZFSESRC:.c=.o)
+ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(ZOPFLIOBJ) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(ZOPFLIINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(ZOPFLIOBJ) $(LDLIBS) -o $@
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@
@@ -229,6 +232,11 @@ $(HSOBJ): compressors/hs/%.o: compressors/hs/%.c
 # LZFSE: encoder, decoder, base, FSE, LZVN tables
 $(LZFSEOBJ): compressors/lzfse/%.o: compressors/lzfse/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZFSEINC) -c $< -o $@
+
+# Zopfli (MrKrzYch00 fork): all C files (adler, blocksplitter, crc32, deflate,
+# gzip_container, hash, katajainen, lz77, squeeze, tree, util, zlib_container, zopfli_lib)
+$(ZOPFLIOBJ): compressors/zopfli/%.o: compressors/zopfli/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(ZOPFLIINC) -c $< -o $@
 
 # Debug
 debug: ZPAQ_CXXFLAGS = -g -O0 -Wall -Wextra -pthread
