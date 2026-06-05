@@ -8561,10 +8561,7 @@ extern "C" {
 #include "compressors/lzav/lzav.h"
 #include "compressors/hs/hs_wrapper.h"
 #include "compressors/lzfse/lzfse.h"
-#include "compressors/zopfli/zopfli.h"
 extern "C" {
-#include "compressors/zopfli/defines.h"
-#include "compressors/zopfli/deflate.h"
 #include "compressors/bsc/libbsc.h"
 #include "compressors/lzham/lzham.h"
 }
@@ -52710,7 +52707,6 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lzav: avaneev LZAV (0=default, 1=hi-ratio; very fast, ~lz4 speed)");
 		scrivi_riga(" ", "  hs: atomicobject heatshrink (0..2: 2KB/8KB/32KB window; tiny, embedded-grade)");
 		scrivi_riga(" ", "  lzfse: Apple LZFSE (0=default; high ratio on text/structured data)");
-		scrivi_riga(" ", "  zop: MrKrzYch00 zopfli (1..15 iter; very slow, best deflate ratio)");
 		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
 		scrivi_riga(" ", "  lzh: richgel999 LZHAM (1..4: fastest..uber; LZMA-class, very slow)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
@@ -55172,12 +55168,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level<0) g_ma_level=0;
 					if (g_ma_level>1) g_ma_level=1;
 				}
-				else if (g_ma_algorithm=="zop")
-				{
-					/* zopfli numiterations: 1..15 for small files, 1..5 for large */
-					if (g_ma_level<1) g_ma_level=15;
-					if (g_ma_level>15) g_ma_level=15;
-				}
 				else if (g_ma_algorithm=="bsc")
 				{
 					/* bsc block sorter index: ST3..ST5 (1=fast, 9=high ratio) */
@@ -55195,9 +55185,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="zop"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse zop bsc lzh";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh";
 					error(msg.c_str());
 				}
 			}
@@ -101527,43 +101517,12 @@ int Jidac::add()
 					}
 					else if (g_ma_algorithm=="zop" && sb.size()>16)
 					{
-						/* Zopfli (MrKrzYch00 fork): brute-force best deflate, very slow.
-						 * Output is deflate-formatted (no zlib container), we tag it
-						 * as deflate and let libdeflate handle decompression.
-						 * We call ZopfliDeflate() directly to avoid a bug in
-						 * zopfli_lib.c's ZopfliCompress() that incorrectly frees
-						 * a stack-allocated ZopfliOptions. */
-						extern unsigned int mui;
-						int64_t orig_size=sb.size();
-						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
-							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-							{
-								ZopfliOptions opts;
-								ZopfliInitOptions(&opts);
-								opts.numiterations=(unsigned)g_ma_level;
-								opts.verbose=0;
-								opts.numthreads=1;
-								opts.mode=0;
-								opts.pass=0;
-								mui=opts.maxfailiterations;
-								unsigned char* outptr=NULL;
-								size_t lzsz=0;
-								unsigned char bp=0;
-								ZopfliDeflate(&opts, 2 /* Dynamic block */, 1,
-									(const unsigned char*)sb.data(),(size_t)orig_size,
-									&bp,&outptr,&lzsz,NULL);
-								if (outptr&&lzsz>0&&(int64_t)lzsz<orig_size-16)
-								{
-									sb.reset();
-									sb.write((const char*)outptr,(int)lzsz);
-									m="04,0";
-									ma_comment="zpaqstd-ma:deflate:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								if (outptr) free(outptr);
-							}
-						}
+						/* Zopfli was removed in commit <sha> due to a
+						 * KrzYmod-fork vs libdeflate incompatibility (see
+						 * compressors/zopfli/ for the source and the original
+						 * commit message for details). Use -ma:deflate:N
+						 * for a fast deflate alternative. */
+						error("31319 -ma:zop is no longer supported; use -ma:deflate:N instead");
 					}
 					else if (g_ma_algorithm=="bsc" && sb.size()>16)
 					{

@@ -37,7 +37,6 @@ Upstream lineage (acknowledgements, not contributors to this fork)
     * LZAV by Aleksey Vaneev (avaneev) — MIT
     * heatshrink by Scott Vokes (atomicobject) — ISC
     * LZFSE by Apple Inc. — BSD-3
-    * zopfli KrzYmod by Mr_KrzYch00 (fork of google/zopfli) — Apache-2.0
     * libbsc by Ilya Grebnov — Apache-2.0
     * LZHAM by Rich Geldreich (richgel999) — Public Domain
   Each library keeps its original copyright and license. See the individual
@@ -47,6 +46,6 @@ This fork began from the public repository at https://github.com/fcorbelli/zpaqf
 (the `zpaqfranz.cpp` file was renamed to `zpaq-std.cpp` as part of the fork,
 but the source code itself is Franco Corbelli's). It is a derivative work
 in the spirit of the MIT license, with substantial new code by YadeWira
-(the bundled-compressors architecture, the 18-algorithm `ma:` switch
+(the bundled-compressors architecture, the 17-algorithm `ma:` switch
 family, the 32-bit Linux build, the Windows 7+ cross-compile, the test
 infrastructure, and the documentation).
