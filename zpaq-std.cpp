@@ -8566,6 +8566,7 @@ extern "C" {
 #include "compressors/zopfli/defines.h"
 #include "compressors/zopfli/deflate.h"
 #include "compressors/bsc/libbsc.h"
+#include "compressors/lzham/lzham.h"
 }
 #ifdef __cplusplus
 }
@@ -52711,6 +52712,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lzfse: Apple LZFSE (0=default; high ratio on text/structured data)");
 		scrivi_riga(" ", "  zop: MrKrzYch00 zopfli (1..15 iter; very slow, best deflate ratio)");
 		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
+		scrivi_riga(" ", "  lzh: richgel999 LZHAM (1..4: fastest..uber; LZMA-class, very slow)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -55182,14 +55184,20 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level<1) g_ma_level=3;
 					if (g_ma_level>9) g_ma_level=9;
 				}
+				else if (g_ma_algorithm=="lzh")
+				{
+					/* LZHAM levels: 1=fastest, 4=uber (LZMA-class) */
+					if (g_ma_level<1) g_ma_level=1;
+					if (g_ma_level>4) g_ma_level=4;
+				}
 				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="zop"&&g_ma_algorithm!="bsc")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="zop"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse zop bsc";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse zop bsc lzh";
 					error(msg.c_str());
 				}
 			}
@@ -58860,6 +58868,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lzav_orig= 0;
 			int64_t lzfse_orig= 0;
 			int64_t bsc_orig= 0;
+			int64_t lzh_orig= 0;
 			int64_t hs_orig= 0;
 			while (d.findFilename())
 			{
@@ -58993,6 +59002,15 @@ ThreadReturn decompressThread(void *arg)
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &bsc_orig);
+					}
+					auto mlzh = cs.find("zpaqstd-ma:lzh");
+					if (mlzh != string::npos)
+					{
+						int lvl;
+						const char* p = cs.c_str() + mlzh + 13;
+						while (*p && *p != ':') p++;
+						if (*p == ':')
+							sscanf(p + 1, "%d:%ld", &lvl, &lzh_orig);
 					}
 					auto mhs = cs.find("zpaqstd-ma:hs");
 					if (mhs != string::npos)
@@ -59203,6 +59221,22 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(),(int)bsc_orig);
 				output_size = bsc_orig;
+			}
+			// lzham decompress segment data if compressed externally
+			else if (lzh_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(lzh_orig);
+				lzham_decompress_params dpar;
+				memset(&dpar,0,sizeof(dpar));
+				dpar.m_struct_size=sizeof(dpar);
+				dpar.m_dict_size_log2=20; /* 1MB dict */
+				lzham_decompress_status_t dstat=lzham_decompress_memory(&dpar,(unsigned char*)&decomp2[0],(size_t*)&lzh_orig,(const unsigned char*)out.data(),out.size(),NULL);
+				if (dstat!=LZHAM_DECOMP_STATUS_SUCCESS)
+					error("31319 lzham decompression failed");
+				out.reset();
+				out.write(decomp2.data(),(int)lzh_orig);
+				output_size = lzh_orig;
 			}
 			// heatshrink decompress segment data if compressed externally
 			else if (hs_orig > 0)
@@ -101557,6 +101591,40 @@ int Jidac::add()
 									{
 										sb.reset();
 										sb.write((const char*)lzbuf,rc);
+										m="04,0";
+										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+									}
+									delete[] lzbuf;
+								}
+							}
+						}
+					}
+					else if (g_ma_algorithm=="lzh" && sb.size()>16)
+					{
+						/* LZHAM: LZMA-class codec, public domain. Very slow.
+						 * levels: 1=fastest, 2=faster, 3=default, 4=uber */
+						int64_t orig_size=sb.size();
+						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
+						{
+							/* output cap: orig + small overhead, capped at 256MB */
+							size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
+							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+							{
+								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+								if (lzbuf)
+								{
+									lzham_compress_params cpar;
+									memset(&cpar,0,sizeof(cpar));
+									cpar.m_struct_size=sizeof(cpar);
+									cpar.m_level=(lzham_compress_level)(LZHAM_COMP_LEVEL_FASTEST+g_ma_level-1);
+									cpar.m_dict_size_log2=20; /* 1MB dict */
+									cpar.m_max_helper_threads=0; /* single-threaded for determinism */
+									size_t out_size=dstCap;
+									lzham_compress_status_t cstat=lzham_compress_memory(&cpar,lzbuf,&out_size,(const lzham_uint8*)sb.data(),(size_t)orig_size,NULL);
+									if (cstat==LZHAM_COMP_STATUS_SUCCESS&&(int64_t)out_size<orig_size-16)
+									{
+										sb.reset();
+										sb.write((const char*)lzbuf,(int)out_size);
 										m="04,0";
 										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
 									}
