@@ -8559,6 +8559,15 @@ extern "C" {
 extern "C" {
 #endif
 #include "compressors/lzav/lzav.h"
+#include "compressors/hs/hs_wrapper.h"
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "compressors/hs/hs_wrapper.h"
 #ifdef __cplusplus
 }
 #endif
@@ -52691,6 +52700,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
 		scrivi_riga(" ", "  lz: lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M dict)");
 		scrivi_riga(" ", "  lzav: avaneev LZAV (0=default, 1=hi-ratio; very fast, ~lz4 speed)");
+		scrivi_riga(" ", "  hs: atomicobject heatshrink (0..2: 2KB/8KB/32KB window; tiny, embedded-grade)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -55097,9 +55107,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="deflate") g_ma_level=6;
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else if (g_ma_algorithm=="lzav") g_ma_level=0;
+					else if (g_ma_algorithm=="hs") g_ma_level=0;
 					else g_ma_level=9;
 				}
 				if (g_ma_level<1) g_ma_level=1;
+				/* heatshrink and lzav support level 0 (smallest window) */
+				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav") {
+					if (g_ma_level<0) g_ma_level=0;
+				}
 				if (g_ma_algorithm=="zstd")
 				{
 					int zmax=ZSTD_maxCLevel();
@@ -55135,14 +55150,18 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					if (g_ma_level>1) g_ma_level=1;
 				}
+				else if (g_ma_algorithm=="hs")
+				{
+					if (g_ma_level>2) g_ma_level=2;
+				}
 				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs";
 					error(msg.c_str());
 				}
 			}
@@ -58811,6 +58830,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t libdeflate_orig= 0;
 			int64_t lzlib_orig= 0;
 			int64_t lzav_orig= 0;
+			int64_t hs_orig= 0;
 			while (d.findFilename())
 			{
 				StringBuffer cmt;
@@ -58925,6 +58945,15 @@ ThreadReturn decompressThread(void *arg)
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%ld", &lvl, &lzav_orig);
+					}
+					auto mhs = cs.find("zpaqstd-ma:hs");
+					if (mhs != string::npos)
+					{
+						int lvl;
+						const char* p = cs.c_str() + mhs + 13;
+						while (*p && *p != ':') p++;
+						if (*p == ':')
+							sscanf(p + 1, "%d:%ld", &lvl, &hs_orig);
 					}
 				}
 				while (out.size() < output_size && d.decompress(1 << 14))
@@ -59098,6 +59127,19 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lzav_orig;
+			}
+			// heatshrink decompress segment data if compressed externally
+			else if (hs_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(hs_orig);
+				size_t produced=0;
+				int lzrc=hs_decompress_wrapper((const uint8_t*)out.data(),out.size(),(uint8_t*)&decomp2[0],(size_t)hs_orig,&produced);
+				if (lzrc!=0||(int64_t)produced!=hs_orig)
+					error("31319 heatshrink decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = hs_orig;
 			}
 			if (out.size() < output_size)
 			{
@@ -101315,6 +101357,29 @@ int Jidac::add()
 									}
 									delete[] lzbuf;
 								}
+							}
+						}
+					}
+					else if (g_ma_algorithm=="hs" && sb.size()>16)
+					{
+						int64_t orig_size=sb.size();
+						// heatshrink overhead is small (~1.05x worst case). Bound to inlen + 64 bytes.
+						size_t dstCap=(size_t)orig_size+64;
+						if (dstCap>0&&dstCap<(size_t)256*1024*1024&&orig_size<=(int64_t)0x7FFFFFFF)
+						{
+							unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+							if (lzbuf)
+							{
+								size_t lzsz=0;
+								int lzrc=hs_compress_wrapper((const uint8_t*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
+								if (lzrc==0&&lzsz>0&&(int64_t)lzsz<orig_size-16)
+								{
+									sb.reset();
+									sb.write((const char*)lzbuf,(int)lzsz);
+									m="04,0";
+									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+								}
+								delete[] lzbuf;
 							}
 						}
 					}
