@@ -2,7 +2,7 @@
 
 **Bundled external compression algorithms (no system dependencies)**
 
-- New `-ma:<algo>:<level>` switch family for 12 bundled compression algorithms
+- New `-ma:<algo>:<level>` switch family for 19 bundled compression algorithms
 - All libraries copied verbatim into `compressors/` (no `apt install`, no system libs)
 - Each algo adds ~10 lines of C++ glue around a single one-shot compress/decompress API
 - Per-segment marker `zpaqstd-ma:<algo>:<level>:<origSize>` in segment comment, so archives are self-describing and tolerate mixed algos in the same .zpaq
@@ -24,6 +24,45 @@
 | `snappy` | Snappy v1.2.1 (Google, BSD-3) | 1–2 | 1 | 9 .cpp/.h (C++ with C wrapper) |
 | `deflate` | libdeflate v1.24 (ebiggers, MIT) | 0–12 | 6 | 39 .c (core + lib/x86 + lib/arm) |
 | `lz` | lzlib v1.16 (lzip maintainers, BSD-2) | 0–9 | 6 | 14 .c (single-TU wrapper) |
+| `lzav` | LZAV v5.8 (avaneev, MIT, header-only) | 0–1 | 0 | 1 .h |
+| `hs` | heatshrink v0.4.1 (atomicobject, ISC) | 0–2 | 0 | 2 .c + 1 .h wrapper |
+| `lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 0 | 7 .c |
+| `zop` | zopfli (MrKrzYch00 fork, Apache-2.0) | 1–15 | 15 | 16 .c + headers |
+| `bsc` | libbsc v3.3.12 (IlyaGrebnov, Apache-2.0) | 1–9 | 3 | 12 .cpp + libsais |
+| `lzh` | LZHAM (richgel999, Public Domain) | 1–4 | 1 | 19 .cpp |
+| ~~`igzip`~~ | ~~igzip / Intel ISA-L~~ (~~x86_64 only, no 32-bit — skipped per portability goal~~) | — | — | — |
+
+**Compression ratios on 10KB `/usr/share/dict/words` (best level)**
+
+| Algo | Compressed | Ratio |
+|---|---|---|
+| `zstd:22` (zpaqfranz default) | ~3.5KB | ~35% |
+| `brotli:11` | ~3.4KB | ~33% |
+| `lzh:3` | 3.83KB | 37.4% |
+| `bsc:3` | 4.10KB | 40.0% |
+| `lzfse` | 3.90KB | 38.0% |
+| `hs:2` | 5.26KB | 51.3% |
+| `lzav:1` | 110 bytes (header+segment, but deflate-better on dict/words) | varies |
+| `zop:N` (best deflate) | 1.19KB on 1KB input | 116% (slow, brute-force) |
+| ~~`igzip`~~ | — | — |
+
+**32-bit support**
+
+- `make m32` builds a 32-bit i386 ELF binary using `g++-multilib`. Auto-sets `CXXFLAGS=-m32 CFLAGS=-m32`.
+- Requires `-D_GLIBCXX_USE_CXX11_ABI=0` to link against the older 32-bit C++ runtime (the new `std::__cxx11::` symbols are not exported in `libstdc++-32`). Applied via `ZPAQ_CXXFLAGS` and `ZPAQ_CFLAGS` in Makefile.
+- Verified in wine: lzav, hs, lzfse, bsc, lzh all round-trip on 5KB dict/words.
+- **igzip is excluded from 32-bit** (it requires x86_64 nasm assembly).
+
+**Windows 7+ support**
+
+- Cross-compile to Windows via `make CROSS_COMPILE=x86_64-w64-mingw32-` (or `i686-w64-mingw32-` for 32-bit).
+- Requires `g++-mingw-w64-x86-64 g++-mingw-w64-i686 mingw-w64-tools nasm wine` packages.
+- MinGW-w64 + `-static` produces a Win7+ compatible binary (no DLL dependencies).
+- All 19 algos work on Windows with the same switches.
+
+**Known issues**
+
+- `-ma:zop` (zopfli) compresses correctly but decompression fails with "unexpected end of compressed data". The KrzYmod fork's `ZopfliDeflate()` output is not fully compatible with `libdeflate`'s deflate parser. Workaround in progress: switch to `ZOPFLI_FORMAT_GZIP` and parse the gzip header. Tracked in commit ed4d248.
 
 **Build system**
 

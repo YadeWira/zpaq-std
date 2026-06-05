@@ -9,7 +9,8 @@ Maintainer
 - YadeWira (Yade Bravo) <https://github.com/YadeWira>
   Creator and sole maintainer of this fork (YadeWira/zpaq-std).
   Owns the `-ma:algo:N` switch family, the bundled-compressors architecture
-  (compressors/), the Makefile, README.md, and WORKFLOW.md.
+  (compressors/), the Makefile, the 32-bit `m32` build target, the
+  MinGW-w64 Windows 7+ cross-compile, README.md, and WORKFLOW.md.
 
 
 Upstream lineage (acknowledgements, not contributors to this fork)
@@ -33,6 +34,12 @@ Upstream lineage (acknowledgements, not contributors to this fork)
     * Snappy by Google (Jyrki Alakuijala, et al.) — BSD-3
     * libdeflate by Eric Biggers (ebiggers) — MIT
     * lzlib by Antonio Diaz Diaz and the lzip maintainers — BSD-2
+    * LZAV by Aleksey Vaneev (avaneev) — MIT
+    * heatshrink by Scott Vokes (atomicobject) — ISC
+    * LZFSE by Apple Inc. — BSD-3
+    * zopfli KrzYmod by Mr_KrzYch00 (fork of google/zopfli) — Apache-2.0
+    * libbsc by Ilya Grebnov — Apache-2.0
+    * LZHAM by Rich Geldreich (richgel999) — Public Domain
   Each library keeps its original copyright and license. See the individual
   source files in compressors/ for details.
 
@@ -40,5 +47,6 @@ This fork began from the public repository at https://github.com/fcorbelli/zpaqf
 (the `zpaqfranz.cpp` file was renamed to `zpaq-std.cpp` as part of the fork,
 but the source code itself is Franco Corbelli's). It is a derivative work
 in the spirit of the MIT license, with substantial new code by YadeWira
-(the bundled-compressors architecture, the 12-algorithm `ma:` switch family,
-the test infrastructure, and the documentation).
+(the bundled-compressors architecture, the 18-algorithm `ma:` switch
+family, the 32-bit Linux build, the Windows 7+ cross-compile, the test
+infrastructure, and the documentation).

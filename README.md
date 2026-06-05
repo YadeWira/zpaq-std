@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **12 bundled, swappable external compression algorithms** and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **18 bundled, swappable external compression algorithms** and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -38,6 +38,12 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:snappy:N` | Snappy v1.2.1 | 1–2 | 1 | Google's, like lz4 but tighter |
 | `-ma:deflate:N` | libdeflate v1.24 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
 | `-ma:lz:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
+| `-ma:lzav:N` | LZAV v5.8 (avaneev) | 0–1 | 0 | LZ77, header-only, very fast |
+| `-ma:hs:N` | heatshrink v0.4.1 (atomicobject) | 0–2 | 0 | tiny, embedded-grade (2KB/8KB/32KB window) |
+| `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 0 | high ratio on text/structured data |
+| `-ma:zop:N` | zopfli (MrKrzYch00 fork, Apache-2.0) | 1–15 | 15 | brute-force best deflate, very slow |
+| `-ma:bsc:N` | libbsc v3.3.12 (IlyaGrebnov, Apache-2.0) | 1–9 | 3 | BWT/ST + LZP + QLFC, very slow |
+| `-ma:lzh:N` | LZHAM (richgel999, Public Domain) | 1–4 | 1 | LZMA-class, very slow |
 
 If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).
 
@@ -64,7 +70,7 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ## No system dependencies
 
-All 12 libraries live inside `compressors/`:
+All 18 libraries live inside `compressors/`:
 
 ```
 compressors/
@@ -78,10 +84,16 @@ compressors/
 ├── brotli/     35 .c + 71 .h   (enc+dec+common)
 ├── snappy/      7 .cpp + 6 .h  (Google, BSD-3)
 ├── libdeflate/ 39 .c  +  4 .h  (ebiggers, MIT; core+lib/x86+lib/arm)
-└── lzlib/      13 .c  +  1 .h  (lzip, BSD-2; single-TU wrapper)
+├── lzlib/      13 .c  +  1 .h  (lzip, BSD-2; single-TU wrapper)
+├── lzav/        1 .h            (header-only)
+├── hs/          2 .c  + 1 .h   (+ hs_wrapper.c glue)
+├── lzfse/       7 .c           (+lzvn helpers)
+├── zopfli/     16 .c           (MrKrzYch00 fork)
+├── bsc/        12 .cpp + libsais.c
+└── lzham/      19 .cpp
 ```
 
-Total: **93 source files, ~9.7 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
+Total: **~165 source files, ~12.7 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
 
 ---
 
@@ -93,18 +105,25 @@ Requires only a C++ compiler (g++, clang++) and GNU make. pthread for multithrea
 make              # optimized build
 make debug        # with -O0 -g
 make static       # static binary (NAS, containers, rescue)
+make m32          # 32-bit i386 ELF (requires g++-multilib)
 make test         # run zpaq-std's built-in autotest
 make check        # show configuration
 ```
 
 Cross-compile:
 ```bash
-make CROSS_COMPILE=aarch64-linux-gnu-
+make CROSS_COMPILE=aarch64-linux-gnu-     # ARM64 Linux
+make CROSS_COMPILE=x86_64-w64-mingw32-    # 64-bit Windows (MinGW-w64)
+make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (MinGW-w64)
 ```
+
+The 32-bit Linux build (`make m32`) uses `g++-multilib` and forces the older C++ ABI (`-D_GLIBCXX_USE_CXX11_ABI=0`) so it links against `libstdc++-32`. Useful for i386 distros and wine testing.
+
+The Windows cross-compile requires `g++-mingw-w64-x86-64 g++-mingw-w64-i686 mingw-w64-tools nasm`. All 18 algos compile cleanly on Windows; the resulting `.exe` runs on Windows 7 and later (MinGW-w64 runtime is statically linked via `-static -static-libgcc -static-libstdc++`).
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
-The output is a single `zpaq-std` binary, ~6.1 MB.
+The output is a single `zpaq-std` binary, ~6.5 MB native / ~8.5 MB Windows.
 
 ---
 
