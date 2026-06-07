@@ -12,20 +12,37 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#if 1  // HAVE_SYS_UIO_H
+#ifdef _WIN32
+/* On Windows (MinGW-w64 / MSVC) these POSIX headers are not available. */
+#  define HAVE_SYS_UIO_H 0
+#  define HAVE_UNISTD_H 0
+#  define HAVE_SYS_MMAN_H 0
+#  define HAVE_BYTESWAP_H 0
+#  define NOMINMAX
+#  include <windows.h>
+   /* Stub iovec for snappy on Windows (not in <winsock2.h> directly) */
+   struct iovec { void* iov_base; size_t iov_len; };
+#else
+#  define HAVE_SYS_UIO_H 1
+#  define HAVE_UNISTD_H 1
+#  define HAVE_SYS_MMAN_H 1
+#  define HAVE_BYTESWAP_H 1
+#endif
+
+#if HAVE_SYS_UIO_H
 #include <sys/uio.h>
-#endif  // HAVE_SYS_UIO_H
+#endif
 
-#if 1  // HAVE_UNISTD_H
+#if HAVE_UNISTD_H
 #include <unistd.h>
-#endif  // HAVE_UNISTD_H
+#endif
 
-#if 1  // HAVE_SYS_MMAN_H
+#if HAVE_SYS_MMAN_H
 #include <sys/mman.h>
-#endif  // HAVE_SYS_MMAN_H
+#endif
 
-#if 1  // HAVE_BYTESWAP_H
+#if HAVE_BYTESWAP_H
 #include <byteswap.h>
-#endif  // HAVE_BYTESWAP_H
+#endif
 
 #endif  // THIRD_PARTY_SNAPPY_OPENSOURCE_SNAPPY_STUBS_PUBLIC_H_

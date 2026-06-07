@@ -1744,6 +1744,7 @@ g++ -g -Wall -Wextra -Wpedantic -fsanitize=address,undefined -O3 zpaqfranz.cpp -
 
 
 #define _FILE_OFFSET_BITS 64  // In Linux make sizeof(off_t) == 8. Define BEFORE including windows.h!!!
+#include <cinttypes>  // SCNd64/PRId64 — needed on all platforms (the POSIX include block below is unix-only)
 #ifndef UNICODE
 	#define UNICODE  // For Windows
 #endif // corresponds to #ifndef (#ifndef UNICODE)
@@ -6740,7 +6741,6 @@ typedef uint8_t  LZ4_byte;
 typedef uint16_t LZ4_u16;
 typedef uint32_t LZ4_u32;
 
-int LZ4_compress_fast (const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
 int LZ4_compress_fast_continue (LZ4_stream_t* streamPtr, const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
 int LZ4_decompress_safe (const char* src, char* dst, int compressedSize, int dstCapacity);
 int LZ4_decompress_safe_continue (LZ4_streamDecode_t* LZ4_streamDecode,
@@ -8463,12 +8463,102 @@ int LZ4_decompress_safe_continue (LZ4_streamDecode_t* LZ4_streamDecode, const ch
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 
 /// External compressor via LZ4
+/* On Windows the inline LZ4 in zpaq-std.cpp (lines 6689-8462) provides
+ * the canonical LZ4 functions; the bundled compressors/lz4/ is for
+ * Linux/macOS only. Skip the bundled headers on _WIN32 to avoid
+ * duplicate declarations. lz4hc.h is also conditionally included so
+ * its LZ4_compress_HC / LZ4_compressBound helpers are available on
+ * non-Windows; on Windows we provide forward declarations that link
+ * against the inline lz4 in zpaq-std.cpp (which has LZ4_compressBound
+ * as a macro and LZ4_compress_HC as a runtime stub that error-out if
+ * actually called). */
+#ifndef _WIN32
 #ifdef __cplusplus
 extern "C" {
 #endif
 #include "compressors/lz4/lz4.h"
 #include "compressors/lz4/lz4hc.h"
 #ifdef __cplusplus
+}
+#endif
+#endif
+
+#ifdef _WIN32
+/* Stubs for Windows cross-compile */
+
+/* NOTE: we deliberately do NOT redefine stderr/stdout/stdin here.
+ * Linking against msvcrt (see the Makefile) provides the real CRT
+ * stdio streams via __iob_func(). An earlier version of this file
+ * stubbed them out to a dummy FILE to dodge UCRT link issues, but
+ * that silently swallowed every fprintf(stderr,...) error message
+ * AND broke the archiver's file I/O on real Windows. With msvcrt
+ * linked, the genuine streams resolve normally. */
+#include <stdio.h>
+
+/* bzip2 is compiled with -DBZ_NO_STDIO on Windows (see Makefile) so it
+ * no longer pulls in stderr/stdout/stdin. In that mode bzip2 routes its
+ * internal assertion failures through bz_internal_error(), which the
+ * application must provide. zpaq-std only uses the in-memory buffer API
+ * and treats a bzip2 internal error as fatal. */
+extern "C" void bz_internal_error(int errcode)
+{
+	fprintf(stderr, "bzip2 internal error %d\n", errcode);
+	abort();
+}
+
+/* bzip2 (and possibly other compressors) call isdigit() which, at
+ * higher optimization levels, is inlined to access the ctype table
+ * via __ctype_b_loc(). MinGW's libucrt doesn't export that symbol
+ * in this configuration, so we provide a static table with at
+ * least the digit flags set. The contract is:
+ *   (*__ctype_b_loc())[c] & _ISdigit  must be non-zero for '0'..'9'.
+ * Values for other characters are irrelevant to zpaq-std's
+ * bzlib mode-parsing path (which only checks for digits '1'..'9'). */
+/* C99 designated initializers ([0x30] = ...) are not accepted by g++
+ * (it errors with "non-trivial designated initializers not supported").
+ * Use a zero-initialized table and set the _ISdigit flag for '0'..'9'
+ * on first use. The writes are idempotent, so the lazy init is
+ * thread-safe without a guard. */
+static unsigned short zpaq_ctype_table[384] = {0};
+extern "C" const unsigned short **__cdecl __ctype_b_loc(void)
+{
+	/* C locale: only _ISdigit is set for '0'..'9' (0x30..0x39) */
+	for (int c = 0x30; c <= 0x39; c++) zpaq_ctype_table[c] = 0x080;
+	static const unsigned short *ptr = zpaq_ctype_table;
+	return &ptr;
+}
+
+#ifdef UTIL_countPhysicalCores_DEFINED_AS_STUB
+/* fl2's fl2_threading.c references UTIL_countPhysicalCores (from
+ * util.c which we exclude on Windows). Provide a stub. */
+extern "C" int UTIL_countPhysicalCores(void)
+{
+	return 1; /* single-threaded fallback for Windows */
+}
+#endif
+
+/* Stub for LZ4_compress_HC (the inline lz4 in zpaq-std.cpp is the
+ * "stripped" version, no HC support). Falls back to LZ4_compress_fast. */
+extern "C" int LZ4_compress_HC (const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel);
+
+/* The inline lz4 in zpaq-std.cpp (lines 6689-8462) is INCOMPLETE:
+ * it has LZ4_compress_fast_continue, LZ4_decompress_safe, etc. but
+ * the standalone LZ4_compress_fast is missing. The dispatcher calls
+ * LZ4_compress_fast when -ma:lz4 or -ma:lz4f is used. Provide it. */
+extern "C" int LZ4_compress_fast (const char* src, char* dst, int srcSize, int dstCapacity, int acceleration)
+{
+	/* Use a fresh stream and call LZ4_compress_fast_continue. */
+	void* workspace[64];
+	LZ4_stream_t* stream = LZ4_initStream(workspace, sizeof(workspace));
+	if (!stream) return 0;
+	int r = LZ4_compress_fast_continue(stream, src, dst, srcSize, dstCapacity, acceleration);
+	return r;
+}
+
+extern "C" int LZ4_compress_HC (const char* src, char* dst, int srcSize, int dstCapacity, int /*compressionLevel*/)
+{
+	/* Fall back to the inline lz4's LZ4_compress_fast. */
+	return LZ4_compress_fast (src, dst, srcSize, dstCapacity, 1);
 }
 #endif
 
@@ -55190,6 +55280,19 @@ int Jidac::loadparameters(int argc, const char** argv)
 					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh";
 					error(msg.c_str());
 				}
+#ifdef _WIN32
+				/* hs (heatshrink) and lzfse crash on the Windows build with a
+				 * memory error (access violation / heap corruption) that does
+				 * not occur on Linux/macOS and is valgrind-clean there — a
+				 * build-/ABI-specific bug still under investigation. Reject
+				 * them up front so a crash can never truncate or corrupt an
+				 * archive mid-write. They remain fully supported on Unix. */
+				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzfse")
+				{
+					std::string msg="-ma:"+g_ma_algorithm+" is not supported on the Windows build yet (known crash). Works on Linux/macOS. Try -ma:lzh, -ma:bsc, -ma:zstd or -ma:brotli instead.";
+					error(msg.c_str());
+				}
+#endif
 			}
 		}
 		else if (cli_getstring	(opt,"-csv",		false,	"-tab",							argc,argv,&i,"",				&g_csvstring));
@@ -58874,7 +58977,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mp + 14;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &lz4_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz4_orig);
 					}
 					auto mz = cs.find("zpaqstd-ma:zstd");
 					if (mz != string::npos)
@@ -58883,7 +58986,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mz + 15;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &zstd_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &zstd_orig);
 					}
 					auto mf = cs.find("zpaqstd-ma:flzma2");
 					if (mf != string::npos)
@@ -58892,7 +58995,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mf + 17;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &fl2_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &fl2_orig);
 					}
 					auto m5 = cs.find("zpaqstd-ma:lz5");
 					if (m5 != string::npos)
@@ -58901,7 +59004,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + m5 + 14;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &lz5_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz5_orig);
 					}
 					auto ml = cs.find("zpaqstd-ma:lizard");
 					if (ml != string::npos)
@@ -58910,7 +59013,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + ml + 16;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &liz_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &liz_orig);
 					}
 					auto mb = cs.find("zpaqstd-ma:bzip2");
 					if (mb != string::npos)
@@ -58919,7 +59022,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mb + 15;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &bz2_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &bz2_orig);
 					}
 					auto mb3 = cs.find("zpaqstd-ma:bzip3");
 					if (mb3 != string::npos)
@@ -58928,7 +59031,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mb3 + 15;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &bz3_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &bz3_orig);
 					}
 					auto mbr = cs.find("zpaqstd-ma:brotli");
 					if (mbr != string::npos)
@@ -58937,7 +59040,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mbr + 16;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &brotli_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &brotli_orig);
 					}
 					auto msn = cs.find("zpaqstd-ma:snappy");
 					if (msn != string::npos)
@@ -58946,7 +59049,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + msn + 17;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &snappy_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &snappy_orig);
 					}
 					auto mld = cs.find("zpaqstd-ma:deflate");
 					if (mld != string::npos)
@@ -58955,7 +59058,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mld + 21;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &libdeflate_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &libdeflate_orig);
 					}
 					auto mlz = cs.find("zpaqstd-ma:lz:");
 					if (mlz != string::npos)
@@ -58964,7 +59067,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mlz + 14;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &lzlib_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzlib_orig);
 					}
 					auto mlzv = cs.find("zpaqstd-ma:lzav");
 					if (mlzv != string::npos)
@@ -58973,7 +59076,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mlzv + 14;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &lzav_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzav_orig);
 					}
 					auto mlfs = cs.find("zpaqstd-ma:lzfse");
 					if (mlfs != string::npos)
@@ -58982,7 +59085,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mlfs + 15;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &lzfse_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzfse_orig);
 					}
 					auto mbsc = cs.find("zpaqstd-ma:bsc");
 					if (mbsc != string::npos)
@@ -58991,7 +59094,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mbsc + 13;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &bsc_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &bsc_orig);
 					}
 					auto mlzh = cs.find("zpaqstd-ma:lzh");
 					if (mlzh != string::npos)
@@ -59000,7 +59103,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mlzh + 13;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &lzh_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzh_orig);
 					}
 					auto mhs = cs.find("zpaqstd-ma:hs");
 					if (mhs != string::npos)
@@ -59009,7 +59112,7 @@ ThreadReturn decompressThread(void *arg)
 						const char* p = cs.c_str() + mhs + 13;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
-							sscanf(p + 1, "%d:%ld", &lvl, &hs_orig);
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &hs_orig);
 					}
 				}
 				while (out.size() < output_size && d.decompress(1 << 14))
@@ -101179,7 +101282,15 @@ int Jidac::add()
 					if ((g_ma_algorithm=="lz4"||g_ma_algorithm=="lz4hc"||g_ma_algorithm=="lz4f") && sb.size()>16)
 					{
 						int64_t orig_size=sb.size();
+						/* Use the bundled-lz4 function on non-Windows; on Windows the
+						 * bundled lz4 is not linked, so fall back to the macro
+						 * LZ4_COMPRESSBOUND defined by the inline lz4 in
+						 * zpaq-std.cpp. */
+#ifdef _WIN32
+						int dstCap=LZ4_COMPRESSBOUND(orig_size);
+#else
 						int dstCap=LZ4_compressBound((int)orig_size);
+#endif
 						if (dstCap>0&&dstCap<256*1024*1024)
 						{
 							char* lz4buf=new(std::nothrow) char[dstCap];

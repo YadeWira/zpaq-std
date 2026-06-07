@@ -64,10 +64,27 @@ STRIP   ?= $(CROSS_COMPILE)strip
 PROG    := zpaq-std
 ALTNAME := dir
 SOURCE  := zpaq-std.cpp
-LZ4SRC  := compressors/lz4/lz4.c compressors/lz4/lz4hc.c
+# zpaqfranz embedded LZ4 directly in zpaq-std.cpp inside an #ifdef _WIN32
+# block. On Windows cross-compile that inline copy is the canonical LZ4
+# (it was designed to be compiled alongside the rest of zpaq-std.cpp).
+# On Linux/macOS we use the bundled compressors/lz4/*.c instead. Detect
+# the cross-compile and skip the bundled .c files to avoid duplicate
+# symbol errors on MinGW.
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  LZ4SRC  :=
+else
+  LZ4SRC  := compressors/lz4/lz4.c compressors/lz4/lz4hc.c
+endif
 LZ5SRC  := compressors/lz5/lz5.c compressors/lz5/lz5hc.c
 ZSTDSRC := compressors/zstd/zstd.c
-FL2SRC  := compressors/fl2/fl2_common.c compressors/fl2/fl2_compress.c compressors/fl2/fl2_decompress.c compressors/fl2/fl2_pool.c compressors/fl2/fl2_threading.c compressors/fl2/lzma2_dec.c compressors/fl2/lzma2_enc.c compressors/fl2/radix_bitpack.c compressors/fl2/radix_mf.c compressors/fl2/radix_struct.c compressors/fl2/range_enc.c compressors/fl2/dict_buffer.c compressors/fl2/util.c
+# fl2 util.c uses POSIX (chown/lstat/__errno_location) not in MinGW.
+# Skip it on Windows cross-compile. fast-lzma2 only needs lzma2_*.c
+# and the range/dict_buffer helpers.
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  FL2SRC  := compressors/fl2/fl2_common.c compressors/fl2/fl2_compress.c compressors/fl2/fl2_decompress.c compressors/fl2/fl2_pool.c compressors/fl2/fl2_threading.c compressors/fl2/lzma2_dec.c compressors/fl2/lzma2_enc.c compressors/fl2/radix_bitpack.c compressors/fl2/radix_mf.c compressors/fl2/radix_struct.c compressors/fl2/range_enc.c compressors/fl2/dict_buffer.c
+else
+  FL2SRC  := compressors/fl2/fl2_common.c compressors/fl2/fl2_compress.c compressors/fl2/fl2_decompress.c compressors/fl2/fl2_pool.c compressors/fl2/fl2_threading.c compressors/fl2/lzma2_dec.c compressors/fl2/lzma2_enc.c compressors/fl2/radix_bitpack.c compressors/fl2/radix_mf.c compressors/fl2/radix_struct.c compressors/fl2/range_enc.c compressors/fl2/dict_buffer.c compressors/fl2/util.c
+endif
 LIZSRC  := compressors/lizard/lizard_compress.c compressors/lizard/lizard_decompress.c compressors/lizard/entropy/entropy_common.c compressors/lizard/entropy/debug.c compressors/lizard/entropy/fse_compress.c compressors/lizard/entropy/fse_decompress.c compressors/lizard/entropy/hist.c compressors/lizard/entropy/huf_compress.c compressors/lizard/entropy/huf_decompress.c
 BZIP2SRC := compressors/bzip2/blocksort.c compressors/bzip2/bzlib.c compressors/bzip2/compress.c compressors/bzip2/crctable.c compressors/bzip2/decompress.c compressors/bzip2/huffman.c compressors/bzip2/randtable.c
 BZIP3SRC := compressors/bzip3/libbz3.c
@@ -82,20 +99,37 @@ HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decode
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
 ZOPFLISRC :=
 BSCSRC   := compressors/bsc/bwt/libsais/libsais.c compressors/bsc/libbsc/libbsc.cpp compressors/bsc/lzp/lzp.cpp compressors/bsc/coder/coder.cpp compressors/bsc/coder/qlfc/qlfc.cpp compressors/bsc/coder/qlfc/qlfc_model.cpp compressors/bsc/bwt/bwt.cpp compressors/bsc/st/st.cpp compressors/bsc/adler32/adler32.cpp compressors/bsc/platform/platform.cpp compressors/bsc/filters/preprocessing.cpp compressors/bsc/filters/detectors.cpp
-LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp compressors/lzham/lzham_lzcomp.cpp compressors/lzham/lzham_lzcomp_internal.cpp compressors/lzham/lzham_lzcomp_state.cpp compressors/lzham/lzham_match_accel.cpp compressors/lzham/lzham_pthreads_threading.cpp compressors/lzham/lzham_assert.cpp compressors/lzham/lzham_checksum.cpp compressors/lzham/lzham_huffman_codes.cpp compressors/lzham/lzham_lzdecomp.cpp compressors/lzham/lzham_lzdecompbase.cpp compressors/lzham/lzham_mem.cpp compressors/lzham/lzham_polar_codes.cpp compressors/lzham/lzham_prefix_coding.cpp compressors/lzham/lzham_symbol_codec.cpp compressors/lzham/lzham_vector.cpp compressors/lzham/lzham_platform.cpp compressors/lzham/lzham_timer.cpp
+# lzham threading: pthreads on Unix, Win32 on Windows cross-compile
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  LZHAM_THREADING := compressors/lzham/lzham_win32_threading.cpp
+else
+  LZHAM_THREADING := compressors/lzham/lzham_pthreads_threading.cpp
+endif
+LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp compressors/lzham/lzham_lzcomp.cpp compressors/lzham/lzham_lzcomp_internal.cpp compressors/lzham/lzham_lzcomp_state.cpp compressors/lzham/lzham_match_accel.cpp $(LZHAM_THREADING) compressors/lzham/lzham_assert.cpp compressors/lzham/lzham_checksum.cpp compressors/lzham/lzham_huffman_codes.cpp compressors/lzham/lzham_lzdecomp.cpp compressors/lzham/lzham_lzdecompbase.cpp compressors/lzham/lzham_mem.cpp compressors/lzham/lzham_polar_codes.cpp compressors/lzham/lzham_prefix_coding.cpp compressors/lzham/lzham_symbol_codec.cpp compressors/lzham/lzham_vector.cpp compressors/lzham/lzham_platform.cpp compressors/lzham/lzham_timer.cpp
 ZSTDINC := -Icompressors/zstd
-FL2INC  := -Icompressors/fl2 -DNO_XXHASH
+FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
 LZ5INC  := -Icompressors/lz5
 LIZINC  := -Icompressors/lizard -Icompressors/lizard/entropy
 BZIP2INC := -Icompressors/bzip2
+# bzip2 uses glibc fortify symbols (__fprintf_chk/__assert_fail) not
+# in MinGW. Disable fortify per-file in the bzip2 sources.
+# BZ_NO_STDIO compiles out bzip2's FILE* API and all stderr/stdout/stdin
+# references (only used by debug/error paths and the bzopen/bzread family,
+# which zpaq-std does not use — it only calls BZ2_bzBuffToBuff{Compress,
+# Decompress}). Without it, bzlib.c references plain stderr/stdout/stdin
+# symbols that msvcrt does not export, breaking the link. The application
+# must then supply bz_internal_error() (provided in zpaq-std.cpp).
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  BZIP2INC += -U_FORTIFY_SOURCE -DBZ_NO_STDIO
+endif
 BZIP3INC := -Icompressors/bzip3 -DVERSION='"1.5.3"' -Wno-unused-function
-BROTLIINC := -Icompressors/brotli/include
+BROTLIINC := -Icompressors/brotli/include -Icompressors/brotli/common
 SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
 LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm
 LZLIBINC := -Icompressors/lzlib
 LZAVINC  := -Icompressors/lzav
 HSINC    := -Icompressors/hs
-LZFSEINC := -Icompressors/lzfse
+LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
 ZOPFLIINC :=
 BSCINC    := -Icompressors/bsc/libbsc -Icompressors/bsc/lzp -Icompressors/bsc/coder -Icompressors/bsc/coder/qlfc -Icompressors/bsc/bwt -Icompressors/bsc/bwt/libsais -Icompressors/bsc/st -Icompressors/bsc/adler32 -Icompressors/bsc/platform -Icompressors/bsc/filters
 LZHAMINC  := -Icompressors/lzham
@@ -112,6 +146,16 @@ CPPFLAGS ?=
 
 # Project-required flags (always present; user flags are appended)
 ZPAQ_CXXFLAGS := -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
+# -mconsole tells the MinGW CRT to use main() instead of WinMain()
+# as the entry point. Required for console (CLI) applications.
+# -static* statically links the MinGW runtime (libgcc, libstdc++,
+# libwinpthread) so the .exe does not depend on libgcc_s_seh-1.dll,
+# libstdc++-6.dll or libwinpthread-1.dll being present alongside it.
+# Without this the binary fails to load on a clean Windows box / wine
+# with "bad EXE format" (missing DLL imports).
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  ZPAQ_CXXFLAGS += -mconsole -static -static-libgcc -static-libstdc++
+endif
 ZPAQ_CPPFLAGS := $(CPPFLAGS)
 
 # Intel-specific flags (added only on x86)
@@ -129,6 +173,42 @@ BINDIR ?= $(PREFIX)/bin
 # OS-specific adjustments
 ifeq ($(UNAME_S),SunOS)
   ZPAQ_CPPFLAGS += -DSOLARIS
+endif
+
+# Windows-specific link flags: urlmon for URLDownloadToFileW (used by
+# zpaqfranz's auto-update path), ws2_32 for sockets, bcrypt for SHA,
+# msvcrt for stdio. We deliberately link ONLY msvcrt (the legacy C
+# runtime present on every Windows since XP) and NOT ucrt. Mixing
+# -lucrt -lmsvcrt pulls in the api-ms-win-crt-*.dll UCRT stubs, which
+# are not guaranteed on Windows 7 and conflict with msvcrt's stdio.
+# The system libs come EARLY in the link order so user objects can
+# resolve their symbols; place them between LDFLAGS and the objects
+# via ZPAQ_WIN_LIBS.
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  # Use -Wl,--start-group/--end-group to handle circular deps between
+  # msvcrt/advapi32 (registry calls in the C runtime).
+  ZPAQ_WIN_LIBS := -Wl,--start-group -lmsvcrt -ladvapi32 -lkernel32 -luser32 -lshell32 -Wl,--end-group -lurlmon -lws2_32 -lbcrypt -lwininet
+else
+  ZPAQ_WIN_LIBS :=
+endif
+
+# Post-link step. On MinGW the linker emits a non-allocatable `.comment`
+# section (GCC version string) with a bogus virtual address far beyond
+# SizeOfImage. The Windows loader (and wine) reject the image with
+# "bad EXE format". Strip it out so the .exe actually loads. Stripping
+# also drops debug symbols, shrinking the binary. No-op on other targets.
+# Note: MinGW gcc auto-appends .exe, so the produced file is $(PROG).exe
+# even though the make target is $(PROG).
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  ZPAQ_POSTLINK := $(STRIP) --remove-section=.comment $(PROG).exe
+else
+  ZPAQ_POSTLINK := true
+endif
+
+# On Windows, fl2_threading.c references UTIL_countPhysicalCores
+# (from util.c which we exclude on Windows). Provide a stub.
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  ZPAQ_CPPFLAGS += -DUTIL_countPhysicalCores_DEFINED_AS_STUB
 endif
 
 # Architecture-specific adjustments
@@ -186,7 +266,8 @@ BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 
 $(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(LDLIBS) -o $@
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+	$(ZPAQ_POSTLINK)
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@
