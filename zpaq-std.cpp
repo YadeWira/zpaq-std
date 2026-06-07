@@ -24,12 +24,13 @@ FACT: the best software for backup/disaster recovery your ever seen
       (just joking)
 
            Provided as-is, with no warranty whatsoever,
-                     by Franco Corbelli & Yade Bravo
+                     by Franco Corbelli
                   franco@francocorbelli.com
 
 
 MIT License
-Copyright (c) 2021-2026 Franco Corbelli & Yade Bravo
+Copyright (c) 2021-2026 Franco Corbelli
+Modifications copyright (c) 2026 Yade Bravo (YadeWira)
 
 Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation
