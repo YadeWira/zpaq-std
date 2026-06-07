@@ -95,8 +95,6 @@ LIBDEFLATE_X86_SRC  := $(wildcard compressors/libdeflate/lib/x86/*.c)
 LIBDEFLATE_ARM_SRC  := $(wildcard compressors/libdeflate/lib/arm/*.c)
 LZLIBSRC := compressors/lzlib/lzlib.c
 LZAVSRC  := compressors/lzav/lzav.h
-HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
-LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
 ZOPFLISRC :=
 BSCSRC   := compressors/bsc/bwt/libsais/libsais.c compressors/bsc/libbsc/libbsc.cpp compressors/bsc/lzp/lzp.cpp compressors/bsc/coder/coder.cpp compressors/bsc/coder/qlfc/qlfc.cpp compressors/bsc/coder/qlfc/qlfc_model.cpp compressors/bsc/bwt/bwt.cpp compressors/bsc/st/st.cpp compressors/bsc/adler32/adler32.cpp compressors/bsc/platform/platform.cpp compressors/bsc/filters/preprocessing.cpp compressors/bsc/filters/detectors.cpp
 # lzham threading: pthreads on Unix, Win32 on Windows cross-compile
@@ -128,8 +126,6 @@ SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
 LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm
 LZLIBINC := -Icompressors/lzlib
 LZAVINC  := -Icompressors/lzav
-HSINC    := -Icompressors/hs
-LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
 ZOPFLIINC :=
 BSCINC    := -Icompressors/bsc/libbsc -Icompressors/bsc/lzp -Icompressors/bsc/coder -Icompressors/bsc/coder/qlfc -Icompressors/bsc/bwt -Icompressors/bsc/bwt/libsais -Icompressors/bsc/st -Icompressors/bsc/adler32 -Icompressors/bsc/platform -Icompressors/bsc/filters
 LZHAMINC  := -Icompressors/lzham
@@ -259,14 +255,12 @@ LIBDEFLATE_X86_OBJ  := $(LIBDEFLATE_X86_SRC:.c=.o)
 LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
 LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_OBJ)
 LZLIBOBJ := $(LZLIBSRC:.c=.o)
-HSOBJ    := $(HSSRC:.c=.o)
-LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(BSCOBJ) $(LZHAMOBJ) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(BSCOBJ) $(LZHAMOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 compressors/fl2/%.o: compressors/fl2/%.c
@@ -311,14 +305,6 @@ $(LIBDEFLATE_ARM_OBJ): compressors/libdeflate/lib/arm/%.o: compressors/libdeflat
 # lzlib: single .c that #includes all other lzlib .c files (designed as one TU)
 $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZLIBINC) -c $< -o $@
-
-# heatshrink: encoder, decoder and one-shot wrapper
-$(HSOBJ): compressors/hs/%.o: compressors/hs/%.c
-	$(CC) $(ZPAQ_CFLAGS) $(HSINC) -c $< -o $@
-
-# LZFSE: encoder, decoder, base, FSE, LZVN tables
-$(LZFSEOBJ): compressors/lzfse/%.o: compressors/lzfse/%.c
-	$(CC) $(ZPAQ_CFLAGS) $(LZFSEINC) -c $< -o $@
 
 # bsc (libbsc): block sorting lossless compression. C++ library, all .cpp files.
 $(BSCOBJ): compressors/bsc/%.o: compressors/bsc/%.cpp

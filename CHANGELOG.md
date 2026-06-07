@@ -1,3 +1,25 @@
+### [Unreleased] - 2026-06-07
+
+**Windows 7+ cross-compile support**
+
+- `make CROSS_COMPILE=x86_64-w64-mingw32-` now produces a self-contained
+  `zpaq-std.exe`: static MinGW runtime (`-static -static-libgcc -static-libstdc++`),
+  links only `msvcrt` + core system DLLs, `.comment` section stripped post-link so
+  the image loads. bzip2 built with `-DBZ_NO_STDIO` (+ `bz_internal_error()`).
+- Fixed a real cross-platform bug: 16 `sscanf` sites read an `int64_t` with `%ld`
+  (32-bit on Windows) — now `SCNd64` + an unconditional `#include <cinttypes>`.
+- Verified on real Windows 10 LTSC: `lz4`, `lzav`, `bsc`, `lzh` round-trip with
+  matching SHA-1. Native Linux build unchanged.
+
+**Removed `-ma:hs` (heatshrink) and `-ma:lzfse`**
+
+- Both crashed on the Windows build (access violation / heap corruption from a
+  build-/ABI-specific bug; valgrind-clean and working on Linux). Rather than ship
+  a platform-divergent feature set, both algorithms were dropped entirely — sources
+  removed from `compressors/`, dispatch/validation/help removed from `zpaq-std.cpp`.
+- Bundled algorithm count: 17 → 15. Use `-ma:lzh`/`-ma:bsc` for high ratio,
+  `-ma:lzav`/`-ma:lz4` for speed.
+
 ### [Unreleased] - 2026-06-03
 
 **Bundled external compression algorithms (no system dependencies)**

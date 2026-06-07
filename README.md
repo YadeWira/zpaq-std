@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **17 bundled, swappable external compression algorithms** and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **15 bundled, swappable external compression algorithms** and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -39,8 +39,6 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:deflate:N` | libdeflate v1.24 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
 | `-ma:lz:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
 | `-ma:lzav:N` | LZAV v5.8 (avaneev) | 0–1 | 0 | LZ77, header-only, very fast |
-| `-ma:hs:N` | heatshrink v0.4.1 (atomicobject) | 0–2 | 0 | tiny, embedded-grade (2KB/8KB/32KB window) |
-| `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 0 | high ratio on text/structured data |
 | `-ma:bsc:N` | libbsc v3.3.12 (IlyaGrebnov, Apache-2.0) | 1–9 | 3 | BWT/ST + LZP + QLFC, very slow |
 | `-ma:lzh:N` | LZHAM (richgel999, Public Domain) | 1–4 | 1 | LZMA-class, very slow |
 
@@ -69,7 +67,7 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ## No system dependencies
 
-All 17 libraries live inside `compressors/`:
+All 15 libraries live inside `compressors/`:
 
 ```
 compressors/
@@ -85,13 +83,11 @@ compressors/
 ├── libdeflate/ 39 .c  +  4 .h  (ebiggers, MIT; core+lib/x86+lib/arm)
 ├── lzlib/      13 .c  +  1 .h  (lzip, BSD-2; single-TU wrapper)
 ├── lzav/        1 .h            (header-only)
-├── hs/          2 .c  + 1 .h   (+ hs_wrapper.c glue)
-├── lzfse/       7 .c           (+lzvn helpers)
 ├── bsc/        12 .cpp + libsais.c
 └── lzham/      19 .cpp
 ```
 
-Total: **~145 source files, ~10.7 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
+Total: **~135 source files, ~10 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
 
 ---
 
@@ -117,11 +113,15 @@ make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (MinGW-w64)
 
 The 32-bit Linux build (`make m32`) uses `g++-multilib` and forces the older C++ ABI (`-D_GLIBCXX_USE_CXX11_ABI=0`) so it links against `libstdc++-32`. Useful for i386 distros and wine testing.
 
-The Windows cross-compile via `make CROSS_COMPILE=x86_64-w64-mingw32-` (or `i686-w64-mingw32-`) is **partially supported** — the new external compressors (lzav, hs, lzfse, bsc, lzh) all compile cleanly on Windows, but the build requires removing ~1500 lines of inlined LZ4 code that zpaqfranz embedded directly in `zpaq-std.cpp` (lines ~6700-8400) and switching to the now-bundled `compressors/lz4/lz4.c`. That refactor is tracked as a follow-up.
+The Windows cross-compile via `make CROSS_COMPILE=x86_64-w64-mingw32-` produces a
+self-contained `zpaq-std.exe` (static MinGW runtime, links only `msvcrt` + core
+system DLLs) that runs on a clean Windows 7+ box. Verified on Windows 10 LTSC: the
+binary loads and the `lz4`, `lzav`, `bsc` and `lzh` external passes round-trip
+correctly. The `i686-w64-mingw32-` (32-bit) variant uses the same flags.
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
-The output is a single `zpaq-std` binary, ~6.5 MB native / ~8.5 MB Windows.
+The output is a single `zpaq-std` binary, ~6.5 MB native / ~6.8 MB Windows.
 
 ---
 

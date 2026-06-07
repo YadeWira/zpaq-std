@@ -8649,20 +8649,10 @@ extern "C" {
 extern "C" {
 #endif
 #include "compressors/lzav/lzav.h"
-#include "compressors/hs/hs_wrapper.h"
-#include "compressors/lzfse/lzfse.h"
 extern "C" {
 #include "compressors/bsc/libbsc.h"
 #include "compressors/lzham/lzham.h"
 }
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "compressors/hs/hs_wrapper.h"
 #ifdef __cplusplus
 }
 #endif
@@ -52795,8 +52785,6 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
 		scrivi_riga(" ", "  lz: lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M dict)");
 		scrivi_riga(" ", "  lzav: avaneev LZAV (0=default, 1=hi-ratio; very fast, ~lz4 speed)");
-		scrivi_riga(" ", "  hs: atomicobject heatshrink (0..2: 2KB/8KB/32KB window; tiny, embedded-grade)");
-		scrivi_riga(" ", "  lzfse: Apple LZFSE (0=default; high ratio on text/structured data)");
 		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
 		scrivi_riga(" ", "  lzh: richgel999 LZHAM (1..4: fastest..uber; LZMA-class, very slow)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
@@ -55205,12 +55193,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="deflate") g_ma_level=6;
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else if (g_ma_algorithm=="lzav") g_ma_level=0;
-					else if (g_ma_algorithm=="hs") g_ma_level=0;
 					else g_ma_level=9;
 				}
 				if (g_ma_level<1) g_ma_level=1;
-				/* heatshrink and lzav support level 0 (smallest window) */
-				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav") {
+				/* lzav supports level 0 (smallest window) */
+				if (g_ma_algorithm=="lzav") {
 					if (g_ma_level<0) g_ma_level=0;
 				}
 				if (g_ma_algorithm=="zstd")
@@ -55248,16 +55235,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					if (g_ma_level>1) g_ma_level=1;
 				}
-				else if (g_ma_algorithm=="hs")
-				{
-					if (g_ma_level>2) g_ma_level=2;
-				}
-				else if (g_ma_algorithm=="lzfse")
-				{
-					/* LZFSE has a single internal level; clamp user level to 0..1 */
-					if (g_ma_level<0) g_ma_level=0;
-					if (g_ma_level>1) g_ma_level=1;
-				}
 				else if (g_ma_algorithm=="bsc")
 				{
 					/* bsc block sorter index: ST3..ST5 (1=fast, 9=high ratio) */
@@ -55275,24 +55252,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav bsc lzh";
 					error(msg.c_str());
 				}
-#ifdef _WIN32
-				/* hs (heatshrink) and lzfse crash on the Windows build with a
-				 * memory error (access violation / heap corruption) that does
-				 * not occur on Linux/macOS and is valgrind-clean there — a
-				 * build-/ABI-specific bug still under investigation. Reject
-				 * them up front so a crash can never truncate or corrupt an
-				 * archive mid-write. They remain fully supported on Unix. */
-				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzfse")
-				{
-					std::string msg="-ma:"+g_ma_algorithm+" is not supported on the Windows build yet (known crash). Works on Linux/macOS. Try -ma:lzh, -ma:bsc, -ma:zstd or -ma:brotli instead.";
-					error(msg.c_str());
-				}
-#endif
 			}
 		}
 		else if (cli_getstring	(opt,"-csv",		false,	"-tab",							argc,argv,&i,"",				&g_csvstring));
@@ -58959,10 +58923,8 @@ ThreadReturn decompressThread(void *arg)
 			int64_t libdeflate_orig= 0;
 			int64_t lzlib_orig= 0;
 			int64_t lzav_orig= 0;
-			int64_t lzfse_orig= 0;
 			int64_t bsc_orig= 0;
 			int64_t lzh_orig= 0;
-			int64_t hs_orig= 0;
 			while (d.findFilename())
 			{
 				StringBuffer cmt;
@@ -59078,15 +59040,6 @@ ThreadReturn decompressThread(void *arg)
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzav_orig);
 					}
-					auto mlfs = cs.find("zpaqstd-ma:lzfse");
-					if (mlfs != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mlfs + 15;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzfse_orig);
-					}
 					auto mbsc = cs.find("zpaqstd-ma:bsc");
 					if (mbsc != string::npos)
 					{
@@ -59104,15 +59057,6 @@ ThreadReturn decompressThread(void *arg)
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzh_orig);
-					}
-					auto mhs = cs.find("zpaqstd-ma:hs");
-					if (mhs != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mhs + 13;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &hs_orig);
 					}
 				}
 				while (out.size() < output_size && d.decompress(1 << 14))
@@ -59287,18 +59231,6 @@ ThreadReturn decompressThread(void *arg)
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lzav_orig;
 			}
-			// lzfse decompress segment data if compressed externally
-			else if (lzfse_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(lzfse_orig);
-				size_t produced=lzfse_decode_buffer((uint8_t*)&decomp2[0],(size_t)lzfse_orig,(const uint8_t*)out.data(),out.size(),NULL);
-				if (produced!=(size_t)lzfse_orig)
-					error("31319 lzfse decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = lzfse_orig;
-			}
 			// bsc decompress segment data if compressed externally
 			else if (bsc_orig > 0)
 			{
@@ -59330,19 +59262,6 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(),(int)lzh_orig);
 				output_size = lzh_orig;
-			}
-			// heatshrink decompress segment data if compressed externally
-			else if (hs_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(hs_orig);
-				size_t produced=0;
-				int lzrc=hs_decompress_wrapper((const uint8_t*)out.data(),out.size(),(uint8_t*)&decomp2[0],(size_t)hs_orig,&produced);
-				if (lzrc!=0||(int64_t)produced!=hs_orig)
-					error("31319 heatshrink decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = hs_orig;
 			}
 			if (out.size() < output_size)
 			{
@@ -101567,61 +101486,6 @@ int Jidac::add()
 										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
 									}
 									delete[] lzbuf;
-								}
-							}
-						}
-					}
-					else if (g_ma_algorithm=="hs" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						// heatshrink overhead is small (~1.05x worst case). Bound to inlen + 64 bytes.
-						size_t dstCap=(size_t)orig_size+64;
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-							if (lzbuf)
-							{
-								size_t lzsz=0;
-								int lzrc=hs_compress_wrapper((const uint8_t*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
-								if (lzrc==0&&lzsz>0&&(int64_t)lzsz<orig_size-16)
-								{
-									sb.reset();
-									sb.write((const char*)lzbuf,(int)lzsz);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] lzbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lzfse" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							size_t scratch_size=lzfse_encode_scratch_size();
-							size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
-							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-							{
-								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-								unsigned char* scratch=new(std::nothrow) unsigned char[scratch_size];
-								if (lzbuf&&scratch)
-								{
-									size_t lzsz=lzfse_encode_buffer(lzbuf,dstCap,(const uint8_t*)sb.data(),(size_t)orig_size,scratch);
-									if (lzsz>0&&(int64_t)lzsz<orig_size-16)
-									{
-										sb.reset();
-										sb.write((const char*)lzbuf,(int)lzsz);
-										m="04,0";
-										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":0:"+itos(orig_size);
-									}
-									delete[] lzbuf;
-									delete[] scratch;
-								}
-								else
-								{
-									if (lzbuf) delete[] lzbuf;
-									if (scratch) delete[] scratch;
 								}
 							}
 						}

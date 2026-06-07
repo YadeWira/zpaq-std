@@ -35,8 +35,6 @@ Upstream lineage (acknowledgements, not contributors to this fork)
     * libdeflate by Eric Biggers (ebiggers) — MIT
     * lzlib by Antonio Diaz Diaz and the lzip maintainers — BSD-2
     * LZAV by Aleksey Vaneev (avaneev) — MIT
-    * heatshrink by Scott Vokes (atomicobject) — ISC
-    * LZFSE by Apple Inc. — BSD-3
     * libbsc by Ilya Grebnov — Apache-2.0
     * LZHAM by Rich Geldreich (richgel999) — Public Domain
   Each library keeps its original copyright and license. See the individual
