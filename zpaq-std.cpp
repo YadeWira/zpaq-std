@@ -8697,10 +8697,19 @@ static int lzlib_decompress_wrapper(const unsigned char* in, size_t in_size,
     size_t inpos = 0, outpos = 0;
     int ret, error = 0;
     while (1) {
-        ret = LZ_decompress_write(dec, in + inpos, (int)(in_size - inpos));
-        if (ret < 0) { error = 1; break; }
-        inpos += ret;
-        LZ_decompress_finish(dec);
+        /* Feed input incrementally. lzlib's input buffer is bounded
+         * (~64 KB), so for compressed streams larger than that a single
+         * LZ_decompress_write accepts only part of the data. Only signal
+         * end-of-input once everything has actually been written —
+         * calling LZ_decompress_finish() early (as a previous version did
+         * every iteration) corrupts the stream for multi-buffer inputs,
+         * which is why larger blocks failed to round-trip. */
+        if (inpos < in_size) {
+            ret = LZ_decompress_write(dec, in + inpos, (int)(in_size - inpos));
+            if (ret < 0) { error = 1; break; }
+            inpos += ret;
+            if (inpos >= in_size) LZ_decompress_finish(dec);
+        }
         ret = LZ_decompress_read(dec, out + outpos, (int)(out_size - outpos));
         if (ret < 0) { error = 1; break; }
         outpos += ret;
@@ -59018,7 +59027,7 @@ ThreadReturn decompressThread(void *arg)
 					if (mld != string::npos)
 					{
 						int lvl;
-						const char* p = cs.c_str() + mld + 21;
+						const char* p = cs.c_str() + mld + 18;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &libdeflate_orig);
@@ -59027,7 +59036,7 @@ ThreadReturn decompressThread(void *arg)
 					if (mlz != string::npos)
 					{
 						int lvl;
-						const char* p = cs.c_str() + mlz + 14;
+						const char* p = cs.c_str() + mlz + 13;
 						while (*p && *p != ':') p++;
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzlib_orig);
