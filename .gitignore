@@ -18,6 +18,10 @@ out/
 .cache/
 .vscode/
 .idea/
+.claude/
+
+# Local-only: Windows test VM connection notes (contains credentials)
+CONEXION-IA.md
 
 *.log
 *.tmp
