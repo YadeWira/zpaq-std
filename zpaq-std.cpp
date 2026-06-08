@@ -59890,10 +59890,13 @@ ThreadReturn decompressThread(void *arg)
 						close(fn.c_str(), date, attr, job.outf);
 						job.outf= FPNULL;
 						// -pc (Phase 1d): if the file we just wrote is an AUTHENTIC PCF
-						// stream, reverse it in place to the original. Opt-in via -pc at
-						// extract; pcf_authentic_reverse re-encodes to confirm authenticity,
+						// stream, reverse it in place to the original.
+						// pcf_authentic_reverse re-encodes to confirm authenticity,
 						// so a verbatim file that merely starts with "zPCF" is never touched.
-						if (flagprecomp)
+						/* -pc: self-describing. Attempt the reverse on EVERY extracted file
+						   (no -pc flag needed at extract). The "zPCF" magic check makes this a
+						   cheap no-op for non-PCF files; pcf_authentic_reverse only rewrites a
+						   file that decodes AND re-encodes back to the stored bytes exactly. */
 						{
 							FP rf= myfopen(fn.c_str(), RB);
 							if (rf != FPNULL)
