@@ -59908,11 +59908,15 @@ ThreadReturn decompressThread(void *arg)
 									myfclose(&rf);
 									if (rd == stored.size() && pcf_authentic_reverse(stored, orig))
 									{
+										// the original is smaller than the stored PCF; on Windows
+										// myfopen(WB) does not truncate an existing file, so delete
+										// it first to avoid leaving stale trailing PCF bytes.
+										delete_file(fn.c_str());
 										FP wf= myfopen(fn.c_str(), WB);
 										if (wf != FPNULL)
 										{
 											if (!orig.empty())
-												fwrite(&orig[0], 1, orig.size(), wf);
+												myfwrite(&orig[0], 1, orig.size(), wf);
 											close(fn.c_str(), date, attr, wf); // restore date/attr
 										}
 									}
@@ -100860,7 +100864,7 @@ int Jidac::add()
 						FP tf= myfopen(tn.c_str(), WB);
 						if (tf != FPNULL)
 						{
-							bool wok= (T.empty() || fwrite(&T[0], 1, T.size(), tf) == T.size());
+							bool wok= (T.empty() || myfwrite(&T[0], 1, T.size(), tf) == T.size());
 							myfclose(&tf);
 							FP newin= wok ? myfopen(tn.c_str(), RB) : FPNULL;
 							if (newin != FPNULL)
