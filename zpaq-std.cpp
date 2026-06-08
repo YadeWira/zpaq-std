@@ -59889,6 +59889,38 @@ ThreadReturn decompressThread(void *arg)
 							date= attr= 0; // not last frag
 						close(fn.c_str(), date, attr, job.outf);
 						job.outf= FPNULL;
+						// -pc (Phase 1d): if the file we just wrote is an AUTHENTIC PCF
+						// stream, reverse it in place to the original. Opt-in via -pc at
+						// extract; pcf_authentic_reverse re-encodes to confirm authenticity,
+						// so a verbatim file that merely starts with "zPCF" is never touched.
+						if (flagprecomp)
+						{
+							FP rf= myfopen(fn.c_str(), RB);
+							if (rf != FPNULL)
+							{
+								fseeko(rf, 0, SEEK_END);
+								int64_t fsz= ftello(rf);
+								fseeko(rf, 0, SEEK_SET);
+								if (fsz >= 5 && fsz <= ((int64_t)1 << 31))
+								{
+									std::vector<unsigned char> stored((size_t)fsz), orig;
+									size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
+									myfclose(&rf);
+									if (rd == stored.size() && pcf_authentic_reverse(stored, orig))
+									{
+										FP wf= myfopen(fn.c_str(), WB);
+										if (wf != FPNULL)
+										{
+											if (!orig.empty())
+												fwrite(&orig[0], 1, orig.size(), wf);
+											close(fn.c_str(), date, attr, wf); // restore date/attr
+										}
+									}
+								}
+								else
+									myfclose(&rf);
+							}
+						}
 					}
 					job.lastdt= job.jd.dt.end();
 				}

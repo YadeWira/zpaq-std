@@ -50,6 +50,13 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
 bool pcf_file_decode(const std::vector<unsigned char>& pcf,
                      std::vector<unsigned char>& original_out);
 
+/* Safe reverse for extraction: returns true (and sets original_out) ONLY if
+   `stored` is an AUTHENTIC PCF stream — i.e. it decodes AND re-encoding the result
+   reproduces `stored` byte-for-byte. This rejects a verbatim file that merely
+   happens to begin with the PCF magic, so it is never wrongly "reversed". */
+bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
+                           std::vector<unsigned char>& original_out);
+
 /* In-binary self-test: round-trips an embedded raw-DEFLATE constant and verifies
    the re-encode is byte-identical. Returns true on success. Used to prove preflate
    links and works inside the real zpaq-std binary on each platform. */

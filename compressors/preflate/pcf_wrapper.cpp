@@ -186,6 +186,21 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
   return true;
 }
 
+bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
+                           std::vector<unsigned char>& original_out) {
+  original_out.clear();
+  if (!pcf_is_container(stored.data(), stored.size())) return false;
+  std::vector<unsigned char> orig;
+  if (!pcf_file_decode(stored, orig)) return false;
+  /* authenticity: re-encoding the decoded original must reproduce `stored`
+     exactly, otherwise this was not a PCF stream we created (do not touch it). */
+  std::vector<unsigned char> re;
+  if (!pcf_file_encode(orig, re)) return false;
+  if (re != stored) return false;
+  original_out.swap(orig);
+  return true;
+}
+
 /* orig=2352 deflate=133 (raw deflate, wbits=-15, zlib level 6) */
 static const unsigned char PCF_TEST_DEFLATE[133] = {
   11,112,118,83,200,204,211,77,202,204,75,44,170,84,40,78,205,73,211,45,73,45,46,177,82,40,
