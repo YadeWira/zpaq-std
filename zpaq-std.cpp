@@ -8634,6 +8634,9 @@ extern "C" {
  * header is visible here; preflate's own headers stay isolated in pcf_wrapper.cpp. */
 #include "pcf_wrapper.h"
 
+/* PPMd var.H one-shot wrapper for -ma:ppmd (C API, has its own extern "C" guard) */
+#include "compressors/ppmd/ppmd_wrapper.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -55224,6 +55227,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else if (g_ma_algorithm=="lzav") g_ma_level=0;
 					else if (g_ma_algorithm=="hs") g_ma_level=0;
+						else if (g_ma_algorithm=="ppmd") g_ma_level=6; // PPMd model order
 					else g_ma_level=9;
 				}
 				if (g_ma_level<1) g_ma_level=1;
@@ -55293,9 +55297,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh";
+					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd";
 					error(msg.c_str());
 				}
 			}
@@ -58967,6 +58971,8 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lzfse_orig= 0;
 			int64_t bsc_orig= 0;
 			int64_t lzh_orig= 0;
+			int64_t ppmd_orig= 0;
+			int		ppmd_lvl= 6;
 			int64_t hs_orig= 0;
 			while (d.findFilename())
 			{
@@ -59065,7 +59071,15 @@ ThreadReturn decompressThread(void *arg)
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &libdeflate_orig);
 					}
-					auto mlz = cs.find("zpaqstd-ma:lz:");
+					auto mppmd = cs.find("zpaqstd-ma:ppmd");
+						if (mppmd != string::npos)
+						{
+							const char* pp = cs.c_str() + mppmd + 15; // strlen("zpaqstd-ma:ppmd")
+							while (*pp && *pp != ':') pp++;
+							if (*pp == ':')
+								sscanf(pp + 1, "%d:%" SCNd64, &ppmd_lvl, &ppmd_orig);
+						}
+						auto mlz = cs.find("zpaqstd-ma:lz:");
 					if (mlz != string::npos)
 					{
 						int lvl;
@@ -59268,6 +59282,20 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 libdeflate decompressor alloc failed");
 			}
 			// lzlib decompress segment data if compressed externally
+			else if (ppmd_orig > 0)
+				{
+					string decomp2;
+					decomp2.resize(ppmd_orig);
+					unsigned order= (unsigned)ppmd_lvl; if (order < 2) order= 2; if (order > 32) order= 32;
+					int ok= ppmd_decompress((const unsigned char*)out.data(), out.size(),
+											decomp2.empty() ? (unsigned char*)0 : (unsigned char*)&decomp2[0],
+											(size_t)ppmd_orig, order, 64);
+					if (!ok)
+						error("31319 ppmd decompression failed");
+					out.reset();
+					out.write(decomp2.data(), decomp2.size());
+					output_size = ppmd_orig;
+				}
 			else if (lzlib_orig > 0)
 			{
 				string decomp2;
@@ -101660,6 +101688,28 @@ int Jidac::add()
 								}
 							}
 							libdeflate_free_compressor(ldcmp);
+						}
+					}
+					else if (g_ma_algorithm=="ppmd" && sb.size()>16)
+					{
+						int64_t orig_size=sb.size();
+						size_t dstCap=(size_t)orig_size+(size_t)orig_size/2+4096; // PPMd worst-case headroom
+						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+						{
+							char* pbuf=new(std::nothrow) char[dstCap];
+							if (pbuf)
+							{
+								unsigned order=(unsigned)g_ma_level; if(order<2)order=2; if(order>32)order=32;
+								size_t psz=ppmd_compress((const unsigned char*)sb.data(),(size_t)orig_size,(unsigned char*)pbuf,dstCap,order,64);
+								if (psz>0&&(int64_t)psz<orig_size-16)
+								{
+									sb.reset();
+									sb.write(pbuf,(int)psz);
+									m="04,0";
+									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+								}
+								delete[] pbuf;
+							}
 						}
 					}
 					else if (g_ma_algorithm=="lz" && sb.size()>16)

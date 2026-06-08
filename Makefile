@@ -108,6 +108,7 @@ LIBDEFLATE_CORE_SRC := $(wildcard compressors/libdeflate/lib/*.c)
 LIBDEFLATE_X86_SRC  := $(wildcard compressors/libdeflate/lib/x86/*.c)
 LIBDEFLATE_ARM_SRC  := $(wildcard compressors/libdeflate/lib/arm/*.c)
 LZLIBSRC := compressors/lzlib/lzlib.c
+PPMDSRC  := compressors/ppmd/Ppmd7.c compressors/ppmd/Ppmd7Enc.c compressors/ppmd/Ppmd7Dec.c compressors/ppmd/ppmd_wrapper.c
 LZAVSRC  := compressors/lzav/lzav.h
 HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
@@ -146,6 +147,7 @@ BROTLIINC := -Icompressors/brotli/include -Icompressors/brotli/common
 SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
 LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm
 LZLIBINC := -Icompressors/lzlib
+PPMDINC  := -Icompressors/ppmd
 LZAVINC  := -Icompressors/lzav
 HSINC    := -Icompressors/hs
 LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
@@ -279,6 +281,7 @@ LIBDEFLATE_X86_OBJ  := $(LIBDEFLATE_X86_SRC:.c=.o)
 LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
 LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_OBJ)
 LZLIBOBJ := $(LZLIBSRC:.c=.o)
+PPMDOBJ  := $(PPMDSRC:.c=.o)
 HSOBJ    := $(HSSRC:.c=.o)
 LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
@@ -288,8 +291,8 @@ PREFLATE_ROOT_OBJ := $(PREFLATE_ROOT_SRC:.cpp=.o)
 PREFLATE_SUP_OBJ  := $(PREFLATE_SUP_SRC:.cpp=.o)
 PREFLATEOBJ := $(PREFLATE_ROOT_OBJ) $(PREFLATE_SUP_OBJ)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(PPMDOBJ) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(PPMDOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 compressors/fl2/%.o: compressors/fl2/%.c
@@ -341,6 +344,10 @@ $(PREFLATE_SUP_OBJ): compressors/preflate/support/%.o: compressors/preflate/supp
 # lzlib: single .c that #includes all other lzlib .c files (designed as one TU)
 $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZLIBINC) -c $< -o $@
+
+# ppmd (PPMd var.H, public domain): Ppmd7 model + range enc/dec + one-shot wrapper
+$(PPMDOBJ): compressors/ppmd/%.o: compressors/ppmd/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(PPMDINC) -c $< -o $@
 
 # heatshrink: encoder, decoder and one-shot wrapper
 $(HSOBJ): compressors/hs/%.o: compressors/hs/%.c
