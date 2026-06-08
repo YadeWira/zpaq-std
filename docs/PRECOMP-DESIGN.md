@@ -80,6 +80,23 @@ mixes fragments from several files — same lesson as §2).
 
 ---
 
+## 3bis. DECISION (2026-06-08): store BOTH hashes
+
+For `-pc` files we store **both**: the franz per-file `hexhash` = hash of the
+**original** file (preserves franz semantics — `l`, `-test`, external compare all
+behave normally), while the integrity of the stored **transformed (PCF)** stream is
+covered by the **per-fragment SHA-1s** (already automatic). No new metadata field is
+needed: `hexhash` is the existing field (just set to the original's value in the
+pre-pass), and fragment SHA-1s already protect the stored stream.
+
+Consequence (unavoidable in every option): the verify path must be **`-pc`-aware**,
+because stored fragments are always of the transformed stream while the on-disk file
+is the original. For a `-pc` file, `equal()`/`-test` compares the on-disk (or
+reversed) original against `hexhash`, not against per-fragment SHA-1s.
+
+Phase 0/1a status: ✅ preflate vendored + wired + bit-exact self-test passing in the
+real binary on Linux and Windows (commits `f46d705`, `41d8713`).
+
 ## 4. Integrity model (the subtle part)
 
 There are **two independent integrity layers**; keeping them straight is critical.

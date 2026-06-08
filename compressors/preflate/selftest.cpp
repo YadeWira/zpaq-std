@@ -1,13 +1,12 @@
-/* Phase-0 self-test for the vendored preflate library.
-   Proves the core -pc guarantee in isolation: a raw DEFLATE stream can be
-   decoded to {unpacked, recon-diff} and then re-encoded BYTE-IDENTICALLY.
-   Not part of the zpaq-std build; compiled standalone (see selftest command). */
+/* Standalone self-test for the vendored preflate library + the PCF file container.
+   For each input file: run pcf_file_encode (gzip/zlib/raw-deflate detection +
+   preflate) then pcf_file_decode, and assert the result is BYTE-IDENTICAL to the
+   original. Proves the whole -pc whole-file path in isolation, before it is wired
+   into add()/extract(). Not part of the zpaq-std build. */
 #include <cstdio>
 #include <cstdint>
 #include <vector>
-#include <string>
-#include "preflate_decoder.h"
-#include "preflate_reencoder.h"
+#include "pcf_wrapper.h"
 
 static bool loadfile(std::vector<unsigned char>& out, const char* fn) {
   FILE* f = fopen(fn, "rb");
@@ -20,25 +19,26 @@ static bool loadfile(std::vector<unsigned char>& out, const char* fn) {
 }
 
 int main(int argc, char** argv) {
-  int failures = 0;
+  int failures = 0, encoded = 0, skipped = 0;
   for (int i = 1; i < argc; ++i) {
-    std::vector<unsigned char> deflate_in;
-    if (!loadfile(deflate_in, argv[i])) { printf("LOAD FAIL %s\n", argv[i]); failures++; continue; }
+    std::vector<unsigned char> orig;
+    if (!loadfile(orig, argv[i])) { printf("LOAD FAIL %s\n", argv[i]); failures++; continue; }
 
-    std::vector<unsigned char> unpacked, diff;
-    bool dec = preflate_decode(unpacked, diff, deflate_in);
-    if (!dec) { printf("DECODE-UNSUPPORTED %s (size=%zu) -> would fall back verbatim\n", argv[i], deflate_in.size()); continue; }
-
-    std::vector<unsigned char> reencoded;
-    bool re = preflate_reencode(reencoded, diff, unpacked);
-    bool identical = re && (reencoded == deflate_in);
-
-    printf("%s: orig_deflate=%zu unpacked=%zu recon_diff=%zu  reencode=%s  %s\n",
-           argv[i], deflate_in.size(), unpacked.size(), diff.size(),
-           re ? "ok" : "FAIL",
-           identical ? "BIT-EXACT OK" : "MISMATCH!!!");
-    if (!identical) failures++;
+    std::vector<unsigned char> pcf;
+    if (!pcf_file_encode(orig, pcf)) {
+      printf("%-28s orig=%-9zu  NOT-RECOMPRESSIBLE -> store verbatim\n", argv[i], orig.size());
+      skipped++;
+      continue;
+    }
+    std::vector<unsigned char> back;
+    bool dec = pcf_file_decode(pcf, back);
+    bool identical = dec && (back == orig);
+    printf("%-28s orig=%-9zu pcf=%-9zu (%+5.1f%%)  %s\n",
+           argv[i], orig.size(), pcf.size(),
+           100.0 * ((double)pcf.size() - orig.size()) / (orig.size() ? orig.size() : 1),
+           identical ? "ROUND-TRIP BIT-EXACT OK" : "MISMATCH!!!");
+    if (!identical) failures++; else encoded++;
   }
-  printf(failures ? "\nSELFTEST: %d FAILURE(S)\n" : "\nSELFTEST: ALL BIT-EXACT\n", failures);
+  printf("\nSELFTEST: %d ok, %d skipped, %d FAILURE(S)\n", encoded, skipped, failures);
   return failures ? 1 : 0;
 }

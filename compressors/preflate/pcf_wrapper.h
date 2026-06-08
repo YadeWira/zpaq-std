@@ -28,6 +28,28 @@ bool pcf_deflate_reencode(const std::vector<unsigned char>& unpacked,
                           const std::vector<unsigned char>& recon,
                           std::vector<unsigned char>& deflate_out);
 
+/* ---- File-level PCF container (whole-file MVP; generalises to embedded streams) ----
+
+   A PCF stream is: magic "zPCF", version, then a list of segments — each either a
+   literal passthrough or a recompressed DEFLATE block (recon + unpacked). This lets
+   us strip a gzip/zlib wrapper (stored as literals) around a DEFLATE payload and
+   recompress only the payload, reconstructing the exact original. */
+
+/* True if buf begins with the PCF magic. */
+bool pcf_is_container(const unsigned char* buf, size_t len);
+
+/* Try to turn an original file (gzip / zlib / raw-DEFLATE) into a PCF stream.
+   Performs an internal byte-exact verify (decode(encode(x)) == x) and returns false
+   if the file is not a recompressible stream OR the verify fails — in which case the
+   caller stores the file verbatim (never any corruption risk). On success, pcf_out
+   holds the PCF stream and *out is always larger-or-similar (the win is downstream). */
+bool pcf_file_encode(const std::vector<unsigned char>& original,
+                     std::vector<unsigned char>& pcf_out);
+
+/* Reverse a PCF stream to the exact original bytes. False if not a valid PCF. */
+bool pcf_file_decode(const std::vector<unsigned char>& pcf,
+                     std::vector<unsigned char>& original_out);
+
 /* In-binary self-test: round-trips an embedded raw-DEFLATE constant and verifies
    the re-encode is byte-identical. Returns true on success. Used to prove preflate
    links and works inside the real zpaq-std binary on each platform. */
