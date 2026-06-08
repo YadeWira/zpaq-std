@@ -54415,7 +54415,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 	// -innosetup: mute every normal message (myprintf is gated by flagsilent) so the
 	// only thing on stdout is the bare progress percentage emitted by print_progress().
 	if (flaginnosetup)
+	{
 		flagsilent= true;
+		// Make stdout UNBUFFERED. When the installer runs us via
+		// `Exec(... > progress.txt)` and polls that file with a timer, a redirected
+		// stdout is block-buffered (4 KB) — the file would stay empty/stale until the
+		// process exits. Unbuffered guarantees each percentage hits the file live.
+		setvbuf(stdout, NULL, _IONBF, 0);
+	}
 
 	if (flagdebug3)
 		g_programflags.debugga();

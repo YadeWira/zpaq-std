@@ -102,9 +102,42 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
 
 ---
 
+## Installer progress: `-innosetup`
+
+`-innosetup` replaces all normal output with **only the integer progress percentage**
+— one value (`0`..`100`) per line on stdout, written **unbuffered** and only when it
+changes, always ending with a final `100` on success. Everything else is silenced, so
+the stream is trivially parseable by an installer.
+
+Typical Inno Setup use is `Exec` via `cmd /c` redirecting stdout to a file, polled by a
+timer that reads the **last** line:
+
+```bash
+zpaq-std a "app.zpaq" "C:\src" -pc -ma:flzma2 -innosetup
+# -> 1  2  5  9 ... 99 100   (one per line, last line = current %)
+```
+
+```pascal
+{ Inno Setup [Code]: read the current percentage from the redirected log }
+function CurrentPercent(const LogFile: string): Integer;
+var Lines: TArrayOfString; i: Integer; s: string;
+begin
+  Result := -1;
+  if LoadStringsFromFile(LogFile, Lines) then
+    for i := GetArrayLength(Lines) - 1 downto 0 do begin
+      s := Trim(Lines[i]);
+      if s <> '' then begin Result := StrToIntDef(s, -1); Exit; end;
+    end;
+end;
+```
+
+Run it with `Exec(ExpandConstant('{cmd}'), '/C ""zpaq-std.exe" ... -innosetup > "{tmp}\p.txt""', '', SW_HIDE, ewNoWait, rc)`, then on a timer read `CurrentPercent('{tmp}\p.txt')` into your `TOutputProgressWizardPage`. (Parse the **last** line — the file accumulates one line per percent.)
+
+---
+
 ## No system dependencies
 
-All 17 libraries live inside `compressors/`:
+All 18 libraries live inside `compressors/`:
 
 ```
 compressors/
