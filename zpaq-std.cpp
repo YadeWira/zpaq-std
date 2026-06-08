@@ -100857,7 +100857,19 @@ int Jidac::add()
 								// "archive incompleted" at posterrori(). p->second.size
 								// (the recorded original size) is intentionally unchanged.
 								total_size+= (int64_t)T.size() - p->second.size;
-								p->second.expectedsize= (int64_t)T.size();
+								{
+										uint32_t pcfcrc= 0;
+										for (size_t off= 0; off < T.size();)
+										{
+											size_t ck= T.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+											pcfcrc= crc32_16bytes((char *)&T[off], (int)ck, pcfcrc);
+											off+= ck;
+										}
+										// file_crc32 = CRC of the STORED PCF (matches per-block CRCs /
+										// the 't' verify). hexhash stays the original's identity.
+										p->second.file_crc32= pcfcrc;
+									}
+									p->second.expectedsize= (int64_t)T.size();
 								flagpc_file= true;
 								pc_tmpname = tn;
 							}
