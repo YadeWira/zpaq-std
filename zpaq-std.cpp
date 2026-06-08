@@ -8548,9 +8548,13 @@ extern "C" int LZ4_compress_HC (const char* src, char* dst, int srcSize, int dst
  * LZ4_compress_fast when -ma:lz4 or -ma:lz4f is used. Provide it. */
 extern "C" int LZ4_compress_fast (const char* src, char* dst, int srcSize, int dstCapacity, int acceleration)
 {
-	/* Use a fresh stream and call LZ4_compress_fast_continue. */
-	void* workspace[64];
-	LZ4_stream_t* stream = LZ4_initStream(workspace, sizeof(workspace));
+	/* Use a fresh stream and call LZ4_compress_fast_continue.
+	 * Must give LZ4_initStream the FULL LZ4_stream_t size (~16 KB); the
+	 * old 512-byte workspace made LZ4_initStream return NULL for any
+	 * non-tiny input, so -ma:lz4 silently fell back to zpaq's internal
+	 * codec on Windows. Use the real struct so it actually compresses. */
+	LZ4_stream_t lz4state;
+	LZ4_stream_t* stream = LZ4_initStream(&lz4state, sizeof(lz4state));
 	if (!stream) return 0;
 	int r = LZ4_compress_fast_continue(stream, src, dst, srcSize, dstCapacity, acceleration);
 	return r;
