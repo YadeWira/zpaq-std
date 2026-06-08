@@ -1,5 +1,12 @@
 ### [Unreleased] - 2026-06-08
 
+**New `-ma:ppmd` external compressor** — PPMd var.H (public-domain Ppmd7 from the
+7-Zip / LZMA SDK), bundled under `compressors/ppmd/`. A context-modeling (PPM) codec,
+a different family from the existing LZ/LZMA/BWT set; strong on natural-language text
+(beats brotli/flzma2 by ~20% on prose) and a good pair with `-pc`. `-ma:ppmd:N`
+selects the model order (2–32, default 6); 64 MB model, thread-safe, round-trip
+verified. Bundled external algorithms: 17 → 18.
+
 **New `-pc` precompressor (preflate stream recompression).** Reversibly decodes
 embedded DEFLATE streams to raw before compression and re-encodes them bit-exactly
 on extraction, so the `-ma`/zpaq stage compresses the underlying data instead of an
