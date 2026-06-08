@@ -2118,6 +2118,7 @@ bool flagnosort;
 bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
+bool flagprecomp;	// -pc : stream-recompression precompressor (preflate/PCF)
 bool flagcatpaqmode;
 bool flagdistinct;
 bool flagparanoid;
@@ -54415,6 +54416,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
 	g_programflags.add(&flaginnosetup,		"-innosetup",			"Output ONLY progress %% (one int per line) for Inno Setup",	"");
+	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress gzip/zlib streams (preflate) before storing",	"a;");
 
 
 	for (int i=0; i<argc; i++)
@@ -100749,6 +100751,8 @@ int Jidac::add()
 		int				bufptr= 0, buflen= 0; // read pointer and limit
 		DTMap::iterator p;
 		bool			flagmemfile= false;
+		bool			flagpc_file= false;	// -pc: this file was stored as a PCF stream
+		string			pc_tmpname = "";	// -pc: temp file holding the PCF stream (deleted after)
 
 		if (fi < vf.size())
 		{
@@ -100790,6 +100794,69 @@ int Jidac::add()
 						p->second.expectedsize= ftello(in);
 						fseeko(in, 0, SEEK_SET);
 					}
+				}
+			}
+			// -pc PRECOMPRESSOR (Phase 1c): if enabled and the whole file is a gzip/zlib
+			// stream, recompress it to a self-describing PCF container before fragmentation.
+			// Per-file hashes are computed over the ORIGINAL (fed once here), so hexhash/
+			// file_crc32 stay the original's; the stored (fragmented) content is the PCF
+			// stream, reversed on extraction. verify-then-fallback inside pcf_file_encode
+			// guarantees no corruption: a file that does not round-trip is stored verbatim.
+			if (flagprecomp && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
+			    && p->second.expectedsize >= 18
+			    && p->second.expectedsize <= ((int64_t)512 << 20))
+			{
+				unsigned char sniff[3]= {0, 0, 0};
+				size_t got= fread(sniff, 1, 3, in);
+				fseeko(in, 0, SEEK_SET);
+				bool gz = (got == 3 && sniff[0] == 0x1f && sniff[1] == 0x8b && sniff[2] == 0x08);
+				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
+				if (gz || zlb)
+				{
+					std::vector<unsigned char> O((size_t)p->second.expectedsize);
+					size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
+					std::vector<unsigned char> T;
+					if (rd == O.size() && pcf_file_encode(O, T))
+					{
+						string td;
+#ifdef _WIN32
+						td= g_realtemp();
+#else
+						{ const char *e= getenv("TMPDIR"); td= (e && *e) ? e : "/tmp"; if (!td.empty() && td[td.size() - 1] != '/') td+= '/'; }
+#endif
+						string tn= td + "zpsd_pcf_" + itos(g_start) + "_" + itos((int64_t)fi) + ".tmp";
+						FP tf= myfopen(tn.c_str(), WB);
+						if (tf != FPNULL)
+						{
+							bool wok= (T.empty() || fwrite(&T[0], 1, T.size(), tf) == T.size());
+							myfclose(&tf);
+							FP newin= wok ? myfopen(tn.c_str(), RB) : FPNULL;
+							if (newin != FPNULL)
+							{
+								myfclose(&in);
+								in= newin;
+								if (g_franzotype > 0)
+									for (size_t off= 0; off < O.size();)
+									{
+										size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+										updatehash(&p, (char *)&O[off], (int)ck);
+										off+= ck;
+									}
+								// the loop will now process the PCF stream (T), not the
+								// original, so keep total_size in step with total_done
+								// (which sums fragment sizes of T) to avoid a false
+								// "archive incompleted" at posterrori(). p->second.size
+								// (the recorded original size) is intentionally unchanged.
+								total_size+= (int64_t)T.size() - p->second.size;
+								p->second.expectedsize= (int64_t)T.size();
+								flagpc_file= true;
+								pc_tmpname = tn;
+							}
+							else { delete_file(tn.c_str()); fseeko(in, 0, SEEK_SET); }
+						}
+						else fseeko(in, 0, SEEK_SET);
+					}
+					else fseeko(in, 0, SEEK_SET);
 				}
 			}
 			p->second.data= 1; // add in every case
@@ -101021,7 +101088,7 @@ int Jidac::add()
 					if (bufptr == 0)
 						if (buflen > 0)
 						{
-							if (g_franzotype > 0)
+							if (g_franzotype > 0 && !flagpc_file) // -pc: original already hashed in pre-pass
 								updatehash(&p, buf, buflen);
 							if (!flagnoeta)
 							{
@@ -101899,6 +101966,9 @@ int Jidac::add()
 				if (!flagstdin)
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 					myfclose(&in);
+			// -pc: drop the temporary PCF stream file once the source has been read
+			if (flagpc_file && !pc_tmpname.empty())
+				delete_file(pc_tmpname.c_str());
 		}
 	}
 	assert(sb.size() == 0);
