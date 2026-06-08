@@ -54,7 +54,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 */
 #ifdef _WIN64
-#define _WIN32_WINNT 0x0A00 // target Windows 10 (XP/Vista support dropped)
+#define _WIN32_WINNT 0x0601 // target Windows 7+ (XP/Vista support dropped; verified on Win7 SP1)
 #endif
 
 
