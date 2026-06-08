@@ -6,6 +6,7 @@
 #include <utility>
 #include "preflate_decoder.h"
 #include "preflate_reencoder.h"
+#include "support/memstream.h"
 
 bool pcf_deflate_decode(const unsigned char* deflate, size_t deflate_len,
                         std::vector<unsigned char>& unpacked,
@@ -180,6 +181,56 @@ static bool scan_zip(const std::vector<unsigned char>& f,
   return !regions.empty();
 }
 
+/* Decode a DEFLATE stream of UNKNOWN length starting at buf, reporting how many
+   bytes were consumed. Uses the streaming preflate API (MemStream). For embedded
+   scanning where stream boundaries aren't known up front. */
+static bool deflate_decode_sized(const unsigned char* buf, size_t len,
+                                 std::vector<unsigned char>& unpacked,
+                                 std::vector<unsigned char>& recon,
+                                 size_t min_size, size_t& consumed) {
+  unpacked.clear(); recon.clear(); consumed = 0;
+  if (!buf || len < min_size) return false;
+  std::vector<uint8_t> in(buf, buf + len);
+  MemStream is(in), os;
+  uint64_t dsize = 0;
+  try {
+    if (!preflate_decode(os, recon, dsize, is, [](){}, min_size)) return false;
+  } catch (...) { return false; }
+  if (dsize == 0) return false;
+  unpacked = os.extractData();
+  consumed = (size_t)dsize;
+  return true;
+}
+
+/* Scan a buffer (e.g. a PDF) for embedded zlib streams (CMF/FLG header with
+   CM=8 and (CMF<<8|FLG)%31==0), recompressing the DEFLATE payload of each. The
+   returned regions are the raw DEFLATE spans [start,end) (the 2-byte zlib header
+   and 4-byte adler stay in surrounding literals). Bounded by a decode-attempt cap.
+   verify-then-fallback at the file level makes a wrong guess harmless. */
+static bool scan_zlib_streams(const std::vector<unsigned char>& f,
+                              std::vector<std::pair<size_t, size_t> >& regions) {
+  const size_t n = f.size();
+  const size_t MINDEF = 64;       /* ignore tiny would-be streams */
+  int attempts = 0, kMaxAttempts = 4096;
+  size_t i = 0;
+  while (i + 2 < n && attempts < kMaxAttempts) {
+    bool zlibhdr = ((f[i] & 0x0f) == 0x08) && ((f[i] & 0x80) == 0)
+                   && ((((unsigned)f[i] << 8) | f[i + 1]) % 31 == 0);
+    if (!zlibhdr) { ++i; continue; }
+    ++attempts;
+    std::vector<unsigned char> u, r;
+    size_t consumed = 0;
+    if (deflate_decode_sized(&f[i + 2], n - (i + 2), u, r, MINDEF, consumed)
+        && consumed >= MINDEF && (i + 2 + consumed) <= n) {
+      regions.push_back(std::make_pair(i + 2, i + 2 + consumed));
+      i = i + 2 + consumed + 4; /* skip header+deflate+adler */
+    } else {
+      ++i;
+    }
+  }
+  return !regions.empty();
+}
+
 /* Build a multi-segment PCF: literal gaps interleaved with recompressed DEFLATE
    regions. Regions that do not preflate-decode are left inside literals. */
 static bool build_pcf_multi(const std::vector<unsigned char>& f,
@@ -277,6 +328,15 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
       && original[2] == 0x03 && original[3] == 0x04) {
     std::vector<std::pair<size_t, size_t> > regions;
     if (scan_zip(original, regions))
+      built = build_pcf_multi(original, regions, cand);
+  }
+
+  /* PDF: scan for embedded zlib (FlateDecode) streams. Gated on the %PDF magic
+     so the heuristic zlib scan never runs on arbitrary files. */
+  if (!built && original.size() >= 5 && original[0] == '%' && original[1] == 'P'
+      && original[2] == 'D' && original[3] == 'F') {
+    std::vector<std::pair<size_t, size_t> > regions;
+    if (scan_zlib_streams(original, regions))
       built = build_pcf_multi(original, regions, cand);
   }
 
