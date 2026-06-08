@@ -109,16 +109,29 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
 changes, always ending with a final `100` on success. Everything else is silenced, so
 the stream is trivially parseable by an installer.
 
-Typical Inno Setup use is `Exec` via `cmd /c` redirecting stdout to a file, polled by a
-timer that reads the **last** line:
+Output contract:
 
 ```bash
 zpaq-std a "app.zpaq" "C:\src" -pc -ma:flzma2 -innosetup
-# -> 1  2  5  9 ... 99 100   (one per line, last line = current %)
+# -> 1  2  5  9 ... 99 100   (one integer per line; last line = current %; ends at 100)
 ```
 
+- one integer `0..100` per line, **only when it changes**, nothing else on stdout;
+- stdout is **unbuffered**, so a redirected file updates live;
+- always a final **`100`** on success (use it as the "finished" signal);
+- works for both `a` (add) and `x`/`t` (extract).
+
+### Turnkey Inno Setup `[Code]`
+
+Run zpaq-std via `cmd /c` (so `>` redirection works), non-blocking (`ewNoWait`), then
+poll the log file, updating the progress page until it reports `100`:
+
 ```pascal
-{ Inno Setup [Code]: read the current percentage from the redirected log }
+[Code]
+var
+  ProgressPage: TOutputProgressWizardPage;
+
+{ current percentage = last non-empty line of the log (the file grows one line per %) }
 function CurrentPercent(const LogFile: string): Integer;
 var Lines: TArrayOfString; i: Integer; s: string;
 begin
@@ -129,9 +142,44 @@ begin
       if s <> '' then begin Result := StrToIntDef(s, -1); Exit; end;
     end;
 end;
+
+procedure RunZpaqStd;
+var
+  exe, log, params: string;
+  rc, pct, idle: Integer;
+begin
+  exe := ExpandConstant('{app}\zpaq-std.exe');
+  log := ExpandConstant('{tmp}\zpaq_progress.txt');
+  { the outer "" around the whole cmd /c command are required by cmd.exe }
+  params := '/C ""' + exe + '" a "' + ExpandConstant('{app}\data.zpaq') + '" "'
+            + ExpandConstant('{src}') + '" -pc -ma:flzma2 -innosetup > "' + log + '""';
+
+  ProgressPage := CreateOutputProgressPage('Installing', 'Compressing files...');
+  ProgressPage.SetProgress(0, 100);
+  ProgressPage.Show;
+  try
+    Exec(ExpandConstant('{cmd}'), params, '', SW_HIDE, ewNoWait, rc);
+    pct := 0; idle := 0;
+    while pct < 100 do begin
+      Sleep(200);
+      case CurrentPercent(log) of
+        -1: begin idle := idle + 1; if idle > 600 then Break; end; { ~2 min watchdog }
+      else
+        pct := CurrentPercent(log);
+        ProgressPage.SetProgress(pct, 100);
+        WizardForm.Refresh;
+      end;
+    end;
+    ProgressPage.SetProgress(100, 100);
+  finally
+    ProgressPage.Hide;
+  end;
+end;
 ```
 
-Run it with `Exec(ExpandConstant('{cmd}'), '/C ""zpaq-std.exe" ... -innosetup > "{tmp}\p.txt""', '', SW_HIDE, ewNoWait, rc)`, then on a timer read `CurrentPercent('{tmp}\p.txt')` into your `TOutputProgressWizardPage`. (Parse the **last** line — the file accumulates one line per percent.)
+> Notes: the final `100` is the natural completion signal — no need to track the
+> process handle. Parse the **last** line (the file accumulates `1\n2\n…\n100`), not
+> the whole file. The watchdog avoids hanging if the tool can't start.
 
 ---
 
