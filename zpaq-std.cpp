@@ -54,7 +54,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 */
 #ifdef _WIN64
-#define _WIN32_WINNT 0x0600
+#define _WIN32_WINNT 0x0A00 // target Windows 10 (XP/Vista support dropped)
 #endif
 
 
@@ -1667,10 +1667,6 @@ Alpine Linux
 Sorry, cannot make pthread work
 Just run with -t1 (aka: multithread is disabled)
 
-Windows XP 
-Newer zpaqfranz32.exe (>=60.10) more or less works on XP
-Please do not use "strange" things (ADS & whatever)
-
 Rockylinux 9
 gcc 11.5.0
 g++ -O3 zpaqfranz.cpp -o zpaqfranz -pthread
@@ -2294,16 +2290,6 @@ MAPPAERRORS				  g_errors;
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 
 int g_console_attributes= -1;
-bool iswindowsxp()
-{
-#ifdef _WIN32
-	// Fast method: se GetTickCount64 non esiste, è XP/2003
-	HMODULE hKernel= GetModuleHandleW(L"kernel32.dll");
-	return (hKernel && GetProcAddress(hKernel, "GetTickCount64") == NULL);
-#else
-	return false;
-#endif
-}
 
 
 
@@ -27012,17 +26998,6 @@ string internalutctolocal(const string &i_date)
 
 string ConvertUtcToLocalTime(const string &i_date)
 {
-	if (iswindowsxp()) /// Windows XP, Windows Server 2003
-	{
-		if (flagdebug3)
-		{
-			color_cyan();
-			printbar('+');
-			myprintf("29643: WARNING: XP or 2003, do not convert to local time!\n");
-			color_restore();
-		}
-		return i_date;
-	}
 	return internalutctolocal(i_date);
 }
 
@@ -54749,8 +54724,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		if ((!flagpakka) && (!flagstdout) && (!flagterse))
 		{
 			char buffer[300];
-			if (iswindowsxp())
-				textnojit+="-WinXP";
 
 #ifndef ZPAQFULL
 		snprintf(buffer,sizeof(buffer),"zpaq-std-open v" ZPAQ_VERSION "%s" TEXT_BIG TEXT_ALIGN TEXT_HWPRE TEXT_HWBLAKE3 TEXT_HWSHA1 TEXT_HWSHA2 TEXT_IPV ZSFX_VERSION ZPAQ_DATE,textnojit.c_str()); 
@@ -71534,9 +71507,6 @@ string win_getlong(const string &i_file)
 				return std::wstring(path, path + rcode);
 		}
 	*/
-	if (iswindowsxp())
-		return i_file;
-
 	if (getFinalPathNameByHandleW == NULL)
 	{
 		myprintf("01844: GURU: getFinalPathNameByHandleW is NULL (very old windows?)\n");
@@ -72040,8 +72010,6 @@ int Jidac::loadzfsdiff(string i_filediff, vector<string> &o_added, vector<string
 void Jidac::pc_info()
 {
 #ifdef _WIN32
-	if (iswindowsxp())
-		myprintf("72945: This seems Windows XP!\n");
 	/*
 	#ifdef _WIN64
 		int64_t wifemem=getwifesize();
