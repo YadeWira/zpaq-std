@@ -1,3 +1,18 @@
+### [Unreleased] - 2026-06-08
+
+**Windows: full `-ma` parity (16/16 external compressors)**
+
+- Fixed a Makefile bug where `CC` was not cross-prefixed (only `CXX` was), so the
+  bundled **C** codecs (flzma2, lz5, lizard, bzip2, bzip3, brotli, libdeflate, lzlib)
+  were compiled with the host `cc` into host ELF objects and linked into the Windows
+  PE — their relocations were wrong for the target and the codec functions returned
+  garbage, so `-ma` silently fell back to zpaq's internal codec. C++ codecs (zstd,
+  snappy, bsc, lzham) were unaffected (they use `$(CXX)`). Now all bundled C codecs
+  build as proper target objects.
+- Fixed the Windows `LZ4_compress_fast` stub (512-byte workspace → full `LZ4_stream_t`),
+  so `-ma:lz4/lz4hc/lz4f` apply instead of falling back.
+- Result: **16/16 `-ma` round-trip verified on real Windows 10**, matching Linux.
+
 ### [Unreleased] - 2026-06-07
 
 **Windows 7+ cross-compile support**

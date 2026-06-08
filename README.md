@@ -115,9 +115,10 @@ The 32-bit Linux build (`make m32`) uses `g++-multilib` and forces the older C++
 
 The Windows cross-compile via `make CROSS_COMPILE=x86_64-w64-mingw32-` produces a
 self-contained `zpaq-std.exe` (static MinGW runtime, links only `msvcrt` + core
-system DLLs) that runs on a clean Windows 7+ box. Verified on Windows 10 LTSC: the
-binary loads and the `lz4`, `lzav`, `bsc` and `lzh` external passes round-trip
-correctly. The `i686-w64-mingw32-` (32-bit) variant uses the same flags.
+system DLLs) that runs on a clean Windows 7+ box. Verified on Windows 10: the binary
+loads and **all 16 `-ma` external compressors round-trip correctly** (full parity
+with the native Linux build, SHA-1 verified). The `i686-w64-mingw32-` (32-bit)
+variant uses the same flags.
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
