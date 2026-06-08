@@ -1,5 +1,13 @@
 ### [Unreleased] - 2026-06-08
 
+**New `-innosetup` flag** — replaces all normal output with *only* the progress
+percentage: a single integer `0..100` per line, written to stdout and flushed
+only when it changes, ending with a guaranteed `100` on success. Implies
+`-silent` so nothing else reaches stdout. Designed for an Inno Setup installer
+that runs zpaq-std (compress or extract) and reads the pipe with `StrToInt()` to
+drive a progress bar. Works for both `a` (add) and `x`/`t` (extract), since both
+go through the shared `print_progress()` hook. Verified round-trip on Linux.
+
 **`-ma:hs` (heatshrink) and `-ma:lzfse` restored** — they had been removed
 (see 2026-06-07 below) after crashing on Windows, but that crash was the *same*
 `CC` cross-prefix bug as the other Windows `-ma` failures. With it fixed they work

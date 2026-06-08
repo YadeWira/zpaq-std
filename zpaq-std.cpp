@@ -2117,6 +2117,7 @@ bool flagnorecursion;
 bool flagnosort;
 bool flaglast;
 bool flagpakka;
+bool flaginnosetup;
 bool flagcatpaqmode;
 bool flagdistinct;
 bool flagparanoid;
@@ -50480,6 +50481,24 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
     // Parameter validation
     if (td > ts)
         td = ts;
+
+    // INNOSETUP MODE: emit ONLY the integer progress percentage (0..100), one per line,
+    // flushed, and only when it changes. Nothing else reaches stdout (flagsilent mutes the
+    // rest), so an Inno Setup [Code] pipe reader can StrToInt() each line into a progress bar.
+    if (flaginnosetup)
+    {
+        int ip = (int)(td * 100.0 / (ts + 0.5));
+        if (ip < 0)   ip = 0;
+        if (ip > 100) ip = 100;
+        if (ip != ultima_percentuale)
+        {
+            ultima_percentuale = ip;
+            printf("%d\n", ip);
+            fflush(stdout);
+        }
+        return;
+    }
+
     if (td < 1000000)
         return;
 
@@ -54391,7 +54410,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flaghw,				"-hw",					"Use HW SHA1",										"a;x;");
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
-	
+	g_programflags.add(&flaginnosetup,		"-innosetup",			"Output ONLY progress %% (one int per line) for Inno Setup",	"");
+
 
 	for (int i=0; i<argc; i++)
 	{
@@ -54407,7 +54427,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 		flagdebug=true;
 	if (flagdebug)
 		flagverbose=true;
-	
+
+	// -innosetup: mute every normal message (myprintf is gated by flagsilent) so the
+	// only thing on stdout is the bare progress percentage emitted by print_progress().
+	if (flaginnosetup)
+		flagsilent= true;
+
 	if (flagdebug3)
 		g_programflags.debugga();
 
@@ -59718,7 +59743,7 @@ ThreadReturn decompressThread(void *arg)
 										uint64_t showsize= 20000000;
 										if (minsize > 0)
 											showsize= minsize;
-										if ((zerofill + usize) > showsize)
+										if (((zerofill + usize) > showsize) && !flaginnosetup)
 										{
 											double eta= 0.001 * (mtime() - g_start) * (job.total_size - job.total_done) / (job.total_done + 1.0);
 											if (job.total_done == 0)
@@ -64463,7 +64488,13 @@ extern "C" {
 #ifdef unix
 int main(int argc, const char **argv)
 {
-    return zpaq_main_internal(argc, argv);
+    int rc = zpaq_main_internal(argc, argv);
+    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the Inno Setup progress bar
+    {
+        printf("100\n");
+        fflush(stdout);
+    }
+    return rc;
 }
 #else
 #ifdef _MSC_VER
@@ -64483,7 +64514,13 @@ int main()
         args[i] = wtou(argw[i]);
         argp[i] = args[i].c_str();
     }
-    return zpaq_main_internal(argc, &argp[0]);
+    int rc = zpaq_main_internal(argc, &argp[0]);
+    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the Inno Setup progress bar
+    {
+        printf("100\n");
+        fflush(stdout);
+    }
+    return rc;
 }
 #endif // unix
 #endif // ifndef DLL
