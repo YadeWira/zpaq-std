@@ -100820,7 +100820,8 @@ int Jidac::add()
 				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
 				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
 				bool pdf= (got >= 4 && sniff[0] == '%' && sniff[1] == 'P' && sniff[2] == 'D' && sniff[3] == 'F'); // %PDF
-				if (gz || zlb || zip || pdf)
+				bool png= (got >= 4 && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47); // PNG
+				if (gz || zlb || zip || pdf || png)
 				{
 					std::vector<unsigned char> O((size_t)p->second.expectedsize);
 					size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
