@@ -120,6 +120,11 @@ else
   LZHAM_THREADING := compressors/lzham/lzham_pthreads_threading.cpp
 endif
 LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp compressors/lzham/lzham_lzcomp.cpp compressors/lzham/lzham_lzcomp_internal.cpp compressors/lzham/lzham_lzcomp_state.cpp compressors/lzham/lzham_match_accel.cpp $(LZHAM_THREADING) compressors/lzham/lzham_assert.cpp compressors/lzham/lzham_checksum.cpp compressors/lzham/lzham_huffman_codes.cpp compressors/lzham/lzham_lzdecomp.cpp compressors/lzham/lzham_lzdecompbase.cpp compressors/lzham/lzham_mem.cpp compressors/lzham/lzham_polar_codes.cpp compressors/lzham/lzham_prefix_coding.cpp compressors/lzham/lzham_symbol_codec.cpp compressors/lzham/lzham_vector.cpp compressors/lzham/lzham_platform.cpp compressors/lzham/lzham_timer.cpp
+# preflate (Apache-2.0): C++ stream-recompression library for -pc. selftest.cpp is
+# standalone (has its own main) and must NOT be linked into the binary.
+PREFLATE_ROOT_SRC := $(filter-out compressors/preflate/selftest.cpp,$(wildcard compressors/preflate/*.cpp))
+PREFLATE_SUP_SRC  := $(wildcard compressors/preflate/support/*.cpp)
+
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
 LZ5INC  := -Icompressors/lz5
@@ -147,6 +152,7 @@ LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
 ZOPFLIINC :=
 BSCINC    := -Icompressors/bsc/libbsc -Icompressors/bsc/lzp -Icompressors/bsc/coder -Icompressors/bsc/coder/qlfc -Icompressors/bsc/bwt -Icompressors/bsc/bwt/libsais -Icompressors/bsc/st -Icompressors/bsc/adler32 -Icompressors/bsc/platform -Icompressors/bsc/filters
 LZHAMINC  := -Icompressors/lzham
+PREFLATEINC := -Icompressors/preflate -Icompressors/preflate/support
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
 
 # Download URLs
@@ -278,9 +284,12 @@ LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
+PREFLATE_ROOT_OBJ := $(PREFLATE_ROOT_SRC:.cpp=.o)
+PREFLATE_SUP_OBJ  := $(PREFLATE_SUP_SRC:.cpp=.o)
+PREFLATEOBJ := $(PREFLATE_ROOT_OBJ) $(PREFLATE_SUP_OBJ)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 compressors/fl2/%.o: compressors/fl2/%.c
@@ -321,6 +330,13 @@ $(LIBDEFLATE_X86_OBJ): compressors/libdeflate/lib/x86/%.o: compressors/libdeflat
 
 $(LIBDEFLATE_ARM_OBJ): compressors/libdeflate/lib/arm/%.o: compressors/libdeflate/lib/arm/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LIBDEFLATEINC) -c $< -o $@
+
+# preflate: C++ (g++), root + support/ subdirs. -DZ_SOLO -DNO_GZIP matches upstream.
+$(PREFLATE_ROOT_OBJ): compressors/preflate/%.o: compressors/preflate/%.cpp
+	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) -DZ_SOLO -DNO_GZIP -c $< -o $@
+
+$(PREFLATE_SUP_OBJ): compressors/preflate/support/%.o: compressors/preflate/support/%.cpp
+	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) -DZ_SOLO -DNO_GZIP -c $< -o $@
 
 # lzlib: single .c that #includes all other lzlib .c files (designed as one TU)
 $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c

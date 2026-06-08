@@ -8643,6 +8643,10 @@ extern "C" {
 }
 #endif
 
+/* preflate bridge for -pc (C++ API, std::vector — NOT extern "C"). Only this thin
+ * header is visible here; preflate's own headers stay isolated in pcf_wrapper.cpp. */
+#include "pcf_wrapper.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -64549,6 +64553,16 @@ int zpaq_main_internal(int argc, const char **argv)
 #endif
 
     pjidac = NULL;
+
+    // -pc Phase 1a: prove preflate links and round-trips bit-exact inside the real
+    // binary. Gated by env var so it never affects normal runs. Remove once -pc ships.
+    if (getenv("ZPAQ_PCF_SELFTEST"))
+    {
+        bool pcok = pcf_autotest();
+        printf("PCF_SELFTEST: %s\n", pcok ? "BIT-EXACT OK" : "FAIL");
+        fflush(stdout);
+        return pcok ? 0 : 1;
+    }
 
     if (!isatty(fileno(stdout)))
         flagnocolor = true;
