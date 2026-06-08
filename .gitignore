@@ -22,6 +22,10 @@ out/
 
 # Local-only: Windows test VM connection notes (contains credentials)
 CONEXION-IA.md
+CONEXION-IA-W7.md
+
+# Local-only: built test binaries (not source)
+win7test/
 
 *.log
 *.tmp
