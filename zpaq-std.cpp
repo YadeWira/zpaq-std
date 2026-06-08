@@ -100813,12 +100813,13 @@ int Jidac::add()
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
-				unsigned char sniff[3]= {0, 0, 0};
-				size_t got= fread(sniff, 1, 3, in);
+				unsigned char sniff[4]= {0, 0, 0, 0};
+				size_t got= fread(sniff, 1, 4, in);
 				fseeko(in, 0, SEEK_SET);
-				bool gz = (got == 3 && sniff[0] == 0x1f && sniff[1] == 0x8b && sniff[2] == 0x08);
+				bool gz = (got >= 3 && sniff[0] == 0x1f && sniff[1] == 0x8b && sniff[2] == 0x08);
 				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
-				if (gz || zlb)
+				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
+				if (gz || zlb || zip)
 				{
 					std::vector<unsigned char> O((size_t)p->second.expectedsize);
 					size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);

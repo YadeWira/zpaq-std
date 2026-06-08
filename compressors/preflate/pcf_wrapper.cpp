@@ -2,6 +2,8 @@
    This is the ONLY translation unit that includes preflate headers. */
 #include "pcf_wrapper.h"
 #include <cstdint>
+#include <algorithm>
+#include <utility>
 #include "preflate_decoder.h"
 #include "preflate_reencoder.h"
 
@@ -123,6 +125,110 @@ static bool build_pcf(const std::vector<unsigned char>& f, size_t d0, size_t d1,
   return true;
 }
 
+/* ---- Phase 2: embedded-stream scanning (ZIP) ---- */
+
+static uint32_t rd32(const unsigned char* p) {
+  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static uint16_t rd16(const unsigned char* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+
+/* Find every DEFLATE member in a ZIP via the central directory (authoritative
+   offsets/sizes — avoids data-descriptor ambiguity). Fills `regions` with sorted,
+   non-overlapping [start,end) byte spans of raw deflate payloads. */
+static bool scan_zip(const std::vector<unsigned char>& f,
+                     std::vector<std::pair<size_t, size_t> >& regions) {
+  const size_t n = f.size();
+  if (n < 22) return false;
+  if (!(f[0] == 0x50 && f[1] == 0x4b && f[2] == 0x03 && f[3] == 0x04)) return false;
+  /* locate End Of Central Directory (PK\x05\x06) scanning back over the 22-byte
+     record + up to 65535-byte comment */
+  size_t lim = (n >= (size_t)(22 + 65535)) ? n - 22 - 65535 : 0;
+  size_t eocd = 0; bool found = false;
+  for (size_t i = n - 22;; --i) {
+    if (f[i] == 0x50 && f[i + 1] == 0x4b && f[i + 2] == 0x05 && f[i + 3] == 0x06) { eocd = i; found = true; break; }
+    if (i == lim) break;
+  }
+  if (!found) return false;
+  uint16_t total = rd16(&f[eocd + 10]);
+  uint32_t cdsize = rd32(&f[eocd + 12]);
+  uint32_t cdoff = rd32(&f[eocd + 16]);
+  if ((size_t)cdoff + cdsize > n) return false;
+  size_t p = cdoff;
+  for (uint16_t e = 0; e < total; ++e) {
+    if (p + 46 > n) return false;
+    if (!(f[p] == 0x50 && f[p + 1] == 0x4b && f[p + 2] == 0x01 && f[p + 3] == 0x02)) return false;
+    uint16_t method = rd16(&f[p + 10]);
+    uint32_t csize  = rd32(&f[p + 20]);
+    uint16_t nlen   = rd16(&f[p + 28]);
+    uint16_t elen   = rd16(&f[p + 30]);
+    uint16_t clen   = rd16(&f[p + 32]);
+    uint32_t lho    = rd32(&f[p + 42]);
+    p += (size_t)46 + nlen + elen + clen;
+    if (method == 8 && csize > 0 && (size_t)lho + 30 <= n
+        && f[lho] == 0x50 && f[lho + 1] == 0x4b && f[lho + 2] == 0x03 && f[lho + 3] == 0x04) {
+      uint16_t lnlen = rd16(&f[lho + 26]);
+      uint16_t lelen = rd16(&f[lho + 28]);
+      size_t dstart = (size_t)lho + 30 + lnlen + lelen;
+      size_t dend   = dstart + csize;
+      if (dstart < dend && dend <= n) regions.push_back(std::make_pair(dstart, dend));
+    }
+  }
+  std::sort(regions.begin(), regions.end());
+  /* drop any overlaps defensively */
+  for (size_t i = 1; i < regions.size(); ++i)
+    if (regions[i].first < regions[i - 1].second) return false;
+  return !regions.empty();
+}
+
+/* Build a multi-segment PCF: literal gaps interleaved with recompressed DEFLATE
+   regions. Regions that do not preflate-decode are left inside literals. */
+static bool build_pcf_multi(const std::vector<unsigned char>& f,
+                            const std::vector<std::pair<size_t, size_t> >& regions_in,
+                            std::vector<unsigned char>& pcf_out) {
+  std::vector<std::pair<size_t, size_t> > regs;
+  std::vector<std::vector<unsigned char> > unps, recs;
+  for (size_t i = 0; i < regions_in.size(); ++i) {
+    size_t s = regions_in[i].first, e = regions_in[i].second;
+    if (s >= e || e > f.size()) continue;
+    std::vector<unsigned char> d(f.begin() + s, f.begin() + e), u, r;
+    if (pcf_deflate_decode(d.empty() ? 0 : &d[0], d.size(), u, r)) {
+      regs.push_back(regions_in[i]); unps.push_back(u); recs.push_back(r);
+    }
+  }
+  if (regs.empty()) return false;
+
+  std::vector<unsigned char> body;
+  uint64_t nseg = 0;
+  size_t pos = 0;
+  for (size_t i = 0; i < regs.size(); ++i) {
+    if (regs[i].first > pos) {
+      body.push_back(PCF_SEG_LITERAL);
+      put_varint(body, regs[i].first - pos);
+      body.insert(body.end(), f.begin() + pos, f.begin() + regs[i].first);
+      ++nseg;
+    }
+    body.push_back(PCF_SEG_DEFLATE);
+    put_varint(body, recs[i].size());
+    body.insert(body.end(), recs[i].begin(), recs[i].end());
+    put_varint(body, unps[i].size());
+    body.insert(body.end(), unps[i].begin(), unps[i].end());
+    ++nseg;
+    pos = regs[i].second;
+  }
+  if (pos < f.size()) {
+    body.push_back(PCF_SEG_LITERAL);
+    put_varint(body, f.size() - pos);
+    body.insert(body.end(), f.begin() + pos, f.end());
+    ++nseg;
+  }
+  pcf_out.clear();
+  pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
+  pcf_out.push_back(PCF_VERSION);
+  put_varint(pcf_out, nseg);
+  pcf_out.insert(pcf_out.end(), body.begin(), body.end());
+  return true;
+}
+
 bool pcf_file_decode(const std::vector<unsigned char>& pcf,
                      std::vector<unsigned char>& original_out) {
   original_out.clear();
@@ -163,14 +269,24 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
   pcf_out.clear();
   if (original.size() < 18) return false; /* too small to be worth it */
 
-  size_t d0 = 0, d1 = 0;
   bool built = false;
   std::vector<unsigned char> cand;
-  if (locate_payload(original, d0, d1)) {
-    built = build_pcf(original, d0, d1, cand);
+
+  /* ZIP container: recompress every embedded DEFLATE member (Phase 2). */
+  if (original.size() >= 22 && original[0] == 0x50 && original[1] == 0x4b
+      && original[2] == 0x03 && original[3] == 0x04) {
+    std::vector<std::pair<size_t, size_t> > regions;
+    if (scan_zip(original, regions))
+      built = build_pcf_multi(original, regions, cand);
+  }
+
+  /* whole-file gzip / zlib, or raw DEFLATE as a last resort. */
+  if (!built) {
+    size_t d0 = 0, d1 = 0;
+    if (locate_payload(original, d0, d1))
+      built = build_pcf(original, d0, d1, cand);
   }
   if (!built) {
-    /* last resort: whole file as raw DEFLATE */
     if (build_pcf(original, 0, original.size(), cand)) built = true;
   }
   if (!built) return false;
