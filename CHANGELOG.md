@@ -1,6 +1,11 @@
 ### [Unreleased] - 2026-06-08
 
-**Windows: full `-ma` parity (16/16 external compressors)**
+**`-ma:hs` (heatshrink) and `-ma:lzfse` restored** — they had been removed
+(see 2026-06-07 below) after crashing on Windows, but that crash was the *same*
+`CC` cross-prefix bug as the other Windows `-ma` failures. With it fixed they work
+on Windows too, so they are back. Bundled algorithms: 15 → 17.
+
+**Windows: full `-ma` parity (all bundled external compressors)**
 
 - Fixed a Makefile bug where `CC` was not cross-prefixed (only `CXX` was), so the
   bundled **C** codecs (flzma2, lz5, lizard, bzip2, bzip3, brotli, libdeflate, lzlib)
@@ -11,7 +16,7 @@
   build as proper target objects.
 - Fixed the Windows `LZ4_compress_fast` stub (512-byte workspace → full `LZ4_stream_t`),
   so `-ma:lz4/lz4hc/lz4f` apply instead of falling back.
-- Result: **16/16 `-ma` round-trip verified on real Windows 10**, matching Linux.
+- Result: **full `-ma` round-trip verified on real Windows 10**, matching Linux.
 
 ### [Unreleased] - 2026-06-07
 

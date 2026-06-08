@@ -29,7 +29,7 @@ Goal: 5+ external compressors via `-ma:algo:N` switch + 32-bit Linux + Windows 7
 - Partial Windows 7+ support doc
 - Remove zopfli (-ma:zop) due to incompatible deflate output
 
-**Final algo count: 15:** lz4, zstd, flzma2, lz5, lizard, bzip2, bzip3, brotli, snappy, deflate, lz, lzav, bsc, lzh. ~~igzip~~ (x86_64 only), ~~zopfli~~ (deflate incompatibility), and ~~hs~~/~~lzfse~~ (Windows crash, see below) excluded.
+**Final algo count: 17 (16 active):** lz4, zstd, flzma2, lz5, lizard, bzip2, bzip3, brotli, snappy, deflate, lz, lzav, hs, lzfse, bsc, lzh. ~~igzip~~ (x86_64 only) and ~~zopfli~~ (deflate incompatibility) excluded.
 
 **Linux 64-bit: 14/14 algos verified.** Linux 32-bit: 5/5 working algos verified in wine.
 
@@ -75,21 +75,21 @@ Modified files:
 SHA-1 confirmed:** `lz4` ✓ `lzav` ✓ `bsc` ✓ `lzh` ✓ (plus the binary loads and the
 help/`a`/`x` verbs work). Native Linux 64-bit build + 6-algo round-trip still green.
 
-**`-ma:hs` (heatshrink) and `-ma:lzfse` REMOVED entirely (2026-06-07).**
-- Both crashed on the Windows build: `hs` → ACCESS_VIOLATION (0xC0000005),
-  `lzfse` → HEAP_CORRUPTION (0xC0000374) — a 0-byte archive and abort after the
-  "Add" line. Root cause was a `memset` with a garbage huge size (build-/ABI-
-  specific; valgrind-clean and working natively; a 16 MB `-Wl,--stack` did not
-  help). Rather than ship a platform-divergent feature set, both were dropped:
-  `compressors/hs` and `compressors/lzfse` deleted, and all dispatch / validation
-  / help / decompress code removed from `zpaq-std.cpp`. Bundled algos: 17 → 15.
-
-**Final algo count: 15.** lz4, zstd, flzma2, lz5, lizard, bzip2, bzip3, brotli,
-snappy, deflate, lz, lzav, bsc, lzh (+ lz4hc/lz4f/lz5hc/lz5f variants).
-Verified round-trip on real Windows 10: lz4, lzav, bsc, lzh.
+**KNOWN ISSUE — `-ma:hs` and `-ma:lzfse` crash on the Windows build:**
+- `hs` → ACCESS_VIOLATION (0xC0000005); `lzfse` → HEAP_CORRUPTION (0xC0000374).
+  Both produce a 0-byte archive and abort after the "Add" line.
+- The crash is a `memset` invoked with a garbage huge size (≈ a stack pointer),
+  i.e. a build-/ABI-specific bug. **valgrind on Linux is clean** and both work
+  natively, and a 16 MB `-Wl,--stack` did NOT help — so it is not a simple stack
+  overflow. Root cause still open (suspect an x64-ABI prototype mismatch in the
+  hs/lzfse dispatch path).
+- **Mitigation shipped:** `-ma:hs`/`-ma:lzfse` are rejected up front on `_WIN32`
+  with a clear message, so a crash can never truncate/corrupt an archive mid-write.
+  They remain fully supported on Linux/macOS.
 
 **Remaining work:**
-- `git push origin main` once reviewed (commit 11 + the hs/lzfse-removal commit).
+- Decide hs/lzfse on Windows: root-cause the memset/ABI bug, or keep them gated.
+- `git push origin main` (11 commits) once reviewed.
 
 **Key technical decisions (history):**
 - zopfli: MrKrzYch00 fork's `ZopfliDeflate()` output not parseable by libdeflate — excluded.
