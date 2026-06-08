@@ -1,5 +1,20 @@
 ### [Unreleased] - 2026-06-08
 
+**New `-pc` precompressor (preflate stream recompression).** Reversibly decodes
+embedded DEFLATE streams to raw before compression and re-encodes them bit-exactly
+on extraction, so the `-ma`/zpaq stage compresses the underlying data instead of an
+opaque blob. Auto-detected by content: whole-file **gzip/zlib**, **ZIP** members
+(so `.jar/.apk` and OOXML `.docx/.xlsx/.pptx/.odt`), **PDF** FlateDecode streams, and
+**PNG** IDAT (re-split across the original chunks with recomputed CRC-32). Bundles
+[preflate](https://github.com/deus-libri/preflate) (Apache-2.0) under
+`compressors/preflate/`. Self-describing (auto-reverses on a plain extract) and safe
+(verify-then-fallback: non-round-tripping streams are stored verbatim). The per-file
+franz hash records the original (so `-test`/`-verify` work); `file_crc32` records the
+stored PCF stream (so the `t` test passes). Composes with `-ma` and `-chunk`. Typical
+gain ~12–18% on already-compressed inputs with a strong second stage (e.g.
+`-ma:flzma2`). Verified bit-exact on Linux, Windows 10 and Windows 7 SP1, and across
+x64/x86. Targets Windows 7+ (`_WIN32_WINNT 0x0601`).
+
 **New `-innosetup` flag** — replaces all normal output with *only* the progress
 percentage: a single integer `0..100` per line, written to stdout and flushed
 only when it changes, ending with a guaranteed `100` on success. Implies

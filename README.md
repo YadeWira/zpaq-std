@@ -67,6 +67,40 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ---
 
+## Precompressor: `-pc`
+
+`-pc` is a **reversible, bit-exact precompressor** applied *before* compression. It
+decodes embedded **DEFLATE** streams back to their raw bytes (using the bundled
+[preflate](https://github.com/deus-libri/preflate), Apache-2.0) so the second stage
+(`-ma` / zpaq) can compress the *real* data instead of an opaque, already-compressed
+blob — then re-encodes the DEFLATE **byte-for-byte** on extraction.
+
+Detected automatically by content:
+
+| Input | What is recompressed |
+|---|---|
+| `.gz`, raw zlib | the whole-file DEFLATE stream |
+| **ZIP** | every deflated member → also `.jar`, `.apk`, OOXML `.docx/.xlsx/.pptx/.odt` |
+| **PDF** | embedded FlateDecode streams |
+| **PNG** | the IDAT zlib stream (re-split across the original chunks, CRCs recomputed) |
+
+```bash
+# Recompress streams, then pack the raw data with a strong codec
+zpaq-std a backup.zpaq /data -pc -ma:flzma2
+zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
+```
+
+- **Pays off with a strong second stage** (LZMA/brotli). Typical archive shrink on
+  already-compressed inputs is ~**12–18%**; with a weak codec the intermediate
+  expansion may not be recovered, so use `-pc` together with e.g. `-ma:flzma2`.
+- **Self-describing**: a `-pc` archive auto-reverses on a plain extract — no flag needed.
+- **Zero corruption risk**: every stream is re-encoded and compared byte-for-byte at
+  compress time (*verify-then-fallback*); anything that doesn't round-trip is stored
+  verbatim. The franz per-file hash records the **original** file (so `-test`/`-verify`
+  work normally). Composes with `-ma` and `-chunk`.
+
+---
+
 ## No system dependencies
 
 All 17 libraries live inside `compressors/`:

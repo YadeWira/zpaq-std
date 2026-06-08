@@ -54391,7 +54391,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
 	g_programflags.add(&flaginnosetup,		"-innosetup",			"Output ONLY progress %% (one int per line) for Inno Setup",	"");
-	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress gzip/zlib streams (preflate) before storing",	"a;");
+	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress DEFLATE in gzip/zlib/zip/pdf/png (preflate) before storing",	"a;");
 
 
 	for (int i=0; i<argc; i++)
