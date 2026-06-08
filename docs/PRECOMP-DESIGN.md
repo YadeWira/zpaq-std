@@ -176,14 +176,18 @@ needs for embedded streams.)
 
 ## 8. Phased plan
 
-### Phase 0 — Foundation (low risk)
-1. Confirm preflate license; vendor under `compressors/preflate/`; Makefile wiring
-   (native + mingw, static).
-2. Thin wrapper `pcf_deflate_decode(buf) -> {raw, recon}` and
-   `pcf_deflate_reencode(raw, recon) -> deflate`.
-3. **Unit self-test** (like the existing `myprintf_autotest` pattern): take a known
-   deflate buffer → decode → reencode → assert byte-identical. Prove the core
-   guarantee in isolation, on Linux **and** Windows.
+### Phase 0 — Foundation (low risk) — ✅ DONE
+1. ✅ preflate license confirmed **Apache 2.0** (compatible). Vendored under
+   `compressors/preflate/` (30 lib sources + headers + LICENSE; see `VENDORING.md`
+   for provenance and the 3 portability patches). Compiles clean on native GCC and
+   the MinGW cross-build. *Main-Makefile wiring deferred to Phase 1* (no caller yet —
+   avoids dead weight in the shipped binary).
+2. ✅ Vector API confirmed sufficient: `preflate_decode(unpacked, diff, deflate)` and
+   `preflate_reencode(deflate, diff, unpacked)`. (The thin `pcf_*` wrapper is written
+   in Phase 1 when wired into `add()`/`extract()`.)
+3. ✅ **Self-test** `compressors/preflate/selftest.cpp`: raw DEFLATE → decode →
+   reencode → assert byte-identical. Verified **BIT-EXACT on Linux native AND on a
+   real Windows 10 VM** (zlib levels 1/6/9; recon diff ~13 bytes).
 
 ### Phase 1 — MVP: whole-file gzip/zlib/raw-deflate (medium risk)
 1. CLI: parse `-pc` (and reserve `-pc:<method>`); global flag like `g_ma_algorithm`.
