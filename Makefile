@@ -54,6 +54,20 @@ endif
 CROSS_COMPILE ?=
 CXX := $(CROSS_COMPILE)$(CXX)
 
+# C compiler for the bundled C codec sources (fl2, lz5, lizard, bzip2/3,
+# brotli, libdeflate, lzlib). MUST be cross-prefixed like CXX. Otherwise
+# make's built-in default CC ('cc' = the host compiler) builds these C
+# codecs as HOST objects (e.g. Linux ELF) which then get linked into the
+# cross-target binary (e.g. a Windows PE); the machine code runs but the
+# objects' relocations/sections are wrong for the target, so the codec
+# functions return garbage at runtime and -ma silently falls back. The
+# C++ codecs were unaffected because they use $(CXX), which IS prefixed.
+ifeq ($(origin CC),default)
+  CC := $(CROSS_COMPILE)gcc
+else
+  CC := $(CROSS_COMPILE)$(CC)
+endif
+
 # Default tools
 RM      ?= rm -f
 MKDIR   ?= mkdir -p
