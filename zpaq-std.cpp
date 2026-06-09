@@ -50464,23 +50464,37 @@ string Jidac::sanitizzanomefile(string i_filename, int i_filelength, int &io_col
 #ifdef _WIN32
 #include <commctrl.h>
 
-/* 7zG-style progress dialog: a themed progress bar plus a column of stat rows
-   (Elapsed / Remaining time, Total size, Speed, Processed), with the live %% in
-   the title bar — the same information 7-Zip's 7zG.exe shows. print_progress
-   feeds a small struct (guarded by a critical section); the GUI thread polls it
-   on a timer and repaints only the fields that changed. */
-struct InnoProg { int pct; long long done, total, speed; int eta, elapsed; };
+/* 7zG-style progress dialog, styled like an Inno Setup wizard page: a progress
+   bar plus two columns of stat rows (Elapsed/Remaining time, Total/Processed/
+   Compressed size, Speed, ratio), the live %% in the title bar, and automatic
+   dark/light theming — on Win10+ it follows the OS "AppsUseLightTheme" setting
+   (dark title bar via dwmapi, dark trough via uxtheme); on Windows 8.1 and older
+   (where that registry value does not exist) it stays light. print_progress feeds
+   a small struct (guarded by a critical section); the GUI thread polls it on a
+   timer and repaints only the fields that changed. */
+struct InnoProg { int pct; long long done, total, speed, compressed; int eta, elapsed; };
 static CRITICAL_SECTION g_inno_cs;
 static bool             g_inno_cs_init = false;
-static InnoProg         g_inno_prog    = {0, 0, 0, 0, 0, 0};
+static InnoProg         g_inno_prog    = {0, 0, 0, 0, 0, 0, 0};
 static volatile LONG    g_inno_quit    = 0;
 static HANDLE           g_inno_thread  = NULL;
 static HWND             g_inno_wnd = NULL, g_inno_bar = NULL;
-static HWND             g_inno_val[5]  = {0, 0, 0, 0, 0};   // right-hand value labels
+static HWND             g_inno_val[7]  = {0, 0, 0, 0, 0, 0, 0};
 static char             g_inno_caption[128] = "zpaq-std";
+static COLORREF         g_inno_bg = RGB(240, 240, 240), g_inno_fg = RGB(0, 0, 0);
+static HBRUSH           g_inno_brush = NULL;
 
-static const char* const g_inno_rows[5] =
-	{ "Elapsed time:", "Remaining time:", "Total size:", "Speed:", "Processed:" };
+// stat-row labels + their grid position (col 0 = left, 1 = right; row in column)
+struct InnoRow { const char* label; int col, row; };
+static const InnoRow g_inno_layout[7] = {
+	{ "Elapsed time:",      0, 0 },
+	{ "Remaining time:",    0, 1 },
+	{ "Total size:",        1, 0 },
+	{ "Speed:",             1, 1 },
+	{ "Processed:",         1, 2 },
+	{ "Compressed size:",   1, 3 },
+	{ "Compression ratio:", 1, 4 },
+};
 
 static void inno_fmt_time(int sec, char* buf, size_t n)
 {
@@ -50497,8 +50511,64 @@ static void inno_fmt_bytes(long long v, char* buf, size_t n)
 	snprintf(buf, n, "%.2f %s", d, u[i]);
 }
 
+// Win10 1607+ exposes AppsUseLightTheme (0 = dark). Older Windows lacks the key
+// entirely, so this returns false (light) on Windows 8.1 and below.
+static bool inno_dark_mode()
+{
+	HKEY k;
+	if (RegOpenKeyExA(HKEY_CURRENT_USER,
+		"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+		0, KEY_READ, &k) != ERROR_SUCCESS) return false;
+	DWORD val= 1, sz= sizeof(val), type= 0;
+	LONG r= RegQueryValueExA(k, "AppsUseLightTheme", NULL, &type, (LPBYTE)&val, &sz);
+	RegCloseKey(k);
+	return (r == ERROR_SUCCESS && type == REG_DWORD && val == 0);
+}
+
+// Dark title bar via DwmSetWindowAttribute (dwmapi loaded at run time so we keep
+// no link-time dependency and degrade gracefully on Windows that lacks it).
+static void inno_apply_dark_titlebar(HWND h, bool dark)
+{
+	HMODULE dwm= LoadLibraryA("dwmapi.dll");
+	if (!dwm) return;
+	typedef HRESULT (WINAPI *DWMSWA)(HWND, DWORD, LPCVOID, DWORD);
+	DWMSWA set= (DWMSWA)GetProcAddress(dwm, "DwmSetWindowAttribute");
+	if (set)
+	{
+		BOOL d= dark ? TRUE : FALSE;
+		set(h, 20, &d, sizeof(d));   // DWMWA_USE_IMMERSIVE_DARK_MODE (Win10 2004+)
+		set(h, 19, &d, sizeof(d));   // older-build attribute id, harmless otherwise
+	}
+	FreeLibrary(dwm);
+}
+
+// In dark mode, drop the bar's visual style (via uxtheme, loaded at run time) so
+// the classic PBM_SET*COLOR messages take effect: dark trough, green chunk. In
+// light mode the themed Aero/green bar is kept as-is.
+static void inno_theme_bar(HWND bar, bool dark)
+{
+	if (!dark) return;
+	HMODULE ux= LoadLibraryA("uxtheme.dll");
+	if (ux)
+	{
+		typedef HRESULT (WINAPI *SWT)(HWND, LPCWSTR, LPCWSTR);
+		SWT swt= (SWT)GetProcAddress(ux, "SetWindowTheme");
+		if (swt) swt(bar, L"", L"");
+		FreeLibrary(ux);
+	}
+	SendMessageA(bar, PBM_SETBKCOLOR,  0, (LPARAM)RGB(45, 45, 45));
+	SendMessageA(bar, PBM_SETBARCOLOR, 0, (LPARAM)RGB(38, 160, 38));
+}
+
 static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
+	if (m == WM_CTLCOLORSTATIC)
+	{
+		HDC dc= (HDC)w;
+		SetTextColor(dc, g_inno_fg);
+		SetBkColor(dc, g_inno_bg);
+		return (LRESULT)(g_inno_brush ? g_inno_brush : (HBRUSH)(COLOR_BTNFACE + 1));
+	}
 	if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
 	if (m == WM_CLOSE)   return 0;   // work owns the lifetime; ignore the [x]
 	return DefWindowProcA(h, m, w, l);
@@ -50506,6 +50576,12 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 
 static DWORD WINAPI inno_gui_thread(LPVOID)
 {
+	bool dark= inno_dark_mode();
+	g_inno_bg= dark ? RGB(32, 32, 32)    : RGB(240, 240, 240);
+	g_inno_fg= dark ? RGB(240, 240, 240) : RGB(0, 0, 0);
+	if (g_inno_brush) DeleteObject(g_inno_brush);
+	g_inno_brush= CreateSolidBrush(g_inno_bg);
+
 	INITCOMMONCONTROLSEX icc; icc.dwSize= sizeof(icc); icc.dwICC= ICC_PROGRESS_CLASS;
 	InitCommonControlsEx(&icc);
 	HINSTANCE hi= GetModuleHandleA(NULL);
@@ -50513,34 +50589,38 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	wc.lpfnWndProc   = inno_wndproc;
 	wc.hInstance     = hi;
 	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
-	wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+	wc.hbrBackground = g_inno_brush;
 	wc.lpszClassName = "zpaqstdInnoProgress";
 	RegisterClassA(&wc);
-	const int W= 420, H= 250;
+	const int W= 520, H= 268;
 	int sx= GetSystemMetrics(SM_CXSCREEN), sy= GetSystemMetrics(SM_CYSCREEN);
 	g_inno_wnd= CreateWindowExA(WS_EX_DLGMODALFRAME, wc.lpszClassName,
 		g_inno_caption, WS_CAPTION | WS_SYSMENU, (sx - W) / 2, (sy - H) / 2, W, H,
 		NULL, NULL, hi, NULL);
 	if (!g_inno_wnd) return 0;
+	inno_apply_dark_titlebar(g_inno_wnd, dark);
 	HFONT hf= (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
-		15, 15, W - 46, 22, g_inno_wnd, NULL, hi, NULL);
-	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
-	int y= 56;
-	for (int i= 0; i < 5; i++)
+	const int colLabX[2]= { 18, 270 }, colLabW[2]= { 100, 130 };
+	const int colValX[2]= { 120, 405 }, colValW[2]= { 110, 90 };
+	const int rowY0= 16, rowStep= 26;
+	for (int i= 0; i < 7; i++)
 	{
-		HWND lab= CreateWindowExA(0, "STATIC", g_inno_rows[i], WS_CHILD | WS_VISIBLE,
-			18, y, 130, 18, g_inno_wnd, NULL, hi, NULL);
+		int c= g_inno_layout[i].col, yy= rowY0 + g_inno_layout[i].row * rowStep;
+		HWND lab= CreateWindowExA(0, "STATIC", g_inno_layout[i].label, WS_CHILD | WS_VISIBLE,
+			colLabX[c], yy, colLabW[c], 18, g_inno_wnd, NULL, hi, NULL);
 		SendMessageA(lab, WM_SETFONT, (WPARAM)hf, TRUE);
 		g_inno_val[i]= CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT,
-			150, y, W - 196, 18, g_inno_wnd, NULL, hi, NULL);
+			colValX[c], yy, colValW[c], 18, g_inno_wnd, NULL, hi, NULL);
 		SendMessageA(g_inno_val[i], WM_SETFONT, (WPARAM)hf, TRUE);
-		y += 28;
 	}
+	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
+		18, 165, W - 54, 22, g_inno_wnd, NULL, hi, NULL);
+	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
+	inno_theme_bar(g_inno_bar, dark);
 	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
 	UpdateWindow(g_inno_wnd);
 	int  last_pct= -1;
-	char prev[5][64]; for (int i= 0; i < 5; i++) prev[i][0]= 0;
+	char prev[7][64]; for (int i= 0; i < 7; i++) prev[i][0]= 0;
 	MSG msg;
 	for (;;)
 	{
@@ -50564,13 +50644,23 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			char t[160]; snprintf(t, sizeof(t), "%d%%  %s", p.pct, g_inno_caption);
 			SetWindowTextA(g_inno_wnd, t);
 		}
-		char v[5][64], spd[48];
+		char v[7][64], tmp[48];
 		inno_fmt_time(p.elapsed, v[0], sizeof(v[0]));
 		inno_fmt_time(p.eta,     v[1], sizeof(v[1]));
 		inno_fmt_bytes(p.total,  v[2], sizeof(v[2]));
-		inno_fmt_bytes(p.speed,  spd,  sizeof(spd)); snprintf(v[3], sizeof(v[3]), "%s/s", spd);
+		inno_fmt_bytes(p.speed,  tmp, sizeof(tmp)); snprintf(v[3], sizeof(v[3]), "%s/s", tmp);
 		inno_fmt_bytes(p.done,   v[4], sizeof(v[4]));
-		for (int i= 0; i < 5; i++)
+		if (p.compressed < 0)   // extract: no compressed-size / ratio to show
+		{
+			strcpy(v[5], "-"); strcpy(v[6], "-");
+		}
+		else
+		{
+			inno_fmt_bytes(p.compressed, v[5], sizeof(v[5]));
+			int ratio= (p.done > 0) ? (int)(p.compressed * 100 / p.done) : 0;
+			snprintf(v[6], sizeof(v[6]), "%d%%", ratio);
+		}
+		for (int i= 0; i < 7; i++)
 			if (strcmp(v[i], prev[i]) != 0)
 			{
 				strcpy(prev[i], v[i]);
@@ -50580,6 +50670,7 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	}
 done:
 	if (g_inno_wnd) { DestroyWindow(g_inno_wnd); g_inno_wnd= NULL; }
+	if (g_inno_brush) { DeleteObject(g_inno_brush); g_inno_brush= NULL; }
 	return 0;
 }
 
@@ -50597,13 +50688,14 @@ static void inno_gui_start(const char* caption)
 	g_inno_thread= CreateThread(NULL, 0, inno_gui_thread, NULL, 0, NULL);
 }
 static void inno_gui_progress(int pct, long long done, long long total,
-                              long long speed, int eta, int elapsed)
+                              long long speed, int eta, int elapsed, long long compressed)
 {
 	if (pct < 0) pct= 0; if (pct > 100) pct= 100;
 	if (!g_inno_cs_init) return;
 	EnterCriticalSection(&g_inno_cs);
 	g_inno_prog.pct= pct; g_inno_prog.done= done; g_inno_prog.total= total;
 	g_inno_prog.speed= speed; g_inno_prog.eta= eta; g_inno_prog.elapsed= elapsed;
+	g_inno_prog.compressed= compressed;
 	LeaveCriticalSection(&g_inno_cs);
 }
 static void inno_gui_set(int pct)
@@ -50622,7 +50714,7 @@ static void inno_gui_stop()
 }
 #else
 static void inno_gui_start(const char*) {}
-static void inno_gui_progress(int, long long, long long, long long, int, int) {}
+static void inno_gui_progress(int, long long, long long, long long, int, int, long long) {}
 static void inno_gui_set(int) {}
 static void inno_gui_stop() {}
 #endif
@@ -50652,8 +50744,9 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
         if (ip > 100) ip = 100;
         int eta = (speed > 0) ? (int)((ts - td) / speed) : 0;
         if (eta < 0) eta = 0;
-        // 7zG-style GUI progress window (Windows; no-op elsewhere)
-        inno_gui_progress(ip, td, ts, speed, eta, elapsed);
+        // 7zG-style GUI progress window (Windows; no-op elsewhere). i_scritti is the
+        // compressed bytes written so far when adding, or -1 on extract.
+        inno_gui_progress(ip, td, ts, speed, eta, elapsed, i_scritti);
         if (ip != ultima_percentuale)
         {
             ultima_percentuale = ip;

@@ -105,11 +105,14 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
 ## Installer progress: `-innosetup`
 
 Pass **`-innosetup`** and zpaq-std shows its **own native progress window** while it
-works — styled after 7-Zip's **7zG.exe**: a comctl32 v6 progress bar **visually-styled
-to match the OS theme**, the live **% in the title bar**, and a column of stat rows
-(**Elapsed time, Remaining time, Total size, Speed, Processed**). It runs on a separate
-thread so the operation is never blocked; the window updates as it goes and closes when
-finished (or on exit). Normal console output is silenced.
+works — modelled on 7-Zip's **7zG.exe** and styled like an Inno Setup wizard page: a
+comctl32 v6 progress bar, the live **% in the title bar**, and two columns of stat rows
+(**Elapsed time, Remaining time, Total size, Speed, Processed, Compressed size,
+Compression ratio**). It **auto-detects the OS dark/light theme** — on Windows 10+ it
+follows `AppsUseLightTheme` (dark background + dark title bar + dark progress trough);
+on Windows 8.1 and older it stays light. It runs on a separate thread so the operation
+is never blocked; the window updates as it goes and closes when finished (or on exit).
+Normal console output is silenced.
 
 ```bash
 # e.g. an installer extracting a bundled archive, with a progress window:
