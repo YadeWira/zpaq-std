@@ -121,10 +121,26 @@ zpaq-std a "app.zpaq" "C:\src" -pc -ma:flzma2 -innosetup
 - always a final **`100`** on success (use it as the "finished" signal);
 - works for both `a` (add) and `x`/`t` (extract).
 
-### Turnkey Inno Setup `[Code]`
+### Simplest: `-innosetup:FILE` (single-value status file)
 
-Run zpaq-std via `cmd /c` (so `>` redirection works), non-blocking (`ewNoWait`), then
-poll the log file, updating the progress page until it reports `100`:
+`-innosetup:C:\path\progress.txt` makes zpaq-std write **just the current integer** to
+that file, overwriting it in place on every change (seeded with `0`, ending at `100`).
+No stdout redirection, no `cmd /c`, no last-line parsing — the file *always* contains
+exactly the current percentage, so the installer just reads the whole file:
+
+```pascal
+Exec(ExpandConstant('{app}\zpaq-std.exe'),
+     'a "{app}\data.zpaq" "{src}" -pc -ma:flzma2 -innosetup:"' + ExpandConstant('{tmp}\p.txt') + '"',
+     '', SW_HIDE, ewNoWait, rc);
+// ... in the poll loop:
+if LoadStringFromFile(ExpandConstant('{tmp}\p.txt'), s) then
+  ProgressPage.SetProgress(StrToIntDef(Trim(s), 0), 100);
+```
+
+### Alternative: stdout redirect + last line
+
+If you prefer redirecting stdout, run zpaq-std via `cmd /c` (so `>` works),
+non-blocking (`ewNoWait`), then poll the log, reading the **last** line, until `100`:
 
 ```pascal
 [Code]

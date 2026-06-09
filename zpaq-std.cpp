@@ -2114,6 +2114,7 @@ bool flagnosort;
 bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
+std::string g_innosetup_file; // -innosetup:<path> -> overwrite this file with just the current %
 bool flagprecomp;	// -pc : stream-recompression precompressor (preflate/PCF)
 bool flagcatpaqmode;
 bool flagdistinct;
@@ -50478,6 +50479,11 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
             ultima_percentuale = ip;
             printf("%d\n", ip);
             fflush(stdout);
+            if (!g_innosetup_file.empty())
+            {
+                FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
+                if (sf) { fprintf(sf, "%d", ip); fclose(sf); } // file = just the current %
+            }
         }
         return;
     }
@@ -54393,7 +54399,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flaghw,				"-hw",					"Use HW SHA1",										"a;x;");
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
-	g_programflags.add(&flaginnosetup,		"-innosetup",			"Output ONLY progress %% (one int per line) for Inno Setup",	"");
+	g_programflags.add(&flaginnosetup,		"-innosetup",			"Output ONLY progress %% (one int/line). -innosetup:FILE writes just the current %% to FILE",	"");
 	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress DEFLATE in gzip/zlib/zip/pdf/png (preflate) before storing",	"a;");
 
 
@@ -54403,6 +54409,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 		if (g_programflags.exists(parametro))
 			g_programflags.settrue(parametro);
+		else if (parametro.rfind("-innosetup:",0)==0) // -innosetup:<status-file>
+		{
+			flaginnosetup= true;
+			g_innosetup_file= parametro.substr(11);
+		}
 	}
 	
 	if (flagdebug3)
@@ -54422,6 +54433,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 		// stdout is block-buffered (4 KB) — the file would stay empty/stale until the
 		// process exits. Unbuffered guarantees each percentage hits the file live.
 		setvbuf(stdout, NULL, _IONBF, 0);
+		// -innosetup:<file> -> a single-value status file the installer can read
+		// directly (always just the current integer, overwritten in place; no stdout
+		// redirection or last-line parsing needed). Seed it with 0.
+		if (!g_innosetup_file.empty())
+		{
+			FILE* sf= fopen(g_innosetup_file.c_str(), "wb");
+			if (sf) { fputs("0", sf); fclose(sf); }
+		}
 	}
 
 	if (flagdebug3)
@@ -64546,6 +64565,11 @@ int main(int argc, const char **argv)
     {
         printf("100\n");
         fflush(stdout);
+        if (!g_innosetup_file.empty())
+        {
+            FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
+            if (sf) { fputs("100", sf); fclose(sf); }
+        }
     }
     return rc;
 }
@@ -64572,6 +64596,11 @@ int main()
     {
         printf("100\n");
         fflush(stdout);
+        if (!g_innosetup_file.empty())
+        {
+            FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
+            if (sf) { fputs("100", sf); fclose(sf); }
+        }
     }
     return rc;
 }
