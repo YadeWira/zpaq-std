@@ -2114,7 +2114,6 @@ bool flagnosort;
 bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
-std::string g_innosetup_file; // -innosetup:<path> -> overwrite this file with just the current %
 bool flagprecomp;	// -pc : stream-recompression precompressor (preflate/PCF)
 bool flagcatpaqmode;
 bool flagdistinct;
@@ -50584,11 +50583,6 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
             ultima_percentuale = ip;
             printf("%d\n", ip);
             fflush(stdout);
-            if (!g_innosetup_file.empty())
-            {
-                FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
-                if (sf) { fprintf(sf, "%d", ip); fclose(sf); } // file = just the current %
-            }
             inno_gui_set(ip); // GUI progress window (Windows; no-op elsewhere)
         }
         return;
@@ -54505,7 +54499,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flaghw,				"-hw",					"Use HW SHA1",										"a;x;");
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
-	g_programflags.add(&flaginnosetup,		"-innosetup",			"Output ONLY progress %% (one int/line). -innosetup:FILE writes just the current %% to FILE",	"");
+	g_programflags.add(&flaginnosetup,		"-innosetup",			"Show a native GUI progress window (Windows); else print progress %%",	"");
 	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress DEFLATE in gzip/zlib/zip/pdf/png (preflate) before storing",	"a;");
 
 
@@ -54515,11 +54509,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 		if (g_programflags.exists(parametro))
 			g_programflags.settrue(parametro);
-		else if (parametro.rfind("-innosetup:",0)==0) // -innosetup:<status-file>
-		{
-			flaginnosetup= true;
-			g_innosetup_file= parametro.substr(11);
-		}
 	}
 	
 	if (flagdebug3)
@@ -54529,29 +54518,17 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if (flagdebug)
 		flagverbose=true;
 
-	// -innosetup: mute every normal message (myprintf is gated by flagsilent) so the
-	// only thing on stdout is the bare progress percentage emitted by print_progress().
+	// -innosetup: show a native GUI progress window (Windows only). On non-Windows
+	// there is no GUI, so the flag is IGNORED — reset it so everything behaves exactly
+	// as if it had never been passed (normal output, no silencing).
+#ifndef _WIN32
+	flaginnosetup= false;
+#endif
 	if (flaginnosetup)
 	{
-		flagsilent= true;
-		// Make stdout UNBUFFERED. When the installer runs us via
-		// `Exec(... > progress.txt)` and polls that file with a timer, a redirected
-		// stdout is block-buffered (4 KB) — the file would stay empty/stale until the
-		// process exits. Unbuffered guarantees each percentage hits the file live.
-		setvbuf(stdout, NULL, _IONBF, 0);
-		// Plain -innosetup -> show our own GUI progress window (Windows; no-op
-		// elsewhere). With -innosetup:FILE the installer drives its OWN bar from the
-		// status file, so we do NOT pop a window (avoid a redundant second UI).
-		if (g_innosetup_file.empty())
-			inno_gui_start("zpaq-std");
-		// -innosetup:<file> -> a single-value status file the installer can read
-		// directly (always just the current integer, overwritten in place; no stdout
-		// redirection or last-line parsing needed). Seed it with 0.
-		if (!g_innosetup_file.empty())
-		{
-			FILE* sf= fopen(g_innosetup_file.c_str(), "wb");
-			if (sf) { fputs("0", sf); fclose(sf); }
-		}
+		flagsilent= true;                 // mute normal output; the window shows progress
+		setvbuf(stdout, NULL, _IONBF, 0); // unbuffered (harmless; live if stdout redirected)
+		inno_gui_start("zpaq-std");       // GUI progress window on its own thread
 	}
 
 	if (flagdebug3)
@@ -64676,11 +64653,6 @@ int main(int argc, const char **argv)
     {
         printf("100\n");
         fflush(stdout);
-        if (!g_innosetup_file.empty())
-        {
-            FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
-            if (sf) { fputs("100", sf); fclose(sf); }
-        }
         inno_gui_set(100);
     }
     if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
@@ -64709,11 +64681,6 @@ int main()
     {
         printf("100\n");
         fflush(stdout);
-        if (!g_innosetup_file.empty())
-        {
-            FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
-            if (sf) { fputs("100", sf); fclose(sf); }
-        }
         inno_gui_set(100);
     }
     if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)

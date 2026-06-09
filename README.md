@@ -104,117 +104,20 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
 
 ## Installer progress: `-innosetup`
 
-Two modes, depending on who draws the bar:
-
-- **`-innosetup`** (plain) — on **Windows**, zpaq-std shows its **own native progress
-  window** (a comctl32 v6 progress bar, visually-styled to match the OS theme), on a
-  separate thread, that fills as it works and closes at the end. Use this for a
-  drop-in GUI with no installer scripting. (On non-Windows it just prints the % to
-  stdout, as below.)
-- **`-innosetup:FILE`** *(or stdout)* — **no window**; zpaq-std reports the percentage
-  so the **installer drives its own** (themed, wizard-integrated) progress bar. Use
-  this to integrate into the Inno Setup wizard. Details below.
-
-### Reporting progress to the installer
-
-`-innosetup` (and `-innosetup:FILE`) emit **only the integer progress percentage**
-— one value (`0`..`100`), written **unbuffered** and only when it changes, always
-ending with a final `100` on success. Everything else is silenced, so the stream is
-trivially parseable.
-
-Output contract:
-
-An installer typically **extracts** a bundled archive into the install dir:
+Pass **`-innosetup`** and zpaq-std shows its **own native progress window** while it
+works — a comctl32 v6 progress bar **visually-styled to match the OS theme**, on a
+separate thread so the operation is never blocked. The bar fills as it goes and the
+window closes when finished (or on exit). Normal console output is silenced.
 
 ```bash
+# e.g. an installer extracting a bundled archive, with a progress window:
 zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
-# -> 1  2  5  9 ... 99 100   (one integer per line; last line = current %; ends at 100)
-```
-(`-pc`/`-ma` are compress-time options; on extract the archive is self-describing, so the command is just `x <archive> -to <dir>`.)
-
-- one integer `0..100` per line, **only when it changes**, nothing else on stdout;
-- stdout is **unbuffered**, so a redirected file updates live;
-- always a final **`100`** on success (use it as the "finished" signal);
-- works for both `a` (add) and `x`/`t` (extract).
-
-### Simplest: `-innosetup:FILE` (single-value status file)
-
-`-innosetup:C:\path\progress.txt` makes zpaq-std write **just the current integer** to
-that file, overwriting it in place on every change (seeded with `0`, ending at `100`).
-No stdout redirection, no `cmd /c`, no last-line parsing — the file *always* contains
-exactly the current percentage, so the installer just reads the whole file:
-
-```pascal
-// extract the bundled {tmp}\data.zpaq into {app}, writing progress to {tmp}\p.txt
-Exec(ExpandConstant('{tmp}\zpaq-std.exe'),
-     'x "' + ExpandConstant('{tmp}\data.zpaq') + '" -to "' + ExpandConstant('{app}\') +
-     '" -innosetup:"' + ExpandConstant('{tmp}\p.txt') + '"',
-     '', SW_HIDE, ewNoWait, rc);
-// ... in the poll loop:
-if LoadStringFromFile(ExpandConstant('{tmp}\p.txt'), s) then
-  ProgressPage.SetProgress(StrToIntDef(Trim(s), 0), 100);
 ```
 
-### Alternative: stdout redirect + last line
-
-If you prefer redirecting stdout, run zpaq-std via `cmd /c` (so `>` works),
-non-blocking (`ewNoWait`), then poll the log, reading the **last** line, until `100`:
-
-```pascal
-[Code]
-var
-  ProgressPage: TOutputProgressWizardPage;
-
-{ current percentage = last non-empty line of the log (the file grows one line per %) }
-function CurrentPercent(const LogFile: string): Integer;
-var Lines: TArrayOfString; i: Integer; s: string;
-begin
-  Result := -1;
-  if LoadStringsFromFile(LogFile, Lines) then
-    for i := GetArrayLength(Lines) - 1 downto 0 do begin
-      s := Trim(Lines[i]);
-      if s <> '' then begin Result := StrToIntDef(s, -1); Exit; end;
-    end;
-end;
-
-procedure RunZpaqStd;
-var
-  exe, log, params: string;
-  rc, pct, idle: Integer;
-begin
-  exe := ExpandConstant('{tmp}\zpaq-std.exe');
-  log := ExpandConstant('{tmp}\zpaq_progress.txt');
-  { extract the bundled archive into {app}. The outer "" around the whole
-    cmd /c command are required by cmd.exe }
-  params := '/C ""' + exe + '" x "' + ExpandConstant('{tmp}\data.zpaq') + '" -to "'
-            + ExpandConstant('{app}\') + '" -innosetup > "' + log + '""';
-
-  ProgressPage := CreateOutputProgressPage('Installing', 'Extracting files...');
-  ProgressPage.SetProgress(0, 100);
-  ProgressPage.Show;
-  try
-    Exec(ExpandConstant('{cmd}'), params, '', SW_HIDE, ewNoWait, rc);
-    pct := 0; idle := 0;
-    while pct < 100 do begin
-      Sleep(200);
-      case CurrentPercent(log) of
-        -1: begin idle := idle + 1; if idle > 600 then Break; end; { ~2 min watchdog }
-      else
-        pct := CurrentPercent(log);
-        ProgressPage.SetProgress(pct, 100);
-        WizardForm.Refresh;
-      end;
-    end;
-    ProgressPage.SetProgress(100, 100);
-  finally
-    ProgressPage.Hide;
-  end;
-end;
-```
-
-> Notes: the final `100` is the natural completion signal — no need to track the
-> process handle. Parse the **last** line (the file accumulates `1\n2\n…\n100`), not
-> the whole file. The watchdog avoids hanging if the tool can't start.
+- **Windows only.** On any other OS the flag is **ignored** — zpaq-std runs exactly as
+  if it had not been passed (normal output, nothing silenced).
+- Works for any long operation (`a` compress, `x`/`t` extract, …). No installer
+  scripting, output redirection or progress files needed — the window is self-contained.
 
 ---
 
