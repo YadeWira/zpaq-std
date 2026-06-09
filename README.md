@@ -104,10 +104,23 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
 
 ## Installer progress: `-innosetup`
 
-`-innosetup` replaces all normal output with **only the integer progress percentage**
-— one value (`0`..`100`) per line on stdout, written **unbuffered** and only when it
-changes, always ending with a final `100` on success. Everything else is silenced, so
-the stream is trivially parseable by an installer.
+Two modes, depending on who draws the bar:
+
+- **`-innosetup`** (plain) — on **Windows**, zpaq-std shows its **own native progress
+  window** (a comctl32 v6 progress bar, visually-styled to match the OS theme), on a
+  separate thread, that fills as it works and closes at the end. Use this for a
+  drop-in GUI with no installer scripting. (On non-Windows it just prints the % to
+  stdout, as below.)
+- **`-innosetup:FILE`** *(or stdout)* — **no window**; zpaq-std reports the percentage
+  so the **installer drives its own** (themed, wizard-integrated) progress bar. Use
+  this to integrate into the Inno Setup wizard. Details below.
+
+### Reporting progress to the installer
+
+`-innosetup` (and `-innosetup:FILE`) emit **only the integer progress percentage**
+— one value (`0`..`100`), written **unbuffered** and only when it changes, always
+ending with a final `100` on success. Everything else is silenced, so the stream is
+trivially parseable.
 
 Output contract:
 

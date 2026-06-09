@@ -50454,6 +50454,111 @@ string Jidac::sanitizzanomefile(string i_filename, int i_filelength, int &io_col
 		}
 	return newname;
 }
+
+/* ============================================================================
+   -innosetup GUI: a small native progress window (Windows only). Runs on its
+   own thread with its own message loop so the main thread keeps compressing /
+   extracting. print_progress feeds it the % via an interlocked variable; the
+   window uses the comctl32 v6 progress bar (themed via the RT_MANIFEST resource),
+   matching the OS visual style. No-op stubs on non-Windows.
+   ============================================================================ */
+#ifdef _WIN32
+#include <commctrl.h>
+static volatile LONG g_inno_pct    = 0;
+static volatile LONG g_inno_quit   = 0;
+static HANDLE        g_inno_thread  = NULL;
+static HWND          g_inno_wnd = NULL, g_inno_bar = NULL, g_inno_lbl = NULL;
+static char          g_inno_caption[128] = "zpaq-std";
+
+static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+	if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
+	return DefWindowProcA(h, m, w, l);
+}
+
+static DWORD WINAPI inno_gui_thread(LPVOID)
+{
+	INITCOMMONCONTROLSEX icc; icc.dwSize= sizeof(icc); icc.dwICC= ICC_PROGRESS_CLASS;
+	InitCommonControlsEx(&icc);
+	HINSTANCE hi= GetModuleHandleA(NULL);
+	WNDCLASSA wc; memset(&wc, 0, sizeof(wc));
+	wc.lpfnWndProc   = inno_wndproc;
+	wc.hInstance     = hi;
+	wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+	wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+	wc.lpszClassName = "zpaqstdInnoProgress";
+	RegisterClassA(&wc);
+	const int W= 440, H= 130;
+	int sx= GetSystemMetrics(SM_CXSCREEN), sy= GetSystemMetrics(SM_CYSCREEN);
+	g_inno_wnd= CreateWindowExA(WS_EX_TOPMOST | WS_EX_DLGMODALFRAME, wc.lpszClassName,
+		g_inno_caption, WS_CAPTION | WS_SYSMENU, (sx - W) / 2, (sy - H) / 2, W, H,
+		NULL, NULL, hi, NULL);
+	if (!g_inno_wnd) return 0;
+	HFONT hf= (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+	g_inno_lbl= CreateWindowExA(0, "STATIC", "Please wait...", WS_CHILD | WS_VISIBLE,
+		20, 18, W - 56, 20, g_inno_wnd, NULL, hi, NULL);
+	SendMessageA(g_inno_lbl, WM_SETFONT, (WPARAM)hf, TRUE);
+	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
+		20, 48, W - 56, 26, g_inno_wnd, NULL, hi, NULL);
+	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
+	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
+	UpdateWindow(g_inno_wnd);
+	int last= -1;
+	MSG msg;
+	for (;;)
+	{
+		while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			if (msg.message == WM_QUIT) goto done;
+			TranslateMessage(&msg);
+			DispatchMessageA(&msg);
+		}
+		if (InterlockedCompareExchange(&g_inno_quit, 0, 0)) break;
+		int p= (int)InterlockedCompareExchange(&g_inno_pct, 0, 0);
+		if (p != last)
+		{
+			last= p;
+			SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p, 0);
+			char t[160]; snprintf(t, sizeof(t), "%s  -  %d%%", g_inno_caption, p);
+			SetWindowTextA(g_inno_lbl, t);
+		}
+		Sleep(40);
+	}
+done:
+	if (g_inno_wnd) { DestroyWindow(g_inno_wnd); g_inno_wnd= NULL; }
+	return 0;
+}
+
+static void inno_gui_start(const char* caption)
+{
+	if (g_inno_thread) return;
+	if (caption && *caption)
+	{
+		strncpy(g_inno_caption, caption, sizeof(g_inno_caption) - 1);
+		g_inno_caption[sizeof(g_inno_caption) - 1]= 0;
+	}
+	g_inno_quit= 0; g_inno_pct= 0;
+	g_inno_thread= CreateThread(NULL, 0, inno_gui_thread, NULL, 0, NULL);
+}
+static void inno_gui_set(int pct)
+{
+	if (pct < 0) pct= 0; if (pct > 100) pct= 100;
+	InterlockedExchange(&g_inno_pct, pct);
+}
+static void inno_gui_stop()
+{
+	if (!g_inno_thread) return;
+	InterlockedExchange(&g_inno_quit, 1);
+	WaitForSingleObject(g_inno_thread, 3000);
+	CloseHandle(g_inno_thread);
+	g_inno_thread= NULL;
+}
+#else
+static void inno_gui_start(const char*) {}
+static void inno_gui_set(int) {}
+static void inno_gui_stop() {}
+#endif
+
 /*
 	section: progress
 */
@@ -50484,6 +50589,7 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
                 FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
                 if (sf) { fprintf(sf, "%d", ip); fclose(sf); } // file = just the current %
             }
+            inno_gui_set(ip); // GUI progress window (Windows; no-op elsewhere)
         }
         return;
     }
@@ -54433,6 +54539,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 		// stdout is block-buffered (4 KB) — the file would stay empty/stale until the
 		// process exits. Unbuffered guarantees each percentage hits the file live.
 		setvbuf(stdout, NULL, _IONBF, 0);
+		// Plain -innosetup -> show our own GUI progress window (Windows; no-op
+		// elsewhere). With -innosetup:FILE the installer drives its OWN bar from the
+		// status file, so we do NOT pop a window (avoid a redundant second UI).
+		if (g_innosetup_file.empty())
+			inno_gui_start("zpaq-std");
 		// -innosetup:<file> -> a single-value status file the installer can read
 		// directly (always just the current integer, overwritten in place; no stdout
 		// redirection or last-line parsing needed). Seed it with 0.
@@ -64570,7 +64681,9 @@ int main(int argc, const char **argv)
             FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
             if (sf) { fputs("100", sf); fclose(sf); }
         }
+        inno_gui_set(100);
     }
+    if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
     return rc;
 }
 #else
@@ -64601,7 +64714,9 @@ int main()
             FILE* sf = fopen(g_innosetup_file.c_str(), "wb");
             if (sf) { fputs("100", sf); fclose(sf); }
         }
+        inno_gui_set(100);
     }
+    if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
     return rc;
 }
 #endif // unix

@@ -30,9 +30,14 @@ that runs zpaq-std (compress or extract) and reads the pipe with `StrToInt()` to
 drive a progress bar. Works for both `a` (add) and `x`/`t` (extract), since both
 go through the shared `print_progress()` hook. stdout is set **unbuffered** in this
 mode so a redirected progress file (`Exec ... > p.txt`) updates live for a polling
-timer (parse the last line). **`-innosetup:FILE`** is the simplest form: zpaq-std
-overwrites FILE in place with *just the current integer* (seeded 0, ending 100) — no
-redirection or last-line parsing, the installer reads the whole file. Verified on Linux.
+timer (parse the last line). **`-innosetup:FILE`** is the simplest reporting form:
+zpaq-std overwrites FILE in place with *just the current integer* (seeded 0, ending
+100) — no redirection or last-line parsing, the installer reads the whole file.
+On **Windows**, plain **`-innosetup`** (no FILE) now shows zpaq-std's **own native
+progress window** — a comctl32 v6 (visual-styled / themed) progress bar on its own
+thread, embedded manifest (`win/zpaq-std.manifest`), linking comctl32. `-innosetup:FILE`
+suppresses the window (the installer drives its own bar). Verified on Linux + a Win10
+VM (headless: no crash/hang, round-trip bit-exact; window appearance is visual).
 
 **`-ma:hs` (heatshrink) and `-ma:lzfse` restored** — they had been removed
 (see 2026-06-07 below) after crashing on Windows, but that crash was the *same*
