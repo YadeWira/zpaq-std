@@ -29,10 +29,12 @@ only when it changes, ending with a guaranteed `100` on success. Implies
 that runs zpaq-std (compress or extract) and reads the pipe with `StrToInt()` to
 drive a progress bar. Works for both `a` (add) and `x`/`t` (extract), since both
 go through the shared `print_progress()` hook. On **Windows**, `-innosetup` shows
-zpaq-std's **own native progress window** — a comctl32 v6 (visual-styled / themed)
-progress bar on its own thread (embedded RT_MANIFEST `win/zpaq-std.manifest`, links
-comctl32), which fills as it works and closes at the end. On **non-Windows the flag is
-ignored** (runs as if not passed). Verified on Linux + a Win10 VM (headless: no
+zpaq-std's **own native progress window**, styled after 7-Zip's *7zG.exe*: a
+comctl32 v6 (visual-styled / themed) progress bar on its own thread (embedded
+RT_MANIFEST `win/zpaq-std.manifest`, links comctl32) with the live **%% in the title
+bar** and a column of stat rows — **Elapsed time, Remaining time, Total size, Speed,
+Processed** — which update as it works and close at the end. On **non-Windows the flag
+is ignored** (runs as if not passed). Verified on Linux + a Win10 VM (headless: no
 crash/hang, round-trip bit-exact; window appearance is visual). *(Earlier dev builds
 had stdout/file progress reporting and a `-innosetup:FILE` form; those were dropped in
 favour of the self-contained GUI window.)*

@@ -50463,15 +50463,44 @@ string Jidac::sanitizzanomefile(string i_filename, int i_filelength, int &io_col
    ============================================================================ */
 #ifdef _WIN32
 #include <commctrl.h>
-static volatile LONG g_inno_pct    = 0;
-static volatile LONG g_inno_quit   = 0;
-static HANDLE        g_inno_thread  = NULL;
-static HWND          g_inno_wnd = NULL, g_inno_bar = NULL, g_inno_lbl = NULL;
-static char          g_inno_caption[128] = "zpaq-std";
+
+/* 7zG-style progress dialog: a themed progress bar plus a column of stat rows
+   (Elapsed / Remaining time, Total size, Speed, Processed), with the live %% in
+   the title bar — the same information 7-Zip's 7zG.exe shows. print_progress
+   feeds a small struct (guarded by a critical section); the GUI thread polls it
+   on a timer and repaints only the fields that changed. */
+struct InnoProg { int pct; long long done, total, speed; int eta, elapsed; };
+static CRITICAL_SECTION g_inno_cs;
+static bool             g_inno_cs_init = false;
+static InnoProg         g_inno_prog    = {0, 0, 0, 0, 0, 0};
+static volatile LONG    g_inno_quit    = 0;
+static HANDLE           g_inno_thread  = NULL;
+static HWND             g_inno_wnd = NULL, g_inno_bar = NULL;
+static HWND             g_inno_val[5]  = {0, 0, 0, 0, 0};   // right-hand value labels
+static char             g_inno_caption[128] = "zpaq-std";
+
+static const char* const g_inno_rows[5] =
+	{ "Elapsed time:", "Remaining time:", "Total size:", "Speed:", "Processed:" };
+
+static void inno_fmt_time(int sec, char* buf, size_t n)
+{
+	if (sec < 0) sec= 0;
+	snprintf(buf, n, "%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
+}
+static void inno_fmt_bytes(long long v, char* buf, size_t n)
+{
+	static const char* const u[]= { "B", "KB", "MB", "GB", "TB" };
+	if (v < 0) v= 0;
+	if (v < 1024) { snprintf(buf, n, "%lld %s", v, u[0]); return; }
+	double d= (double)v; int i= 0;
+	while (d >= 1024.0 && i < 4) { d /= 1024.0; i++; }
+	snprintf(buf, n, "%.2f %s", d, u[i]);
+}
 
 static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
 	if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
+	if (m == WM_CLOSE)   return 0;   // work owns the lifetime; ignore the [x]
 	return DefWindowProcA(h, m, w, l);
 }
 
@@ -50487,22 +50516,31 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
 	wc.lpszClassName = "zpaqstdInnoProgress";
 	RegisterClassA(&wc);
-	const int W= 440, H= 130;
+	const int W= 420, H= 250;
 	int sx= GetSystemMetrics(SM_CXSCREEN), sy= GetSystemMetrics(SM_CYSCREEN);
-	g_inno_wnd= CreateWindowExA(WS_EX_TOPMOST | WS_EX_DLGMODALFRAME, wc.lpszClassName,
+	g_inno_wnd= CreateWindowExA(WS_EX_DLGMODALFRAME, wc.lpszClassName,
 		g_inno_caption, WS_CAPTION | WS_SYSMENU, (sx - W) / 2, (sy - H) / 2, W, H,
 		NULL, NULL, hi, NULL);
 	if (!g_inno_wnd) return 0;
 	HFONT hf= (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-	g_inno_lbl= CreateWindowExA(0, "STATIC", "Please wait...", WS_CHILD | WS_VISIBLE,
-		20, 18, W - 56, 20, g_inno_wnd, NULL, hi, NULL);
-	SendMessageA(g_inno_lbl, WM_SETFONT, (WPARAM)hf, TRUE);
 	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
-		20, 48, W - 56, 26, g_inno_wnd, NULL, hi, NULL);
+		15, 15, W - 46, 22, g_inno_wnd, NULL, hi, NULL);
 	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
+	int y= 56;
+	for (int i= 0; i < 5; i++)
+	{
+		HWND lab= CreateWindowExA(0, "STATIC", g_inno_rows[i], WS_CHILD | WS_VISIBLE,
+			18, y, 130, 18, g_inno_wnd, NULL, hi, NULL);
+		SendMessageA(lab, WM_SETFONT, (WPARAM)hf, TRUE);
+		g_inno_val[i]= CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT,
+			150, y, W - 196, 18, g_inno_wnd, NULL, hi, NULL);
+		SendMessageA(g_inno_val[i], WM_SETFONT, (WPARAM)hf, TRUE);
+		y += 28;
+	}
 	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
 	UpdateWindow(g_inno_wnd);
-	int last= -1;
+	int  last_pct= -1;
+	char prev[5][64]; for (int i= 0; i < 5; i++) prev[i][0]= 0;
 	MSG msg;
 	for (;;)
 	{
@@ -50513,15 +50551,32 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			DispatchMessageA(&msg);
 		}
 		if (InterlockedCompareExchange(&g_inno_quit, 0, 0)) break;
-		int p= (int)InterlockedCompareExchange(&g_inno_pct, 0, 0);
-		if (p != last)
+		InnoProg p;
+		if (g_inno_cs_init)
 		{
-			last= p;
-			SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p, 0);
-			char t[160]; snprintf(t, sizeof(t), "%s  -  %d%%", g_inno_caption, p);
-			SetWindowTextA(g_inno_lbl, t);
+			EnterCriticalSection(&g_inno_cs); p= g_inno_prog; LeaveCriticalSection(&g_inno_cs);
 		}
-		Sleep(40);
+		else p= g_inno_prog;
+		if (p.pct != last_pct)
+		{
+			last_pct= p.pct;
+			SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p.pct, 0);
+			char t[160]; snprintf(t, sizeof(t), "%d%%  %s", p.pct, g_inno_caption);
+			SetWindowTextA(g_inno_wnd, t);
+		}
+		char v[5][64], spd[48];
+		inno_fmt_time(p.elapsed, v[0], sizeof(v[0]));
+		inno_fmt_time(p.eta,     v[1], sizeof(v[1]));
+		inno_fmt_bytes(p.total,  v[2], sizeof(v[2]));
+		inno_fmt_bytes(p.speed,  spd,  sizeof(spd)); snprintf(v[3], sizeof(v[3]), "%s/s", spd);
+		inno_fmt_bytes(p.done,   v[4], sizeof(v[4]));
+		for (int i= 0; i < 5; i++)
+			if (strcmp(v[i], prev[i]) != 0)
+			{
+				strcpy(prev[i], v[i]);
+				SetWindowTextA(g_inno_val[i], v[i]);
+			}
+		Sleep(80);
 	}
 done:
 	if (g_inno_wnd) { DestroyWindow(g_inno_wnd); g_inno_wnd= NULL; }
@@ -50536,13 +50591,26 @@ static void inno_gui_start(const char* caption)
 		strncpy(g_inno_caption, caption, sizeof(g_inno_caption) - 1);
 		g_inno_caption[sizeof(g_inno_caption) - 1]= 0;
 	}
-	g_inno_quit= 0; g_inno_pct= 0;
+	if (!g_inno_cs_init) { InitializeCriticalSection(&g_inno_cs); g_inno_cs_init= true; }
+	g_inno_quit= 0;
+	memset(&g_inno_prog, 0, sizeof(g_inno_prog));
 	g_inno_thread= CreateThread(NULL, 0, inno_gui_thread, NULL, 0, NULL);
+}
+static void inno_gui_progress(int pct, long long done, long long total,
+                              long long speed, int eta, int elapsed)
+{
+	if (pct < 0) pct= 0; if (pct > 100) pct= 100;
+	if (!g_inno_cs_init) return;
+	EnterCriticalSection(&g_inno_cs);
+	g_inno_prog.pct= pct; g_inno_prog.done= done; g_inno_prog.total= total;
+	g_inno_prog.speed= speed; g_inno_prog.eta= eta; g_inno_prog.elapsed= elapsed;
+	LeaveCriticalSection(&g_inno_cs);
 }
 static void inno_gui_set(int pct)
 {
 	if (pct < 0) pct= 0; if (pct > 100) pct= 100;
-	InterlockedExchange(&g_inno_pct, pct);
+	if (!g_inno_cs_init) return;
+	EnterCriticalSection(&g_inno_cs); g_inno_prog.pct= pct; LeaveCriticalSection(&g_inno_cs);
 }
 static void inno_gui_stop()
 {
@@ -50554,6 +50622,7 @@ static void inno_gui_stop()
 }
 #else
 static void inno_gui_start(const char*) {}
+static void inno_gui_progress(int, long long, long long, long long, int, int) {}
 static void inno_gui_set(int) {}
 static void inno_gui_stop() {}
 #endif
@@ -50575,15 +50644,21 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
     // rest), so an Inno Setup [Code] pipe reader can StrToInt() each line into a progress bar.
     if (flaginnosetup)
     {
+        int64_t   el_ms   = mtime() - g_start; if (el_ms < 1) el_ms = 1;
+        int       elapsed = (int)(el_ms / 1000);
+        long long speed   = (long long)(td / (el_ms / 1000.0));
         int ip = (int)(td * 100.0 / (ts + 0.5));
         if (ip < 0)   ip = 0;
         if (ip > 100) ip = 100;
+        int eta = (speed > 0) ? (int)((ts - td) / speed) : 0;
+        if (eta < 0) eta = 0;
+        // 7zG-style GUI progress window (Windows; no-op elsewhere)
+        inno_gui_progress(ip, td, ts, speed, eta, elapsed);
         if (ip != ultima_percentuale)
         {
             ultima_percentuale = ip;
             printf("%d\n", ip);
             fflush(stdout);
-            inno_gui_set(ip); // GUI progress window (Windows; no-op elsewhere)
         }
         return;
     }
