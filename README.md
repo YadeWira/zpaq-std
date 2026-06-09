@@ -111,10 +111,13 @@ the stream is trivially parseable by an installer.
 
 Output contract:
 
+An installer typically **extracts** a bundled archive into the install dir:
+
 ```bash
-zpaq-std a "app.zpaq" "C:\src" -pc -ma:flzma2 -innosetup
+zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
 # -> 1  2  5  9 ... 99 100   (one integer per line; last line = current %; ends at 100)
 ```
+(`-pc`/`-ma` are compress-time options; on extract the archive is self-describing, so the command is just `x <archive> -to <dir>`.)
 
 - one integer `0..100` per line, **only when it changes**, nothing else on stdout;
 - stdout is **unbuffered**, so a redirected file updates live;
@@ -129,8 +132,10 @@ No stdout redirection, no `cmd /c`, no last-line parsing — the file *always* c
 exactly the current percentage, so the installer just reads the whole file:
 
 ```pascal
-Exec(ExpandConstant('{app}\zpaq-std.exe'),
-     'a "{app}\data.zpaq" "{src}" -pc -ma:flzma2 -innosetup:"' + ExpandConstant('{tmp}\p.txt') + '"',
+// extract the bundled {tmp}\data.zpaq into {app}, writing progress to {tmp}\p.txt
+Exec(ExpandConstant('{tmp}\zpaq-std.exe'),
+     'x "' + ExpandConstant('{tmp}\data.zpaq') + '" -to "' + ExpandConstant('{app}\') +
+     '" -innosetup:"' + ExpandConstant('{tmp}\p.txt') + '"',
      '', SW_HIDE, ewNoWait, rc);
 // ... in the poll loop:
 if LoadStringFromFile(ExpandConstant('{tmp}\p.txt'), s) then
@@ -164,13 +169,14 @@ var
   exe, log, params: string;
   rc, pct, idle: Integer;
 begin
-  exe := ExpandConstant('{app}\zpaq-std.exe');
+  exe := ExpandConstant('{tmp}\zpaq-std.exe');
   log := ExpandConstant('{tmp}\zpaq_progress.txt');
-  { the outer "" around the whole cmd /c command are required by cmd.exe }
-  params := '/C ""' + exe + '" a "' + ExpandConstant('{app}\data.zpaq') + '" "'
-            + ExpandConstant('{src}') + '" -pc -ma:flzma2 -innosetup > "' + log + '""';
+  { extract the bundled archive into {app}. The outer "" around the whole
+    cmd /c command are required by cmd.exe }
+  params := '/C ""' + exe + '" x "' + ExpandConstant('{tmp}\data.zpaq') + '" -to "'
+            + ExpandConstant('{app}\') + '" -innosetup > "' + log + '""';
 
-  ProgressPage := CreateOutputProgressPage('Installing', 'Compressing files...');
+  ProgressPage := CreateOutputProgressPage('Installing', 'Extracting files...');
   ProgressPage.SetProgress(0, 100);
   ProgressPage.Show;
   try
