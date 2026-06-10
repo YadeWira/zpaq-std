@@ -31,10 +31,11 @@ drive a progress bar. Works for both `a` (add) and `x`/`t` (extract), since both
 go through the shared `print_progress()` hook. On **Windows**, `-innosetup` shows
 zpaq-std's **own native progress window**, modelled on 7-Zip's *7zG.exe* and styled
 like an Inno Setup wizard page: a comctl32 v6 progress bar on its own thread (embedded
-RT_MANIFEST `win/zpaq-std.manifest`, links comctl32) with the live **%% in the title
-bar** and two columns of stat rows — **Elapsed time, Remaining time, Total size, Speed,
-Processed, Compressed size, Compression ratio** (the last two on `a`; shown as `-` on
-extract). It **auto-detects the OS dark/light theme**: on Windows 10+ it reads
+RT_MANIFEST `win/zpaq-std.manifest`, links comctl32) with the operation and percentage
+in the **title bar** (`Compressing... NN%%` / `Extracting... NN%%`), two columns of stat
+rows — **Elapsed time, Remaining time, Total size, Speed, Processed, Compressed size,
+Compression ratio** (the last two on `a`; shown as `-` on extract) — and **Background**
+(minimise, keep working) and **Cancel** (confirm, then abort) buttons. It **auto-detects the OS dark/light theme**: on Windows 10+ it reads
 `AppsUseLightTheme` and, when dark, paints a dark background + dark title bar (via
 `dwmapi`) and a dark progress trough (via `uxtheme`), both loaded at run time so there
 is no extra link dependency; on **Windows 8.1 and older** (no such setting) it stays

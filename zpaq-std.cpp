@@ -50483,6 +50483,8 @@ static HWND             g_inno_val[7]  = {0, 0, 0, 0, 0, 0, 0};
 static char             g_inno_caption[128] = "zpaq-std";
 static COLORREF         g_inno_bg = RGB(240, 240, 240), g_inno_fg = RGB(0, 0, 0);
 static HBRUSH           g_inno_brush = NULL;
+#define IDC_INNO_BG     1001
+#define IDC_INNO_CANCEL 1002
 
 // stat-row labels + their grid position (col 0 = left, 1 = right; row in column)
 struct InnoRow { const char* label; int col, row; };
@@ -50542,20 +50544,24 @@ static void inno_apply_dark_titlebar(HWND h, bool dark)
 	FreeLibrary(dwm);
 }
 
-// In dark mode, drop the bar's visual style (via uxtheme, loaded at run time) so
-// the classic PBM_SET*COLOR messages take effect: dark trough, green chunk. In
-// light mode the themed Aero/green bar is kept as-is.
+// SetWindowTheme via uxtheme (loaded at run time so we keep no link dependency).
+static void inno_set_ctl_theme(HWND c, const wchar_t* sub, const wchar_t* old_)
+{
+	HMODULE ux= LoadLibraryA("uxtheme.dll");
+	if (!ux) return;
+	typedef HRESULT (WINAPI *SWT)(HWND, LPCWSTR, LPCWSTR);
+	SWT swt= (SWT)GetProcAddress(ux, "SetWindowTheme");
+	if (swt) swt(c, sub, old_);
+	FreeLibrary(ux);
+}
+
+// In dark mode, drop the bar's visual style so the classic PBM_SET*COLOR messages
+// take effect: dark trough, green chunk. In light mode the themed Aero/green bar
+// is kept as-is.
 static void inno_theme_bar(HWND bar, bool dark)
 {
 	if (!dark) return;
-	HMODULE ux= LoadLibraryA("uxtheme.dll");
-	if (ux)
-	{
-		typedef HRESULT (WINAPI *SWT)(HWND, LPCWSTR, LPCWSTR);
-		SWT swt= (SWT)GetProcAddress(ux, "SetWindowTheme");
-		if (swt) swt(bar, L"", L"");
-		FreeLibrary(ux);
-	}
+	inno_set_ctl_theme(bar, L"", L"");
 	SendMessageA(bar, PBM_SETBKCOLOR,  0, (LPARAM)RGB(45, 45, 45));
 	SendMessageA(bar, PBM_SETBARCOLOR, 0, (LPARAM)RGB(38, 160, 38));
 }
@@ -50568,6 +50574,22 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 		SetTextColor(dc, g_inno_fg);
 		SetBkColor(dc, g_inno_bg);
 		return (LRESULT)(g_inno_brush ? g_inno_brush : (HBRUSH)(COLOR_BTNFACE + 1));
+	}
+	if (m == WM_COMMAND)
+	{
+		if (LOWORD(w) == IDC_INNO_BG)        // "Background": keep working, minimise
+		{
+			ShowWindow(h, SW_MINIMIZE);
+			return 0;
+		}
+		if (LOWORD(w) == IDC_INNO_CANCEL)    // "Cancel": confirm, then abort the process
+		{
+			if (MessageBoxA(h, "Cancel the current operation?", "zpaq-std",
+			                MB_YESNO | MB_ICONQUESTION) == IDYES)
+				TerminateProcess(GetCurrentProcess(), 2);
+			return 0;
+		}
+		return 0;
 	}
 	if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
 	if (m == WM_CLOSE)   return 0;   // work owns the lifetime; ignore the [x]
@@ -50592,7 +50614,7 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	wc.hbrBackground = g_inno_brush;
 	wc.lpszClassName = "zpaqstdInnoProgress";
 	RegisterClassA(&wc);
-	const int W= 520, H= 268;
+	const int W= 520, H= 300;
 	int sx= GetSystemMetrics(SM_CXSCREEN), sy= GetSystemMetrics(SM_CYSCREEN);
 	g_inno_wnd= CreateWindowExA(WS_EX_DLGMODALFRAME, wc.lpszClassName,
 		g_inno_caption, WS_CAPTION | WS_SYSMENU, (sx - W) / 2, (sy - H) / 2, W, H,
@@ -50614,13 +50636,27 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		SendMessageA(g_inno_val[i], WM_SETFONT, (WPARAM)hf, TRUE);
 	}
 	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
-		18, 165, W - 54, 22, g_inno_wnd, NULL, hi, NULL);
+		18, 156, W - 54, 22, g_inno_wnd, NULL, hi, NULL);
 	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
 	inno_theme_bar(g_inno_bar, dark);
+	HWND bbg= CreateWindowExA(0, "BUTTON", "Background",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+		276, 214, 110, 27, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
+	HWND bcn= CreateWindowExA(0, "BUTTON", "Cancel",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+		398, 214, 100, 27, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
+	SendMessageA(bbg, WM_SETFONT, (WPARAM)hf, TRUE);
+	SendMessageA(bcn, WM_SETFONT, (WPARAM)hf, TRUE);
+	if (dark)   // best-effort dark buttons on Win10+
+	{
+		inno_set_ctl_theme(bbg, L"DarkMode_Explorer", NULL);
+		inno_set_ctl_theme(bcn, L"DarkMode_Explorer", NULL);
+	}
 	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
 	UpdateWindow(g_inno_wnd);
 	int  last_pct= -1;
 	char prev[7][64]; for (int i= 0; i < 7; i++) prev[i][0]= 0;
+	char prev_title[96]= "";
 	MSG msg;
 	for (;;)
 	{
@@ -50637,12 +50673,19 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			EnterCriticalSection(&g_inno_cs); p= g_inno_prog; LeaveCriticalSection(&g_inno_cs);
 		}
 		else p= g_inno_prog;
+		// title bar text: verb derived from the compressed counter (>=0 while adding,
+		// -1 on extract), e.g. "Compressing... 72%" / "Extracting... 72%"
+		const char* verb= (p.compressed < 0) ? "Extracting" : "Compressing";
+		char t[96]; snprintf(t, sizeof(t), "%s... %d%%", verb, p.pct);
+		if (strcmp(t, prev_title) != 0)
+		{
+			strcpy(prev_title, t);
+			SetWindowTextA(g_inno_wnd, t);
+		}
 		if (p.pct != last_pct)
 		{
 			last_pct= p.pct;
 			SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p.pct, 0);
-			char t[160]; snprintf(t, sizeof(t), "%d%%  %s", p.pct, g_inno_caption);
-			SetWindowTextA(g_inno_wnd, t);
 		}
 		char v[7][64], tmp[48];
 		inno_fmt_time(p.elapsed, v[0], sizeof(v[0]));
