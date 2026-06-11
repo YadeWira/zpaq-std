@@ -50625,29 +50625,36 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	if (!g_inno_wnd) return 0;
 	inno_apply_dark_titlebar(g_inno_wnd, dark);
 	HFONT hf= (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-	const int colLabX[2]= { 24, 262 }, colValX[2]= { 152, 390 };
-	const int colLabW= 124, colValW= 86, rowY0= 22, rowStep= 28;
+	// Lay out in CLIENT coordinates (the client area is narrower than W), so the
+	// left margin, centre gutter and right margin come out exactly equal.
+	RECT rc; GetClientRect(g_inno_wnd, &rc);
+	const int CW= rc.right;
+	const int M= 22, G= 22, valueW= 88, rowH= 18, rowY0= 22, rowStep= 28;
+	const int colW= (CW - 2 * M - G) / 2;        // both columns identical width
+	const int colX[2]= { M, M + colW + G };
 	for (int i= 0; i < 7; i++)
 	{
 		int c= g_inno_layout[i].col, yy= rowY0 + g_inno_layout[i].row * rowStep;
 		HWND lab= CreateWindowExA(0, "STATIC", g_inno_layout[i].label, WS_CHILD | WS_VISIBLE,
-			colLabX[c], yy, colLabW, 18, g_inno_wnd, NULL, hi, NULL);
+			colX[c], yy, colW - valueW, rowH, g_inno_wnd, NULL, hi, NULL);
 		SendMessageA(lab, WM_SETFONT, (WPARAM)hf, TRUE);
 		g_inno_val[i]= CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT,
-			colValX[c], yy, colValW, 18, g_inno_wnd, NULL, hi, NULL);
+			colX[c] + colW - valueW, yy, valueW, rowH, g_inno_wnd, NULL, hi, NULL);
 		SendMessageA(g_inno_val[i], WM_SETFONT, (WPARAM)hf, TRUE);
 	}
 	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
-		24, 150, W - 48, 22, g_inno_wnd, NULL, hi, NULL);
+		M, 150, CW - 2 * M, 22, g_inno_wnd, NULL, hi, NULL);
 	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
 	inno_theme_bar(g_inno_bar, dark);
-	const int btnW= 86, btnH= 26, btnY= 188, btnGap= 8;
+	// Buttons right-aligned to the same right margin; "Background" is the default
+	// button so it gets the themed accent border, like Inno Setup's default button.
+	const int btnW= 88, btnH= 26, btnY= 188, btnGap= 10;
 	HWND bcn= CreateWindowExA(0, "BUTTON", "Cancel",
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-		W - 24 - btnW, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
+		CW - M - btnW, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
 	HWND bbg= CreateWindowExA(0, "BUTTON", "Background",
-		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-		W - 24 - btnW * 2 - btnGap, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+		CW - M - btnW * 2 - btnGap, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
 	SendMessageA(bbg, WM_SETFONT, (WPARAM)hf, TRUE);
 	SendMessageA(bcn, WM_SETFONT, (WPARAM)hf, TRUE);
 	if (dark)   // best-effort dark buttons on Win10+
