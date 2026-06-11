@@ -50491,11 +50491,11 @@ struct InnoRow { const char* label; int col, row; };
 static const InnoRow g_inno_layout[7] = {
 	{ "Elapsed time:",      0, 0 },
 	{ "Remaining time:",    0, 1 },
-	{ "Total size:",        1, 0 },
-	{ "Speed:",             1, 1 },
-	{ "Processed:",         1, 2 },
-	{ "Compressed size:",   1, 3 },
-	{ "Compression ratio:", 1, 4 },
+	{ "Total size:",        0, 2 },
+	{ "Processed:",         0, 3 },
+	{ "Speed:",             1, 0 },
+	{ "Compressed size:",   1, 1 },
+	{ "Compression ratio:", 1, 2 },
 };
 
 static void inno_fmt_time(int sec, char* buf, size_t n)
@@ -50614,7 +50614,10 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	wc.hbrBackground = g_inno_brush;
 	wc.lpszClassName = "zpaqstdInnoProgress";
 	RegisterClassA(&wc);
-	const int W= 520, H= 300;
+	// Symmetric two-column grid: the left half [marg .. W/2-gap] mirrors the right
+	// half [W/2+gap .. W-marg]; in each half the label is left-aligned and the value
+	// right-aligned at the half's edge. 4 rows left, 3 right.
+	const int W= 500, H= 286;
 	int sx= GetSystemMetrics(SM_CXSCREEN), sy= GetSystemMetrics(SM_CYSCREEN);
 	g_inno_wnd= CreateWindowExA(WS_EX_DLGMODALFRAME, wc.lpszClassName,
 		g_inno_caption, WS_CAPTION | WS_SYSMENU, (sx - W) / 2, (sy - H) / 2, W, H,
@@ -50622,29 +50625,29 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	if (!g_inno_wnd) return 0;
 	inno_apply_dark_titlebar(g_inno_wnd, dark);
 	HFONT hf= (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-	const int colLabX[2]= { 18, 270 }, colLabW[2]= { 100, 130 };
-	const int colValX[2]= { 120, 405 }, colValW[2]= { 110, 90 };
-	const int rowY0= 16, rowStep= 26;
+	const int colLabX[2]= { 24, 262 }, colValX[2]= { 152, 390 };
+	const int colLabW= 124, colValW= 86, rowY0= 22, rowStep= 28;
 	for (int i= 0; i < 7; i++)
 	{
 		int c= g_inno_layout[i].col, yy= rowY0 + g_inno_layout[i].row * rowStep;
 		HWND lab= CreateWindowExA(0, "STATIC", g_inno_layout[i].label, WS_CHILD | WS_VISIBLE,
-			colLabX[c], yy, colLabW[c], 18, g_inno_wnd, NULL, hi, NULL);
+			colLabX[c], yy, colLabW, 18, g_inno_wnd, NULL, hi, NULL);
 		SendMessageA(lab, WM_SETFONT, (WPARAM)hf, TRUE);
 		g_inno_val[i]= CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_RIGHT,
-			colValX[c], yy, colValW[c], 18, g_inno_wnd, NULL, hi, NULL);
+			colValX[c], yy, colValW, 18, g_inno_wnd, NULL, hi, NULL);
 		SendMessageA(g_inno_val[i], WM_SETFONT, (WPARAM)hf, TRUE);
 	}
 	g_inno_bar= CreateWindowExA(0, PROGRESS_CLASSA, NULL, WS_CHILD | WS_VISIBLE,
-		18, 156, W - 54, 22, g_inno_wnd, NULL, hi, NULL);
+		24, 150, W - 48, 22, g_inno_wnd, NULL, hi, NULL);
 	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
 	inno_theme_bar(g_inno_bar, dark);
-	HWND bbg= CreateWindowExA(0, "BUTTON", "Background",
-		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-		276, 214, 110, 27, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
+	const int btnW= 86, btnH= 26, btnY= 188, btnGap= 8;
 	HWND bcn= CreateWindowExA(0, "BUTTON", "Cancel",
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
-		398, 214, 100, 27, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
+		W - 24 - btnW, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
+	HWND bbg= CreateWindowExA(0, "BUTTON", "Background",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+		W - 24 - btnW * 2 - btnGap, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
 	SendMessageA(bbg, WM_SETFONT, (WPARAM)hf, TRUE);
 	SendMessageA(bcn, WM_SETFONT, (WPARAM)hf, TRUE);
 	if (dark)   // best-effort dark buttons on Win10+
@@ -50687,12 +50690,14 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			last_pct= p.pct;
 			SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p.pct, 0);
 		}
+		// index order must match g_inno_layout: Elapsed, Remaining, Total, Processed,
+		// Speed, Compressed size, Compression ratio
 		char v[7][64], tmp[48];
 		inno_fmt_time(p.elapsed, v[0], sizeof(v[0]));
 		inno_fmt_time(p.eta,     v[1], sizeof(v[1]));
 		inno_fmt_bytes(p.total,  v[2], sizeof(v[2]));
-		inno_fmt_bytes(p.speed,  tmp, sizeof(tmp)); snprintf(v[3], sizeof(v[3]), "%s/s", tmp);
-		inno_fmt_bytes(p.done,   v[4], sizeof(v[4]));
+		inno_fmt_bytes(p.done,   v[3], sizeof(v[3]));
+		inno_fmt_bytes(p.speed,  tmp, sizeof(tmp)); snprintf(v[4], sizeof(v[4]), "%s/s", tmp);
 		if (p.compressed < 0)   // extract: no compressed-size / ratio to show
 		{
 			strcpy(v[5], "-"); strcpy(v[6], "-");
