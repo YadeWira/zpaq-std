@@ -50483,6 +50483,9 @@ static HWND             g_inno_val[7]  = {0, 0, 0, 0, 0, 0, 0};
 static char             g_inno_caption[128] = "zpaq-std";
 static COLORREF         g_inno_bg = RGB(240, 240, 240), g_inno_fg = RGB(0, 0, 0);
 static HBRUSH           g_inno_brush = NULL;
+static bool             g_inno_dark = false;
+static HFONT            g_inno_font = NULL;
+static HWND             g_inno_btn_bg = NULL, g_inno_btn_cancel = NULL, g_inno_hot = NULL;
 #define IDC_INNO_BG     1001
 #define IDC_INNO_CANCEL 1002
 
@@ -50575,6 +50578,44 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 		SetBkColor(dc, g_inno_bg);
 		return (LRESULT)(g_inno_brush ? g_inno_brush : (HBRUSH)(COLOR_BTNFACE + 1));
 	}
+	if (m == WM_DRAWITEM)   // flat, rounded, Inno-style owner-drawn buttons
+	{
+		DRAWITEMSTRUCT* d= (DRAWITEMSTRUCT*)l;
+		if (d->CtlType == ODT_BUTTON)
+		{
+			bool pressed= (d->itemState & ODS_SELECTED) != 0;
+			bool hot    = (d->hwndItem == g_inno_hot);
+			bool isdef  = (d->CtlID == IDC_INNO_BG);   // "Background" is the default
+			COLORREF face, border, txtcol;
+			if (g_inno_dark)
+			{
+				face  = pressed ? RGB(28, 28, 28) : hot ? RGB(60, 60, 60) : RGB(43, 43, 43);
+				border= isdef ? RGB(96, 160, 232) : RGB(94, 94, 94);
+				txtcol= RGB(240, 240, 240);
+			}
+			else
+			{
+				face  = pressed ? RGB(204, 204, 204) : hot ? RGB(229, 241, 251) : RGB(252, 252, 252);
+				border= isdef ? RGB(0, 120, 215) : RGB(172, 172, 172);
+				txtcol= RGB(0, 0, 0);
+			}
+			HDC  dc= d->hDC;
+			RECT r = d->rcItem;
+			FillRect(dc, &r, g_inno_brush);   // clear the rounded corners to window bg
+			HBRUSH fb= CreateSolidBrush(face);
+			HPEN   pen= CreatePen(PS_SOLID, isdef ? 2 : 1, border);
+			HGDIOBJ of= SelectObject(dc, fb), op= SelectObject(dc, pen);
+			RoundRect(dc, r.left, r.top, r.right - 1, r.bottom - 1, 7, 7);
+			SelectObject(dc, of); SelectObject(dc, op);
+			DeleteObject(fb); DeleteObject(pen);
+			char txt[40]; GetWindowTextA(d->hwndItem, txt, sizeof(txt));
+			SetBkMode(dc, TRANSPARENT);
+			SetTextColor(dc, txtcol);
+			if (g_inno_font) SelectObject(dc, g_inno_font);
+			DrawTextA(dc, txt, -1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+			return TRUE;
+		}
+	}
 	if (m == WM_COMMAND)
 	{
 		if (LOWORD(w) == IDC_INNO_BG)        // "Background": keep working, minimise
@@ -50599,6 +50640,7 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 static DWORD WINAPI inno_gui_thread(LPVOID)
 {
 	bool dark= inno_dark_mode();
+	g_inno_dark= dark;
 	g_inno_bg= dark ? RGB(32, 32, 32)    : RGB(240, 240, 240);
 	g_inno_fg= dark ? RGB(240, 240, 240) : RGB(0, 0, 0);
 	if (g_inno_brush) DeleteObject(g_inno_brush);
@@ -50625,6 +50667,7 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	if (!g_inno_wnd) return 0;
 	inno_apply_dark_titlebar(g_inno_wnd, dark);
 	HFONT hf= (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+	g_inno_font= hf;
 	// Lay out in CLIENT coordinates (the client area is narrower than W), so the
 	// left margin, centre gutter and right margin come out exactly equal.
 	RECT rc; GetClientRect(g_inno_wnd, &rc);
@@ -50646,22 +50689,17 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		M, 150, CW - 2 * M, 22, g_inno_wnd, NULL, hi, NULL);
 	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
 	inno_theme_bar(g_inno_bar, dark);
-	// Buttons right-aligned to the same right margin; "Background" is the default
-	// button so it gets the themed accent border, like Inno Setup's default button.
-	const int btnW= 88, btnH= 26, btnY= 188, btnGap= 10;
-	HWND bcn= CreateWindowExA(0, "BUTTON", "Cancel",
-		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+	// Buttons right-aligned to the same right margin; owner-drawn (WM_DRAWITEM) as
+	// flat rounded rects, with "Background" getting the accent border (the default).
+	const int btnW= 90, btnH= 28, btnY= 188, btnGap= 10;
+	g_inno_btn_cancel= CreateWindowExA(0, "BUTTON", "Cancel",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
 		CW - M - btnW, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
-	HWND bbg= CreateWindowExA(0, "BUTTON", "Background",
-		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+	g_inno_btn_bg= CreateWindowExA(0, "BUTTON", "Background",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
 		CW - M - btnW * 2 - btnGap, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
-	SendMessageA(bbg, WM_SETFONT, (WPARAM)hf, TRUE);
-	SendMessageA(bcn, WM_SETFONT, (WPARAM)hf, TRUE);
-	if (dark)   // best-effort dark buttons on Win10+
-	{
-		inno_set_ctl_theme(bbg, L"DarkMode_Explorer", NULL);
-		inno_set_ctl_theme(bcn, L"DarkMode_Explorer", NULL);
-	}
+	SendMessageA(g_inno_btn_bg, WM_SETFONT, (WPARAM)hf, TRUE);
+	SendMessageA(g_inno_btn_cancel, WM_SETFONT, (WPARAM)hf, TRUE);
 	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
 	UpdateWindow(g_inno_wnd);
 	int  last_pct= -1;
@@ -50721,6 +50759,16 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 				strcpy(prev[i], v[i]);
 				SetWindowTextA(g_inno_val[i], v[i]);
 			}
+		// hover tracking for the owner-drawn buttons (cheap hit-test on this poll)
+		POINT cp; GetCursorPos(&cp); ScreenToClient(g_inno_wnd, &cp);
+		HWND ch= ChildWindowFromPoint(g_inno_wnd, cp);
+		HWND hot= (ch == g_inno_btn_bg || ch == g_inno_btn_cancel) ? ch : NULL;
+		if (hot != g_inno_hot)
+		{
+			HWND prevh= g_inno_hot; g_inno_hot= hot;
+			if (prevh) InvalidateRect(prevh, NULL, FALSE);
+			if (hot)   InvalidateRect(hot,   NULL, FALSE);
+		}
 		Sleep(80);
 	}
 done:
