@@ -50500,10 +50500,10 @@ string Jidac::sanitizzanomefile(string i_filename, int i_filelength, int &io_col
    (where that registry value does not exist) it stays light. print_progress feeds
    a small struct (guarded by a critical section); the GUI thread polls it on a
    timer and repaints only the fields that changed. */
-struct InnoProg { int pct; long long done, total, speed, compressed; int eta, elapsed; };
+struct InnoProg { int pct; long long done, total, speed, compressed; int eta, elapsed, known; };
 static CRITICAL_SECTION g_inno_cs;
 static bool             g_inno_cs_init = false;
-static InnoProg         g_inno_prog    = {0, 0, 0, 0, 0, 0, 0};
+static InnoProg         g_inno_prog    = {0, 0, 0, 0, 0, 0, 0, 0};	// known=0 => "Loading..."
 static volatile LONG    g_inno_quit    = 0;
 static HANDLE           g_inno_thread  = NULL;
 static HWND             g_inno_wnd = NULL, g_inno_bar = NULL;
@@ -50753,10 +50753,15 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			EnterCriticalSection(&g_inno_cs); p= g_inno_prog; LeaveCriticalSection(&g_inno_cs);
 		}
 		else p= g_inno_prog;
-		// title bar text: verb derived from the compressed counter (>=0 while adding,
-		// -1 on extract), e.g. "Compressing... 72%" / "Extracting... 72%"
-		const char* verb= (p.compressed < 0) ? "Extracting" : "Compressing";
-		char t[96]; snprintf(t, sizeof(t), "%s... %d%%", verb, p.pct);
+		// title bar text. Until the first real progress arrives (known==0) the
+		// operation is unknown and we're still preparing, so show "Loading...".
+		// Then the verb comes from the compressed counter (>=0 adding, -1 extract):
+		// "Compressing... 72%" / "Extracting... 72%".
+		char t[96];
+		if (!p.known)
+			snprintf(t, sizeof(t), "Loading...");
+		else
+			snprintf(t, sizeof(t), "%s... %d%%", (p.compressed < 0) ? "Extracting" : "Compressing", p.pct);
 		if (strcmp(t, prev_title) != 0)
 		{
 			strcpy(prev_title, t);
@@ -50831,6 +50836,7 @@ static void inno_gui_progress(int pct, long long done, long long total,
 	g_inno_prog.pct= pct; g_inno_prog.done= done; g_inno_prog.total= total;
 	g_inno_prog.speed= speed; g_inno_prog.eta= eta; g_inno_prog.elapsed= elapsed;
 	g_inno_prog.compressed= compressed;
+	g_inno_prog.known= 1;	// real progress arrived: operation (compress/extract) is now known
 	LeaveCriticalSection(&g_inno_cs);
 }
 static void inno_gui_set(int pct)
