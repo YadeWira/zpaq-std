@@ -2190,6 +2190,34 @@ std::string				 g_optional;
 std::string				 orderby;
 std::string				 g_ma_algorithm;
 int						 g_ma_level = 0;
+bool					 g_sa_enabled = false;	// -sa : per-extension specific algorithm
+std::set<std::string>	 g_sa_exts;				// user-listed extensions (lowercase, no dot); empty => all known
+std::string				 g_sa_curfile;			// -sa: file currently being added (for per-block algo choice)
+
+// lowercase extension (no dot) of a path, or "" if it has none
+static std::string sa_file_ext(const std::string& path)
+{
+	size_t slash= path.find_last_of("/\\");
+	size_t dot= path.find_last_of('.');
+	if (dot==std::string::npos) return "";
+	if (slash!=std::string::npos && dot<slash) return "";
+	std::string e= path.substr(dot+1);
+	for (size_t i=0;i<e.size();i++) if (e[i]>='A'&&e[i]<='Z') e[i]= (char)(e[i]-'A'+'a');
+	return e;
+}
+
+// -sa built-in type->algorithm table. Returns true if ext is a known type;
+// algo=="" => store (no external pass). Step 1: text (ppmd:15) + already-compressed (store).
+// NOTE: the bundled PPMd build is only safe up to order 15 (the -ma parser caps it there;
+// order 16+ with the fixed 64 MB model segfaults), so text uses 15, not higher.
+static bool sa_lookup(const std::string& ext, std::string& algo, int& level)
+{
+	static const char* const SA_TEXT[]= {"txt","log","md","markdown","csv","tsv","json","xml","html","htm","css","js","ts","jsx","tsx","c","h","cpp","hpp","cc","cxx","py","java","cs","go","rs","rb","php","pl","sh","bat","ps1","sql","ini","cfg","conf","toml","yaml","yml","tex","bib","rtf","svg","srt","vtt","po",0};
+	static const char* const SA_STORE[]= {"jpg","jpeg","gif","webp","heic","heif","png","mp3","aac","m4a","ogg","opus","flac","wma","mp4","m4v","mkv","mov","avi","wmv","webm","flv","mpg","mpeg","3gp","zip","gz","tgz","bz2","xz","zst","7z","rar","lz4","lzma","cab","jar","apk","docx","xlsx","pptx","odt","ods","odp","epub","mobi","azw3","pdf",0};
+	for (int i=0; SA_TEXT[i];  i++) if (ext==SA_TEXT[i])  { algo="ppmd"; level=15; return true; }
+	for (int i=0; SA_STORE[i]; i++) if (ext==SA_STORE[i]) { algo="";     level=0;  return true; }
+	return false;
+}
 std::vector<std::string> g_theorderby;
 int						 g_ioBUFSIZE= 1048576;
 int						 g_thechosenhash;
@@ -50854,12 +50882,8 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
         // 7zG-style GUI progress window (Windows; no-op elsewhere). i_scritti is the
         // compressed bytes written so far when adding, or -1 on extract.
         inno_gui_progress(ip, td, ts, speed, eta, elapsed, i_scritti);
-        if (ip != ultima_percentuale)
-        {
-            ultima_percentuale = ip;
-            printf("%d\n", ip);
-            fflush(stdout);
-        }
+        // No stdout output in -innosetup mode: the GUI window is the only progress UI
+        // (printing 0..100 here would show up in the installer's console window).
         return;
     }
 
@@ -54803,6 +54827,17 @@ int Jidac::loadparameters(int argc, const char** argv)
 	{
 		flagsilent= true;                 // mute normal output; the window shows progress
 		setvbuf(stdout, NULL, _IONBF, 0); // unbuffered (harmless; live if stdout redirected)
+#ifdef _WIN32
+		// Installer use: hide our own console window so only the GUI shows. Inno Setup's
+		// Exec gives the child its own console; we hide it. Guard with GetConsoleProcessList
+		// so we never hide a console shared with a parent shell (manual run from cmd).
+		{
+			DWORD pl[3];
+			HWND  cw= GetConsoleWindow();
+			if (cw && GetConsoleProcessList(pl, 3) <= 1)
+				ShowWindow(cw, SW_HIDE);
+		}
+#endif
 		inno_gui_start("zpaq-std");       // GUI progress window on its own thread
 	}
 
@@ -55589,6 +55624,28 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getuint64	(opt,"-remotespeed",false,	"",								argc,argv,&i,g_remotespeed,		&g_remotespeed));
 		else if (cli_getuint64	(opt,"-checksize",	false,	"",								argc,argv,&i,g_checksize,		&g_checksize));
 		else if (cli_getstring	(opt,"-method",		false,	"-m",							argc,argv,&i,"",				&method));
+		else if (opt=="-sa" || opt.rfind("-sa:",0)==0)
+		{
+			// -sa : pick a specific algorithm per file extension (built-in table).
+			// -sa            => apply to all known types
+			// -sa:txt:jpg:.. => apply only to the listed extensions
+			g_sa_enabled= true;
+			if (opt.size()>4 && opt[3]==':')
+			{
+				string list= opt.substr(4);
+				size_t pos=0;
+				while (pos<=list.size())
+				{
+					size_t c= list.find(':', pos);
+					string e= (c==string::npos) ? list.substr(pos) : list.substr(pos, c-pos);
+					if (!e.empty() && e[0]=='.') e= e.substr(1);
+					for (size_t k=0;k<e.size();k++) if (e[k]>='A'&&e[k]<='Z') e[k]= (char)(e[k]-'A'+'a');
+					if (!e.empty()) g_sa_exts.insert(e);
+					if (c==string::npos) break;
+					pos= c+1;
+				}
+			}
+		}
 		else if ((opt=="-ma"||opt.rfind("-ma:",0)==0) && opt!="-maxsize")
 		{
 			string ma_value;
@@ -101801,6 +101858,8 @@ int Jidac::add()
 					}
 					if (newsize >= blocksize)
 						newblock= true;
+					if (g_sa_enabled)
+						newblock= true;	// -sa: start a new block at every file boundary (exact per-file algorithm)
 				}
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize)
 					newblock= true;
@@ -101843,6 +101902,26 @@ int Jidac::add()
 						m+= "," + itos(redz) + "," + itos((exe > frags) * 2 + (text > frags));
 
 												/// m[0]='0';
+					}
+
+					// -sa: pick a specific algorithm for this file by its extension,
+					// temporarily overriding g_ma_algorithm/g_ma_level for this block
+					// (restored just after the dispatch chain, before the segment write).
+					// algo=="" => store: the dispatch below is skipped (no external pass).
+					std::string sa_save_algo; int sa_save_level= 0; bool sa_active_here= false;
+					if (g_sa_enabled && !g_sa_curfile.empty())
+					{
+						std::string sa_ext= sa_file_ext(g_sa_curfile);
+						if (!sa_ext.empty() && (g_sa_exts.empty() || g_sa_exts.count(sa_ext)))
+						{
+							std::string sa_a; int sa_lv= 0;
+							if (sa_lookup(sa_ext, sa_a, sa_lv))
+							{
+								sa_save_algo= g_ma_algorithm; sa_save_level= g_ma_level;
+								sa_active_here= true;
+								g_ma_algorithm= sa_a; g_ma_level= sa_lv;
+							}
+						}
 					}
 
 					// External compression (LZ4 / zstd)
@@ -102294,6 +102373,9 @@ int Jidac::add()
 						}
 					}
 
+					// restore the global -ma algorithm after the per-file -sa override
+					if (sa_active_here) { g_ma_algorithm= sa_save_algo; g_ma_level= sa_save_level; }
+
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
 
 					if (flagdebug3)
@@ -102370,6 +102452,7 @@ int Jidac::add()
 				} // newblock
 
 				assert(sz == 0 || fi < vf.size());
+				if (g_sa_enabled && sz > 0 && fi < vf.size()) g_sa_curfile= vf[fi]->first;	// -sa: owner of this block's fragments
 				sb.write(&fragbuf[0], sz);
 				++frags;
 				redundancy+= hits;
