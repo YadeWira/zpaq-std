@@ -50843,7 +50843,7 @@ static void inno_gui_set(int pct)
 {
 	if (pct < 0) pct= 0; if (pct > 100) pct= 100;
 	if (!g_inno_cs_init) return;
-	EnterCriticalSection(&g_inno_cs); g_inno_prog.pct= pct; LeaveCriticalSection(&g_inno_cs);
+	EnterCriticalSection(&g_inno_cs); g_inno_prog.pct= pct; g_inno_prog.known= 1; LeaveCriticalSection(&g_inno_cs);
 }
 static void inno_gui_stop()
 {
@@ -64987,16 +64987,15 @@ extern "C" {
 int main(int argc, const char **argv)
 {
     int rc = zpaq_main_internal(argc, argv);
-    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the GUI progress bar
+    if (flaginnosetup)   // show a final 100% and hold the window briefly, then close
     {
-        printf("100\n");
-        fflush(stdout);
-        inno_gui_set(100);
+        inno_gui_set(100);              // force the bar to 100% (regardless of rc:
+                                        // extract may return a benign nonzero error count)
 #ifdef _WIN32
-        Sleep(1000);   // hold the finished window ~1s so the 100% is visible
+        Sleep(1000);                    // hold ~1s so the 100% is visible before closing
 #endif
+        inno_gui_stop();                // close the GUI window (Windows; no-op elsewhere)
     }
-    if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
     return rc;
 }
 #else
@@ -65018,16 +65017,15 @@ int main()
         argp[i] = args[i].c_str();
     }
     int rc = zpaq_main_internal(argc, &argp[0]);
-    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the GUI progress bar
+    if (flaginnosetup)   // show a final 100% and hold the window briefly, then close
     {
-        printf("100\n");
-        fflush(stdout);
-        inno_gui_set(100);
+        inno_gui_set(100);              // force the bar to 100% (regardless of rc:
+                                        // extract may return a benign nonzero error count)
 #ifdef _WIN32
-        Sleep(1000);   // hold the finished window ~1s so the 100% is visible
+        Sleep(1000);                    // hold ~1s so the 100% is visible before closing
 #endif
+        inno_gui_stop();                // close the GUI window (Windows; no-op elsewhere)
     }
-    if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
     return rc;
 }
 #endif // unix
