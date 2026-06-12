@@ -50605,7 +50605,7 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 			HBRUSH fb= CreateSolidBrush(face);
 			HPEN   pen= CreatePen(PS_SOLID, isdef ? 2 : 1, border);
 			HGDIOBJ of= SelectObject(dc, fb), op= SelectObject(dc, pen);
-			RoundRect(dc, r.left, r.top, r.right - 1, r.bottom - 1, 7, 7);
+			RoundRect(dc, r.left, r.top, r.right - 1, r.bottom - 1, 16, 16);
 			SelectObject(dc, of); SelectObject(dc, op);
 			DeleteObject(fb); DeleteObject(pen);
 			char txt[40]; GetWindowTextA(d->hwndItem, txt, sizeof(txt));
@@ -50659,10 +50659,15 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	// Symmetric two-column grid: the left half [marg .. W/2-gap] mirrors the right
 	// half [W/2+gap .. W-marg]; in each half the label is left-aligned and the value
 	// right-aligned at the half's edge. 4 rows left, 3 right.
-	const int W= 500, H= 286;
+	// Size the window from the desired CLIENT area (via AdjustWindowRectEx) so the
+	// bottom margin below the buttons matches the side margins — no dead space.
+	const DWORD style= WS_CAPTION | WS_SYSMENU, exstyle= WS_EX_DLGMODALFRAME;
+	RECT wr= { 0, 0, 460, 238 };
+	AdjustWindowRectEx(&wr, style, FALSE, exstyle);
+	const int W= wr.right - wr.left, H= wr.bottom - wr.top;
 	int sx= GetSystemMetrics(SM_CXSCREEN), sy= GetSystemMetrics(SM_CYSCREEN);
-	g_inno_wnd= CreateWindowExA(WS_EX_DLGMODALFRAME, wc.lpszClassName,
-		g_inno_caption, WS_CAPTION | WS_SYSMENU, (sx - W) / 2, (sy - H) / 2, W, H,
+	g_inno_wnd= CreateWindowExA(exstyle, wc.lpszClassName,
+		g_inno_caption, style, (sx - W) / 2, (sy - H) / 2, W, H,
 		NULL, NULL, hi, NULL);
 	if (!g_inno_wnd) return 0;
 	inno_apply_dark_titlebar(g_inno_wnd, dark);
@@ -50691,7 +50696,7 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	inno_theme_bar(g_inno_bar, dark);
 	// Buttons right-aligned to the same right margin; owner-drawn (WM_DRAWITEM) as
 	// flat rounded rects, with "Background" getting the accent border (the default).
-	const int btnW= 90, btnH= 28, btnY= 188, btnGap= 10;
+	const int btnW= 90, btnH= 28, btnY= 190, btnGap= 10;
 	g_inno_btn_cancel= CreateWindowExA(0, "BUTTON", "Cancel",
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
 		CW - M - btnW, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_CANCEL, hi, NULL);
@@ -64920,11 +64925,14 @@ extern "C" {
 int main(int argc, const char **argv)
 {
     int rc = zpaq_main_internal(argc, argv);
-    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the Inno Setup progress bar
+    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the GUI progress bar
     {
         printf("100\n");
         fflush(stdout);
         inno_gui_set(100);
+#ifdef _WIN32
+        Sleep(1000);   // hold the finished window ~1s so the 100% is visible
+#endif
     }
     if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
     return rc;
@@ -64948,11 +64956,14 @@ int main()
         argp[i] = args[i].c_str();
     }
     int rc = zpaq_main_internal(argc, &argp[0]);
-    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the Inno Setup progress bar
+    if (flaginnosetup && rc == 0)   // guarantee a final 100% for the GUI progress bar
     {
         printf("100\n");
         fflush(stdout);
         inno_gui_set(100);
+#ifdef _WIN32
+        Sleep(1000);   // hold the finished window ~1s so the 100% is visible
+#endif
     }
     if (flaginnosetup) inno_gui_stop(); // close the GUI window (Windows; no-op elsewhere)
     return rc;
