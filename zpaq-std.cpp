@@ -50585,25 +50585,24 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 		{
 			bool pressed= (d->itemState & ODS_SELECTED) != 0;
 			bool hot    = (d->hwndItem == g_inno_hot);
-			bool isdef  = (d->CtlID == IDC_INNO_BG);   // "Background" is the default
 			COLORREF face, border, txtcol;
 			if (g_inno_dark)
 			{
 				face  = pressed ? RGB(28, 28, 28) : hot ? RGB(60, 60, 60) : RGB(43, 43, 43);
-				border= isdef ? RGB(96, 160, 232) : RGB(94, 94, 94);
+				border= RGB(94, 94, 94);
 				txtcol= RGB(240, 240, 240);
 			}
 			else
 			{
 				face  = pressed ? RGB(204, 204, 204) : hot ? RGB(229, 241, 251) : RGB(252, 252, 252);
-				border= isdef ? RGB(0, 120, 215) : RGB(172, 172, 172);
+				border= RGB(172, 172, 172);
 				txtcol= RGB(0, 0, 0);
 			}
 			HDC  dc= d->hDC;
 			RECT r = d->rcItem;
 			FillRect(dc, &r, g_inno_brush);   // clear the rounded corners to window bg
 			HBRUSH fb= CreateSolidBrush(face);
-			HPEN   pen= CreatePen(PS_SOLID, isdef ? 2 : 1, border);
+			HPEN   pen= CreatePen(PS_SOLID, 1, border);
 			HGDIOBJ of= SelectObject(dc, fb), op= SelectObject(dc, pen);
 			RoundRect(dc, r.left, r.top, r.right - 1, r.bottom - 1, 16, 16);
 			SelectObject(dc, of); SelectObject(dc, op);
