@@ -41,6 +41,13 @@ static const unsigned char PCF_MAGIC[4] = { 'z', 'P', 'C', 'F' };
 static const unsigned char PCF_VERSION  = 1;
 enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_PNGIDAT = 2 };
 
+/* -pc speed: DEFLATE streams smaller than this (compressed bytes) are NOT
+   recompressed — they cost the full preflate analyze + verify pass but save
+   almost nothing, so storing them verbatim (literal segment) is much faster at
+   negligible ratio cost. Reconstruction is unaffected (these were never
+   transformed). */
+static const size_t PCF_MIN_DEFLATE = 4096;
+
 static void put_varint(std::vector<unsigned char>& v, uint64_t x) {
   while (x >= 0x80) { v.push_back((unsigned char)(x | 0x80)); x >>= 7; }
   v.push_back((unsigned char)x);
@@ -98,6 +105,7 @@ static bool locate_payload(const std::vector<unsigned char>& f, size_t& d0, size
    the deflate payload is not preflate-able. Does NOT verify (caller does). */
 static bool build_pcf(const std::vector<unsigned char>& f, size_t d0, size_t d1,
                       std::vector<unsigned char>& pcf_out) {
+  if (d1 <= d0 || d1 - d0 < PCF_MIN_DEFLATE) return false;   // -pc: skip tiny streams
   std::vector<unsigned char> deflate(f.begin() + d0, f.begin() + d1);
   std::vector<unsigned char> unpacked, recon;
   if (!pcf_deflate_decode(deflate.data(), deflate.size(), unpacked, recon)) return false;
@@ -267,6 +275,7 @@ static bool build_pcf_multi(const std::vector<unsigned char>& f,
   for (size_t i = 0; i < regions_in.size(); ++i) {
     size_t s = regions_in[i].first, e = regions_in[i].second;
     if (s >= e || e > f.size()) continue;
+    if (e - s < PCF_MIN_DEFLATE) continue;   // -pc: skip tiny streams (stay literal)
     std::vector<unsigned char> d(f.begin() + s, f.begin() + e), u, r;
     if (pcf_deflate_decode(d.empty() ? 0 : &d[0], d.size(), u, r)) {
       regs.push_back(regions_in[i]); unps.push_back(u); recs.push_back(r);
@@ -353,6 +362,7 @@ static bool build_pcf_png(const std::vector<unsigned char>& f,
   if (!scan_png(f, idat_start, idat_end, chunk_lens, idat)) return false;
   /* idat = zlib header(2) + raw deflate + adler(4..). preflate the deflate. */
   if (idat.size() < 6 || (idat[0] & 0x0f) != 0x08) return false;
+  if (idat.size() - 2 < PCF_MIN_DEFLATE) return false;   // -pc: tiny IDAT not worth it
   std::vector<unsigned char> unpacked, recon;
   size_t consumed = 0;
   if (!deflate_decode_sized(&idat[2], idat.size() - 2, unpacked, recon, 16, consumed)) return false;
