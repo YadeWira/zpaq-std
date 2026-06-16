@@ -52,6 +52,12 @@ public:
     return _threadLimit;
   }
 
+  // Cap the number of internal worker threads. Only takes effect before the
+  // pool is first used (lazy _init); call it during single-threaded startup.
+  void setExtraThreadLimit(size_t n) {
+    if (_state == INIT) _threadLimit = n;
+  }
+
 private:
   enum State { INIT, RUN, FINISH };
 

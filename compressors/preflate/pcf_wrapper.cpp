@@ -7,6 +7,11 @@
 #include "preflate_decoder.h"
 #include "preflate_reencoder.h"
 #include "support/memstream.h"
+#include "support/task_pool.h"
+
+void pcf_set_internal_threads(int extra_threads) {
+  globalTaskPool.setExtraThreadLimit(extra_threads < 0 ? 0 : (size_t)extra_threads);
+}
 
 bool pcf_deflate_decode(const unsigned char* deflate, size_t deflate_len,
                         std::vector<unsigned char>& unpacked,

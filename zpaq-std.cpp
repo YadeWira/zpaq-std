@@ -2183,6 +2183,14 @@ int	 g_ConsoleOutputCP;
 bool					 flagbarraod;
 bool					 flagbarraon;
 bool					 flagbarraos;
+// threading for the -pc cross-file prefetch pool (only <mutex> was included, and
+// only on Windows; the prefetcher needs these on every platform)
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <memory>
+
 std::vector<std::string> g_addedchunklist;
 int						 g_franzotype;
 int						 g_franzotypelen;
@@ -100626,6 +100634,143 @@ void Jidac::preparahashtobewritten(const string &i_filename, const DTMap::iterat
 }
 
 
+// -pc magic sniff: does this 4-byte prefix look like a DEFLATE-bearing format
+// (gzip / zlib / zip / pdf / png)? Shared by the prefetch workers and the inline
+// path so both agree on which files are -pc candidates.
+static bool pc_magic_candidate(const unsigned char* s, size_t got)
+{
+	bool gz = (got >= 3 && s[0] == 0x1f && s[1] == 0x8b && s[2] == 0x08);
+	bool zlb= (got >= 2 && (s[0] & 0x0f) == 0x08 && ((((unsigned)s[0] << 8) | s[1]) % 31) == 0);
+	bool zip= (got >= 4 && s[0] == 0x50 && s[1] == 0x4b && s[2] == 0x03 && s[3] == 0x04);
+	bool pdf= (got >= 4 && s[0] == '%' && s[1] == 'P' && s[2] == 'D' && s[3] == 'F');
+	bool png= (got >= 4 && s[0] == 0x89 && s[1] == 0x50 && s[2] == 0x4e && s[3] == 0x47);
+	return gz || zlb || zip || pdf || png;
+}
+
+/* -pc cross-file prefetch: K worker threads run the expensive pcf_file_encode on
+   upcoming files ahead of the sequential add() loop, so preflate work overlaps
+   with the rest of compression. The main loop consumes results in order via
+   get()/consumed(); the RAM cache is bounded (workers block once over the cap).
+   Files larger than maxfile are left to the main loop (TOOBIG -> inline, where
+   preflate's own pool parallelises within the stream). Workers are plain threads
+   (not preflate-pool threads), so there is no nested-pool deadlock. */
+struct PcfPrefetch
+{
+	enum Kind { NOTPC= 0, PCF= 1, TOOBIG= 2 };
+	struct Item { Kind kind= NOTPC; std::vector<unsigned char> T; long long bytes= 0; bool done= false; };
+
+	std::vector<DTMap::iterator>*					vf= NULL;
+	size_t											n= 0;
+	std::atomic<unsigned>							claim;
+	std::atomic<bool>								stopflag;
+	std::map<unsigned, std::shared_ptr<Item> >		cache;
+	std::mutex										mx;
+	std::condition_variable							cv_ready, cv_space;
+	long long										inflight= 0, cap= 0, maxfile= 0, maxahead= 512;
+	std::vector<std::thread>						workers;
+	bool											active= false;
+
+	void start(std::vector<DTMap::iterator>& v, int K, long long capbytes, long long maxfilebytes)
+	{
+		vf= &v; n= v.size(); claim.store(0); stopflag.store(false);
+		inflight= 0; cap= capbytes; maxfile= maxfilebytes; active= true;
+		for (int i= 0; i < K; i++) workers.push_back(std::thread(&PcfPrefetch::worker, this));
+	}
+	void worker()
+	{
+		for (;;)
+		{
+			if (stopflag.load()) return;
+			unsigned fi= claim.fetch_add(1);
+			if (fi >= n) return;
+			std::shared_ptr<Item> it(new Item());
+			DTMap::iterator p= (*vf)[fi];
+			int64_t esz= p->second.expectedsize;
+			if (!stopflag.load() && esz >= 18 && !ismemfile(p->first))
+			{
+				if (esz > maxfile)
+					it->kind= TOOBIG;            // too big to prefetch: main does it inline
+				else
+				{
+					FP f= myfopen(p->first.c_str(), RB);
+					if (f != FPNULL)
+					{
+						unsigned char sniff[4]= {0, 0, 0, 0};
+						size_t got= fread(sniff, 1, 4, f);
+						if (pc_magic_candidate(sniff, got))
+						{
+							fseeko(f, 0, SEEK_SET);
+							std::vector<unsigned char> O((size_t)esz), T;
+							size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), f);
+							if (rd == O.size() && pcf_file_encode(O, T))
+							{
+								it->kind= PCF;
+								it->T.swap(T);
+							}
+						}
+						myfclose(&f);
+					}
+				}
+			}
+			{
+				std::unique_lock<std::mutex> lk(mx);
+				it->done= true;
+				it->bytes= (long long)it->T.size();
+				inflight+= it->bytes;
+				cache[fi]= it;
+				cv_ready.notify_all();
+				cv_space.wait(lk, [&] { return stopflag.load()
+					|| (inflight <= cap && (long long)cache.size() <= maxahead); });
+			}
+		}
+	}
+	std::shared_ptr<Item> get(unsigned fi)
+	{
+		std::unique_lock<std::mutex> lk(mx);
+		cv_ready.wait(lk, [&] { return stopflag.load() || (cache.count(fi) && cache[fi]->done); });
+		std::map<unsigned, std::shared_ptr<Item> >::iterator i= cache.find(fi);
+		return (i != cache.end()) ? i->second : std::shared_ptr<Item>();
+	}
+	void consumed(unsigned fi)
+	{
+		std::unique_lock<std::mutex> lk(mx);
+		std::map<unsigned, std::shared_ptr<Item> >::iterator i= cache.find(fi);
+		if (i != cache.end()) { inflight-= i->second->bytes; cache.erase(i); }
+		cv_space.notify_all();
+	}
+	void stop()
+	{
+		if (!active) return;
+		{ std::unique_lock<std::mutex> lk(mx); stopflag.store(true); cv_space.notify_all(); cv_ready.notify_all(); }
+		for (size_t i= 0; i < workers.size(); i++) if (workers[i].joinable()) workers[i].join();
+		workers.clear(); cache.clear(); inflight= 0; active= false;
+	}
+	~PcfPrefetch() { stop(); }   // RAII: always join workers on any add() exit path
+};
+
+// RAII for one add() file iteration: fetch the prefetched -pc result on
+// construction, release its cache slot on destruction — so every file is consumed
+// exactly once, even across continue/break. Inactive (pf==NULL) when -pc prefetch
+// is off or on the sentinel iteration.
+struct PcfConsumeGuard
+{
+	PcfPrefetch*					pf;
+	unsigned						fi;
+	std::shared_ptr<PcfPrefetch::Item> item;
+	PcfConsumeGuard(PcfPrefetch* p, unsigned f): pf(p), fi(f) { if (pf) item= pf->get(fi); }
+	~PcfConsumeGuard() { if (pf) pf->consumed(fi); }
+};
+
+// Use the worker's prefetched PCF if present, otherwise encode inline now (the
+// caller has already read the original into O). Keeps the existing -pc block a
+// one-line change.
+static bool pc_take_or_encode(const std::shared_ptr<PcfPrefetch::Item>& it,
+                              std::vector<unsigned char>& O, std::vector<unsigned char>& T)
+{
+	if (it && it->kind == PcfPrefetch::PCF) { T.swap(it->T); return true; }
+	return pcf_file_encode(O, T);
+}
+
 int Jidac::add()
 {
 	string externaloutputfile= "";
@@ -101240,8 +101385,32 @@ int Jidac::add()
 	const unsigned HASH_MULT_HIT = 314159265u;
 	const unsigned HASH_MULT_MISS= 271828182u;
 
+	// -pc cross-file prefetch. K tied to howmanythreads => honours -t / -t0 and the
+	// 32-bit 2-core cap automatically. When active, preflate runs INLINE in each
+	// worker (internal pool off) so the workers are the only parallelism axis (no
+	// pool _init race, no nested-pool deadlock); when inactive, preflate keeps its
+	// own pool but capped to the thread budget.
+	PcfPrefetch g_pcfetch;
+	int pc_K= 0;
+	if (flagprecomp && !flagstdin && !flagimage && howmanythreads >= 2)
+	{
+		pc_K= howmanythreads - 1;
+		if (pc_K > 8) pc_K= 8;
+		if (pc_K < 1) pc_K= 1;
+	}
+	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));
+	if (pc_K > 0)
+	{
+		bool is64= (sizeof(void *) >= 8);
+		g_pcfetch.start(vf, pc_K,
+		                is64 ? (512LL << 20) : (96LL << 20),   // RAM cache cap
+		                is64 ? (64LL << 20) : (16LL << 20));    // prefetch files up to this; bigger => inline
+	}
+
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
 	{
+		// -pc: pick up this file's prefetched result (and release it at iteration end)
+		PcfConsumeGuard pcg((pc_K > 0 && fi < vf.size()) ? &g_pcfetch : NULL, (unsigned)fi);
 		FP				in	  = FPNULL;
 		int				bufptr= 0, buflen= 0; // read pointer and limit
 		DTMap::iterator p;
@@ -101314,7 +101483,7 @@ int Jidac::add()
 					std::vector<unsigned char> O((size_t)p->second.expectedsize);
 					size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
 					std::vector<unsigned char> T;
-					if (rd == O.size() && pcf_file_encode(O, T))
+					if (rd == O.size() && pc_take_or_encode(pcg.item, O, T))
 					{
 						string td;
 #ifdef _WIN32

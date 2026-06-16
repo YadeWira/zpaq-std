@@ -62,4 +62,10 @@ bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
    links and works inside the real zpaq-std binary on each platform. */
 bool pcf_autotest();
 
+/* Cap preflate's internal worker-thread pool (globalTaskPool). Call once during
+   single-threaded startup, before any -pc work. extra_threads = 0 makes preflate
+   run inline (no internal pool threads). Used to keep total threads within the
+   archiver's -t / x86 budget when -pc work is parallelised across files. */
+void pcf_set_internal_threads(int extra_threads);
+
 #endif /* PCF_WRAPPER_H */
