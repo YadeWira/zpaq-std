@@ -59315,6 +59315,42 @@ void Jidac::writefranzattr(DTMap::iterator i_dtmap, libzpaq::StringBuffer &i_sb,
 // pointing to it. Then the checksums are verified. Then for each file
 // pointing to the block, each of the fragments that it points to within
 // the block are written in order.
+// -pc: one extracted file pending reverse (stored PCF stream -> original), with the
+// date/attr to restore. Collected during the (serialized) write phase, then reversed
+// in a parallel post-pass — the reverse (preflate reencode) is the extraction bottleneck.
+struct PcRev
+{
+	std::string fn; int64_t date; int64_t attr;
+	PcRev(const std::string& f, int64_t d, int64_t a) : fn(f), date(d), attr(a) {}
+};
+
+// Reverse one extracted file in place from its stored PCF back to the original,
+// restoring date/attr. Cheap no-op for non-PCF files: the "zPCF" magic check + the
+// re-encode authenticity test inside pcf_authentic_reverse never touch a verbatim file.
+static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
+{
+	FP rf= myfopen(fn.c_str(), RB);
+	if (rf == FPNULL) return;
+	fseeko(rf, 0, SEEK_END);
+	int64_t fsz= ftello(rf);
+	fseeko(rf, 0, SEEK_SET);
+	if (fsz < 5 || fsz > ((int64_t)1 << 31)) { myfclose(&rf); return; }
+	std::vector<unsigned char> stored((size_t)fsz), orig;
+	size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
+	myfclose(&rf);
+	if (rd == stored.size() && pcf_authentic_reverse(stored, orig))
+	{
+		delete_file(fn.c_str());
+		FP wf= myfopen(fn.c_str(), WB);
+		if (wf != FPNULL)
+		{
+			if (!orig.empty())
+				myfwrite(&orig[0], 1, orig.size(), wf);
+			close(fn.c_str(), date, attr, wf);
+		}
+	}
+}
+
 struct ExtractJob
 { // list of jobs
 	int				chunk;
@@ -59328,6 +59364,7 @@ struct ExtractJob
 	int64_t			total_size;	 // bytes to extract
 	int64_t			total_done;	 // bytes extracted so far
 	uint64_t		last_write;	 // last fseek
+	std::vector<PcRev> pc_reverse_list; // -pc: files to reverse (parallel post-pass); pushed under write_mutex
 	ExtractJob(Jidac &j) : chunk(0), job(0), jd(j), outf(FPNULL), lastdt(j.dt.end()),
 						   maxMemory(0), total_size(0), total_done(0), last_write(0)
 	{
@@ -60350,45 +60387,12 @@ ThreadReturn decompressThread(void *arg)
 							date= attr= 0; // not last frag
 						close(fn.c_str(), date, attr, job.outf);
 						job.outf= FPNULL;
-						// -pc (Phase 1d): if the file we just wrote is an AUTHENTIC PCF
-						// stream, reverse it in place to the original.
-						// pcf_authentic_reverse re-encodes to confirm authenticity,
-						// so a verbatim file that merely starts with "zPCF" is never touched.
-						/* -pc: self-describing. Attempt the reverse on EVERY extracted file
-						   (no -pc flag needed at extract). The "zPCF" magic check makes this a
-						   cheap no-op for non-PCF files; pcf_authentic_reverse only rewrites a
-						   file that decodes AND re-encodes back to the stored bytes exactly. */
-						{
-							FP rf= myfopen(fn.c_str(), RB);
-							if (rf != FPNULL)
-							{
-								fseeko(rf, 0, SEEK_END);
-								int64_t fsz= ftello(rf);
-								fseeko(rf, 0, SEEK_SET);
-								if (fsz >= 5 && fsz <= ((int64_t)1 << 31))
-								{
-									std::vector<unsigned char> stored((size_t)fsz), orig;
-									size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
-									myfclose(&rf);
-									if (rd == stored.size() && pcf_authentic_reverse(stored, orig))
-									{
-										// the original is smaller than the stored PCF; on Windows
-										// myfopen(WB) does not truncate an existing file, so delete
-										// it first to avoid leaving stale trailing PCF bytes.
-										delete_file(fn.c_str());
-										FP wf= myfopen(fn.c_str(), WB);
-										if (wf != FPNULL)
-										{
-											if (!orig.empty())
-												myfwrite(&orig[0], 1, orig.size(), wf);
-											close(fn.c_str(), date, attr, wf); // restore date/attr
-										}
-									}
-								}
-								else
-									myfclose(&rf);
-							}
-						}
+						// -pc: defer the (expensive, ~serial-per-file) PCF reverse to a
+						// parallel post-pass after the decode finishes — just record this
+						// file here (cheap, under write_mutex). Self-describing: every
+						// extracted file is recorded; non-PCF files are a no-op in
+						// pc_reverse_file (the "zPCF" magic + re-encode authenticity test).
+						job.pc_reverse_list.push_back(PcRev(fn, date, attr));
 					}
 					job.lastdt= job.jd.dt.end();
 				}
@@ -88175,6 +88179,33 @@ int Jidac::extract()
 	if (howmanythreads > 1)
 		for (unsigned i= 0; i < tid.size(); ++i)
 			join(tid[i]);
+
+	// -pc A-fix: reverse the stored PCF streams back to the originals in PARALLEL.
+	// The reverse (preflate reencode) is ~serial per file and was the extraction
+	// bottleneck; each file is independent. preflate runs inline in each worker
+	// (pool off) so the workers are the only parallelism axis — no globalTaskPool
+	// _init race, no nested-pool deadlock. K tied to howmanythreads (honours -t / x86 cap).
+	if (!flagtest && !job.pc_reverse_list.empty())
+	{
+		pcf_set_internal_threads(0);
+		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
+		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
+		std::atomic<size_t> pcidx(0);
+		std::vector<std::thread> pcrev;
+		for (int i= 0; i < pcK; i++)
+			pcrev.push_back(std::thread([&] {
+				for (;;)
+				{
+					size_t j= pcidx.fetch_add(1);
+					if (j >= job.pc_reverse_list.size()) break;
+					pc_reverse_file(job.pc_reverse_list[j].fn,
+					                job.pc_reverse_list[j].date,
+					                job.pc_reverse_list[j].attr);
+				}
+			}));
+		for (size_t i= 0; i < pcrev.size(); i++) pcrev[i].join();
+	}
+
 	// Create empty directories and set file dates and attributes
 	if (!flagtest)
 		for (DTMap::reverse_iterator p= dt.rbegin(); p != dt.rend(); ++p)
