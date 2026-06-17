@@ -100773,6 +100773,15 @@ static bool pc_take_or_encode(const std::shared_ptr<PcfPrefetch::Item>& it,
 
 int Jidac::add()
 {
+	// The 32-bit build is extract-only: heavy compression (large -ma dictionaries,
+	// -pc loading whole files into RAM, the cross-file prefetch pool) does not fit a
+	// ~2 GB address space reliably. Create/modify archives with the 64-bit build;
+	// the 32-bit build can still extract, list and test. (sizeof(void*)==4 => 32-bit.)
+	if (sizeof(void *) == 4)
+	{
+		myprintf("65000: compression is not supported on the 32-bit build. Use the 64-bit zpaq-std to create or modify archives (this build extracts, lists and tests).\n");
+		return 2;
+	}
 	string externaloutputfile= "";
 	g_scritti				 = 0;
 	string primalettera		 = "";
