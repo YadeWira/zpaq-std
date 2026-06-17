@@ -45863,6 +45863,7 @@ enum class ImageType { NTFS, RAW };
 class Jidac
 {
   public:
+	friend struct PcfPrefetch;	// -pc B(ii): worker calls updatehash() on its own files
 	int64_t read_archive(callback_function i_advance, const char *arc, int *errors= 0, int i_myappend= 0, bool i_quiet= false); // read arc
 
 	vector<HT>	   ht;		  // list of fragments
@@ -100688,8 +100689,9 @@ static bool pc_magic_candidate(const unsigned char* s, size_t got)
 struct PcfPrefetch
 {
 	enum Kind { NOTPC= 0, PCF= 1, TOOBIG= 2 };
-	struct Item { Kind kind= NOTPC; std::vector<unsigned char> T; long long bytes= 0; bool done= false; };
+	struct Item { Kind kind= NOTPC; std::vector<unsigned char> T; long long bytes= 0; bool done= false; bool hashed= false; };
 
+	Jidac*											jd= NULL;	// -pc B(ii): for updatehash() from the worker
 	std::vector<DTMap::iterator>*					vf= NULL;
 	size_t											n= 0;
 	std::atomic<unsigned>							claim;
@@ -100701,8 +100703,9 @@ struct PcfPrefetch
 	std::vector<std::thread>						workers;
 	bool											active= false;
 
-	void start(std::vector<DTMap::iterator>& v, int K, long long capbytes, long long maxfilebytes)
+	void start(Jidac* jdac, std::vector<DTMap::iterator>& v, int K, long long capbytes, long long maxfilebytes)
 	{
+		jd= jdac;
 		vf= &v; n= v.size(); claim.store(0); stopflag.store(false);
 		inflight= 0; cap= capbytes; maxfile= maxfilebytes; active= true;
 		for (int i= 0; i < K; i++) workers.push_back(std::thread(&PcfPrefetch::worker, this));
@@ -100737,6 +100740,22 @@ struct PcfPrefetch
 							{
 								it->kind= PCF;
 								it->T.swap(T);
+								// -pc B(ii): hash the ORIGINAL here (its franz identity) so the
+								// main loop need not re-read+re-hash the file. Per-file state
+								// (p->second.*) is touched by this worker only; the cache mutex
+								// below (done=true) publishes it before main consumes via get().
+								// updatehash also leaves file_crc32=CRC(original)/hashedsize=|O|;
+								// the main loop overwrites file_crc32 with the stored-PCF CRC.
+								if (jd && g_franzotype > 0)
+								{
+									for (size_t off= 0; off < O.size();)
+									{
+										size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+										jd->updatehash(&p, (char *)&O[off], (int)ck);
+										off+= ck;
+									}
+									it->hashed= true;
+								}
 							}
 						}
 						myfclose(&f);
@@ -101442,7 +101461,7 @@ int Jidac::add()
 	if (pc_K > 0)
 	{
 		bool is64= (sizeof(void *) >= 8);
-		g_pcfetch.start(vf, pc_K,
+		g_pcfetch.start(this, vf, pc_K,
 		                is64 ? (512LL << 20) : (96LL << 20),   // RAM cache cap
 		                is64 ? (64LL << 20) : (16LL << 20));    // prefetch files up to this; bigger => inline
 	}
@@ -101521,23 +101540,63 @@ int Jidac::add()
 				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
 				bool pdf= (got >= 4 && sniff[0] == '%' && sniff[1] == 'P' && sniff[2] == 'D' && sniff[3] == 'F'); // %PDF
 				bool png= (got >= 4 && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47); // PNG
-				if (gz || zlb || zip || pdf || png)
+				// worker_pcf: the prefetch worker already read the original, encoded it to a
+				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
+				// pc_magic_candidate() in the worker == this sniff, so worker_pcf implies the
+				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
+				// robust even if they ever diverged (prevents a double-hash on the normal path).
+				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
+				if (worker_pcf || gz || zlb || zip || pdf || png)
 				{
-					std::vector<unsigned char> O((size_t)p->second.expectedsize);
-					size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
-					std::vector<unsigned char> T;
-					if (rd == O.size() && pc_take_or_encode(pcg.item, O, T))
+					std::vector<unsigned char> O, T;
+					bool got_pcf= false;
+					if (worker_pcf)
+					{
+						// -pc B(ii): take the prefetched PCF; do NOT re-read or re-hash the
+						// original — the worker already did both (saves a full read + hash pass).
+						T.swap(pcg.item->T);
+						got_pcf= true;
+						// Safety net (never taken in practice: jd is always set, so the worker
+						// hashes whenever g_franzotype>0). If the invariant were ever broken,
+						// re-read+hash here rather than silently storing a wrong franz hash.
+						if (g_franzotype > 0 && !pcg.item->hashed)
+						{
+							O.resize((size_t)p->second.expectedsize);
+							size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
+							if (rd == O.size())
+								for (size_t off= 0; off < O.size();)
+								{
+									size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+									updatehash(&p, (char *)&O[off], (int)ck);
+									off+= ck;
+								}
+						}
+					}
+					else
+					{
+						O.resize((size_t)p->second.expectedsize);
+						size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
+						if (rd == O.size() && pc_take_or_encode(pcg.item, O, T))
+						{
+							// inline encode (prefetch off, or worker said NOTPC but it round-
+							// trips here): hash the original now, as in B(i).
+							if (g_franzotype > 0)
+								for (size_t off= 0; off < O.size();)
+								{
+									size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+									updatehash(&p, (char *)&O[off], (int)ck);
+									off+= ck;
+								}
+							got_pcf= true;
+						}
+					}
+					if (got_pcf)
 					{
 						// -pc B(i): feed the PCF stream from RAM — no temp-file round-trip.
-						// Hash the original first (its franz identity), CRC the stored PCF,
-						// then hand the fragment loop a memory buffer instead of a temp file.
-						if (g_franzotype > 0)
-							for (size_t off= 0; off < O.size();)
-							{
-								size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-								updatehash(&p, (char *)&O[off], (int)ck);
-								off+= ck;
-							}
+						// file_crc32 = CRC of the STORED PCF (matches per-block CRCs / the 't'
+						// verify), overwriting any CRC(original) left by updatehash. total_size
+						// tracks the PCF fragment bytes, not the original; p->second.size (the
+						// recorded original size) is intentionally unchanged.
 						uint32_t pcfcrc= 0;
 						for (size_t off= 0; off < T.size();)
 						{
@@ -101545,9 +101604,6 @@ int Jidac::add()
 							pcfcrc= crc32_16bytes((char *)&T[off], (int)ck, pcfcrc);
 							off+= ck;
 						}
-						// file_crc32 = CRC of the STORED PCF (matches per-block CRCs / the 't'
-						// verify). total_size tracks the PCF fragment bytes, not the original;
-						// p->second.size (recorded original size) is intentionally unchanged.
 						p->second.file_crc32= pcfcrc;
 						total_size+= (int64_t)T.size() - p->second.size;
 						p->second.expectedsize= (int64_t)T.size();
