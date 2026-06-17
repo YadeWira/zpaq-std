@@ -101457,6 +101457,9 @@ int Jidac::add()
 		bool			flagmemfile= false;
 		bool			flagpc_file= false;	// -pc: this file was stored as a PCF stream
 		string			pc_tmpname = "";	// -pc: temp file holding the PCF stream (deleted after)
+		std::vector<unsigned char> pc_membuf;		// -pc B(i): PCF stream fed from RAM (no temp file)
+		size_t			pc_membuf_pos= 0;	// read cursor into pc_membuf
+		bool			pc_membuf_active= false;	// fragment loop reads pc_membuf instead of 'in'
 
 		if (fi < vf.size())
 		{
@@ -101525,55 +101528,34 @@ int Jidac::add()
 					std::vector<unsigned char> T;
 					if (rd == O.size() && pc_take_or_encode(pcg.item, O, T))
 					{
-						string td;
-#ifdef _WIN32
-						td= g_realtemp();
-#else
-						{ const char *e= getenv("TMPDIR"); td= (e && *e) ? e : "/tmp"; if (!td.empty() && td[td.size() - 1] != '/') td+= '/'; }
-#endif
-						string tn= td + "zpsd_pcf_" + itos(g_start) + "_" + itos((int64_t)fi) + ".tmp";
-						FP tf= myfopen(tn.c_str(), WB);
-						if (tf != FPNULL)
-						{
-							bool wok= (T.empty() || myfwrite(&T[0], 1, T.size(), tf) == T.size());
-							myfclose(&tf);
-							FP newin= wok ? myfopen(tn.c_str(), RB) : FPNULL;
-							if (newin != FPNULL)
+						// -pc B(i): feed the PCF stream from RAM — no temp-file round-trip.
+						// Hash the original first (its franz identity), CRC the stored PCF,
+						// then hand the fragment loop a memory buffer instead of a temp file.
+						if (g_franzotype > 0)
+							for (size_t off= 0; off < O.size();)
 							{
-								myfclose(&in);
-								in= newin;
-								if (g_franzotype > 0)
-									for (size_t off= 0; off < O.size();)
-									{
-										size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-										updatehash(&p, (char *)&O[off], (int)ck);
-										off+= ck;
-									}
-								// the loop will now process the PCF stream (T), not the
-								// original, so keep total_size in step with total_done
-								// (which sums fragment sizes of T) to avoid a false
-								// "archive incompleted" at posterrori(). p->second.size
-								// (the recorded original size) is intentionally unchanged.
-								total_size+= (int64_t)T.size() - p->second.size;
-								{
-										uint32_t pcfcrc= 0;
-										for (size_t off= 0; off < T.size();)
-										{
-											size_t ck= T.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-											pcfcrc= crc32_16bytes((char *)&T[off], (int)ck, pcfcrc);
-											off+= ck;
-										}
-										// file_crc32 = CRC of the STORED PCF (matches per-block CRCs /
-										// the 't' verify). hexhash stays the original's identity.
-										p->second.file_crc32= pcfcrc;
-									}
-									p->second.expectedsize= (int64_t)T.size();
-								flagpc_file= true;
-								pc_tmpname = tn;
+								size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+								updatehash(&p, (char *)&O[off], (int)ck);
+								off+= ck;
 							}
-							else { delete_file(tn.c_str()); fseeko(in, 0, SEEK_SET); }
+						uint32_t pcfcrc= 0;
+						for (size_t off= 0; off < T.size();)
+						{
+							size_t ck= T.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+							pcfcrc= crc32_16bytes((char *)&T[off], (int)ck, pcfcrc);
+							off+= ck;
 						}
-						else fseeko(in, 0, SEEK_SET);
+						// file_crc32 = CRC of the STORED PCF (matches per-block CRCs / the 't'
+						// verify). total_size tracks the PCF fragment bytes, not the original;
+						// p->second.size (recorded original size) is intentionally unchanged.
+						p->second.file_crc32= pcfcrc;
+						total_size+= (int64_t)T.size() - p->second.size;
+						p->second.expectedsize= (int64_t)T.size();
+						myfclose(&in);				// original no longer needed; fragments come from RAM
+						pc_membuf.swap(T);
+						pc_membuf_pos= 0;
+						pc_membuf_active= true;
+						flagpc_file= true;
 					}
 					else fseeko(in, 0, SEEK_SET);
 				}
@@ -101773,7 +101755,15 @@ int Jidac::add()
 						else
 						{
 							// Common handling for non-imaging (uguale per Windows e Linux)
-							if (flagmemfile)
+							if (pc_membuf_active) // -pc B(i): PCF stream straight from RAM (no temp)
+							{
+								size_t avail= pc_membuf.size() - pc_membuf_pos;
+								size_t nrd	= avail < (size_t)g_ioBUFSIZE ? avail : (size_t)g_ioBUFSIZE;
+								if (nrd) memcpy(buf, &pc_membuf[pc_membuf_pos], nrd);
+								pc_membuf_pos+= nrd;
+								buflen= (int)nrd;
+							}
+							else if (flagmemfile)
 								buflen= thefranzfs.ramread(g_ioBUFSIZE, buf);
 							else if (flagstdin)
 								buflen= fread(buf, 1, g_ioBUFSIZE, stdin);
