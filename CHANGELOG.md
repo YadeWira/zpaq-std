@@ -1,5 +1,22 @@
 ### [Unreleased] - 2026-06-08
 
+**`-pc` faster.** Two speedups for the precompressor: (1) DEFLATE streams smaller
+than 4 KB are stored verbatim instead of run through preflate — tiny streams cost
+the full analyze+verify pass but save almost nothing, so this removes most `-pc`
+overhead on archives with many small streams (ZIP members, small PDF/PNG streams)
+at negligible ratio cost; (2) on 64-bit, `-pc` now runs preflate on upcoming files
+in a small worker pool *ahead* of the main loop (cross-file prefetch), overlapping
+the expensive encode with the rest of compression — ~1.5× on deflate-heavy sets.
+The pool size is tied to `-t` (so it honours `-t0` and the 32-bit core cap), uses a
+bounded RAM cache, consumes results strictly in order, and falls back to inline for
+large files. Round-trip is bit-exact and the archive format is unchanged.
+
+**32-bit build is now extract-only.** Heavy compression (large `-ma` dictionaries,
+`-pc` loading whole files into RAM) does not fit a ~2 GB address space reliably, and
+the 32-bit binary's real use is extraction (old Windows, installers). On a 32-bit
+build the `a` command now exits with a clear message; **extract / list / test /
+`-innosetup x` are unchanged**. Create or modify archives with the 64-bit build.
+
 **New `-ma:ppmd` external compressor** — PPMd var.H (public-domain Ppmd7 from the
 7-Zip / LZMA SDK), bundled under `compressors/ppmd/`. A context-modeling (PPM) codec,
 a different family from the existing LZ/LZMA/BWT set; strong on natural-language text

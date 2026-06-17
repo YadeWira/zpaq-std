@@ -99,6 +99,9 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
   compress time (*verify-then-fallback*); anything that doesn't round-trip is stored
   verbatim. The franz per-file hash records the **original** file (so `-test`/`-verify`
   work normally). Composes with `-ma` and `-chunk`.
+- **Speed**: streams under 4 KB are stored verbatim (their analysis isn't worth it),
+  and on 64-bit `-pc` prefetches/encodes upcoming files in parallel (tied to `-t`),
+  overlapping the work with the rest of compression.
 
 ---
 
@@ -184,6 +187,11 @@ system DLLs) that runs on a clean Windows 7+ box. Verified on Windows 10: the bi
 loads and **all bundled `-ma` external compressors round-trip correctly** (full parity
 with the native Linux build, SHA-1 verified). The `i686-w64-mingw32-` (32-bit)
 variant uses the same flags.
+
+**32-bit builds are extract-only.** Heavy compression doesn't fit a ~2 GB address
+space reliably, so on any 32-bit build (`make m32` or `i686-w64-mingw32-`) the `a`
+command is disabled — these binaries **extract, list and test** (and run the
+`-innosetup x` installer flow); create or modify archives with a 64-bit build.
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
