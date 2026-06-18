@@ -8,18 +8,22 @@
 #include "preflate_reencoder.h"
 #include "support/memstream.h"
 #include "support/task_pool.h"
+#include "zlib.h"   // vendored stock zlib (Z_PREFIX => z_* symbols). Included LAST so its
+                    // function-like macros (deflate/inflate/compress...) don't rewrite any
+                    // identifiers in the preflate headers above.
+#include <cstring>
 
 void pcf_set_internal_threads(int extra_threads) {
   globalTaskPool.setExtraThreadLimit(extra_threads < 0 ? 0 : (size_t)extra_threads);
 }
 
-bool pcf_deflate_decode(const unsigned char* deflate, size_t deflate_len,
+bool pcf_deflate_decode(const unsigned char* dfl, size_t deflate_len,
                         std::vector<unsigned char>& unpacked,
                         std::vector<unsigned char>& recon) {
   unpacked.clear();
   recon.clear();
-  if (deflate == 0 || deflate_len == 0) return false;
-  std::vector<unsigned char> in(deflate, deflate + deflate_len);
+  if (dfl == 0 || deflate_len == 0) return false;
+  std::vector<unsigned char> in(dfl, dfl + deflate_len);
   try {
     if (!preflate_decode(unpacked, recon, in)) return false;
   } catch (...) {
@@ -40,11 +44,109 @@ bool pcf_deflate_reencode(const std::vector<unsigned char>& unpacked,
   return true;
 }
 
+/* ---------------- zlib fast-path (stock zlib re-deflate) ----------------
+
+   Most real-world DEFLATE streams (PNG IDAT, PDF FlateDecode, gzip, ZIP) were
+   produced by stock zlib. Re-deflating the inflated bytes at the right
+   level/memLevel/strategy reproduces the original byte-for-byte and is far cheaper
+   than preflate's statistical analysis — so we try it FIRST and only fall back to
+   preflate for streams no standard config reproduces. Reconstruction stores just the
+   3-byte config + the inflated bytes; on decode we re-deflate with that config. */
+
+/* Inflate a raw (headerless, wbits=-15) DEFLATE stream into raw_out. `n` is the max
+   bytes available; the actual DEFLATE may be shorter (e.g. a PNG IDAT has a trailing
+   adler32). On success *consumed (if non-NULL) = exact DEFLATE byte length used. */
+static bool zlib_inflate_raw(const unsigned char* d, size_t n, std::vector<unsigned char>& raw_out,
+                             size_t* consumed = NULL) {
+  raw_out.clear();
+  z_stream s; memset(&s, 0, sizeof s);
+  if (inflateInit2(&s, -15) != Z_OK) return false;
+  size_t in_off = 0;
+  unsigned char buf[1 << 16];
+  int ret = Z_OK;
+  do {
+    if (s.avail_in == 0 && in_off < n) {
+      size_t chunk = n - in_off; if (chunk > (1u << 30)) chunk = (1u << 30);
+      s.next_in = (Bytef*)(d + in_off); s.avail_in = (uInt)chunk; in_off += chunk;
+    }
+    s.next_out = buf; s.avail_out = sizeof buf;
+    ret = inflate(&s, Z_NO_FLUSH);
+    if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR) { inflateEnd(&s); return false; }
+    raw_out.insert(raw_out.end(), buf, buf + (sizeof buf - s.avail_out));
+    if (ret == Z_BUF_ERROR && s.avail_in == 0 && in_off >= n) { inflateEnd(&s); return false; } // truncated
+  } while (ret != Z_STREAM_END);
+  if (consumed) *consumed = (size_t)s.total_in;
+  inflateEnd(&s);
+  return true;
+}
+
+/* Deflate `raw` raw (wbits=-15) at one config into out. */
+static bool zlib_deflate_raw(const std::vector<unsigned char>& raw,
+                             int level, int memLevel, int strategy,
+                             std::vector<unsigned char>& out) {
+  out.clear();
+  if (raw.size() >= (size_t)0x7fffffffu) return false;   // one-shot deflate is uInt-bounded
+  z_stream s; memset(&s, 0, sizeof s);
+  if (deflateInit2(&s, level, Z_DEFLATED, -15, memLevel, strategy) != Z_OK) return false;
+  out.resize((size_t)deflateBound(&s, (uLong)raw.size()) + 64);
+  s.next_in = (Bytef*)(raw.empty() ? (const Bytef*)"" : raw.data()); s.avail_in = (uInt)raw.size();
+  s.next_out = out.data(); s.avail_out = (uInt)out.size();
+  int ret = deflate(&s, Z_FINISH);
+  size_t olen = out.size() - s.avail_out;
+  deflateEnd(&s);
+  if (ret != Z_STREAM_END) return false;
+  out.resize(olen);
+  return true;
+}
+
+/* Try to reproduce the raw DEFLATE stream [d,d+dn) by inflating it and re-deflating
+   at stock-zlib configs (curated by real-world frequency, early-exit on byte match).
+   On success: raw_out = inflated bytes, *_out = the winning config. */
+/* Size gate: only attempt the fast-path on streams whose inflated size is <= this.
+   A MISS re-deflates the inflated data once per config tried; on a large stream that
+   is far costlier than just running preflate. Small streams (the bulk of PNG IDAT /
+   PDF FlateDecode members) keep miss cost tiny; large streams go straight to preflate. */
+static const size_t PCF_ZLIB_MAX_RAW = 1u << 20;   /* 1 MiB inflated */
+
+/* Core: inflate up to `avail` bytes (DEFLATE may be shorter), then re-deflate at the
+   curated config grid; on byte-exact match set consumed = exact DEFLATE length used. */
+static bool zlib_match_sized(const unsigned char* d, size_t avail, size_t& consumed,
+                             std::vector<unsigned char>& raw_out,
+                             int& level_out, int& memLevel_out, int& strategy_out) {
+  consumed = 0;
+  if (!zlib_inflate_raw(d, avail, raw_out, &consumed)) return false;
+  if (raw_out.size() > PCF_ZLIB_MAX_RAW) return false;                  // size gate: bound miss cost
+  /* curated grid (~12 configs): only levels/strategies that win in practice
+     (RLE/Huffman-only never reproduce real streams). Early-exit on first byte match. */
+  static const int levels[]     = {6, 9, 7, 8, 5, 1};
+  static const int strategies[] = {Z_DEFAULT_STRATEGY, Z_FILTERED};
+  std::vector<unsigned char> out;
+  for (size_t li = 0; li < sizeof(levels) / sizeof(levels[0]); ++li)
+    for (size_t si = 0; si < sizeof(strategies) / sizeof(strategies[0]); ++si) {
+      if (!zlib_deflate_raw(raw_out, levels[li], 8, strategies[si], out)) continue;
+      if (out.size() == consumed && memcmp(out.data(), d, consumed) == 0) {
+        level_out = levels[li]; memLevel_out = 8; strategy_out = strategies[si];
+        return true;
+      }
+    }
+  return false;
+}
+
+/* Whole-region match: the slice [d,d+dn) is exactly one DEFLATE stream. */
+static bool zlib_match(const unsigned char* d, size_t dn,
+                       std::vector<unsigned char>& raw_out,
+                       int& level_out, int& memLevel_out, int& strategy_out) {
+  if (dn > (PCF_ZLIB_MAX_RAW + (PCF_ZLIB_MAX_RAW >> 1))) return false;  // deflate can't be >> raw; cheap pre-gate (skip inflate)
+  size_t consumed = 0;
+  if (!zlib_match_sized(d, dn, consumed, raw_out, level_out, memLevel_out, strategy_out)) return false;
+  return consumed == dn;   // must consume the whole slice (no trailing bytes)
+}
+
 /* ---------------- File-level PCF container ---------------- */
 
 static const unsigned char PCF_MAGIC[4] = { 'z', 'P', 'C', 'F' };
 static const unsigned char PCF_VERSION  = 1;
-enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_PNGIDAT = 2 };
+enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_PNGIDAT = 2, PCF_SEG_ZLIBRAW = 3 };
 
 /* -pc speed: DEFLATE streams smaller than this (compressed bytes) are NOT
    recompressed — they cost the full preflate analyze + verify pass but save
@@ -111,9 +213,12 @@ static bool locate_payload(const std::vector<unsigned char>& f, size_t& d0, size
 static bool build_pcf(const std::vector<unsigned char>& f, size_t d0, size_t d1,
                       std::vector<unsigned char>& pcf_out) {
   if (d1 <= d0 || d1 - d0 < PCF_MIN_DEFLATE) return false;   // -pc: skip tiny streams
-  std::vector<unsigned char> deflate(f.begin() + d0, f.begin() + d1);
+  std::vector<unsigned char> dfl(f.begin() + d0, f.begin() + d1);
+  /* zlib fast-path first; preflate is the fallback. */
+  std::vector<unsigned char> zraw; int zl = 0, zm = 0, zs = 0;
+  bool zfast = zlib_match(dfl.data(), dfl.size(), zraw, zl, zm, zs);
   std::vector<unsigned char> unpacked, recon;
-  if (!pcf_deflate_decode(deflate.data(), deflate.size(), unpacked, recon)) return false;
+  if (!zfast && !pcf_deflate_decode(dfl.data(), dfl.size(), unpacked, recon)) return false;
 
   pcf_out.clear();
   pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
@@ -126,11 +231,20 @@ static bool build_pcf(const std::vector<unsigned char>& f, size_t d0, size_t d1,
     put_varint(pcf_out, d0);
     pcf_out.insert(pcf_out.end(), f.begin(), f.begin() + d0);
   }
-  pcf_out.push_back(PCF_SEG_DEFLATE);
-  put_varint(pcf_out, recon.size());
-  pcf_out.insert(pcf_out.end(), recon.begin(), recon.end());
-  put_varint(pcf_out, unpacked.size());
-  pcf_out.insert(pcf_out.end(), unpacked.begin(), unpacked.end());
+  if (zfast) {
+    pcf_out.push_back(PCF_SEG_ZLIBRAW);
+    pcf_out.push_back((unsigned char)zl);
+    pcf_out.push_back((unsigned char)zm);
+    pcf_out.push_back((unsigned char)zs);
+    put_varint(pcf_out, zraw.size());
+    pcf_out.insert(pcf_out.end(), zraw.begin(), zraw.end());
+  } else {
+    pcf_out.push_back(PCF_SEG_DEFLATE);
+    put_varint(pcf_out, recon.size());
+    pcf_out.insert(pcf_out.end(), recon.begin(), recon.end());
+    put_varint(pcf_out, unpacked.size());
+    pcf_out.insert(pcf_out.end(), unpacked.begin(), unpacked.end());
+  }
   if (d1 < f.size()) {
     pcf_out.push_back(PCF_SEG_LITERAL);
     put_varint(pcf_out, f.size() - d1);
@@ -276,14 +390,20 @@ static bool build_pcf_multi(const std::vector<unsigned char>& f,
                             const std::vector<std::pair<size_t, size_t> >& regions_in,
                             std::vector<unsigned char>& pcf_out) {
   std::vector<std::pair<size_t, size_t> > regs;
-  std::vector<std::vector<unsigned char> > unps, recs;
+  std::vector<std::vector<unsigned char> > unps, recs;       // unps = zraw (fast) OR unpacked (preflate)
+  std::vector<unsigned char> zfast, zl_v, zm_v, zs_v;         // per-region: zlib fast-path? + config
   for (size_t i = 0; i < regions_in.size(); ++i) {
     size_t s = regions_in[i].first, e = regions_in[i].second;
     if (s >= e || e > f.size()) continue;
     if (e - s < PCF_MIN_DEFLATE) continue;   // -pc: skip tiny streams (stay literal)
     std::vector<unsigned char> d(f.begin() + s, f.begin() + e), u, r;
-    if (pcf_deflate_decode(d.empty() ? 0 : &d[0], d.size(), u, r)) {
+    int zl = 0, zm = 0, zs = 0;
+    if (zlib_match(&d[0], d.size(), u, zl, zm, zs)) {         // zlib fast-path first
+      regs.push_back(regions_in[i]); unps.push_back(u); recs.push_back(std::vector<unsigned char>());
+      zfast.push_back(1); zl_v.push_back((unsigned char)zl); zm_v.push_back((unsigned char)zm); zs_v.push_back((unsigned char)zs);
+    } else if (pcf_deflate_decode(&d[0], d.size(), u, r)) {   // preflate fallback
       regs.push_back(regions_in[i]); unps.push_back(u); recs.push_back(r);
+      zfast.push_back(0); zl_v.push_back(0); zm_v.push_back(0); zs_v.push_back(0);
     }
   }
   if (regs.empty()) return false;
@@ -298,11 +418,18 @@ static bool build_pcf_multi(const std::vector<unsigned char>& f,
       body.insert(body.end(), f.begin() + pos, f.begin() + regs[i].first);
       ++nseg;
     }
-    body.push_back(PCF_SEG_DEFLATE);
-    put_varint(body, recs[i].size());
-    body.insert(body.end(), recs[i].begin(), recs[i].end());
-    put_varint(body, unps[i].size());
-    body.insert(body.end(), unps[i].begin(), unps[i].end());
+    if (zfast[i]) {
+      body.push_back(PCF_SEG_ZLIBRAW);
+      body.push_back(zl_v[i]); body.push_back(zm_v[i]); body.push_back(zs_v[i]);
+      put_varint(body, unps[i].size());
+      body.insert(body.end(), unps[i].begin(), unps[i].end());
+    } else {
+      body.push_back(PCF_SEG_DEFLATE);
+      put_varint(body, recs[i].size());
+      body.insert(body.end(), recs[i].begin(), recs[i].end());
+      put_varint(body, unps[i].size());
+      body.insert(body.end(), unps[i].begin(), unps[i].end());
+    }
     ++nseg;
     pos = regs[i].second;
   }
@@ -370,7 +497,10 @@ static bool build_pcf_png(const std::vector<unsigned char>& f,
   if (idat.size() - 2 < PCF_MIN_DEFLATE) return false;   // -pc: tiny IDAT not worth it
   std::vector<unsigned char> unpacked, recon;
   size_t consumed = 0;
-  if (!deflate_decode_sized(&idat[2], idat.size() - 2, unpacked, recon, 16, consumed)) return false;
+  /* zlib fast-path on the IDAT DEFLATE; preflate fallback. */
+  int zl = 0, zm = 0, zs = 0;
+  bool zfast = zlib_match_sized(&idat[2], idat.size() - 2, consumed, unpacked, zl, zm, zs);
+  if (!zfast && !deflate_decode_sized(&idat[2], idat.size() - 2, unpacked, recon, 16, consumed)) return false;
   if (2 + consumed > idat.size()) return false;
   std::vector<unsigned char> zhdr(idat.begin(), idat.begin() + 2);
   std::vector<unsigned char> trailer(idat.begin() + 2 + consumed, idat.end());
@@ -386,8 +516,13 @@ static bool build_pcf_png(const std::vector<unsigned char>& f,
   for (size_t i = 0; i < chunk_lens.size(); ++i) put_varint(body, chunk_lens[i]);
   put_varint(body, zhdr.size());    body.insert(body.end(), zhdr.begin(), zhdr.end());
   put_varint(body, trailer.size()); body.insert(body.end(), trailer.begin(), trailer.end());
-  put_varint(body, recon.size());   body.insert(body.end(), recon.begin(), recon.end());
-  put_varint(body, unpacked.size());body.insert(body.end(), unpacked.begin(), unpacked.end());
+  body.push_back(zfast ? 1 : 0);    // method: 0=preflate recon, 1=zlib config
+  if (zfast) {
+    body.push_back((unsigned char)zl); body.push_back((unsigned char)zm); body.push_back((unsigned char)zs);
+  } else {
+    put_varint(body, recon.size());   body.insert(body.end(), recon.begin(), recon.end());
+  }
+  put_varint(body, unpacked.size());  body.insert(body.end(), unpacked.begin(), unpacked.end());
   ++nseg;
   if (idat_end < f.size()) {
     body.push_back(PCF_SEG_LITERAL); put_varint(body, f.size() - idat_end);
@@ -419,6 +554,16 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
       if (!get_varint(p, n, pos, len) || pos + len > n) return false;
       original_out.insert(original_out.end(), p + pos, p + pos + len);
       pos += len;
+    } else if (kind == PCF_SEG_ZLIBRAW) {
+      /* zlib fast-path: re-deflate the stored inflated bytes with the stored config. */
+      if (pos + 3 > n) return false;
+      int zl = p[pos], zm = p[pos + 1], zs = p[pos + 2]; pos += 3;
+      uint64_t ulen = 0;
+      if (!get_varint(p, n, pos, ulen) || pos + ulen > n) return false;
+      std::vector<unsigned char> raw(p + pos, p + pos + ulen); pos += ulen;
+      std::vector<unsigned char> dfl;
+      if (!zlib_deflate_raw(raw, zl, zm, zs, dfl)) return false;
+      original_out.insert(original_out.end(), dfl.begin(), dfl.end());
     } else if (kind == PCF_SEG_DEFLATE) {
       uint64_t rlen = 0;
       if (!get_varint(p, n, pos, rlen) || pos + rlen > n) return false;
@@ -426,9 +571,9 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
       uint64_t ulen = 0;
       if (!get_varint(p, n, pos, ulen) || pos + ulen > n) return false;
       std::vector<unsigned char> unpacked(p + pos, p + pos + ulen); pos += ulen;
-      std::vector<unsigned char> deflate;
-      if (!pcf_deflate_reencode(unpacked, recon, deflate)) return false;
-      original_out.insert(original_out.end(), deflate.begin(), deflate.end());
+      std::vector<unsigned char> dfl;
+      if (!pcf_deflate_reencode(unpacked, recon, dfl)) return false;
+      original_out.insert(original_out.end(), dfl.begin(), dfl.end());
     } else if (kind == PCF_SEG_PNGIDAT) {
       uint64_t nchunks = 0;
       if (!get_varint(p, n, pos, nchunks) || nchunks == 0 || nchunks > (1u << 24)) return false;
@@ -444,19 +589,29 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
       uint64_t tlen = 0;
       if (!get_varint(p, n, pos, tlen) || pos + tlen > n) return false;
       std::vector<unsigned char> trailer(p + pos, p + pos + tlen); pos += tlen;
-      uint64_t rlen = 0;
-      if (!get_varint(p, n, pos, rlen) || pos + rlen > n) return false;
-      std::vector<unsigned char> recon(p + pos, p + pos + rlen); pos += rlen;
+      if (pos >= n) return false;
+      unsigned char method = p[pos++];          // 0=preflate recon, 1=zlib config
+      int zl = 0, zm = 0, zs = 0;
+      std::vector<unsigned char> recon;
+      if (method == 1) {
+        if (pos + 3 > n) return false;
+        zl = p[pos]; zm = p[pos + 1]; zs = p[pos + 2]; pos += 3;
+      } else if (method == 0) {
+        uint64_t rlen = 0;
+        if (!get_varint(p, n, pos, rlen) || pos + rlen > n) return false;
+        recon.assign(p + pos, p + pos + rlen); pos += rlen;
+      } else return false;
       uint64_t ulen = 0;
       if (!get_varint(p, n, pos, ulen) || pos + ulen > n) return false;
       std::vector<unsigned char> unpacked(p + pos, p + pos + ulen); pos += ulen;
-      std::vector<unsigned char> deflate;
-      if (!pcf_deflate_reencode(unpacked, recon, deflate)) return false;
+      std::vector<unsigned char> dfl;
+      if (method == 1) { if (!zlib_deflate_raw(unpacked, zl, zm, zs, dfl)) return false; }
+      else            { if (!pcf_deflate_reencode(unpacked, recon, dfl)) return false; }
       /* reassemble the full zlib stream, then re-split into the original IDAT chunks */
       std::vector<unsigned char> full;
-      full.reserve(zhdr.size() + deflate.size() + trailer.size());
+      full.reserve(zhdr.size() + dfl.size() + trailer.size());
       full.insert(full.end(), zhdr.begin(), zhdr.end());
-      full.insert(full.end(), deflate.begin(), deflate.end());
+      full.insert(full.end(), dfl.begin(), dfl.end());
       full.insert(full.end(), trailer.begin(), trailer.end());
       if (total != full.size()) return false;
       size_t off = 0;
