@@ -101458,6 +101458,9 @@ int Jidac::add()
 		if (pc_K < 1) pc_K= 1;
 	}
 	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));
+	// -sa packJPG: one-time init (single-threaded here). Calls are serialised by a mutex,
+	// so inter-file=1; intra-file=auto for Y/Cb/Cr parallelism within one JPEG. 512 MiB cap.
+	if (g_sa_enabled) pcf_packjpg_init(0, 512);
 	if (pc_K > 0)
 	{
 		bool is64= (sizeof(void *) >= 8);
@@ -101528,7 +101531,10 @@ int Jidac::add()
 			// file_crc32 stay the original's; the stored (fragmented) content is the PCF
 			// stream, reversed on extraction. verify-then-fallback inside pcf_file_encode
 			// guarantees no corruption: a file that does not round-trip is stored verbatim.
-			if (flagprecomp && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
+			// -sa step 2: route JPEG to packJPG (a PCF transform), gated by -sa + .jpg/.jpeg ext.
+			bool sa_jpg= false;
+			if (g_sa_enabled) { std::string sx= sa_file_ext(p->first); sa_jpg= (sx == "jpg" || sx == "jpeg"); }
+			if ((flagprecomp || sa_jpg) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
@@ -101540,13 +101546,14 @@ int Jidac::add()
 				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
 				bool pdf= (got >= 4 && sniff[0] == '%' && sniff[1] == 'P' && sniff[2] == 'D' && sniff[3] == 'F'); // %PDF
 				bool png= (got >= 4 && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47); // PNG
+				bool jpg= (got >= 3 && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF); // JPEG (-sa packJPG)
 				// worker_pcf: the prefetch worker already read the original, encoded it to a
 				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
 				// pc_magic_candidate() in the worker == this sniff, so worker_pcf implies the
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				if (worker_pcf || gz || zlb || zip || pdf || png)
+				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf || png)) || (sa_jpg && jpg))
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;
