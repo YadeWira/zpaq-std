@@ -100686,6 +100686,44 @@ static bool pc_magic_candidate(const unsigned char* s, size_t got)
    Files larger than maxfile are left to the main loop (TOOBIG -> inline, where
    preflate's own pool parallelises within the stream). Workers are plain threads
    (not preflate-pool threads), so there is no nested-pool deadlock. */
+/* Front-end parallel refactor (step 1): pure content-defined fragmentation + SHA1
+   over a whole-file RAM buffer, byte-identical to the inline add() loop. The rolling
+   hash / order-1 context / SHA1 are reset per fragment (exactly as the main loop:
+   h=c1=0, o1 cleared, fresh SHA1 each fragment); same constants. Per fragment it
+   outputs sha1, size, the byte offset into `data`, and `hits` (the order-1 prediction
+   count the main loop's data-type analysis consumes). The front-end worker pool runs
+   this off the main thread so the heavy fragment+SHA1 work parallelises across files;
+   the main loop still does dedup (ht/htinv), data-type analysis, block assembly and
+   dispatch in order. NOT YET WIRED — see the pool + consume changes that follow. */
+struct FrontFrag { char sha1[20]; uint32_t size; unsigned hits; size_t off; unsigned char o1[256]; };
+static void fragment_buffer(const unsigned char* data, size_t n,
+                            unsigned MAX_FRAGMENT, unsigned MIN_FRAGMENT,
+                            unsigned h_threshold, bool check_boundary,
+                            std::vector<FrontFrag>& out) {
+	static const unsigned HASH_MULT_HIT = 314159265u, HASH_MULT_MISS = 271828182u;
+	size_t pos = 0;
+	while (pos < n) {
+		unsigned h = 0, hits = 0; int c1 = 0; unsigned char o1[256] = {0};
+		size_t start = pos; int64_t sz = 0;
+		while (pos < n && sz < (int64_t)MAX_FRAGMENT) {
+			unsigned char uc = data[pos++];
+			unsigned char pred = o1[c1];
+			h = (h + uc + 1) * ((uc == pred) ? HASH_MULT_HIT : HASH_MULT_MISS);
+			hits += (uc == pred);
+			o1[c1] = uc; c1 = uc;
+			++sz;
+			if (check_boundary && h < h_threshold && sz >= (int64_t)MIN_FRAGMENT) break;
+		}
+		if (sz == 0) break;
+		FrontFrag f;
+		libzpaq::SHA1 sha1; sha1.write((const char*)data + start, (int)sz);
+		memcpy(f.sha1, sha1.result(), 20);
+		f.size = (uint32_t)sz; f.hits = hits; f.off = start;
+		memcpy(f.o1, o1, 256);   // leftover order-1 predictor (downstream datatype analysis reads it)
+		out.push_back(f);
+	}
+}
+
 struct PcfPrefetch
 {
 	enum Kind { NOTPC= 0, PCF= 1, TOOBIG= 2 };
@@ -101635,7 +101673,50 @@ int Jidac::add()
 		int64_t workedsofar= 0;
 		int		blocchi	   = 0;
 		bool	brutalexit = false;
-		
+
+		// Front-end fragmentation (Step 2): for a regular on-disk file that fits in
+		// RAM, read it once, hash it, and pre-compute every fragment boundary with
+		// fragment_buffer(). The fj-loop below then consumes that list instead of
+		// streaming+hashing inline. Byte-identical to the streaming path; serial
+		// foundation for the parallel front-end. Streaming sources (stdin / image /
+		// memfile / -pc RAM stream) and files over FRONT_WHOLE_MAX keep the old loop.
+		std::vector<FrontFrag>     fraglist;
+		std::vector<unsigned char> fb;
+		size_t                     frag_idx        = 0;
+		bool                       use_fraglist    = false;
+		const size_t               FRONT_WHOLE_MAX = ((size_t)64 << 20); // 64 MiB cap
+		if (fi < vf.size() && in != FPNULL
+		    && !pc_membuf_active && !flagstdin && !flagmemfile && !flagimage
+		    && p->second.expectedsize >= 0
+		    && (uint64_t)p->second.expectedsize <= (uint64_t)FRONT_WHOLE_MAX)
+		{
+			const size_t esz= (size_t)p->second.expectedsize;
+			if (esz == 0)
+				use_fraglist= true; // empty file: empty fraglist (matches streaming EOF)
+			else
+			{
+				fb.resize(esz);
+				if (fread(&fb[0], 1, esz, in) == esz)
+				{
+					if (g_franzotype > 0 && !flagpc_file)
+						for (size_t off= 0; off < esz;)
+						{
+							size_t ck= esz - off; if (ck > (16u << 20)) ck= (16u << 20);
+							updatehash(&p, (char *)&fb[off], (int)ck);
+							off+= ck;
+						}
+					fragment_buffer(&fb[0], esz, MAX_FRAGMENT, MIN_FRAGMENT,
+					                h_threshold, check_boundary, fraglist);
+					use_fraglist= true;
+				}
+				else
+				{
+					fb.clear();               // short read -> fall back to streaming loop
+					fseeko(in, 0, SEEK_SET);
+				}
+			}
+		}
+
 		// OPTIMIZED MAIN LOOP
 
 		for (unsigned fj= 0; true; ++fj)
@@ -101654,6 +101735,20 @@ int Jidac::add()
 				/// c:\nz\dd if="\\\\.\\c:" bs=1048576 count=100000000000 |c:\zpaqfranz\zpaqfranz a j:\image\prova cimage.img -stdin
 
 				// OPTIMIZED LOOP
+				if (use_fraglist)
+				{
+					if (frag_idx < fraglist.size())
+					{
+						const FrontFrag &ff= fraglist[frag_idx++];
+						sz= ff.size;
+						if (sz) memcpy(&fragbuf[0], &fb[ff.off], (size_t)sz);
+						hits= ff.hits;
+						memcpy(o1, ff.o1, 256);
+					}
+					// else: fraglist exhausted -> sz stays 0 (EOF; the streaming
+					// loop likewise breaks on buflen==0, leaving sz==0)
+				}
+				else
 				while (true)
 				{
 					// Buffer filling
