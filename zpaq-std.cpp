@@ -101541,7 +101541,7 @@ int Jidac::add()
 	if (!flagstdin && !flagimage && howmanythreads >= 2)
 	{
 		pc_K= howmanythreads - 1;
-		if (pc_K > 8) pc_K= 8;
+		if (pc_K > 32) pc_K= 32;
 		if (pc_K < 1) pc_K= 1;
 	}
 	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));

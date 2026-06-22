@@ -16,10 +16,12 @@
 #include "preflate_block_trees.h"
 #include "support/bit_helper.h"
 
-static HuffmanDecoder* staticLitLenDecoder;
-static HuffmanDecoder* staticDistDecoder;
-static HuffmanEncoder* staticLitLenEncoder;
-static HuffmanEncoder* staticDistEncoder;
+/* The static Huffman trees are built once via thread-safe function-local statics
+   (C++11 guarantees one-time, race-free initialisation) so the parallel -pc workers
+   (up to pc_K of them calling preflate concurrently) can read them safely. The
+   previous `if(!ptr) ptr=new` lazy globals were not thread-safe under that
+   concurrency — at the old pc_K<=8 the race rarely fired; raising the cap makes it
+   likely, so this fix ships with the cap increase. */
 
 static void setLitLenBitLengths(unsigned char(&a)[288]) {
   std::fill(a +   0, a + 144, 8);
@@ -32,34 +34,34 @@ static void setDistBitLengths(unsigned char(&a)[32]) {
 }
 
 const HuffmanDecoder* PreflateBlockTrees::staticLitLenTreeDecoder() {
-  if (!staticLitLenDecoder) {
+  static const HuffmanDecoder* const d = [] {
     unsigned char l_lengths[288];
     setLitLenBitLengths(l_lengths);
-    staticLitLenDecoder = new HuffmanDecoder(l_lengths, 288, true, 15);
-  }
-  return staticLitLenDecoder;
+    return new HuffmanDecoder(l_lengths, 288, true, 15);
+  }();
+  return d;
 }
 const HuffmanDecoder* PreflateBlockTrees::staticDistTreeDecoder() {
-  if (!staticDistDecoder) {
+  static const HuffmanDecoder* const d = [] {
     unsigned char d_lengths[32];
     setDistBitLengths(d_lengths);
-    staticDistDecoder = new HuffmanDecoder(d_lengths, 32, true, 15);
-  }
-  return staticDistDecoder;
+    return new HuffmanDecoder(d_lengths, 32, true, 15);
+  }();
+  return d;
 }
 const HuffmanEncoder* PreflateBlockTrees::staticLitLenTreeEncoder() {
-  if (!staticLitLenEncoder) {
+  static const HuffmanEncoder* const e = [] {
     unsigned char l_lengths[288];
     setLitLenBitLengths(l_lengths);
-    staticLitLenEncoder = new HuffmanEncoder(l_lengths, 288, true);
-  }
-  return staticLitLenEncoder;
+    return new HuffmanEncoder(l_lengths, 288, true);
+  }();
+  return e;
 }
 const HuffmanEncoder* PreflateBlockTrees::staticDistTreeEncoder() {
-  if (!staticDistEncoder) {
+  static const HuffmanEncoder* const e = [] {
     unsigned char d_lengths[32];
     setDistBitLengths(d_lengths);
-    staticDistEncoder = new HuffmanEncoder(d_lengths, 32, true);
-  }
-  return staticDistEncoder;
+    return new HuffmanEncoder(d_lengths, 32, true);
+  }();
+  return e;
 }
