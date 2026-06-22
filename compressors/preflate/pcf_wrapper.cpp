@@ -417,62 +417,6 @@ static bool scan_zlib_streams(const std::vector<unsigned char>& f,
   return !regions.empty();
 }
 
-/* -pcc deep scan toggle (set from zpaq-std.cpp via the -pcc flag). */
-static bool g_pcf_deep = false;
-void pcf_set_deep_scan(int enable) { g_pcf_deep = (enable != 0); }
-
-/* Length of the gzip header at offset i (f[i..]=1f 8b 08 ...), including the
-   optional FEXTRA/FNAME/FCOMMENT/FHCRC fields, so the raw DEFLATE payload starts
-   at i+hlen. Returns false if the header runs past the buffer. */
-static bool gzip_hdr_len(const std::vector<unsigned char>& f, size_t i, size_t n, size_t& hlen) {
-  if (i + 10 > n) return false;
-  unsigned char flg = f[i + 3];
-  size_t p = i + 10;
-  if (flg & 0x04) { if (p + 2 > n) return false; size_t xlen = f[p] | (f[p + 1] << 8); p += 2 + xlen; }
-  if (flg & 0x08) { while (p < n && f[p] != 0) ++p; ++p; }   /* FNAME */
-  if (flg & 0x10) { while (p < n && f[p] != 0) ++p; ++p; }   /* FCOMMENT */
-  if (flg & 0x02) { p += 2; }                                /* FHCRC */
-  if (p >= n) return false;
-  hlen = p - i;
-  return true;
-}
-
-/* -pcc deep scan: walk the WHOLE buffer for embedded zlib (0x78 CMF/FLG) and gzip
-   (1f 8b 08) DEFLATE streams at ANY offset — reaching members inside containers
-   (.tar of .gz, disk images, custom formats) that the magic-gated paths miss. No
-   attempt cap (every byte is tested; the header check is cheap, a decode runs only
-   on a hit). Each hit's raw DEFLATE span [start,end) is recorded; the surrounding
-   wrapper bytes (zlib/gzip header + trailer) stay in literals. File-level
-   verify-then-fallback makes a misdetection harmless. */
-static bool scan_streams_deep(const std::vector<unsigned char>& f,
-                              std::vector<std::pair<size_t, size_t> >& regions) {
-  const size_t n = f.size();
-  const size_t MINDEF = 128;   /* deep scan: a higher floor trims false-positive cost */
-  size_t i = 0;
-  while (i + 2 < n) {
-    size_t dstart = 0;
-    bool hit = false;
-    if (f[i] == 0x1f && f[i + 1] == 0x8b && f[i + 2] == 0x08) {        /* gzip */
-      size_t hlen = 0;
-      if (gzip_hdr_len(f, i, n, hlen) && i + hlen < n) { dstart = i + hlen; hit = true; }
-    } else if (((f[i] & 0x0f) == 0x08) && ((f[i] & 0x80) == 0)
-               && ((((unsigned)f[i] << 8) | f[i + 1]) % 31 == 0)) {    /* zlib */
-      dstart = i + 2; hit = true;
-    }
-    if (!hit) { ++i; continue; }
-    std::vector<unsigned char> u, r;
-    size_t consumed = 0;
-    if (deflate_decode_sized(&f[dstart], n - dstart, u, r, MINDEF, consumed)
-        && consumed >= MINDEF && (dstart + consumed) <= n) {
-      regions.push_back(std::make_pair(dstart, dstart + consumed));
-      i = dstart + consumed;   /* trailer (adler / gzip crc+isize) stays literal */
-    } else {
-      ++i;
-    }
-  }
-  return !regions.empty();
-}
-
 /* Build a multi-segment PCF: literal gaps interleaved with recompressed DEFLATE
    regions. Regions that do not preflate-decode are left inside literals. */
 static bool build_pcf_multi(const std::vector<unsigned char>& f,
@@ -791,13 +735,6 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
   if (!built) {
     if (build_pcf(original, 0, original.size(), cand)) built = true;
   }
-  /* -pcc deep scan: last resort for files the magic paths don't recognise (e.g. a
-     .tar of compressed members). Finds embedded zlib/gzip DEFLATE streams anywhere. */
-  if (!built && g_pcf_deep) {
-    std::vector<std::pair<size_t, size_t> > regions;
-    if (scan_streams_deep(original, regions))
-      built = build_pcf_multi(original, regions, cand);
-  }
   if (!built) return false;
 
   /* verify-then-fallback: decode must reproduce the original byte-for-byte */
@@ -818,11 +755,7 @@ bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
   std::vector<unsigned char> orig;
   if (!pcf_file_decode(stored, orig)) return false;
   /* authenticity: re-encoding the decoded original must reproduce `stored`
-     exactly, otherwise this was not a PCF stream we created (do not touch it).
-     The re-encode needs deep scan ON to reproduce a PCF built with -pcc; extraction
-     enables it ONCE up front (pcf_set_deep_scan) before the parallel reverse pool, so
-     g_pcf_deep is read-only here (no race). Magic paths still run first, so non-deep
-     PCFs reproduce regardless of the flag. */
+     exactly, otherwise this was not a PCF stream we created (do not touch it). */
   std::vector<unsigned char> re;
   if (!pcf_file_encode(orig, re)) return false;
   if (re != stored) return false;

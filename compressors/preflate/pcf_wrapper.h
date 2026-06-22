@@ -73,11 +73,4 @@ void pcf_set_internal_threads(int extra_threads);
    in MiB (0=none). Call once at add()/extract() startup before any -pc/-sa work. */
 void pcf_packjpg_init(int intra_threads, int max_output_mb);
 
-/* -pcc deep scan toggle. When enabled, pcf_file_encode() also scans an arbitrary
-   file for embedded zlib (0x78) / gzip (1f 8b 08) DEFLATE streams at ANY offset,
-   reaching members inside containers (.tar of .gz, disk images, custom formats)
-   that the magic-gated paths miss. Tried only after the precise paths fail; the
-   file-level verify-then-fallback keeps a misdetection harmless. 0 = off (default). */
-void pcf_set_deep_scan(int enable);
-
 #endif /* PCF_WRAPPER_H */

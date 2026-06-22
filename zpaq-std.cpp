@@ -1984,7 +1984,6 @@ int64_t		g_robocopy_fwrite;
 
 bool	 g_testifselected;
 uint64_t g_chunk_size	= 0;
-uint64_t g_pcc_window	= 0;	// -pcc: -pc deep-scan window/cap in bytes (0 = off)
 int64_t	 g_start		= 0;
 int64_t	 g_dimensione	= 0;
 int64_t	 g_scritti		= 0;
@@ -51767,7 +51766,6 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-home", "Create one archive for folder (-not -only)");
 		scrivi_riga("-collision", "Double check for SHA-1 collisions");
 		scrivi_riga("-chunk X", "Split in chunk of size X");
-		scrivi_riga("-pcc X", "-pc deep scan: find embedded streams in any file up to size X (e.g. .tar)");
 		help_orderby();
 #if defined(_WIN32)
 		scrivi_riga("-longpath", "Enable support for Windows paths longer than 255 characters");
@@ -55635,7 +55633,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getuint	(opt,"-limit",		false,	"",								argc,argv,&i,menoenne,			&menoenne));
 		else if (cli_getint		(opt,"-buffer",		false,	"",								argc,argv,&i,g_ioBUFSIZE,		&g_ioBUFSIZE));
 		else if (cli_getuint64	(opt,"-chunk",		false,	"",								argc,argv,&i,g_chunk_size,		&g_chunk_size));
-		else if (cli_getuint64	(opt,"-pcc",		false,	"",								argc,argv,&i,g_pcc_window,		&g_pcc_window));
 		else if (cli_getuint64	(opt,"-stdinsize",	false,	"",								argc,argv,&i,g_stdinsize,		&g_stdinsize));
 		else if (cli_getuint64	(opt,"-minsize",	false,	"",								argc,argv,&i,minsize,			&minsize));
 		else if (cli_getuint64	(opt,"-maxsize",	false,	"",								argc,argv,&i,maxsize,			&maxsize));
@@ -88192,8 +88189,6 @@ int Jidac::extract()
 	if (!flagtest && !job.pc_reverse_list.empty())
 	{
 		pcf_set_internal_threads(0);
-		pcf_set_deep_scan(1);   // reverse must reproduce -pcc deep PCFs; set ONCE before the
-		                        // parallel reverse pool (read-only inside pcf_authentic_reverse)
 		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
 		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
 		std::atomic<size_t> pcidx(0);
@@ -100785,49 +100780,64 @@ struct PcfPrefetch
 					{
 						unsigned char sniff[4]= {0, 0, 0, 0};
 						size_t got= fread(sniff, 1, 4, f);
-						// Mirror add()'s per-file transform decision. With -pcc (g_pcc_window>0)
-						// any file is a PCF candidate (the deep scan finds embedded streams); a
-						// file that does not PCF-encode is fragmented here as a regular file, so
-						// the main thread never re-reads or re-scans it. Only -sa JPEGs are left
-						// for main's inline packJPG path.
-						bool will_be_pcf  = flagprecomp && esz >= 18
-						                    && (pc_magic_candidate(sniff, got) || g_pcc_window > 0);
+						// Mirror add()'s per-file transform decision so this worker only FRAGs
+						// files main treats as regular -- never one main would PCF or packJPG
+						// (those keep the existing inline / prefetch-encode path).
+						bool will_be_pcf  = flagprecomp && esz >= 18 && pc_magic_candidate(sniff, got);
 						bool will_be_sajpg= g_sa_enabled && got >= 3
 						                    && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF
 						                    && (sa_file_ext(p->first) == "jpg" || sa_file_ext(p->first) == "jpeg");
-						if (!will_be_sajpg)
+						if (will_be_pcf)
 						{
-							// Read the whole file once, franz-hash it (identity is over the ORIGINAL
-							// bytes), then either PCF-encode it or fragment it here as a regular file.
 							fseeko(f, 0, SEEK_SET);
-							std::vector<unsigned char> buf((size_t)esz);
-							size_t rd= buf.empty() ? 0 : fread(&buf[0], 1, buf.size(), f);
-							if (rd == buf.size())
+							std::vector<unsigned char> O((size_t)esz), T;
+							size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), f);
+							if (rd == O.size() && pcf_file_encode(O, T))
 							{
+								it->kind= PCF;
+								it->T.swap(T);
+								// -pc B(ii): hash the ORIGINAL here (its franz identity) so the
+								// main loop need not re-read+re-hash the file. Per-file state
+								// (p->second.*) is touched by this worker only; the cache mutex
+								// below (done=true) publishes it before main consumes via get().
+								// updatehash also leaves file_crc32=CRC(original)/hashedsize=|O|;
+								// the main loop overwrites file_crc32 with the stored-PCF CRC.
 								if (jd && g_franzotype > 0)
 								{
-									for (size_t off= 0; off < buf.size();)
+									for (size_t off= 0; off < O.size();)
 									{
-										size_t ck= buf.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-										jd->updatehash(&p, (char *)&buf[off], (int)ck);
+										size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+										jd->updatehash(&p, (char *)&O[off], (int)ck);
 										off+= ck;
 									}
 									it->hashed= true;
 								}
-								std::vector<unsigned char> T;
-								if (will_be_pcf && pcf_file_encode(buf, T))
+							}
+							// encode failed -> leave NOTPC; main handles it inline (unchanged)
+						}
+						else if (!will_be_sajpg)
+						{
+							// step 3: unambiguously regular file. Read + franz-hash + fragment
+							// here so the main thread only dedups, assembles and dispatches.
+							fseeko(f, 0, SEEK_SET);
+							std::vector<unsigned char> R((size_t)esz);
+							size_t rd= R.empty() ? 0 : fread(&R[0], 1, R.size(), f);
+							if (rd == R.size())
+							{
+								if (jd && g_franzotype > 0)
 								{
-									it->T.swap(T);
-									it->kind= PCF;   // main streams pc_membuf; PCF fragmentation stays on main
+									for (size_t off= 0; off < R.size();)
+									{
+										size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+										jd->updatehash(&p, (char *)&R[off], (int)ck);
+										off+= ck;
+									}
+									it->hashed= true;
 								}
-								else
-								{
-									// regular file (or PCF declined) -> content-defined fragment here
-									fragment_buffer(buf.empty() ? (const unsigned char *)"" : &buf[0],
-									                buf.size(), fr_max, fr_min, fr_hthr, fr_chk, it->fraglist);
-									it->T.swap(buf);
-									it->kind= FRAG;
-								}
+								fragment_buffer(R.empty() ? (const unsigned char *)"" : &R[0],
+								                R.size(), fr_max, fr_min, fr_hthr, fr_chk, it->fraglist);
+								it->T.swap(R);   // T holds the raw bytes (fragmentation source)
+								it->kind= FRAG;
 							}
 						}
 						// else will_be_sajpg -> leave NOTPC; main inline-packJPGs (unchanged)
@@ -101538,7 +101548,6 @@ int Jidac::add()
 	// -sa packJPG: one-time init (single-threaded here). Calls are serialised by a mutex,
 	// so inter-file=1; intra-file=auto for Y/Cb/Cr parallelism within one JPEG. 512 MiB cap.
 	if (g_sa_enabled) pcf_packjpg_init(0, 512);
-	pcf_set_deep_scan(g_pcc_window > 0 ? 1 : 0);   // -pcc: deep scan for embedded streams in any file
 	if (pc_K > 0)
 	{
 		bool is64= (sizeof(void *) >= 8);
@@ -101614,9 +101623,8 @@ int Jidac::add()
 			bool sa_jpg= false;
 			if (g_sa_enabled) { std::string sx= sa_file_ext(p->first); sa_jpg= (sx == "jpg" || sx == "jpeg"); }
 			if ((flagprecomp || sa_jpg) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
-			    && !(pcg.item && pcg.item->kind == PcfPrefetch::FRAG)  // worker already fragmented it
 			    && p->second.expectedsize >= 18
-			    && p->second.expectedsize <= (int64_t)(g_pcc_window > ((uint64_t)512 << 20) ? g_pcc_window : ((uint64_t)512 << 20)))
+			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
 				unsigned char sniff[4]= {0, 0, 0, 0};
 				size_t got= fread(sniff, 1, 4, in);
@@ -101633,8 +101641,7 @@ int Jidac::add()
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf || png)) || (sa_jpg && jpg)
-				    || (flagprecomp && g_pcc_window > 0))
+				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf || png)) || (sa_jpg && jpg))
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;

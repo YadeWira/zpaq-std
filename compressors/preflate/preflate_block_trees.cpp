@@ -16,10 +16,10 @@
 #include "preflate_block_trees.h"
 #include "support/bit_helper.h"
 
-/* The static Huffman trees are built once via thread-safe function-local statics
-   (C++11 guarantees one-time, race-free initialisation) so the parallel -pc/-pcc
-   workers and the parallel reverse pool can read them concurrently. The previous
-   `if(!ptr) ptr=new` lazy globals were not thread-safe under that concurrency. */
+static HuffmanDecoder* staticLitLenDecoder;
+static HuffmanDecoder* staticDistDecoder;
+static HuffmanEncoder* staticLitLenEncoder;
+static HuffmanEncoder* staticDistEncoder;
 
 static void setLitLenBitLengths(unsigned char(&a)[288]) {
   std::fill(a +   0, a + 144, 8);
@@ -32,34 +32,34 @@ static void setDistBitLengths(unsigned char(&a)[32]) {
 }
 
 const HuffmanDecoder* PreflateBlockTrees::staticLitLenTreeDecoder() {
-  static const HuffmanDecoder* const d = [] {
+  if (!staticLitLenDecoder) {
     unsigned char l_lengths[288];
     setLitLenBitLengths(l_lengths);
-    return new HuffmanDecoder(l_lengths, 288, true, 15);
-  }();
-  return d;
+    staticLitLenDecoder = new HuffmanDecoder(l_lengths, 288, true, 15);
+  }
+  return staticLitLenDecoder;
 }
 const HuffmanDecoder* PreflateBlockTrees::staticDistTreeDecoder() {
-  static const HuffmanDecoder* const d = [] {
+  if (!staticDistDecoder) {
     unsigned char d_lengths[32];
     setDistBitLengths(d_lengths);
-    return new HuffmanDecoder(d_lengths, 32, true, 15);
-  }();
-  return d;
+    staticDistDecoder = new HuffmanDecoder(d_lengths, 32, true, 15);
+  }
+  return staticDistDecoder;
 }
 const HuffmanEncoder* PreflateBlockTrees::staticLitLenTreeEncoder() {
-  static const HuffmanEncoder* const e = [] {
+  if (!staticLitLenEncoder) {
     unsigned char l_lengths[288];
     setLitLenBitLengths(l_lengths);
-    return new HuffmanEncoder(l_lengths, 288, true);
-  }();
-  return e;
+    staticLitLenEncoder = new HuffmanEncoder(l_lengths, 288, true);
+  }
+  return staticLitLenEncoder;
 }
 const HuffmanEncoder* PreflateBlockTrees::staticDistTreeEncoder() {
-  static const HuffmanEncoder* const e = [] {
+  if (!staticDistEncoder) {
     unsigned char d_lengths[32];
     setDistBitLengths(d_lengths);
-    return new HuffmanEncoder(d_lengths, 32, true);
-  }();
-  return e;
+    staticDistEncoder = new HuffmanEncoder(d_lengths, 32, true);
+  }
+  return staticDistEncoder;
 }
