@@ -100726,8 +100726,10 @@ static void fragment_buffer(const unsigned char* data, size_t n,
 
 struct PcfPrefetch
 {
-	enum Kind { NOTPC= 0, PCF= 1, TOOBIG= 2 };
-	struct Item { Kind kind= NOTPC; std::vector<unsigned char> T; long long bytes= 0; bool done= false; bool hashed= false; };
+	enum Kind { NOTPC= 0, PCF= 1, TOOBIG= 2, FRAG= 3 };
+	// T holds the bytes to fragment (PCF stream for PCF, raw file for FRAG); fraglist
+	// holds their precomputed fragment boundaries (FRAG kind, and PCF in step 3b).
+	struct Item { Kind kind= NOTPC; std::vector<unsigned char> T; std::vector<FrontFrag> fraglist; long long bytes= 0; bool done= false; bool hashed= false; };
 
 	Jidac*											jd= NULL;	// -pc B(ii): for updatehash() from the worker
 	std::vector<DTMap::iterator>*					vf= NULL;
@@ -100738,14 +100740,18 @@ struct PcfPrefetch
 	std::mutex										mx;
 	std::condition_variable							cv_ready, cv_space;
 	long long										inflight= 0, cap= 0, maxfile= 0, maxahead= 512;
+	unsigned										fr_max= 0, fr_min= 0, fr_hthr= 0; // fragment_buffer params
+	bool											fr_chk= false;
 	std::vector<std::thread>						workers;
 	bool											active= false;
 
-	void start(Jidac* jdac, std::vector<DTMap::iterator>& v, int K, long long capbytes, long long maxfilebytes)
+	void start(Jidac* jdac, std::vector<DTMap::iterator>& v, int K, long long capbytes, long long maxfilebytes,
+	           unsigned fmax, unsigned fmin, unsigned fhthr, bool fchk)
 	{
 		jd= jdac;
 		vf= &v; n= v.size(); claim.store(0); stopflag.store(false);
 		inflight= 0; cap= capbytes; maxfile= maxfilebytes; active= true;
+		fr_max= fmax; fr_min= fmin; fr_hthr= fhthr; fr_chk= fchk;
 		for (int i= 0; i < K; i++) workers.push_back(std::thread(&PcfPrefetch::worker, this));
 	}
 	void worker()
@@ -100757,19 +100763,31 @@ struct PcfPrefetch
 			if (fi >= n) return;
 			std::shared_ptr<Item> it(new Item());
 			DTMap::iterator p= (*vf)[fi];
-			int64_t esz= p->second.expectedsize;
-			if (!stopflag.load() && esz >= 18 && !ismemfile(p->first))
+			int64_t esz= 0;
+			if (!stopflag.load() && !ismemfile(p->first))
 			{
-				if (esz > maxfile)
-					it->kind= TOOBIG;            // too big to prefetch: main does it inline
-				else
+				FP f= myfopen(p->first.c_str(), RB);
+				if (f != FPNULL)
 				{
-					FP f= myfopen(p->first.c_str(), RB);
-					if (f != FPNULL)
+					// Real size from the handle: p->second.expectedsize is set lazily by the
+					// main loop (after it reaches the file), so it is not reliably populated
+					// when this worker claims the file ahead of main.
+					fseeko(f, 0, SEEK_END); esz= ftello(f); fseeko(f, 0, SEEK_SET);
+					if (esz < 0) esz= 0;
+					if (esz > maxfile)
+						it->kind= TOOBIG;            // too big to prefetch: main does it inline
+					else
 					{
 						unsigned char sniff[4]= {0, 0, 0, 0};
 						size_t got= fread(sniff, 1, 4, f);
-						if (pc_magic_candidate(sniff, got))
+						// Mirror add()'s per-file transform decision so this worker only FRAGs
+						// files main treats as regular -- never one main would PCF or packJPG
+						// (those keep the existing inline / prefetch-encode path).
+						bool will_be_pcf  = flagprecomp && esz >= 18 && pc_magic_candidate(sniff, got);
+						bool will_be_sajpg= g_sa_enabled && got >= 3
+						                    && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF
+						                    && (sa_file_ext(p->first) == "jpg" || sa_file_ext(p->first) == "jpeg");
+						if (will_be_pcf)
 						{
 							fseeko(f, 0, SEEK_SET);
 							std::vector<unsigned char> O((size_t)esz), T;
@@ -100795,9 +100813,36 @@ struct PcfPrefetch
 									it->hashed= true;
 								}
 							}
+							// encode failed -> leave NOTPC; main handles it inline (unchanged)
 						}
-						myfclose(&f);
+						else if (!will_be_sajpg)
+						{
+							// step 3: unambiguously regular file. Read + franz-hash + fragment
+							// here so the main thread only dedups, assembles and dispatches.
+							fseeko(f, 0, SEEK_SET);
+							std::vector<unsigned char> R((size_t)esz);
+							size_t rd= R.empty() ? 0 : fread(&R[0], 1, R.size(), f);
+							if (rd == R.size())
+							{
+								if (jd && g_franzotype > 0)
+								{
+									for (size_t off= 0; off < R.size();)
+									{
+										size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+										jd->updatehash(&p, (char *)&R[off], (int)ck);
+										off+= ck;
+									}
+									it->hashed= true;
+								}
+								fragment_buffer(R.empty() ? (const unsigned char *)"" : &R[0],
+								                R.size(), fr_max, fr_min, fr_hthr, fr_chk, it->fraglist);
+								it->T.swap(R);   // T holds the raw bytes (fragmentation source)
+								it->kind= FRAG;
+							}
+						}
+						// else will_be_sajpg -> leave NOTPC; main inline-packJPGs (unchanged)
 					}
+					myfclose(&f);
 				}
 			}
 			{
@@ -101489,7 +101534,11 @@ int Jidac::add()
 	// own pool but capped to the thread budget.
 	PcfPrefetch g_pcfetch;
 	int pc_K= 0;
-	if (flagprecomp && !flagstdin && !flagimage && howmanythreads >= 2)
+	// Front-end prefetch pool. Active for every add() (>=2 threads, not stdin/image):
+	// workers read + franz-hash + fragment regular files (and, with -pc, encode the
+	// PCF stream) ahead of the main thread, which is then left with only dedup +
+	// block assembly + dispatch. -t1 disables it -> the serial step-2 path runs.
+	if (!flagstdin && !flagimage && howmanythreads >= 2)
 	{
 		pc_K= howmanythreads - 1;
 		if (pc_K > 8) pc_K= 8;
@@ -101504,7 +101553,8 @@ int Jidac::add()
 		bool is64= (sizeof(void *) >= 8);
 		g_pcfetch.start(this, vf, pc_K,
 		                is64 ? (512LL << 20) : (96LL << 20),   // RAM cache cap
-		                is64 ? (64LL << 20) : (16LL << 20));    // prefetch files up to this; bigger => inline
+		                is64 ? (64LL << 20) : (16LL << 20),    // prefetch files up to this; bigger => inline
+		                MAX_FRAGMENT, MIN_FRAGMENT, h_threshold, check_boundary);
 	}
 
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
@@ -101685,7 +101735,16 @@ int Jidac::add()
 		size_t                     frag_idx        = 0;
 		bool                       use_fraglist    = false;
 		const size_t               FRONT_WHOLE_MAX = ((size_t)64 << 20); // 64 MiB cap
-		if (fi < vf.size() && in != FPNULL
+		if (pcg.item && pcg.item->kind == PcfPrefetch::FRAG)
+		{
+			// step 3: the prefetch worker already read + franz-hashed + fragmented this
+			// regular file in parallel. Take its buffers; the fj-loop consumes the list
+			// and the main thread does only dedup + block assembly + dispatch.
+			fb.swap(pcg.item->T);
+			fraglist.swap(pcg.item->fraglist);
+			use_fraglist= true;
+		}
+		else if (fi < vf.size() && in != FPNULL
 		    && !pc_membuf_active && !flagstdin && !flagmemfile && !flagimage
 		    && p->second.expectedsize >= 0
 		    && (uint64_t)p->second.expectedsize <= (uint64_t)FRONT_WHOLE_MAX)
@@ -101726,6 +101785,7 @@ int Jidac::add()
 			unsigned	  htptr			= 0;   // fragment index
 			char		  sha1result[20]= {0}; // fragment hash
 			unsigned char o1[256]		= {0}; // order 1 context -> predicted byte
+			bool		  frag_have_sha1= false; // step 3: sha1result supplied by fraglist (worker), skip recompute
 
 			if (fi < vf.size())
 			{
@@ -101744,6 +101804,8 @@ int Jidac::add()
 						if (sz) memcpy(&fragbuf[0], &fb[ff.off], (size_t)sz);
 						hits= ff.hits;
 						memcpy(o1, ff.o1, 256);
+						memcpy(sha1result, ff.sha1, 20); // step 3: use the worker's SHA1
+						frag_have_sha1= true;            // skip the recompute below
 					}
 					// else: fraglist exhausted -> sz stays 0 (EOF; the streaming
 					// loop likewise breaks on buflen==0, leaving sz==0)
@@ -102130,10 +102192,12 @@ int Jidac::add()
 				if (sz == 0 && fj > 0)
 					break; /// fix alla versione d
 				// SHA1 update in blocco - gia' ottimizzato zpaqfranz
-				sha1.write(&fragbuf[0], sz);
-
-				assert((uint64_t)sz == sha1.usize());
-				memcpy(sha1result, sha1.result(), 20);
+				if (!frag_have_sha1) // step 3: skip when the worker already hashed this fragment
+				{
+					sha1.write(&fragbuf[0], sz);
+					assert((uint64_t)sz == sha1.usize());
+					memcpy(sha1result, sha1.result(), 20);
+				}
 				htptr= htinv.find(sha1result);
 			}
 
