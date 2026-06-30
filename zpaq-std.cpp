@@ -58,8 +58,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 
-#define ZPAQ_VERSION "64.7g"
-#define ZPAQ_DATE "(2026-03-24)"
+#define ZPAQ_VERSION "64.8j"
+#define ZPAQ_DATE "(2026-06-29)"
 
 
 
