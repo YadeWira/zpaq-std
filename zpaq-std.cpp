@@ -53107,6 +53107,7 @@ string help_mainswitches(bool i_usage, bool i_example)
 	{
 		scrivi_riga("-all [N]", "All versions (default 4 digits)");
 		scrivi_riga("-key X", "Archive password X");
+		scrivi_riga("", "env var FRANZKEY used as fallback if -key is not given");
 		scrivi_riga("-mN -method N", "0=no compression, 1..5=faster..better ");
 		scrivi_riga("-force", "Overwrite");
 		scrivi_riga("-test", "Verify (extract/add)");
@@ -55961,6 +55962,34 @@ int Jidac::loadparameters(int argc, const char** argv)
 /*
 	Check from "weird" parameters
 */
+	// zpaqfranz 64.8: take the -key (AES) password from the FRANZKEY env var when -key
+	// was not given on the command line. Hashed identically to cli_getkey (SHA256 of the
+	// chars + any -keyfile hash) so FRANZKEY=X yields the same key as -key X. FRANZFRANZEN
+	// is not ported here: the Franzen path is compiled out (NOFRANZEN).
+	if (g_password == NULL)
+	{
+		const char *env_key = getenv("FRANZKEY");
+		if (env_key != NULL && env_key[0] != '\0')
+		{
+			plainpassword = "";
+			libzpaq::SHA256 sha256;
+			for (const char *p = env_key; *p; ++p)
+			{
+				sha256.put(*p);
+				plainpassword += *p;
+			}
+			if (g_keyfilehash != "")
+				for (unsigned int i = 0; i < g_keyfilehash.size(); i++)
+				{
+					sha256.put(g_keyfilehash[i]);
+					plainpassword += g_keyfilehash[i];
+				}
+			memcpy(g_password_string, sha256.result(), 32);
+			g_password = g_password_string;
+			if (flagdebug)
+				myprintf("00556: -key from FRANZKEY env var\n");
+		}
+	}
 	if (g_keyfile!="")
 	{
 		if (g_password==NULL)
