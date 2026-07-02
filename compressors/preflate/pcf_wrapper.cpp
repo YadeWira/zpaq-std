@@ -179,7 +179,7 @@ static bool pjg_convert(const unsigned char* in, size_t in_size, std::vector<uns
 
 static const unsigned char PCF_MAGIC[4] = { 'z', 'P', 'C', 'F' };
 static const unsigned char PCF_VERSION  = 1;
-enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_PNGIDAT = 2, PCF_SEG_ZLIBRAW = 3, PCF_SEG_PACKJPG = 4 };
+enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_ZLIBRAW = 3, PCF_SEG_PACKJPG = 4 };
 
 /* -pc speed: DEFLATE streams smaller than this (compressed bytes) are NOT
    recompressed — they cost the full preflate analyze + verify pass but save
@@ -292,32 +292,6 @@ static uint32_t rd32(const unsigned char* p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 static uint16_t rd16(const unsigned char* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
-
-/* big-endian 32-bit (PNG chunk lengths/CRCs are big-endian) */
-static uint32_t rd32be(const unsigned char* p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-static void put32be(std::vector<unsigned char>& v, uint32_t x) {
-  v.push_back((unsigned char)(x >> 24)); v.push_back((unsigned char)(x >> 16));
-  v.push_back((unsigned char)(x >> 8));  v.push_back((unsigned char)x);
-}
-
-/* standard IEEE CRC-32 (poly 0xEDB88320) — used for PNG chunk CRCs */
-static uint32_t png_crc32(const unsigned char* buf, size_t len) {
-  static uint32_t table[256];
-  static bool init = false;
-  if (!init) {
-    for (uint32_t i = 0; i < 256; ++i) {
-      uint32_t c = i;
-      for (int k = 0; k < 8; ++k) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-      table[i] = c;
-    }
-    init = true;
-  }
-  uint32_t c = 0xFFFFFFFFu;
-  for (size_t i = 0; i < len; ++i) c = table[(c ^ buf[i]) & 0xff] ^ (c >> 8);
-  return c ^ 0xFFFFFFFFu;
-}
 
 /* Find every DEFLATE member in a ZIP via the central directory (authoritative
    offsets/sizes — avoids data-descriptor ambiguity). Fills `regions` with sorted,
@@ -480,95 +454,6 @@ static bool build_pcf_multi(const std::vector<unsigned char>& f,
   return true;
 }
 
-/* Parse a PNG: collect the consecutive IDAT chunks (whose data, concatenated,
-   is ONE zlib stream). Sets [idat_start,idat_end) = the byte span of the IDAT
-   chunk region in the file, chunk_lens = each IDAT's data length, and idat_data
-   = the concatenated IDAT payloads. Returns false if not a PNG with a single
-   consecutive IDAT run. */
-static bool scan_png(const std::vector<unsigned char>& f,
-                     size_t& idat_start, size_t& idat_end,
-                     std::vector<uint32_t>& chunk_lens,
-                     std::vector<unsigned char>& idat_data) {
-  static const unsigned char SIG[8] = {0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a};
-  const size_t n = f.size();
-  if (n < 8 + 12) return false;
-  for (int i = 0; i < 8; ++i) if (f[i] != SIG[i]) return false;
-  size_t p = 8;
-  bool in_idat = false, seen_idat = false;
-  idat_start = idat_end = 0;
-  while (p + 8 <= n) {
-    uint32_t len = rd32be(&f[p]);
-    if (p + 12 + (size_t)len > n) return false;            /* truncated */
-    const unsigned char* type = &f[p + 4];
-    bool is_idat = (type[0]=='I'&&type[1]=='D'&&type[2]=='A'&&type[3]=='T');
-    if (is_idat) {
-      if (seen_idat && !in_idat) return false;             /* IDAT run not consecutive */
-      if (!in_idat) { idat_start = p; in_idat = true; seen_idat = true; }
-      chunk_lens.push_back(len);
-      idat_data.insert(idat_data.end(), &f[p+8], &f[p+8+len]);
-    } else if (in_idat) {
-      idat_end = p; in_idat = false;                       /* IDAT run just ended */
-    }
-    bool is_iend = (type[0]=='I'&&type[1]=='E'&&type[2]=='N'&&type[3]=='D');
-    p += 12 + len;                                         /* len(4)+type(4)+data+crc(4) */
-    if (is_iend) break;
-  }
-  if (in_idat) idat_end = p;                               /* IDAT ran to last chunk */
-  return seen_idat && idat_end > idat_start && idat_data.size() >= 6;
-}
-
-/* Build a PCF from a PNG: literal prefix, a PNG-IDAT segment (the combined zlib
-   stream split into the original IDAT chunk sizes), literal suffix. */
-static bool build_pcf_png(const std::vector<unsigned char>& f,
-                          std::vector<unsigned char>& pcf_out) {
-  size_t idat_start = 0, idat_end = 0;
-  std::vector<uint32_t> chunk_lens;
-  std::vector<unsigned char> idat;
-  if (!scan_png(f, idat_start, idat_end, chunk_lens, idat)) return false;
-  /* idat = zlib header(2) + raw deflate + adler(4..). preflate the deflate. */
-  if (idat.size() < 6 || (idat[0] & 0x0f) != 0x08) return false;
-  if (idat.size() - 2 < PCF_MIN_DEFLATE) return false;   // -pc: tiny IDAT not worth it
-  std::vector<unsigned char> unpacked, recon;
-  size_t consumed = 0;
-  /* zlib fast-path on the IDAT DEFLATE; preflate fallback. */
-  int zl = 0, zm = 0, zs = 0;
-  bool zfast = zlib_match_sized(&idat[2], idat.size() - 2, consumed, unpacked, zl, zm, zs);
-  if (!zfast && !deflate_decode_sized(&idat[2], idat.size() - 2, unpacked, recon, 16, consumed)) return false;
-  if (2 + consumed > idat.size()) return false;
-  std::vector<unsigned char> zhdr(idat.begin(), idat.begin() + 2);
-  std::vector<unsigned char> trailer(idat.begin() + 2 + consumed, idat.end());
-
-  std::vector<unsigned char> body;
-  uint64_t nseg = 0;
-  if (idat_start > 0) {
-    body.push_back(PCF_SEG_LITERAL); put_varint(body, idat_start);
-    body.insert(body.end(), f.begin(), f.begin() + idat_start); ++nseg;
-  }
-  body.push_back(PCF_SEG_PNGIDAT);
-  put_varint(body, chunk_lens.size());
-  for (size_t i = 0; i < chunk_lens.size(); ++i) put_varint(body, chunk_lens[i]);
-  put_varint(body, zhdr.size());    body.insert(body.end(), zhdr.begin(), zhdr.end());
-  put_varint(body, trailer.size()); body.insert(body.end(), trailer.begin(), trailer.end());
-  body.push_back(zfast ? 1 : 0);    // method: 0=preflate recon, 1=zlib config
-  if (zfast) {
-    body.push_back((unsigned char)zl); body.push_back((unsigned char)zm); body.push_back((unsigned char)zs);
-  } else {
-    put_varint(body, recon.size());   body.insert(body.end(), recon.begin(), recon.end());
-  }
-  put_varint(body, unpacked.size());  body.insert(body.end(), unpacked.begin(), unpacked.end());
-  ++nseg;
-  if (idat_end < f.size()) {
-    body.push_back(PCF_SEG_LITERAL); put_varint(body, f.size() - idat_end);
-    body.insert(body.end(), f.begin() + idat_end, f.end()); ++nseg;
-  }
-  pcf_out.clear();
-  pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
-  pcf_out.push_back(PCF_VERSION);
-  put_varint(pcf_out, nseg);
-  pcf_out.insert(pcf_out.end(), body.begin(), body.end());
-  return true;
-}
-
 bool pcf_file_decode(const std::vector<unsigned char>& pcf,
                      std::vector<unsigned char>& original_out) {
   original_out.clear();
@@ -607,58 +492,6 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
       std::vector<unsigned char> dfl;
       if (!pcf_deflate_reencode(unpacked, recon, dfl)) return false;
       original_out.insert(original_out.end(), dfl.begin(), dfl.end());
-    } else if (kind == PCF_SEG_PNGIDAT) {
-      uint64_t nchunks = 0;
-      if (!get_varint(p, n, pos, nchunks) || nchunks == 0 || nchunks > (1u << 24)) return false;
-      std::vector<uint64_t> clens(nchunks);
-      uint64_t total = 0;
-      for (uint64_t c = 0; c < nchunks; ++c) {
-        if (!get_varint(p, n, pos, clens[c])) return false;
-        total += clens[c];
-      }
-      uint64_t zlen = 0;
-      if (!get_varint(p, n, pos, zlen) || pos + zlen > n) return false;
-      std::vector<unsigned char> zhdr(p + pos, p + pos + zlen); pos += zlen;
-      uint64_t tlen = 0;
-      if (!get_varint(p, n, pos, tlen) || pos + tlen > n) return false;
-      std::vector<unsigned char> trailer(p + pos, p + pos + tlen); pos += tlen;
-      if (pos >= n) return false;
-      unsigned char method = p[pos++];          // 0=preflate recon, 1=zlib config
-      int zl = 0, zm = 0, zs = 0;
-      std::vector<unsigned char> recon;
-      if (method == 1) {
-        if (pos + 3 > n) return false;
-        zl = p[pos]; zm = p[pos + 1]; zs = p[pos + 2]; pos += 3;
-      } else if (method == 0) {
-        uint64_t rlen = 0;
-        if (!get_varint(p, n, pos, rlen) || pos + rlen > n) return false;
-        recon.assign(p + pos, p + pos + rlen); pos += rlen;
-      } else return false;
-      uint64_t ulen = 0;
-      if (!get_varint(p, n, pos, ulen) || pos + ulen > n) return false;
-      std::vector<unsigned char> unpacked(p + pos, p + pos + ulen); pos += ulen;
-      std::vector<unsigned char> dfl;
-      if (method == 1) { if (!zlib_deflate_raw(unpacked, zl, zm, zs, dfl)) return false; }
-      else            { if (!pcf_deflate_reencode(unpacked, recon, dfl)) return false; }
-      /* reassemble the full zlib stream, then re-split into the original IDAT chunks */
-      std::vector<unsigned char> full;
-      full.reserve(zhdr.size() + dfl.size() + trailer.size());
-      full.insert(full.end(), zhdr.begin(), zhdr.end());
-      full.insert(full.end(), dfl.begin(), dfl.end());
-      full.insert(full.end(), trailer.begin(), trailer.end());
-      if (total != full.size()) return false;
-      size_t off = 0;
-      for (uint64_t c = 0; c < nchunks; ++c) {
-        uint32_t L = (uint32_t)clens[c];
-        put32be(original_out, L);
-        size_t crcpos = original_out.size();
-        const unsigned char idat_tag[4] = {'I','D','A','T'};
-        original_out.insert(original_out.end(), idat_tag, idat_tag + 4);
-        original_out.insert(original_out.end(), full.begin() + off, full.begin() + off + L);
-        uint32_t crc = png_crc32(&original_out[crcpos], 4 + L);
-        put32be(original_out, crc);
-        off += L;
-      }
     } else if (kind == PCF_SEG_PACKJPG) {
       uint64_t plen = 0;
       if (!get_varint(p, n, pos, plen) || pos + plen > n) return false;
@@ -714,11 +547,9 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
       built = build_pcf_multi(original, regions, cand);
   }
 
-  /* PNG: recompress the IDAT zlib stream (split across consecutive IDAT chunks). */
-  if (!built && original.size() >= 8 && original[0] == 0x89 && original[1] == 0x50
-      && original[2] == 0x4e && original[3] == 0x47) {
-    built = build_pcf_png(original, cand);
-  }
+  /* PNG/APNG is intentionally NOT recompressed here -- reserved for a dedicated
+     WebP-lossless-based transform (packPNG) rather than the generic IDAT-deflate
+     recompression this file used to do. */
 
   /* JPEG: lossless recompression via packJPG (reached only when -sa routes a jpg). */
   if (!built && original.size() >= 3 && original[0] == 0xFF && original[1] == 0xD8

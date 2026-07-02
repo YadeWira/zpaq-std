@@ -100704,8 +100704,9 @@ static bool pc_magic_candidate(const unsigned char* s, size_t got)
 	bool zlb= (got >= 2 && (s[0] & 0x0f) == 0x08 && ((((unsigned)s[0] << 8) | s[1]) % 31) == 0);
 	bool zip= (got >= 4 && s[0] == 0x50 && s[1] == 0x4b && s[2] == 0x03 && s[3] == 0x04);
 	bool pdf= (got >= 4 && s[0] == '%' && s[1] == 'P' && s[2] == 'D' && s[3] == 'F');
-	bool png= (got >= 4 && s[0] == 0x89 && s[1] == 0x50 && s[2] == 0x4e && s[3] == 0x47);
-	return gz || zlb || zip || pdf || png;
+	// PNG/APNG is intentionally excluded: -pc no longer recompresses the PNG family
+	// (reserved for a dedicated WebP-lossless transform, packPNG).
+	return gz || zlb || zip || pdf;
 }
 
 /* -pc cross-file prefetch: K worker threads run the expensive pcf_file_encode on
@@ -101662,7 +101663,8 @@ int Jidac::add()
 				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
 				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
 				bool pdf= (got >= 4 && sniff[0] == '%' && sniff[1] == 'P' && sniff[2] == 'D' && sniff[3] == 'F'); // %PDF
-				bool png= (got >= 4 && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47); // PNG
+				// PNG/APNG intentionally excluded: -pc no longer recompresses the PNG
+				// family (reserved for a dedicated WebP-lossless transform, packPNG).
 				bool jpg= (got >= 3 && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF); // JPEG (-sa packJPG)
 				// worker_pcf: the prefetch worker already read the original, encoded it to a
 				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
@@ -101670,7 +101672,7 @@ int Jidac::add()
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf || png)) || (sa_jpg && jpg))
+				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || (sa_jpg && jpg))
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;

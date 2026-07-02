@@ -89,7 +89,10 @@ Detected automatically by content:
 | `.gz`, raw zlib | the whole-file DEFLATE stream |
 | **ZIP** | every deflated member → also `.jar`, `.apk`, OOXML `.docx/.xlsx/.pptx/.odt` |
 | **PDF** | embedded FlateDecode streams |
-| **PNG** | the IDAT zlib stream (re-split across the original chunks, CRCs recomputed) |
+
+`-pc` does **not** touch the PNG family (PNG/APNG/JNG/MNG) — reserved for a dedicated
+WebP-lossless-based transform, [packPNG](https://github.com/YadeWira/packPNG), which
+recompresses pixel data rather than the IDAT DEFLATE stream for a much bigger gain.
 
 ```bash
 # Recompress streams, then pack the raw data with a strong codec
