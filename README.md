@@ -70,6 +70,12 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ## Precompressor: `-pc`
 
+> ⚠️ **Experimental.** `-pc` is still under active development. It is designed to be
+> safe by construction — every stream is verified byte-for-byte at compress time and
+> stored verbatim if it doesn't round-trip (see *Zero corruption risk* below) — but the
+> feature has not yet had the long-term field testing of the core archiver. Keep an
+> independent copy of critical data and run `-test` on important `-pc` archives.
+
 `-pc` is a **reversible, bit-exact precompressor** applied *before* compression. It
 decodes embedded **DEFLATE** streams back to their raw bytes (using the bundled
 [preflate](https://github.com/deus-libri/preflate), Apache-2.0) so the second stage
