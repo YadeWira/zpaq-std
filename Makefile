@@ -272,6 +272,51 @@ else
   ZPAQ_CPPFLAGS += -DNOJIT
 endif
 
+# packPNG (vendored prebuilt SDK, compressors/packpng/ -- see its README.md for
+# why prebuilt rather than source-compiled): powers -sa's PNG/APNG recompression
+# (WebP-lossless, packPNG's TCIP backend). The vendored .a's are x86-64 ONLY (no
+# 32-bit build exists upstream) and require AVX2 at runtime, checked in
+# pcf_wrapper.cpp -- never crashes on an older CPU, the transform is just
+# skipped. Link it only when the actual build TARGET is x86-64: an explicit
+# x86_64 mingw cross-compile, or a native (non-cross) build on an x86_64/amd64
+# host. Never for i686 (32-bit, the Win7 x86 build) -- no vendored .a for it.
+PACKPNG_DIR := compressors/packpng
+PACKPNG_AVAILABLE :=
+# Windows: NOT wired up (deliberately). The vendored libpackpng-windows-x64.a was
+# built with a win32-threading-model mingw toolchain (references __gthr_win32_*
+# symbols directly, including in its own top-level dispatch object); zpaq-std's
+# own Windows cross-compile REQUIRES the posix-threading-model toolchain (the
+# win32 variant does not fully support std::thread/std::mutex, which zpaq-std
+# uses throughout). The two threading models are ABI-incompatible at the
+# std::mutex/std::thread level, not just a missing-symbol/link-order issue --
+# bridging them with a hand-written __gthr_win32_* shim risks silent memory
+# corruption (an archiver's worst possible failure mode), so it is not attempted.
+# Fix requires packPNG's own Windows SDK to be rebuilt with the posix-threading
+# mingw toolchain; until then, -sa PNG/APNG recompression is Linux-only (Windows
+# builds are otherwise unaffected -- PNG files just aren't touched by -sa there,
+# same as before this feature existed). See compressors/packpng/README.md.
+ifeq ($(CROSS_COMPILE),)
+  ifneq (,$(filter x86_64 amd64,$(UNAME_M)))
+    PACKPNG_AVAILABLE := 1
+    # Static -llzma + the deconflicted libz.a (see the Windows branch above for
+    # why the rename is needed; same z_errmsg collision on Linux). Static avoids
+    # a new runtime dynamic-library dependency for the WHOLE zpaq-std binary
+    # (verified: a naive dynamic -llzma -lz link works but makes the entire
+    # program fail to start on any system missing libz.so.1/liblzma.so.5, not
+    # just -sa+png use).
+    PACKPNG_LIB := $(PACKPNG_DIR)/libpackpng-linux-x64.a -Wl,-Bstatic -llzma \
+                   $(PACKPNG_DIR)/libz-deconflicted-linux-x64.a -Wl,-Bdynamic
+  endif
+endif
+ifdef PACKPNG_AVAILABLE
+  PACKPNG_CPPFLAG := -DPACKPNG_AVAILABLE
+  PACKPNG_INC     := -I$(PACKPNG_DIR)
+else
+  PACKPNG_LIB     :=
+  PACKPNG_CPPFLAG :=
+  PACKPNG_INC     :=
+endif
+
 # Phony targets
 .PHONY: all build install uninstall clean check help debug \
         nointel install-nointel install-clean static \
@@ -311,7 +356,7 @@ PREFLATE_SUP_OBJ  := $(PREFLATE_SUP_SRC:.cpp=.o)
 PREFLATEOBJ := $(PREFLATE_ROOT_OBJ) $(PREFLATE_SUP_OBJ)
 
 $(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PACKJPGOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PACKJPGOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PACKJPGOBJ) $(PPMDOBJ) $(WINRES) $(PACKPNG_LIB) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -372,7 +417,7 @@ $(PACKJPGOBJ): compressors/packjpg/%.o: compressors/packjpg/%.cpp
 # pcf_wrapper.cpp (a PREFLATE_ROOT TU) includes the vendored zlib.h, so the root rule
 # also gets $(ZLIBINC) -DZ_PREFIX (preflate itself never includes zlib.h, so this is inert there).
 $(PREFLATE_ROOT_OBJ): compressors/preflate/%.o: compressors/preflate/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) $(ZLIBINC) $(PACKJPGINC) -DZ_PREFIX -DZ_SOLO -DNO_GZIP -c $< -o $@
+	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) $(ZLIBINC) $(PACKJPGINC) $(PACKPNG_CPPFLAG) $(PACKPNG_INC) -DZ_PREFIX -DZ_SOLO -DNO_GZIP -c $< -o $@
 
 $(PREFLATE_SUP_OBJ): compressors/preflate/support/%.o: compressors/preflate/support/%.cpp
 	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) -DZ_SOLO -DNO_GZIP -c $< -o $@

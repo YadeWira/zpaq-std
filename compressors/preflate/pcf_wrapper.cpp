@@ -15,6 +15,12 @@
 #include <cstring>
 #include <cstdlib>
 #include <mutex>
+#ifdef PACKPNG_AVAILABLE
+#include "../packpng/packpng.h"   // vendored packPNG SDK (MIT): extern "C" packpng_* API.
+                                   // 64-bit only (see compressors/packpng/README.md); the
+                                   // header declares no zlib types, so no symbol exposure
+                                   // risk despite this TU's Z_PREFIX zlib above.
+#endif
 
 void pcf_set_internal_threads(int extra_threads) {
   globalTaskPool.setExtraThreadLimit(extra_threads < 0 ? 0 : (size_t)extra_threads);
@@ -175,11 +181,76 @@ static bool pjg_convert(const unsigned char* in, size_t in_size, std::vector<uns
   return true;
 }
 
+/* ---------------- packPNG (lossless PNG/APNG recompression, -sa) ----------------
+   packPNG's vendored SDK (compressors/packpng/, 64-bit only -- see its README) is
+   built for AVX2; calling into it on a CPU without AVX2 would SIGILL. Checked via
+   CPUID + OSXSAVE + XGETBV -- the same idiom as zpaq-std.cpp's own ihavehw() SHA-NI
+   check, duplicated here since this TU is a self-contained bridge that never
+   includes zpaq-std.cpp. GCC/Clang inline asm only: this codebase's Windows builds
+   are mingw-compiled (g++/gcc), never MSVC, so no intrinsic-based fallback is
+   needed. Cached after first call (function-local static = thread-safe one-time
+   init, C++11). packPNG's own docs claim its encoder is reentrant/thread-safe
+   (unlike packJPG above, no mutex here) -- verified with ThreadSanitizer before
+   shipping this. */
+#ifdef PACKPNG_AVAILABLE
+static bool cpu_has_avx2_uncached() {
+  uint32_t eax, ebx, ecx, edx;
+  eax = 0; ecx = 0;
+  __asm__ __volatile__ ("cpuid" : "+a"(eax), "=b"(ebx), "+c"(ecx), "=d"(edx));
+  if (eax < 7) return false;
+  eax = 1; ecx = 0;
+  __asm__ __volatile__ ("cpuid" : "+a"(eax), "=b"(ebx), "+c"(ecx), "=d"(edx));
+  if (!(ecx & (1u << 27))) return false;               /* OSXSAVE */
+  uint32_t xcr0_lo, xcr0_hi;
+  __asm__ __volatile__ ("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
+  if ((xcr0_lo & 0x6u) != 0x6u) return false;           /* OS saves XMM+YMM state */
+  eax = 7; ecx = 0;
+  __asm__ __volatile__ ("cpuid" : "+a"(eax), "=b"(ebx), "+c"(ecx), "=d"(edx));
+  return (ebx & (1u << 5)) != 0;                          /* AVX2 */
+}
+#endif
+
+bool pcf_packpng_supported(void) {
+#ifdef PACKPNG_AVAILABLE
+  static const bool ok = cpu_has_avx2_uncached();
+  return ok;
+#else
+  return false;
+#endif
+}
+
+/* mem->mem packPNG (png/apng -> .ppg at encode, .ppg -> original at decode). */
+#ifdef PACKPNG_AVAILABLE
+static bool packpng_compress(const unsigned char* in, size_t in_size,
+                             std::vector<unsigned char>& out) {
+  out.clear();
+  if (!pcf_packpng_supported()) return false;
+  unsigned char* o = NULL; size_t osz = 0;
+  int rc = packpng_compress_mem(in, in_size, NULL, &o, &osz, PACKPNG_TCIP);
+  if (rc != 0 || o == NULL || osz == 0) { if (o) packpng_free(o); return false; }
+  out.assign(o, o + osz);
+  packpng_free(o);
+  return true;
+}
+static bool packpng_decompress(const unsigned char* in, size_t in_size,
+                               std::vector<unsigned char>& out) {
+  out.clear();
+  if (!pcf_packpng_supported()) return false;
+  unsigned char* o = NULL; size_t osz = 0;
+  int rc = packpng_decompress_mem(in, in_size, &o, &osz);
+  if (rc != 0 || o == NULL) { if (o) packpng_free(o); return false; }
+  out.assign(o, o + osz);
+  packpng_free(o);
+  return true;
+}
+#endif
+
 /* ---------------- File-level PCF container ---------------- */
 
 static const unsigned char PCF_MAGIC[4] = { 'z', 'P', 'C', 'F' };
 static const unsigned char PCF_VERSION  = 1;
-enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_ZLIBRAW = 3, PCF_SEG_PACKJPG = 4 };
+enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_ZLIBRAW = 3, PCF_SEG_PACKJPG = 4,
+       PCF_SEG_PACKPNG = 5 };
 
 /* -pc speed: DEFLATE streams smaller than this (compressed bytes) are NOT
    recompressed — they cost the full preflate analyze + verify pass but save
@@ -499,6 +570,17 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
       std::vector<unsigned char> jpg;
       if (!pjg_convert(pjg.data(), pjg.size(), jpg)) return false;  // pjg -> original jpg
       original_out.insert(original_out.end(), jpg.begin(), jpg.end());
+    } else if (kind == PCF_SEG_PACKPNG) {
+      uint64_t plen = 0;
+      if (!get_varint(p, n, pos, plen) || pos + plen > n) return false;
+#ifdef PACKPNG_AVAILABLE
+      std::vector<unsigned char> ppg(p + pos, p + pos + plen); pos += plen;
+      std::vector<unsigned char> png;
+      if (!packpng_decompress(ppg.data(), ppg.size(), png)) return false;  // .ppg -> original png
+      original_out.insert(original_out.end(), png.begin(), png.end());
+#else
+      return false;   // 32-bit build: packPNG is 64-bit only, cannot reverse this segment
+#endif
     } else {
       return false;
     }
@@ -521,6 +603,26 @@ static bool build_pcf_packjpg(const std::vector<unsigned char>& f,
   pcf_out.insert(pcf_out.end(), pjg.begin(), pjg.end());
   return true;
 }
+
+#ifdef PACKPNG_AVAILABLE
+/* PNG/APNG -> single PCF_SEG_PACKPNG segment (packPNG's TCIP: preflate +
+   WebP-lossless). Requires AVX2 -- packpng_compress() checks and returns false
+   immediately if absent (file stays untransformed; never a crash). */
+static bool build_pcf_packpng(const std::vector<unsigned char>& f,
+                              std::vector<unsigned char>& pcf_out) {
+  std::vector<unsigned char> ppg;
+  if (!packpng_compress(f.data(), f.size(), ppg)) return false;
+  if (ppg.empty() || ppg.size() >= f.size()) return false;   // no gain -> store original
+  pcf_out.clear();
+  pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
+  pcf_out.push_back(PCF_VERSION);
+  put_varint(pcf_out, 1);                 // one segment
+  pcf_out.push_back(PCF_SEG_PACKPNG);
+  put_varint(pcf_out, ppg.size());
+  pcf_out.insert(pcf_out.end(), ppg.begin(), ppg.end());
+  return true;
+}
+#endif
 
 bool pcf_file_encode(const std::vector<unsigned char>& original,
                      std::vector<unsigned char>& pcf_out) {
@@ -547,9 +649,14 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
       built = build_pcf_multi(original, regions, cand);
   }
 
-  /* PNG/APNG is intentionally NOT recompressed here -- reserved for a dedicated
-     WebP-lossless-based transform (packPNG) rather than the generic IDAT-deflate
-     recompression this file used to do. */
+#ifdef PACKPNG_AVAILABLE
+  /* PNG/APNG: lossless WebP-based recompression via packPNG (reached only when
+     -sa routes a png/apng; requires AVX2, checked inside build_pcf_packpng). */
+  if (!built && original.size() >= 8 && original[0] == 0x89 && original[1] == 0x50
+      && original[2] == 0x4e && original[3] == 0x47) {
+    built = build_pcf_packpng(original, cand);
+  }
+#endif
 
   /* JPEG: lossless recompression via packJPG (reached only when -sa routes a jpg). */
   if (!built && original.size() >= 3 && original[0] == 0xFF && original[1] == 0xD8

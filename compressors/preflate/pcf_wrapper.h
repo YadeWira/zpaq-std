@@ -73,4 +73,14 @@ void pcf_set_internal_threads(int extra_threads);
    in MiB (0=none). Call once at add()/extract() startup before any -pc/-sa work. */
 void pcf_packjpg_init(int intra_threads, int max_output_mb);
 
+/* True if -sa PNG/APNG recompression (packPNG, WebP-lossless) can actually run
+   right now: compiled in (64-bit builds only -- the vendored library has no
+   32-bit form) AND the CPU has AVX2 (checked via CPUID+OSXSAVE+XGETBV; the
+   vendored library is built for AVX2 and would SIGILL without it, so this is
+   checked before every call, never assumed). Query this before routing a
+   png/apng file so the caller can skip the attempt entirely when unsupported;
+   pcf_file_encode()/pcf_file_decode() also re-check internally, so calling
+   them without checking first is safe (just wasted work), never unsafe. */
+bool pcf_packpng_supported(void);
+
 #endif /* PCF_WRAPPER_H */
