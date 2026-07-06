@@ -2214,6 +2214,16 @@ static std::string sa_file_ext(const std::string& path)
 	return e;
 }
 
+// -sa:ext1:ext2 restriction: true if `ext` is selected by the user's -sa list
+// (empty list = -sa bare = every known type). EVERY -sa consumer must apply
+// this -- both the per-block algorithm override (sa_lookup users) and the
+// pre-fragmentation transforms (packJPG/packPNG gates), or `-sa:txt` would
+// still transform every jpg/png against the user's explicit restriction.
+static bool sa_ext_selected(const std::string& ext)
+{
+	return g_sa_exts.empty() || g_sa_exts.count(ext) != 0;
+}
+
 // -sa built-in type->algorithm table. Returns true if ext is a known type;
 // algo=="" => store (no external pass). Step 1: text (ppmd:15) + already-compressed (store).
 // NOTE: the bundled PPMd build is only safe up to order 15 (the -ma parser caps it there;
@@ -54513,6 +54523,17 @@ bool Jidac::cli_onlystring(const string& i_opt,string i_string,string i_alias,st
 		{
 			if (o_thefile!="")
 			{
+				// -key derives its SHA256 EAGERLY at its own argv position (cli_getkey
+				// folds g_keyfilehash in only if -keyfile was ALREADY parsed). A -keyfile
+				// appearing after -key is therefore silently ignored for the key -- an
+				// order-sensitivity inherited from upstream zpaqfranz (key derivation is
+				// kept identical for archive compatibility), but worth a loud warning:
+				// the user believes the keyfile is strengthening the key and it is not.
+				// (The FRANZKEY env fallback runs after the whole option loop and always
+				// folds the keyfile in -- so it matches `-keyfile F -key X` order.)
+				if (g_password!=NULL)
+					myprintf("00567! WARN: -keyfile given AFTER -key: the keyfile does NOT\n"
+					         "        affect the already-derived key. Put -keyfile BEFORE -key.\n");
 				g_keyfilehash=keyfile_to_string(o_thefile);
 				if (g_keyfilehash=="")
 				{
@@ -54521,8 +54542,6 @@ bool Jidac::cli_onlystring(const string& i_opt,string i_string,string i_alias,st
 				}
 				g_keyfile=o_thefile;
 			}
-///			myprintf("********************************************** %s\n",g_keyfilehash.c_str());
-			
 		}
 		return true;
 	}
@@ -59356,7 +59375,11 @@ struct PcRev
 
 // Reverse one extracted file in place from its stored PCF back to the original,
 // restoring date/attr. Cheap no-op for non-PCF files: the "zPCF" magic check + the
-// re-encode authenticity test inside pcf_authentic_reverse never touch a verbatim file.
+// re-encode authenticity test inside pcf_authentic_reverse2 never touch a verbatim
+// file. A file that DECODES as a PCF but fails the authenticity re-encode (rc==2)
+// is near-certainly a real PCF this build can no longer reproduce (codec version
+// skew): it is left untouched (never garbage), but LOUDLY -- silence there would
+// hide an unrestored file behind an "all OK" extraction summary.
 static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 {
 	FP rf= myfopen(fn.c_str(), RB);
@@ -59368,7 +59391,9 @@ static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 	std::vector<unsigned char> stored((size_t)fsz), orig;
 	size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
 	myfclose(&rf);
-	if (rd == stored.size() && pcf_authentic_reverse(stored, orig))
+	if (rd != stored.size()) return;
+	int rc= pcf_authentic_reverse2(stored, orig);
+	if (rc == 0)
 	{
 		delete_file(fn.c_str());
 		FP wf= myfopen(fn.c_str(), WB);
@@ -59379,6 +59404,9 @@ static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 			close(fn.c_str(), date, attr, wf);
 		}
 	}
+	else if (rc == 2)
+		myprintf("00566! WARN: %s decodes as -pc/-sa content but this build cannot\n"
+		         "        reproduce it (codec version skew?); left COMPRESSED on disk\n", fn.c_str());
 }
 
 struct ExtractJob
@@ -88217,18 +88245,10 @@ int Jidac::extract()
 	// _init race, no nested-pool deadlock. K tied to howmanythreads (honours -t / x86 cap).
 	if (!flagtest && !job.pc_reverse_list.empty())
 	{
-		// -sa PNG/APNG (packPNG) needs a 64-bit AVX2 build to reverse; if this
-		// process can't (32-bit, non-x86-64 Windows build, or a CPU without
-		// AVX2), any such file is left as its still-compressed PCF container
-		// (never garbage -- see pc_reverse_file) and -test/-verify will flag the
-		// hash mismatch. This one-time note explains why, instead of a silent
-		// wrong-looking file. Printed only when there is -pc/-sa content to
-		// reverse at all, so a plain archive never sees it.
-		if (!pcf_packpng_supported())
-			myprintf("00565: NOTE - this build/CPU cannot restore -sa PNG/APNG (packPNG)\n"
-			         "       content (64-bit + AVX2 required); affected files stay compressed\n"
-			         "       and -test/-verify will flag them. See compressors/packpng/README.md.\n");
 		pcf_set_internal_threads(0);
+		pcf_packpng_set_threads(1);   // pool workers are the parallelism axis; without this
+		                              // each worker's packPNG decode spawns hardware-threads-many
+		                              // internal threads (massive oversubscription)
 		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
 		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
 		std::atomic<size_t> pcidx(0);
@@ -88245,6 +88265,17 @@ int Jidac::extract()
 				}
 			}));
 		for (size_t i= 0; i < pcrev.size(); i++) pcrev[i].join();
+		// -sa PNG/APNG (packPNG) needs a 64-bit AVX2 build to reverse. Checked AFTER
+		// the reverse pass via the skip counter, so this prints only when such
+		// content was actually ENCOUNTERED (an incapable build extracting an archive
+		// with no packPNG content stays silent -- most -pc archives have none). The
+		// affected files are left as their still-compressed PCF containers (never
+		// garbage -- see pc_reverse_file).
+		if (pcf_packpng_skipped() > 0)
+			myprintf("00565: NOTE - %s file(s) contain -sa PNG/APNG (packPNG) content this\n"
+			         "       build/CPU cannot restore (64-bit + AVX2 required); they stay\n"
+			         "       compressed on disk. See compressors/packpng/README.md.\n",
+			         migliaia(pcf_packpng_skipped()));
 	}
 
 	// Create empty directories and set file dates and attributes
@@ -100825,15 +100856,16 @@ struct PcfPrefetch
 						// files main treats as regular -- never one main would PCF or packJPG
 						// (those keep the existing inline / prefetch-encode path).
 						bool will_be_pcf  = flagprecomp && esz >= 18 && pc_magic_candidate(sniff, got);
+						std::string sa_wx= g_sa_enabled ? sa_file_ext(p->first) : std::string();
 						bool will_be_sajpg= g_sa_enabled && got >= 3
 						                    && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF
-						                    && (sa_file_ext(p->first) == "jpg" || sa_file_ext(p->first) == "jpeg");
+						                    && (sa_wx == "jpg" || sa_wx == "jpeg") && sa_ext_selected(sa_wx);
 						// packPNG (unlike packJPG) is reentrant, so -sa PNG/APNG recompression
 						// runs in this worker pool (parallel across files) rather than being
 						// left for main's serial inline path the way will_be_sajpg is below.
 						bool will_be_sapng= g_sa_enabled && got >= 4 && pcf_packpng_supported()
 						                    && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47
-						                    && (sa_file_ext(p->first) == "png" || sa_file_ext(p->first) == "apng");
+						                    && (sa_wx == "png" || sa_wx == "apng") && sa_ext_selected(sa_wx);
 						if (will_be_pcf || will_be_sapng)
 						{
 							fseeko(f, 0, SEEK_SET);
@@ -101592,6 +101624,11 @@ int Jidac::add()
 		if (pc_K < 1) pc_K= 1;
 	}
 	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));
+	// -sa packPNG: same policy as preflate above. Pool active (pc_K>0) => the pool
+	// workers are the parallelism axis, so each packPNG call runs single-threaded
+	// (without this, up to 32 workers x hardware-threads internal threads massively
+	// oversubscribe the box); pool off => packPNG may use its own auto threading.
+	pcf_packpng_set_threads(pc_K > 0 ? 1 : 0);
 	// -sa packJPG: one-time init (single-threaded here). Calls are serialised by a mutex,
 	// so inter-file=1; intra-file=auto for Y/Cb/Cr parallelism within one JPEG. 512 MiB cap.
 	if (g_sa_enabled) pcf_packjpg_init(0, 512);
@@ -101666,14 +101703,23 @@ int Jidac::add()
 			// file_crc32 stay the original's; the stored (fragmented) content is the PCF
 			// stream, reversed on extraction. verify-then-fallback inside pcf_file_encode
 			// guarantees no corruption: a file that does not round-trip is stored verbatim.
-			// -sa step 2: route JPEG to packJPG (a PCF transform), gated by -sa + .jpg/.jpeg ext.
+			// -sa step 2: route JPEG to packJPG (a PCF transform), gated by -sa + .jpg/.jpeg ext
+			// + the user's -sa:ext restriction (sa_ext_selected).
 			bool sa_jpg= false;
-			if (g_sa_enabled) { std::string sx= sa_file_ext(p->first); sa_jpg= (sx == "jpg" || sx == "jpeg"); }
-			// -sa: route PNG/APNG to packPNG (WebP-lossless), gated by -sa + ext + AVX2
-			// (packPNG's vendored SDK is 64-bit+AVX2 only; see compressors/packpng/README.md).
+			if (g_sa_enabled)
+			{
+				std::string sx= sa_file_ext(p->first);
+				sa_jpg= (sx == "jpg" || sx == "jpeg") && sa_ext_selected(sx);
+			}
+			// -sa: route PNG/APNG to packPNG (WebP-lossless), gated by -sa + ext + the
+			// user's -sa:ext restriction + AVX2 (packPNG's vendored SDK is 64-bit+AVX2
+			// only; see compressors/packpng/README.md).
 			bool sa_png= false;
 			if (g_sa_enabled && pcf_packpng_supported())
-			{ std::string sx= sa_file_ext(p->first); sa_png= (sx == "png" || sx == "apng"); }
+			{
+				std::string sx= sa_file_ext(p->first);
+				sa_png= (sx == "png" || sx == "apng") && sa_ext_selected(sx);
+			}
 			if ((flagprecomp || sa_jpg || sa_png) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))

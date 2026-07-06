@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <mutex>
+#include <atomic>
 #ifdef PACKPNG_AVAILABLE
 #include "../packpng/packpng.h"   // vendored packPNG SDK (MIT): extern "C" packpng_* API.
                                    // 64-bit only (see compressors/packpng/README.md); the
@@ -219,6 +220,29 @@ bool pcf_packpng_supported(void) {
 #endif
 }
 
+/* Count of PCF_SEG_PACKPNG segments that could NOT be reversed because this
+   build/CPU lacks packPNG support. Lets extraction print one accurate note only
+   when such content was actually encountered (not merely because the build is
+   incapable -- most archives contain no packPNG content at all). Atomic: the
+   extraction reverse pool decodes files from several threads. */
+static std::atomic<long> g_packpng_skipped(0);
+long pcf_packpng_skipped(void) { return g_packpng_skipped.load(); }
+
+/* Cap packPNG's internal worker threads (0 = its default = hardware threads).
+   packPNG multithreads internally by default; when zpaq-std's own pools are the
+   parallelism axis (the add()-side prefetch pool, the extraction reverse pool),
+   each of up to dozens of pool workers spawning hardware-threads-many internal
+   threads oversubscribes the box by orders of magnitude -- same policy problem
+   as preflate's globalTaskPool (pcf_set_internal_threads) and packJPG's
+   inter-file threads (pcf_packjpg_init). Call single-threaded at setup. */
+void pcf_packpng_set_threads(int n) {
+#ifdef PACKPNG_AVAILABLE
+  packpng_set_threads(n < 0 ? 0 : n);
+#else
+  (void)n;
+#endif
+}
+
 /* mem->mem packPNG (png/apng -> .ppg at encode, .ppg -> original at decode). */
 #ifdef PACKPNG_AVAILABLE
 static bool packpng_compress(const unsigned char* in, size_t in_size,
@@ -238,7 +262,9 @@ static bool packpng_decompress(const unsigned char* in, size_t in_size,
   if (!pcf_packpng_supported()) return false;
   unsigned char* o = NULL; size_t osz = 0;
   int rc = packpng_decompress_mem(in, in_size, &o, &osz);
-  if (rc != 0 || o == NULL) { if (o) packpng_free(o); return false; }
+  /* osz==0 rejected like in packpng_compress: no valid original PNG is empty
+     (the 8-byte signature alone), so an empty "success" is a library anomaly. */
+  if (rc != 0 || o == NULL || osz == 0) { if (o) packpng_free(o); return false; }
   out.assign(o, o + osz);
   packpng_free(o);
   return true;
@@ -538,48 +564,62 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
   for (uint64_t s = 0; s < nseg; ++s) {
     if (pos >= n) return false;
     unsigned char kind = p[pos++];
+    /* All length checks below use the subtraction form `len > n - pos` (never
+       `pos + len > n`): get_varint accepts any 64-bit value, and the addition
+       form wraps for a huge crafted len, passing the check and then feeding a
+       wrapped end pointer to the vector range constructor (UB / uncaught
+       std::length_error -> std::terminate). The stored PCF content comes from
+       extracted archive data, i.e. attacker-controllable bytes. pos <= n holds
+       after every successful get_varint. */
     if (kind == PCF_SEG_LITERAL) {
       uint64_t len = 0;
-      if (!get_varint(p, n, pos, len) || pos + len > n) return false;
+      if (!get_varint(p, n, pos, len) || len > n - pos) return false;
       original_out.insert(original_out.end(), p + pos, p + pos + len);
       pos += len;
     } else if (kind == PCF_SEG_ZLIBRAW) {
       /* zlib fast-path: re-deflate the stored inflated bytes with the stored config. */
-      if (pos + 3 > n) return false;
+      if (n - pos < 3) return false;
       int zl = p[pos], zm = p[pos + 1], zs = p[pos + 2]; pos += 3;
       uint64_t ulen = 0;
-      if (!get_varint(p, n, pos, ulen) || pos + ulen > n) return false;
+      if (!get_varint(p, n, pos, ulen) || ulen > n - pos) return false;
       std::vector<unsigned char> raw(p + pos, p + pos + ulen); pos += ulen;
       std::vector<unsigned char> dfl;
       if (!zlib_deflate_raw(raw, zl, zm, zs, dfl)) return false;
       original_out.insert(original_out.end(), dfl.begin(), dfl.end());
     } else if (kind == PCF_SEG_DEFLATE) {
       uint64_t rlen = 0;
-      if (!get_varint(p, n, pos, rlen) || pos + rlen > n) return false;
+      if (!get_varint(p, n, pos, rlen) || rlen > n - pos) return false;
       std::vector<unsigned char> recon(p + pos, p + pos + rlen); pos += rlen;
       uint64_t ulen = 0;
-      if (!get_varint(p, n, pos, ulen) || pos + ulen > n) return false;
+      if (!get_varint(p, n, pos, ulen) || ulen > n - pos) return false;
       std::vector<unsigned char> unpacked(p + pos, p + pos + ulen); pos += ulen;
       std::vector<unsigned char> dfl;
       if (!pcf_deflate_reencode(unpacked, recon, dfl)) return false;
       original_out.insert(original_out.end(), dfl.begin(), dfl.end());
     } else if (kind == PCF_SEG_PACKJPG) {
       uint64_t plen = 0;
-      if (!get_varint(p, n, pos, plen) || pos + plen > n) return false;
+      if (!get_varint(p, n, pos, plen) || plen > n - pos) return false;
       std::vector<unsigned char> pjg(p + pos, p + pos + plen); pos += plen;
       std::vector<unsigned char> jpg;
       if (!pjg_convert(pjg.data(), pjg.size(), jpg)) return false;  // pjg -> original jpg
       original_out.insert(original_out.end(), jpg.begin(), jpg.end());
     } else if (kind == PCF_SEG_PACKPNG) {
       uint64_t plen = 0;
-      if (!get_varint(p, n, pos, plen) || pos + plen > n) return false;
+      if (!get_varint(p, n, pos, plen) || plen > n - pos) return false;
+      if (!pcf_packpng_supported()) {
+        /* 32-bit / non-Linux build, or a CPU without AVX2: this segment cannot
+           be reversed here. Count it so extraction can print ONE accurate note
+           (instead of guessing from build capabilities alone). */
+        ++g_packpng_skipped;
+        return false;
+      }
 #ifdef PACKPNG_AVAILABLE
       std::vector<unsigned char> ppg(p + pos, p + pos + plen); pos += plen;
       std::vector<unsigned char> png;
       if (!packpng_decompress(ppg.data(), ppg.size(), png)) return false;  // .ppg -> original png
       original_out.insert(original_out.end(), png.begin(), png.end());
 #else
-      return false;   // 32-bit build: packPNG is 64-bit only, cannot reverse this segment
+      return false;   // unreachable (pcf_packpng_supported() is false here), kept for clarity
 #endif
     } else {
       return false;
@@ -593,7 +633,7 @@ static bool build_pcf_packjpg(const std::vector<unsigned char>& f,
                               std::vector<unsigned char>& pcf_out) {
   std::vector<unsigned char> pjg;
   if (!pjg_convert(f.data(), f.size(), pjg)) return false;
-  if (pjg.empty() || pjg.size() >= f.size()) return false;   // no gain -> store original
+  if (pjg.empty()) return false;
   pcf_out.clear();
   pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
   pcf_out.push_back(PCF_VERSION);
@@ -601,6 +641,10 @@ static bool build_pcf_packjpg(const std::vector<unsigned char>& f,
   pcf_out.push_back(PCF_SEG_PACKJPG);
   put_varint(pcf_out, pjg.size());
   pcf_out.insert(pcf_out.end(), pjg.begin(), pjg.end());
+  /* gain check on the FINAL container (header included): comparing only the
+     payload lets a near-break-even conversion store a few bytes MORE than the
+     original. No gain -> store the original verbatim. */
+  if (pcf_out.size() >= f.size()) { pcf_out.clear(); return false; }
   return true;
 }
 
@@ -612,7 +656,7 @@ static bool build_pcf_packpng(const std::vector<unsigned char>& f,
                               std::vector<unsigned char>& pcf_out) {
   std::vector<unsigned char> ppg;
   if (!packpng_compress(f.data(), f.size(), ppg)) return false;
-  if (ppg.empty() || ppg.size() >= f.size()) return false;   // no gain -> store original
+  if (ppg.empty()) return false;
   pcf_out.clear();
   pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
   pcf_out.push_back(PCF_VERSION);
@@ -620,6 +664,8 @@ static bool build_pcf_packpng(const std::vector<unsigned char>& f,
   pcf_out.push_back(PCF_SEG_PACKPNG);
   put_varint(pcf_out, ppg.size());
   pcf_out.insert(pcf_out.end(), ppg.begin(), ppg.end());
+  /* gain check on the FINAL container (header included) -- see build_pcf_packjpg. */
+  if (pcf_out.size() >= f.size()) { pcf_out.clear(); return false; }
   return true;
 }
 #endif
@@ -686,19 +732,31 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
   return true;
 }
 
-bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
+int pcf_authentic_reverse2(const std::vector<unsigned char>& stored,
                            std::vector<unsigned char>& original_out) {
   original_out.clear();
-  if (!pcf_is_container(stored.data(), stored.size())) return false;
+  if (!pcf_is_container(stored.data(), stored.size())) return 1;   /* no zPCF magic */
   std::vector<unsigned char> orig;
-  if (!pcf_file_decode(stored, orig)) return false;
+  if (!pcf_file_decode(stored, orig)) return 1;   /* magic but does not decode: a
+      verbatim user file that happens to start with "zPCF" (by design untouched),
+      or an unsupported segment (e.g. packPNG on an incapable build -- counted
+      separately via pcf_packpng_skipped) */
   /* authenticity: re-encoding the decoded original must reproduce `stored`
-     exactly, otherwise this was not a PCF stream we created (do not touch it). */
+     exactly, otherwise this was not a PCF stream we created (do not touch it).
+     A file that DECODES as a valid PCF but fails this re-encode is, with
+     near-certainty, a real PCF this build can no longer reproduce (e.g. a future
+     vendored-codec update changing encoder output) -- callers should surface
+     that loudly instead of silently leaving the container on disk. */
   std::vector<unsigned char> re;
-  if (!pcf_file_encode(orig, re)) return false;
-  if (re != stored) return false;
+  if (!pcf_file_encode(orig, re)) return 2;
+  if (re != stored) return 2;
   original_out.swap(orig);
-  return true;
+  return 0;
+}
+
+bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
+                           std::vector<unsigned char>& original_out) {
+  return pcf_authentic_reverse2(stored, original_out) == 0;
 }
 
 /* orig=2352 deflate=133 (raw deflate, wbits=-15, zlib level 6) */

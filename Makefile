@@ -296,19 +296,33 @@ PACKPNG_AVAILABLE :=
 # builds are otherwise unaffected -- PNG files just aren't touched by -sa there,
 # same as before this feature existed). See compressors/packpng/README.md.
 ifeq ($(CROSS_COMPILE),)
-  ifneq (,$(filter x86_64 amd64,$(UNAME_M)))
-    PACKPNG_AVAILABLE := 1
-    # Static -llzma + the deconflicted libz.a (see the Windows branch above for
-    # why the rename is needed; same z_errmsg collision on Linux). Static avoids
-    # a new runtime dynamic-library dependency for the WHOLE zpaq-std binary
-    # (verified: a naive dynamic -llzma -lz link works but makes the entire
-    # program fail to start on any system missing libz.so.1/liblzma.so.5, not
-    # just -sa+png use).
-    PACKPNG_LIB := $(PACKPNG_DIR)/libpackpng-linux-x64.a -Wl,-Bstatic -llzma \
-                   $(PACKPNG_DIR)/libz-deconflicted-linux-x64.a -Wl,-Bdynamic
+  # The vendored .a is a LINUX x86-64 ELF: gate on the OS too, or a native
+  # macOS/FreeBSD x86-64 build would try to link it and fail.
+  ifeq ($(UNAME_S),Linux)
+    ifneq (,$(filter x86_64 amd64,$(UNAME_M)))
+      # A 32-bit build on a 64-bit host (e.g. `make m32`, CXXFLAGS/CFLAGS=-m32)
+      # still sees UNAME_M=x86_64; exclude it -- there is no 32-bit .a.
+      ifeq (,$(findstring -m32,$(CXXFLAGS))$(findstring -m32,$(CFLAGS)))
+        PACKPNG_AVAILABLE := 1
+        # Static -llzma + the deconflicted libz.a (the z_errmsg rename; see
+        # compressors/packpng/README.md). Static avoids a new runtime shared-lib
+        # dependency for the WHOLE zpaq-std binary (verified: a naive dynamic
+        # -llzma -lz link works but makes the entire program fail to start on any
+        # system missing libz.so.1/liblzma.so.5, not just -sa+png use).
+        # --push-state/--pop-state (GNU ld >= 2.25, gold, lld) restores the
+        # caller's search mode instead of forcing -Bdynamic: a trailing
+        # -Wl,-Bdynamic breaks `make static` (-static + -Bdynamic => ld hard
+        # error on every later lib, incl. gcc's implicit -lc) -- live-reproduced.
+        PACKPNG_LIB := $(PACKPNG_DIR)/libpackpng-linux-x64.a \
+                       -Wl,--push-state,-Bstatic -llzma \
+                       $(PACKPNG_DIR)/libz-deconflicted-linux-x64.a -Wl,--pop-state
+      endif
+    endif
   endif
 endif
-ifdef PACKPNG_AVAILABLE
+# `ifeq (...,1)`, not `ifdef`: ifdef is true for ANY non-empty value, so an
+# explicit `make PACKPNG_AVAILABLE=0` override would (wrongly) count as available.
+ifeq ($(PACKPNG_AVAILABLE),1)
   PACKPNG_CPPFLAG := -DPACKPNG_AVAILABLE
   PACKPNG_INC     := -I$(PACKPNG_DIR)
 else

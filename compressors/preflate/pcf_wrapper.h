@@ -57,6 +57,19 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
 bool pcf_authentic_reverse(const std::vector<unsigned char>& stored,
                            std::vector<unsigned char>& original_out);
 
+/* Tri-state variant of pcf_authentic_reverse, for callers that must distinguish
+   "leave silently" from "warn loudly":
+     0 = authentic PCF, original_out holds the reversed original;
+     1 = not an authentic-looking PCF (no magic, or magic but does not decode --
+         e.g. a verbatim user file coincidentally starting with "zPCF", or an
+         unsupported segment kind on this build): leave the file, stay silent;
+     2 = DECODES as a valid PCF but re-encoding does not reproduce the stored
+         bytes: near-certainly a real PCF this build can no longer reproduce
+         (codec version skew). The file is left untouched, but callers should
+         WARN per-file -- silence here hides an unrestored file. */
+int pcf_authentic_reverse2(const std::vector<unsigned char>& stored,
+                           std::vector<unsigned char>& original_out);
+
 /* In-binary self-test: round-trips an embedded raw-DEFLATE constant and verifies
    the re-encode is byte-identical. Returns true on success. Used to prove preflate
    links and works inside the real zpaq-std binary on each platform. */
@@ -82,5 +95,20 @@ void pcf_packjpg_init(int intra_threads, int max_output_mb);
    pcf_file_encode()/pcf_file_decode() also re-check internally, so calling
    them without checking first is safe (just wasted work), never unsafe. */
 bool pcf_packpng_supported(void);
+
+/* Number of PCF_SEG_PACKPNG segments encountered by pcf_file_decode that could
+   NOT be reversed because this build/CPU lacks packPNG support. Extraction
+   checks this AFTER the reverse pass to print one accurate note only when such
+   content actually exists (an incapable build extracting an archive with no
+   packPNG content stays silent). Thread-safe (atomic). */
+long pcf_packpng_skipped(void);
+
+/* Cap packPNG's internal worker threads (0 = its default = hardware threads).
+   Call single-threaded at setup, BEFORE the add()-side prefetch pool or the
+   extraction reverse pool start: when those pools are the parallelism axis,
+   each pool worker must run packPNG single-threaded (n=1) or the box is
+   oversubscribed by orders of magnitude. Same policy as preflate's
+   pcf_set_internal_threads and packJPG's pcf_packjpg_init. */
+void pcf_packpng_set_threads(int n);
 
 #endif /* PCF_WRAPPER_H */

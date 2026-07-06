@@ -76,3 +76,27 @@ mirroring the existing `ihavehw()` SHA-NI check in `zpaq-std.cpp`) so:
 **Practical impact**: any x86-64 CPU from roughly 2013 onward (Haswell+/
 Excavator+) has AVX2. This is documented in the top-level README next to the
 `-pc` experimental notice.
+
+## DO NOT update the vendored SDK without a migration plan
+
+Extraction authenticates every PCF container by **re-encoding the decoded
+original and requiring byte-identical output** to what was stored
+(`pcf_authentic_reverse2`, `compressors/preflate/pcf_wrapper.cpp`). For
+`PCF_SEG_PACKPNG` that means: the packPNG encoder available at *extract* time
+must reproduce, bit-for-bit, the `.ppg` bytes produced at *add* time.
+
+The current vendored `v2.0a` encoder was **empirically verified deterministic**
+(bit-identical across `packpng_set_threads(1/2/8/auto)` and across reruns, on
+real PNGs), so same-SDK add/extract always authenticates. But **swapping the
+vendored `.a` for a newer packPNG release whose encoder output differs — even
+by one byte, even though the wire format is "frozen 2.0x-decodable" — would
+silently orphan every existing `-sa` PNG archive**: decode still works, the
+authenticity re-encode mismatches, and the file is left as its compressed
+container (extraction now warns per-file, `00566!`, instead of staying silent —
+but the data is still not restored as a PNG).
+
+If an SDK update is ever needed: either (a) keep the old `.a` alongside and try
+old-then-new in the authenticity re-encode, or (b) migrate the PCF format to
+authenticate by a stored hash of the original bytes instead of re-encode
+equality (decode-side only, no encoder-identity requirement). Until then: the
+vendored `.a` is part of the archive format surface — treat it as frozen.
