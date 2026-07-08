@@ -282,7 +282,8 @@ endif
 # host. Never for i686 (32-bit, the Win7 x86 build) -- no vendored .a for it.
 PACKPNG_DIR := compressors/packpng
 PACKPNG_AVAILABLE :=
-# Windows: NOT wired up (deliberately). The vendored libpackpng-windows-x64.a was
+# Windows: NOT wired up (deliberately). packPNG's v2.0a Windows SDK .a (NOT
+# vendored here -- see compressors/packpng/README.md) was
 # built with a win32-threading-model mingw toolchain (references __gthr_win32_*
 # symbols directly, including in its own top-level dispatch object); zpaq-std's
 # own Windows cross-compile REQUIRES the posix-threading-model toolchain (the

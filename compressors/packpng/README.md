@@ -24,16 +24,22 @@ Unlike every other `compressors/*` codec in this tree, packPNG is vendored as
 |---|---|---|
 | `packpng.h` | SDK release `v2.0a`, both bundles (identical) | Public C API |
 | `libpackpng-linux-x64.a` | `packPNG-2.0a-linux-x64-lib.tar.gz` | Linux x86-64 static |
-| `libpackpng-windows-x64.a` | `packPNG-2.0a-win64-lib.zip` | Windows x86-64 static (137 MB: kanzi+preflate-rs+packjpg fat-merged) |
-| `liblzma-windows-x64.a` | packPNG repo, `source/vendor/mingw-deps/lib/liblzma.a` | needed to satisfy `libpackpng-windows-x64.a`'s `lzma_*` symbols when cross-linking (mingw has no system liblzma) |
+| `libz-deconflicted-linux-x64.a` | system `libz.a`, `z_errmsg` renamed (see below) | Linux link dep |
 
 SHA-256 (2026-07-02, from `v2.0a`):
 ```
 fff8597a511fc9e8b07e934ee0e5c195945e414ffc9cfa090d73d9c9e2e1b357  libpackpng-linux-x64.a
-f28de7aa37404aef93fb5bce789622e5ab8175b8febb36078ed076b6e95276d5  libpackpng-windows-x64.a
-9c6ea0987511717422761d09af67869a8fa8e524262dad74b31166e50698b99b  liblzma-windows-x64.a
 2dcbf79edc5d178e243a811cd8641fb5c6e336ee7a585bf97c5f9e8826a97c0d  packpng.h
 ```
+
+**Windows `.a` files are intentionally NOT vendored.** The `v2.0a` Windows SDK
+(`libpackpng-windows-x64.a`, 131 MB, + its `liblzma`/`libz` deps) was built with
+mingw's **win32 threading model** and is ABI-incompatible with zpaq-std's
+**posix**-threading Windows build (see the threading note below) — it cannot be
+linked, so it was pointless to carry a 131 MB blob (also over GitHub's 100 MB
+per-file limit). When packPNG's Windows support is unblocked (a posix-threading
+rebuild of the SDK, or the `packpng.dll` route via the C ABI), the correct
+artifact gets vendored then.
 
 ## Link requirements (verified by an actual test link, not just the SDK's README)
 
@@ -45,11 +51,15 @@ f28de7aa37404aef93fb5bce789622e5ab8175b8febb36078ed076b6e95276d5  libpackpng-win
   matching zpaq-std's zero-runtime-dependency policy (a naive `-llzma -lz` picks
   the `.so` and makes the WHOLE zpaq-std binary fail to start on any system
   missing those shared libs — verified, then avoided).
-- **Windows (mingw x86_64-w64-mingw32)**: `libpackpng-windows-x64.a` +
-  `liblzma-windows-x64.a` + system `libz.a` (from the `libz-mingw-w64-dev`
-  apt package, `/usr/x86_64-w64-mingw32/lib/libz.a`) + `-lws2_32 -luserenv
-  -lbcrypt -lntdll -lstdc++`, fully `-static`. Verified with a real cross-link
-  + `wine` smoke run (`rc=0 version=2.0a`).
+- **Windows**: NOT wired up. The `v2.0a` Windows SDK `.a` links against the
+  win32-threading mingw runtime (`__gthr_win32_*`), incompatible with zpaq-std's
+  posix-threading Windows build — a cross-link fails with undefined `__gthr_win32_*`
+  even though a standalone `wine` smoke test of the SDK itself passed. Two known
+  fixes for later: (a) rebuild the packPNG Windows SDK's C++ parts (kanzi +
+  packjpg + packpng.cpp) with `x86_64-w64-mingw32-g++-posix` — keeps zpaq-std a
+  single self-contained `.exe`; (b) load `packpng.dll` (shipped in the SDK) via
+  its C ABI — sidesteps the threading mismatch at the module boundary, at the
+  cost of an extra shipped DLL (or embed-and-extract to keep single-file).
 - **No i686/32-bit build exists.** packPNG's own `Targets:` are "Linux x86-64,
   Windows 10/11 x86-64" only; the Makefile only builds Rust for
   `x86_64-pc-windows-gnu`. zpaq-std's 32-bit (Win7 x86) build never links
