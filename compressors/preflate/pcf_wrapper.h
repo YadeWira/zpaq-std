@@ -86,29 +86,7 @@ void pcf_set_internal_threads(int extra_threads);
    in MiB (0=none). Call once at add()/extract() startup before any -pc/-sa work. */
 void pcf_packjpg_init(int intra_threads, int max_output_mb);
 
-/* True if -sa PNG/APNG recompression (packPNG, WebP-lossless) can actually run
-   right now: compiled in (64-bit builds only -- the vendored library has no
-   32-bit form) AND the CPU has AVX2 (checked via CPUID+OSXSAVE+XGETBV; the
-   vendored library is built for AVX2 and would SIGILL without it, so this is
-   checked before every call, never assumed). Query this before routing a
-   png/apng file so the caller can skip the attempt entirely when unsupported;
-   pcf_file_encode()/pcf_file_decode() also re-check internally, so calling
-   them without checking first is safe (just wasted work), never unsafe. */
-bool pcf_packpng_supported(void);
-
-/* Number of PCF_SEG_PACKPNG segments encountered by pcf_file_decode that could
-   NOT be reversed because this build/CPU lacks packPNG support. Extraction
-   checks this AFTER the reverse pass to print one accurate note only when such
-   content actually exists (an incapable build extracting an archive with no
-   packPNG content stays silent). Thread-safe (atomic). */
-long pcf_packpng_skipped(void);
-
-/* Cap packPNG's internal worker threads (0 = its default = hardware threads).
-   Call single-threaded at setup, BEFORE the add()-side prefetch pool or the
-   extraction reverse pool start: when those pools are the parallelism axis,
-   each pool worker must run packPNG single-threaded (n=1) or the box is
-   oversubscribed by orders of magnitude. Same policy as preflate's
-   pcf_set_internal_threads and packJPG's pcf_packjpg_init. */
-void pcf_packpng_set_threads(int n);
+/* (packPNG -sa PNG/APNG API removed pending proper packPNG-side support;
+   PCF segment kind 5 stays reserved. See pcf_wrapper.cpp / git history.) */
 
 #endif /* PCF_WRAPPER_H */

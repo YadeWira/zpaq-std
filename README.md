@@ -126,29 +126,18 @@ type; `-sa:ext1:ext2` restricts it to only those extensions.
 | Extension | Transform | Notes |
 |---|---|---|
 | `.jpg` / `.jpeg` | [packJPG](https://github.com/YadeWira/packJPG) (lossless recompression) | ~10–30% smaller; verify-then-fallback |
-| `.png` / `.apng` | [packPNG](https://github.com/YadeWira/packPNG) (WebP-lossless, TCIP backend) | ~40%+ smaller on real PNGs; see limitation below |
 | `.txt` and other text | PPMd (order 15) | context modeling, strong on natural-language text |
 
 ```bash
 zpaq-std a backup.zpaq /data -sa            # every known type
-zpaq-std a backup.zpaq /data -sa:jpg:png    # only jpg/jpeg and png/apng
+zpaq-std a backup.zpaq /data -sa:jpg        # only jpg/jpeg
 ```
 
-**`-sa` PNG/APNG (packPNG) is 64-bit + AVX2 only, and Linux-only for now.**
-packPNG's vendored library requires a 64-bit build with an AVX2-capable CPU
-(any x86-64 CPU from ~2013 onward) — checked at runtime, so an older CPU or a
-32-bit build simply never attempts it (no crash, no behavior change). Windows
-builds don't link packPNG at all yet: its vendored Windows SDK was built with a
-threading-model mingw toolchain incompatible with the one zpaq-std's own Windows
-build requires (see `compressors/packpng/README.md` for the full explanation) —
-fixing this needs packPNG's Windows SDK rebuilt with the compatible toolchain.
-A PNG recompressed on a capable machine still needs a capable machine to extract
-correctly; on an incapable one the file is safely left as its still-compressed
-container (never garbage) with a clear one-time note, and `-test`/`-verify`
-(checked against the ARCHIVE's own stored checksums, not yet against live restored
-files for `-pc`/`-sa` content — a known, pre-existing gap) won't currently flag it
-by itself. JPEG (packJPG) and text (PPMd) routing are unaffected by any of this —
-they work everywhere `-sa` builds already worked.
+> **PNG/APNG** recompression (via [packPNG](https://github.com/YadeWira/packPNG),
+> WebP-lossless) was prototyped but is **not currently wired in** — it is on hold
+> pending upstream packPNG support (notably a Windows build compatible with
+> zpaq-std's toolchain). `-sa` today covers JPEG (packJPG) and text (PPMd); the
+> PNG family is simply left untouched, exactly as `-pc` leaves it.
 
 ---
 

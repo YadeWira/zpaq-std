@@ -88246,9 +88246,6 @@ int Jidac::extract()
 	if (!flagtest && !job.pc_reverse_list.empty())
 	{
 		pcf_set_internal_threads(0);
-		pcf_packpng_set_threads(1);   // pool workers are the parallelism axis; without this
-		                              // each worker's packPNG decode spawns hardware-threads-many
-		                              // internal threads (massive oversubscription)
 		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
 		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
 		std::atomic<size_t> pcidx(0);
@@ -88265,17 +88262,6 @@ int Jidac::extract()
 				}
 			}));
 		for (size_t i= 0; i < pcrev.size(); i++) pcrev[i].join();
-		// -sa PNG/APNG (packPNG) needs a 64-bit AVX2 build to reverse. Checked AFTER
-		// the reverse pass via the skip counter, so this prints only when such
-		// content was actually ENCOUNTERED (an incapable build extracting an archive
-		// with no packPNG content stays silent -- most -pc archives have none). The
-		// affected files are left as their still-compressed PCF containers (never
-		// garbage -- see pc_reverse_file).
-		if (pcf_packpng_skipped() > 0)
-			myprintf("00565: NOTE - %s file(s) contain -sa PNG/APNG (packPNG) content this\n"
-			         "       build/CPU cannot restore (64-bit + AVX2 required); they stay\n"
-			         "       compressed on disk. See compressors/packpng/README.md.\n",
-			         migliaia(pcf_packpng_skipped()));
 	}
 
 	// Create empty directories and set file dates and attributes
@@ -100860,13 +100846,7 @@ struct PcfPrefetch
 						bool will_be_sajpg= g_sa_enabled && got >= 3
 						                    && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF
 						                    && (sa_wx == "jpg" || sa_wx == "jpeg") && sa_ext_selected(sa_wx);
-						// packPNG (unlike packJPG) is reentrant, so -sa PNG/APNG recompression
-						// runs in this worker pool (parallel across files) rather than being
-						// left for main's serial inline path the way will_be_sajpg is below.
-						bool will_be_sapng= g_sa_enabled && got >= 4 && pcf_packpng_supported()
-						                    && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47
-						                    && (sa_wx == "png" || sa_wx == "apng") && sa_ext_selected(sa_wx);
-						if (will_be_pcf || will_be_sapng)
+						if (will_be_pcf)
 						{
 							fseeko(f, 0, SEEK_SET);
 							std::vector<unsigned char> O((size_t)esz), T;
@@ -101624,11 +101604,6 @@ int Jidac::add()
 		if (pc_K < 1) pc_K= 1;
 	}
 	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));
-	// -sa packPNG: same policy as preflate above. Pool active (pc_K>0) => the pool
-	// workers are the parallelism axis, so each packPNG call runs single-threaded
-	// (without this, up to 32 workers x hardware-threads internal threads massively
-	// oversubscribe the box); pool off => packPNG may use its own auto threading.
-	pcf_packpng_set_threads(pc_K > 0 ? 1 : 0);
 	// -sa packJPG: one-time init (single-threaded here). Calls are serialised by a mutex,
 	// so inter-file=1; intra-file=auto for Y/Cb/Cr parallelism within one JPEG. 512 MiB cap.
 	if (g_sa_enabled) pcf_packjpg_init(0, 512);
@@ -101711,16 +101686,8 @@ int Jidac::add()
 				std::string sx= sa_file_ext(p->first);
 				sa_jpg= (sx == "jpg" || sx == "jpeg") && sa_ext_selected(sx);
 			}
-			// -sa: route PNG/APNG to packPNG (WebP-lossless), gated by -sa + ext + the
-			// user's -sa:ext restriction + AVX2 (packPNG's vendored SDK is 64-bit+AVX2
-			// only; see compressors/packpng/README.md).
-			bool sa_png= false;
-			if (g_sa_enabled && pcf_packpng_supported())
-			{
-				std::string sx= sa_file_ext(p->first);
-				sa_png= (sx == "png" || sx == "apng") && sa_ext_selected(sx);
-			}
-			if ((flagprecomp || sa_jpg || sa_png) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
+			// -sa PNG/APNG (packPNG) removed pending proper packPNG-side support.
+			if ((flagprecomp || sa_jpg) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
@@ -101731,9 +101698,7 @@ int Jidac::add()
 				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
 				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
 				bool pdf= (got >= 4 && sniff[0] == '%' && sniff[1] == 'P' && sniff[2] == 'D' && sniff[3] == 'F'); // %PDF
-				// PNG/APNG: NOT part of -pc's own magic-list (flagprecomp never routes it;
-				// see the -pc PNG-removal note above) -- only reached via -sa (sa_png below).
-				bool png= (got >= 4 && sniff[0] == 0x89 && sniff[1] == 0x50 && sniff[2] == 0x4e && sniff[3] == 0x47);
+				// PNG/APNG is not handled here (packPNG removed; -pc never touched it either).
 				bool jpg= (got >= 3 && sniff[0] == 0xFF && sniff[1] == 0xD8 && sniff[2] == 0xFF); // JPEG (-sa packJPG)
 				// worker_pcf: the prefetch worker already read the original, encoded it to a
 				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
@@ -101741,7 +101706,7 @@ int Jidac::add()
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || (sa_jpg && jpg) || (sa_png && png))
+				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || (sa_jpg && jpg))
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;
