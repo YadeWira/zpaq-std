@@ -11,10 +11,8 @@
 #include "zlib.h"   // vendored stock zlib (Z_PREFIX => z_* symbols). Included LAST so its
                     // function-like macros (deflate/inflate/compress...) don't rewrite any
                     // identifiers in the preflate headers above.
-#include "packjpglib.h"   // vendored packJPG (LGPL, -DBUILD_LIB): extern "C" pjglib_* API
 #include <cstring>
 #include <cstdlib>
-#include <mutex>
 
 void pcf_set_internal_threads(int extra_threads) {
   globalTaskPool.setExtraThreadLimit(extra_threads < 0 ? 0 : (size_t)extra_threads);
@@ -145,35 +143,8 @@ static bool zlib_match(const unsigned char* d, size_t dn,
   return consumed == dn;   // must consume the whole slice (no trailing bytes)
 }
 
-/* ---------------- packJPG (lossless JPEG recompression, -sa) ----------------
-   packJPG converts jpg<->pjg in memory (direction auto-detected from content). Its
-   engine uses file-scope (static) globals per conversion, so it is NOT reentrant:
-   all pjglib calls are serialised on one mutex (encode at add time, decode in the
-   parallel extract reverse). packJPG's own intra-file (Y/Cb/Cr) threads still run
-   inside the lock, so a single large JPEG is not single-threaded. */
-static std::mutex g_pjg_mx;
-
-/* one-time, single-threaded init of packJPG threading + bomb guard. */
-void pcf_packjpg_init(int intra_threads, int max_output_mb) {
-  std::lock_guard<std::mutex> lk(g_pjg_mx);
-  pjglib_set_inter_file_threads(1);                 // WE serialise across files (mutex)
-  pjglib_set_intra_file_threads(intra_threads);     // 0=auto, 1=off, >=3 = N within one file
-  if (max_output_mb > 0) pjglib_set_max_output_size((unsigned int)max_output_mb << 20);
-}
-
-/* mem->mem packJPG (jpg->pjg at encode, pjg->jpg at decode). Serialised. */
-static bool pjg_convert(const unsigned char* in, size_t in_size, std::vector<unsigned char>& out) {
-  out.clear();
-  if (!in || in_size == 0 || in_size > 0x7fffffffu) return false;
-  std::lock_guard<std::mutex> lk(g_pjg_mx);
-  pjglib_init_streams((void*)in, 1 /*memory*/, (int)in_size, NULL, 1 /*memory*/);
-  unsigned char* o = NULL; unsigned int os = 0; char msg[256] = {0};
-  bool ok = pjglib_convert_stream2mem(&o, &os, msg);
-  if (!ok || o == NULL || os == 0) { if (o) free(o); return false; }
-  out.assign(o, o + os);
-  free(o);
-  return true;
-}
+/* packJPG (-sa JPEG recompression) removed together with -sa. PCF segment kind 4
+   (PCF_SEG_PACKJPG) stays RESERVED so a future re-add reuses the number. */
 
 /* packPNG (-sa PNG/APNG WebP-lossless recompression) was integrated then removed
    pending proper packPNG-side support (Windows blocked by a win32-vs-posix mingw
@@ -185,8 +156,8 @@ static bool pjg_convert(const unsigned char* in, size_t in_size, std::vector<uns
 
 static const unsigned char PCF_MAGIC[4] = { 'z', 'P', 'C', 'F' };
 static const unsigned char PCF_VERSION  = 1;
-enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_ZLIBRAW = 3, PCF_SEG_PACKJPG = 4
-       /* 5 = PCF_SEG_PACKPNG, RESERVED (packPNG removed; see note above) */ };
+enum { PCF_SEG_LITERAL = 0, PCF_SEG_DEFLATE = 1, PCF_SEG_ZLIBRAW = 3
+       /* 4 = PCF_SEG_PACKJPG, 5 = PCF_SEG_PACKPNG: both RESERVED, -sa removed */ };
 
 /* -pc speed: DEFLATE streams smaller than this (compressed bytes) are NOT
    recompressed — they cost the full preflate analyze + verify pass but save
@@ -506,41 +477,15 @@ bool pcf_file_decode(const std::vector<unsigned char>& pcf,
       std::vector<unsigned char> dfl;
       if (!pcf_deflate_reencode(unpacked, recon, dfl)) return false;
       original_out.insert(original_out.end(), dfl.begin(), dfl.end());
-    } else if (kind == PCF_SEG_PACKJPG) {
-      uint64_t plen = 0;
-      if (!get_varint(p, n, pos, plen) || plen > n - pos) return false;
-      std::vector<unsigned char> pjg(p + pos, p + pos + plen); pos += plen;
-      std::vector<unsigned char> jpg;
-      if (!pjg_convert(pjg.data(), pjg.size(), jpg)) return false;  // pjg -> original jpg
-      original_out.insert(original_out.end(), jpg.begin(), jpg.end());
-    /* kind 5 (PCF_SEG_PACKPNG) is RESERVED but not handled -- packPNG removed.
-       Such a segment (only in pre-release -sa PNG archives, never shipped in
-       production) falls through to the unknown-kind reject below. */
+    /* kinds 4 (PCF_SEG_PACKJPG) and 5 (PCF_SEG_PACKPNG) are RESERVED but not
+       handled -- -sa (packJPG/packPNG) removed. Such a segment (only in
+       pre-release -sa archives, never shipped in production) falls through to
+       the unknown-kind reject below. */
     } else {
       return false;
     }
   }
   return pos == n;
-}
-
-/* JPEG -> single PCF_SEG_PACKJPG segment (the packJPG-compressed bytes). */
-static bool build_pcf_packjpg(const std::vector<unsigned char>& f,
-                              std::vector<unsigned char>& pcf_out) {
-  std::vector<unsigned char> pjg;
-  if (!pjg_convert(f.data(), f.size(), pjg)) return false;
-  if (pjg.empty()) return false;
-  pcf_out.clear();
-  pcf_out.insert(pcf_out.end(), PCF_MAGIC, PCF_MAGIC + 4);
-  pcf_out.push_back(PCF_VERSION);
-  put_varint(pcf_out, 1);                 // one segment
-  pcf_out.push_back(PCF_SEG_PACKJPG);
-  put_varint(pcf_out, pjg.size());
-  pcf_out.insert(pcf_out.end(), pjg.begin(), pjg.end());
-  /* gain check on the FINAL container (header included): comparing only the
-     payload lets a near-break-even conversion store a few bytes MORE than the
-     original. No gain -> store the original verbatim. */
-  if (pcf_out.size() >= f.size()) { pcf_out.clear(); return false; }
-  return true;
 }
 
 bool pcf_file_encode(const std::vector<unsigned char>& original,
@@ -572,11 +517,7 @@ bool pcf_file_encode(const std::vector<unsigned char>& original,
      planned transform here; removed pending proper packPNG-side support. -pc
      already leaves the whole PNG family untouched (commit 989aa2a). */
 
-  /* JPEG: lossless recompression via packJPG (reached only when -sa routes a jpg). */
-  if (!built && original.size() >= 3 && original[0] == 0xFF && original[1] == 0xD8
-      && original[2] == 0xFF) {
-    built = build_pcf_packjpg(original, cand);
-  }
+  /* JPEG (packJPG) recompression removed together with -sa. */
 
   /* whole-file gzip / zlib, or raw DEFLATE as a last resort. */
   if (!built) {

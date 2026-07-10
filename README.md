@@ -114,33 +114,6 @@ zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
 
 ---
 
----
-
-## Specific algorithm: `-sa`
-
-`-sa` picks a dedicated, per-extension transform or codec for known file types,
-applied *before* the second-stage `-ma` compressor (composable with `-pc`, which
-never touches the types `-sa` routes elsewhere). `-sa` alone applies to every known
-type; `-sa:ext1:ext2` restricts it to only those extensions.
-
-| Extension | Transform | Notes |
-|---|---|---|
-| `.jpg` / `.jpeg` | [packJPG](https://github.com/YadeWira/packJPG) (lossless recompression) | ~10–30% smaller; verify-then-fallback |
-| `.txt` and other text | PPMd (order 15) | context modeling, strong on natural-language text |
-
-```bash
-zpaq-std a backup.zpaq /data -sa            # every known type
-zpaq-std a backup.zpaq /data -sa:jpg        # only jpg/jpeg
-```
-
-> **PNG/APNG** recompression (via [packPNG](https://github.com/YadeWira/packPNG),
-> WebP-lossless) was prototyped but is **not currently wired in** — it is on hold
-> pending upstream packPNG support (notably a Windows build compatible with
-> zpaq-std's toolchain). `-sa` today covers JPEG (packJPG) and text (PPMd); the
-> PNG family is simply left untouched, exactly as `-pc` leaves it.
-
----
-
 ## Installer progress: `-innosetup`
 
 Pass **`-innosetup`** and zpaq-std shows its **own native progress window** while it

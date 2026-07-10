@@ -81,12 +81,7 @@ bool pcf_autotest();
    archiver's -t / x86 budget when -pc work is parallelised across files. */
 void pcf_set_internal_threads(int extra_threads);
 
-/* One-time, single-threaded init of packJPG (-sa JPEG path): intra-file thread count
-   (0=auto, 1=off, >=3 = N threads within one JPEG) and a decompression-bomb output cap
-   in MiB (0=none). Call once at add()/extract() startup before any -pc/-sa work. */
-void pcf_packjpg_init(int intra_threads, int max_output_mb);
-
-/* (packPNG -sa PNG/APNG API removed pending proper packPNG-side support;
-   PCF segment kind 5 stays reserved. See pcf_wrapper.cpp / git history.) */
+/* (-sa removed: packJPG (kind 4) and packPNG (kind 5) APIs gone, both PCF
+   segment kinds stay reserved. See pcf_wrapper.cpp / git history.) */
 
 #endif /* PCF_WRAPPER_H */

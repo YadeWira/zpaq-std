@@ -164,12 +164,7 @@ PREFLATEINC := -Icompressors/preflate -Icompressors/preflate/support
 ZLIBSRC := $(wildcard compressors/zlib/*.c)
 ZLIBOBJ := $(ZLIBSRC:.c=.o)
 ZLIBINC := -Icompressors/zlib
-# Vendored packJPG (LGPL-3, YadeWira fork): lossless JPEG recompressor for -sa.
-# Compiled -DBUILD_LIB (excludes its CLI main(); all other symbols are INTERN=static,
-# so no clash with the main TU) -DUNIX. Only the 3 .cpp; extern "C" pjglib_* API.
-PACKJPGSRC := compressors/packjpg/packjpg.cpp compressors/packjpg/aricoder.cpp compressors/packjpg/bitops.cpp
-PACKJPGOBJ := $(PACKJPGSRC:.cpp=.o)
-PACKJPGINC := -Icompressors/packjpg
+# (packJPG removed together with -sa.)
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
 
 # Download URLs
@@ -311,8 +306,8 @@ PREFLATE_ROOT_OBJ := $(PREFLATE_ROOT_SRC:.cpp=.o)
 PREFLATE_SUP_OBJ  := $(PREFLATE_SUP_SRC:.cpp=.o)
 PREFLATEOBJ := $(PREFLATE_ROOT_OBJ) $(PREFLATE_SUP_OBJ)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PACKJPGOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PACKJPGOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -365,15 +360,11 @@ $(LIBDEFLATE_ARM_OBJ): compressors/libdeflate/lib/arm/%.o: compressors/libdeflat
 $(ZLIBOBJ): compressors/zlib/%.o: compressors/zlib/%.c
 	$(CC) $(ZPAQ_CFLAGS) -DZ_PREFIX $(ZLIBINC) -c $< -o $@
 
-# packJPG (C++, -DBUILD_LIB drops its main()). -DUNIX on non-mingw.
-$(PACKJPGOBJ): compressors/packjpg/%.o: compressors/packjpg/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) -DBUILD_LIB -DUNIX $(PACKJPGINC) -c $< -o $@
-
 # preflate: C++ (g++), root + support/ subdirs. -DZ_SOLO -DNO_GZIP matches upstream.
 # pcf_wrapper.cpp (a PREFLATE_ROOT TU) includes the vendored zlib.h, so the root rule
 # also gets $(ZLIBINC) -DZ_PREFIX (preflate itself never includes zlib.h, so this is inert there).
 $(PREFLATE_ROOT_OBJ): compressors/preflate/%.o: compressors/preflate/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) $(ZLIBINC) $(PACKJPGINC) -DZ_PREFIX -DZ_SOLO -DNO_GZIP -c $< -o $@
+	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) $(ZLIBINC) -DZ_PREFIX -DZ_SOLO -DNO_GZIP -c $< -o $@
 
 $(PREFLATE_SUP_OBJ): compressors/preflate/support/%.o: compressors/preflate/support/%.cpp
 	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) -DZ_SOLO -DNO_GZIP -c $< -o $@
