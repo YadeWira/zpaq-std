@@ -2115,6 +2115,7 @@ bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
 bool flagprecomp;	// -pc : stream-recompression precompressor (preflate/PCF)
+bool flagytool;		// -ytool : external precompressor via the ytool subprocess (replaces -pc)
 bool flagcatpaqmode;
 bool flagdistinct;
 bool flagparanoid;
@@ -8643,6 +8644,9 @@ extern "C" {
 /* preflate bridge for -pc (C++ API, std::vector — NOT extern "C"). Only this thin
  * header is visible here; preflate's own headers stay isolated in pcf_wrapper.cpp. */
 #include "pcf_wrapper.h"
+/* ytool bridge for -ytool (subprocess precompressor; replaces -pc). Same
+ * std::vector API shape as pcf_wrapper so it drops into the same hook points. */
+#include "compressors/ytool/ytool_bridge.h"
 
 /* PPMd var.H one-shot wrapper for -ma:ppmd (C API, has its own extern "C" guard) */
 #include "compressors/ppmd/ppmd_wrapper.h"
@@ -54799,6 +54803,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
 	g_programflags.add(&flaginnosetup,		"-innosetup",			"Show a native GUI progress window (Windows); else print progress %%",	"");
 	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress DEFLATE in gzip/zlib/zip/pdf/png (preflate) before storing",	"a;");
+	g_programflags.add(&flagytool,			"-ytool",				"Precompress via the external ytool subprocess (replaces -pc). -ytool:<codecs|params> to customise",	"a;");
 
 
 	for (int i=0; i<argc; i++)
@@ -55623,6 +55628,23 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getuint64	(opt,"-remotespeed",false,	"",								argc,argv,&i,g_remotespeed,		&g_remotespeed));
 		else if (cli_getuint64	(opt,"-checksize",	false,	"",								argc,argv,&i,g_checksize,		&g_checksize));
 		else if (cli_getstring	(opt,"-method",		false,	"-m",							argc,argv,&i,"",				&method));
+		else if (opt.rfind("-ytool:",0)==0)
+		{
+			// -ytool:<params> -- custom ytool precomp arguments. Bare `-ytool` is
+			// handled by g_programflags (default codecs); this branch takes the
+			// `:<params>` form. <params> is either a codec list (e.g. zlib+brunsli
+			// -> prefixed with -m) or raw ytool flags (e.g. -mzlib -c8mb -d1). The
+			// store-only (-l0) + deterministic (-t1) invariants are appended unless
+			// the user already gave -l / -t. Any params are SAFE: verify-then-
+			// fallback + the stored CRC guarantee a byte-exact round-trip regardless.
+			flagytool= true;
+			std::string x= opt.substr(7);
+			std::string params= (!x.empty() && x[0] != '-') ? ("-m" + x) : x;
+			std::string sp= " " + params;
+			if (sp.find(" -l") == std::string::npos) params+= " -l0";   // store-only default
+			if (sp.find(" -t") == std::string::npos) params+= " -t1";   // deterministic default
+			ytool_set_precomp_params(params);
+		}
 		else if ((opt=="-ma"||opt.rfind("-ma:",0)==0) && opt!="-maxsize")
 		{
 			string ma_value;
@@ -59334,6 +59356,28 @@ static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 	size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
 	myfclose(&rf);
 	if (rd != stored.size()) return;
+	// Self-describing: a ytool container (zYTL magic) reverses via the ytool
+	// subprocess; a PCF container (zPCF) via preflate. Both are safe no-ops on a
+	// plain file (magic mismatch). Authenticity (size+CRC for ytool, re-encode for
+	// PCF) rejects a verbatim file that merely starts with the magic.
+	if (ytool_is_container(&stored[0], stored.size()))
+	{
+		if (ytool_authentic_reverse(stored, orig))
+		{
+			delete_file(fn.c_str());
+			FP wf= myfopen(fn.c_str(), WB);
+			if (wf != FPNULL)
+			{
+				if (!orig.empty())
+					myfwrite(&orig[0], 1, orig.size(), wf);
+				close(fn.c_str(), date, attr, wf);
+			}
+		}
+		else
+			myprintf("00568! WARN: %s is -ytool content this build/ytool cannot\n"
+			         "        reproduce; left COMPRESSED on disk\n", fn.c_str());
+		return;
+	}
 	int rc= pcf_authentic_reverse2(stored, orig);
 	if (rc == 0)
 	{
@@ -100679,6 +100723,34 @@ static bool pc_magic_candidate(const unsigned char* s, size_t got)
 	return gz || zlb || zip || pdf;
 }
 
+// -ytool magic sniff: ytool detects more formats than -pc's DEFLATE set, so a
+// broader candidate gate (gz/zlib/zip/pdf + jpeg/png/mp3/RIFF-WAV). Files that do
+// not match are left regular; ytool's verify-then-fallback still protects any that
+// slip through. Whichever codec of the requested set wins is ytool's decision.
+static bool yt_magic_candidate(const unsigned char* s, size_t got)
+{
+	if (pc_magic_candidate(s, got)) return true;                                  // gz/zlib/zip/pdf
+	bool jpg = (got >= 3 && s[0] == 0xFF && s[1] == 0xD8 && s[2] == 0xFF);        // JPEG
+	bool png = (got >= 4 && s[0] == 0x89 && s[1] == 0x50 && s[2] == 0x4e && s[3] == 0x47); // PNG/APNG
+	bool riff= (got >= 4 && s[0] == 'R' && s[1] == 'I' && s[2] == 'F' && s[3] == 'F');     // RIFF/WAV (PCM)
+	bool mp3 = (got >= 3 && s[0] == 'I' && s[1] == 'D' && s[2] == '3')            // MP3 (ID3)
+	         || (got >= 2 && s[0] == 0xFF && (s[1] & 0xE0) == 0xE0);              // MP3 (frame sync)
+	return jpg || png || riff || mp3;
+}
+
+// Encode dispatch: -ytool routes to the ytool subprocess bridge, -pc to preflate.
+// Same signature/semantics (verify-then-fallback inside), so the worker + inline
+// paths call this and stay identical otherwise.
+static bool pc_transform_encode(const std::vector<unsigned char>& O, std::vector<unsigned char>& T)
+{
+	if (flagytool) return ytool_file_encode(O, T);
+	return pcf_file_encode(O, T);
+}
+static bool pc_transform_candidate(const unsigned char* s, size_t got)
+{
+	return flagytool ? yt_magic_candidate(s, got) : pc_magic_candidate(s, got);
+}
+
 /* -pc cross-file prefetch: K worker threads run the expensive pcf_file_encode on
    upcoming files ahead of the sequential add() loop, so preflate work overlaps
    with the rest of compression. The main loop consumes results in order via
@@ -100783,13 +100855,13 @@ struct PcfPrefetch
 						// Mirror add()'s per-file transform decision so this worker only FRAGs
 						// files main treats as regular -- never one main would PCF or packJPG
 						// (those keep the existing inline / prefetch-encode path).
-						bool will_be_pcf  = flagprecomp && esz >= 18 && pc_magic_candidate(sniff, got);
+						bool will_be_pcf  = (flagprecomp || flagytool) && esz >= 18 && pc_transform_candidate(sniff, got);
 						if (will_be_pcf)
 						{
 							fseeko(f, 0, SEEK_SET);
 							std::vector<unsigned char> O((size_t)esz), T;
 							size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), f);
-							if (rd == O.size() && pcf_file_encode(O, T))
+							if (rd == O.size() && pc_transform_encode(O, T))
 							{
 								it->kind= PCF;
 								it->T.swap(T);
@@ -100897,7 +100969,7 @@ static bool pc_take_or_encode(const std::shared_ptr<PcfPrefetch::Item>& it,
                               std::vector<unsigned char>& O, std::vector<unsigned char>& T)
 {
 	if (it && it->kind == PcfPrefetch::PCF) { T.swap(it->T); return true; }
-	return pcf_file_encode(O, T);
+	return pc_transform_encode(O, T);
 }
 
 int Jidac::add()
@@ -101612,8 +101684,8 @@ int Jidac::add()
 			// file_crc32 stay the original's; the stored (fragmented) content is the PCF
 			// stream, reversed on extraction. verify-then-fallback inside pcf_file_encode
 			// guarantees no corruption: a file that does not round-trip is stored verbatim.
-			// -sa removed (packJPG/packPNG/text routing all gone). Only -pc remains.
-			if (flagprecomp && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
+			// -sa removed. -pc (preflate) or -ytool (subprocess) precompress here.
+			if ((flagprecomp || flagytool) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
@@ -101630,7 +101702,7 @@ int Jidac::add()
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)))
+				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || (flagytool && yt_magic_candidate(sniff, got)))
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;
