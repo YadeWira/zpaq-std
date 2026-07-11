@@ -59344,18 +59344,21 @@ struct PcRev
 // is near-certainly a real PCF this build can no longer reproduce (codec version
 // skew): it is left untouched (never garbage), but LOUDLY -- silence there would
 // hide an unrestored file behind an "all OK" extraction summary.
-static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
+// Returns true only if it actually reversed a precompressed container (real work),
+// false for the common no-op (a plain, non-container file) or a left-compressed
+// warning case -- lets the post-pass count/report genuine reversals, not every file.
+static bool pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 {
 	FP rf= myfopen(fn.c_str(), RB);
-	if (rf == FPNULL) return;
+	if (rf == FPNULL) return false;
 	fseeko(rf, 0, SEEK_END);
 	int64_t fsz= ftello(rf);
 	fseeko(rf, 0, SEEK_SET);
-	if (fsz < 5 || fsz > ((int64_t)1 << 31)) { myfclose(&rf); return; }
+	if (fsz < 5 || fsz > ((int64_t)1 << 31)) { myfclose(&rf); return false; }
 	std::vector<unsigned char> stored((size_t)fsz), orig;
 	size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
 	myfclose(&rf);
-	if (rd != stored.size()) return;
+	if (rd != stored.size()) return false;
 	// Self-describing: a ytool container (zYTL magic) reverses via the ytool
 	// subprocess; a PCF container (zPCF) via preflate. Both are safe no-ops on a
 	// plain file (magic mismatch). Authenticity (size+CRC for ytool, re-encode for
@@ -59372,11 +59375,11 @@ static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 					myfwrite(&orig[0], 1, orig.size(), wf);
 				close(fn.c_str(), date, attr, wf);
 			}
+			return true;
 		}
-		else
-			myprintf("00568! WARN: %s is -ytool content this build/ytool cannot\n"
-			         "        reproduce; left COMPRESSED on disk\n", fn.c_str());
-		return;
+		myprintf("00568! WARN: %s is -ytool content this build/ytool cannot\n"
+		         "        reproduce; left COMPRESSED on disk\n", fn.c_str());
+		return false;
 	}
 	int rc= pcf_authentic_reverse2(stored, orig);
 	if (rc == 0)
@@ -59389,10 +59392,12 @@ static void pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 				myfwrite(&orig[0], 1, orig.size(), wf);
 			close(fn.c_str(), date, attr, wf);
 		}
+		return true;
 	}
-	else if (rc == 2)
+	if (rc == 2)
 		myprintf("00566! WARN: %s decodes as -pc/-sa content but this build cannot\n"
 		         "        reproduce it (codec version skew?); left COMPRESSED on disk\n", fn.c_str());
+	return false;
 }
 
 struct ExtractJob
@@ -88235,6 +88240,13 @@ int Jidac::extract()
 		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
 		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
 		std::atomic<size_t> pcidx(0);
+		// Post-pass progress: the main extract % has already reached 100% by here, and
+		// reversing the precompressed (-ytool/-pc) streams runs AFTER that -- without a
+		// sign of life it looks hung. Count only GENUINE reversals (pc_reverse_file
+		// returns true), so a plain archive with no precompressed content prints
+		// nothing; one with content shows a live, growing count on a rewritten line.
+		std::atomic<size_t> pcdone(0);
+		std::mutex pcbar_mx;
 		std::vector<std::thread> pcrev;
 		for (int i= 0; i < pcK; i++)
 			pcrev.push_back(std::thread([&] {
@@ -88242,12 +88254,20 @@ int Jidac::extract()
 				{
 					size_t j= pcidx.fetch_add(1);
 					if (j >= job.pc_reverse_list.size()) break;
-					pc_reverse_file(job.pc_reverse_list[j].fn,
-					                job.pc_reverse_list[j].date,
-					                job.pc_reverse_list[j].attr);
+					if (pc_reverse_file(job.pc_reverse_list[j].fn,
+					                    job.pc_reverse_list[j].date,
+					                    job.pc_reverse_list[j].attr))
+					{
+						size_t d= ++pcdone;
+						std::lock_guard<std::mutex> lk(pcbar_mx);
+						myprintf("\rReversing precompressed streams: %s", migliaia(d));
+						fflush(stdout);
+					}
 				}
 			}));
 		for (size_t i= 0; i < pcrev.size(); i++) pcrev[i].join();
+		if (pcdone.load() > 0)
+			myprintf("\rReversing precompressed streams: %s ... done\n", migliaia(pcdone.load()));
 	}
 
 	// Create empty directories and set file dates and attributes
