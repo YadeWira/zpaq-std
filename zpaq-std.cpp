@@ -100758,6 +100758,37 @@ static bool yt_magic_candidate(const unsigned char* s, size_t got)
 	return jpg || png || riff || mp3;
 }
 
+// -ytool CONTAINER gating. A file whose first bytes are NOT a codec magic (e.g. a
+// .tar: its head is a tar header, not gz/jpg/...) can still hold recompressible
+// streams inside. yt_magic_candidate() only sees offset 0, so such containers were
+// a no-op. Two-step gate: (1) a CHEAP prefilter (no subprocess) says "this might be
+// a container worth probing" -- POSIX tar (ustar at offset 257) or any large blob;
+// (2) ytool's detect-only `-scan` counts the streams actually inside. We only pay
+// the (cheap) scan when the prefilter fires, and only pay the full precomp when the
+// scan finds streams. YT_SCAN_MIN keeps small files on the free offset-0 path.
+// tar is the one common container whose magic is NOT at offset 0 (it lives at byte
+// 257) -- zip/gz/pdf/jpg/... are already caught by yt_magic_candidate. So tar is the
+// PRIMARY trigger (any size); the size backstop only catches a very large non-tar
+// non-magic blob, kept high so ordinary large files (video, DB dumps) do NOT pay a
+// pointless scan. A scan reads the whole file inside ytool, so it is not free.
+static const int64_t YT_SCAN_MIN = (int64_t)256 << 20;   // 256 MiB backstop
+static bool yt_container_prefilter(const unsigned char* s, size_t got, int64_t filesize)
+{
+	bool tar = (got >= 262 && memcmp(s + 257, "ustar", 5) == 0);   // POSIX/GNU tar
+	return tar || (filesize >= YT_SCAN_MIN);
+}
+// Whole-buffer decision for -ytool: encode this file via ytool? Offset-0 magic is a
+// free yes; otherwise, if it looks like a container, run the cheap -scan probe. May
+// spawn ONE detect-only ytool subprocess (bounded to prefiltered files). Never
+// throws; on any scan error returns false (store verbatim) -- safe.
+static bool yt_should_encode(const unsigned char* data, size_t len, int64_t filesize)
+{
+	if (len < 18) return false;
+	if (yt_magic_candidate(data, len < 4 ? len : 4)) return true;     // offset-0 magic
+	if (!yt_container_prefilter(data, len, filesize)) return false;   // cheap reject
+	return ytool_scan_streams(data, len) > 0;                         // probe inside
+}
+
 // Encode dispatch: -ytool routes to the ytool subprocess bridge, -pc to preflate.
 // Same signature/semantics (verify-then-fallback inside), so the worker + inline
 // paths call this and stay identical otherwise.
@@ -100870,49 +100901,55 @@ struct PcfPrefetch
 						it->kind= TOOBIG;            // too big to prefetch: main does it inline
 					else
 					{
-						unsigned char sniff[4]= {0, 0, 0, 0};
-						size_t got= fread(sniff, 1, 4, f);
-						// Mirror add()'s per-file transform decision so this worker only FRAGs
-						// files main treats as regular -- never one main would PCF or packJPG
-						// (those keep the existing inline / prefetch-encode path).
-						bool will_be_pcf  = (flagprecomp || flagytool) && esz >= 18 && pc_transform_candidate(sniff, got);
-						if (will_be_pcf)
+						// Read the whole file ONCE, then decide precomp-vs-fragment. Both
+						// outcomes need the full bytes (precomp feeds the transform, FRAG feeds
+						// fragmentation, franz-hash runs over the original either way), and a
+						// single buffer also lets -ytool inspect the WHOLE file to gate CONTAINER
+						// files -- e.g. a .tar -- that carry no codec magic at offset 0.
+						fseeko(f, 0, SEEK_SET);
+						std::vector<unsigned char> R((size_t)esz);
+						size_t rd= R.empty() ? 0 : fread(&R[0], 1, R.size(), f);
+						if (rd == R.size())
 						{
-							fseeko(f, 0, SEEK_SET);
-							std::vector<unsigned char> O((size_t)esz), T;
-							size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), f);
-							if (rd == O.size() && pc_transform_encode(O, T))
+							// Mirror add()'s per-file transform decision so this worker only FRAGs
+							// files main treats as regular. -pc keeps its offset-0 sniff; -ytool
+							// adds container detection (magic OR a cheap -scan probe inside).
+							bool will_be_pcf= false;
+							if (esz >= 18)
 							{
-								it->kind= PCF;
-								it->T.swap(T);
-								// -pc B(ii): hash the ORIGINAL here (its franz identity) so the
-								// main loop need not re-read+re-hash the file. Per-file state
-								// (p->second.*) is touched by this worker only; the cache mutex
-								// below (done=true) publishes it before main consumes via get().
-								// updatehash also leaves file_crc32=CRC(original)/hashedsize=|O|;
-								// the main loop overwrites file_crc32 with the stored-PCF CRC.
-								if (jd && g_franzotype > 0)
-								{
-									for (size_t off= 0; off < O.size();)
-									{
-										size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-										jd->updatehash(&p, (char *)&O[off], (int)ck);
-										off+= ck;
-									}
-									it->hashed= true;
-								}
+								const unsigned char* d= R.empty() ? (const unsigned char *)"" : &R[0];
+								size_t got= R.size() < 4 ? R.size() : 4;
+								if (flagprecomp)     will_be_pcf= pc_transform_candidate(d, got);
+								else if (flagytool)  will_be_pcf= yt_should_encode(d, R.size(), esz);
 							}
-							// encode failed -> leave NOTPC; main handles it inline (unchanged)
-						}
-						else
-						{
-							// step 3: unambiguously regular file. Read + franz-hash + fragment
-							// here so the main thread only dedups, assembles and dispatches.
-							fseeko(f, 0, SEEK_SET);
-							std::vector<unsigned char> R((size_t)esz);
-							size_t rd= R.empty() ? 0 : fread(&R[0], 1, R.size(), f);
-							if (rd == R.size())
+							if (will_be_pcf)
 							{
+								std::vector<unsigned char> T;
+								if (pc_transform_encode(R, T))
+								{
+									it->kind= PCF;
+									it->T.swap(T);
+									// -pc B(ii): hash the ORIGINAL here (its franz identity) so the
+									// main loop need not re-read+re-hash the file. updatehash leaves
+									// file_crc32=CRC(original)/hashedsize=|R|; the main loop overwrites
+									// file_crc32 with the stored-PCF CRC.
+									if (jd && g_franzotype > 0)
+									{
+										for (size_t off= 0; off < R.size();)
+										{
+											size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+											jd->updatehash(&p, (char *)&R[off], (int)ck);
+											off+= ck;
+										}
+										it->hashed= true;
+									}
+								}
+								// encode failed -> leave NOTPC; main handles it inline (unchanged)
+							}
+							else
+							{
+								// unambiguously regular file: franz-hash + fragment here so the
+								// main thread only dedups, assembles and dispatches.
 								if (jd && g_franzotype > 0)
 								{
 									for (size_t off= 0; off < R.size();)
@@ -101633,6 +101670,25 @@ int Jidac::add()
 		if (pc_K < 1) pc_K= 1;
 	}
 	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));
+	// -ytool thread policy. ytool's precomp output is thread-count-INVARIANT (ytool
+	// c052153), so -t only trades throughput, never the stored bytes / dedup. Default
+	// -t1 (one ytool per file; parallelism across files via the pool). But when there
+	// are FEWER candidate files than pool workers, those workers would sit idle and a
+	// lone big file would precompress single-threaded -- so hand each ytool the spare
+	// cores. A -ytool:<params> override that fixes -t wins over this (yt_params()).
+	if (flagytool)
+	{
+		int ytn= 1;
+		if (howmanythreads >= 2)
+		{
+			size_t nf= vf.size();
+			if (nf <= 1) ytn= howmanythreads;                 // lone file: all cores
+			else if (pc_K > 0 && nf < (size_t)pc_K)           // fewer files than workers
+				ytn= (int)(howmanythreads / nf);
+			if (ytn < 1) ytn= 1;
+		}
+		ytool_set_precomp_threads(ytn);
+	}
 	if (pc_K > 0)
 	{
 		bool is64= (sizeof(void *) >= 8);
@@ -101709,8 +101765,10 @@ int Jidac::add()
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
-				unsigned char sniff[4]= {0, 0, 0, 0};
-				size_t got= fread(sniff, 1, 4, in);
+				// 512-byte sniff: first 4 give the offset-0 codec magic; byte 257 lets
+				// yt_container_prefilter() spot a POSIX tar header for -ytool container gating.
+				unsigned char sniff[512]= {0};
+				size_t got= fread(sniff, 1, sizeof sniff, in);
 				fseeko(in, 0, SEEK_SET);
 				bool gz = (got >= 3 && sniff[0] == 0x1f && sniff[1] == 0x8b && sniff[2] == 0x08);
 				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
@@ -101722,7 +101780,15 @@ int Jidac::add()
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || (flagytool && yt_magic_candidate(sniff, got)))
+				// -ytool inline gate (files the worker skipped as TOOBIG): offset-0 magic is a
+				// free yes; otherwise, if it looks like a container, a cheap detect-only -scan on
+				// the file path (no RAM load) confirms streams inside before the full precomp.
+				// Short-circuits so small non-magic files never spawn a scan.
+				bool yt_inline= flagytool && !worker_pcf
+				    && (yt_magic_candidate(sniff, got)
+				        || (yt_container_prefilter(sniff, got, p->second.expectedsize)
+				            && ytool_scan_streams_path(p->first.c_str()) > 0));
+				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || yt_inline)
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;

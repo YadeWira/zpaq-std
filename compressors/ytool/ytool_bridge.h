@@ -47,6 +47,29 @@ void ytool_set_binary(const std::string& path);
 void ytool_set_precomp_params(const std::string& params);
 std::string ytool_default_params(void);
 
+/* Thread count for ytool's precomp (`-t<N>`). ytool's precomp output is
+   THREAD-COUNT-INVARIANT since ytool commit c052153 (an uninitialized SI.Resource
+   was writing stack garbage into the .pmp; fixed) -- verified -t1==-t4==-t8
+   byte-for-byte -- so varying N changes ONLY throughput, never the stored bytes,
+   and therefore never dedup or correctness. Default 1 (one process per file,
+   parallelism across files via the caller's worker pool); the caller may raise it
+   for the few-large-files case where pool workers would otherwise sit idle. A value
+   <= 0 is treated as 1. Ignored when a -ytool:<params> override already fixes -t. */
+void ytool_set_precomp_threads(int n);
+
+/* Cheap DETECT-ONLY probe: how many recompressible streams ytool finds in `data`
+   (ytool `precomp -scan`), WITHOUT doing the actual precompression or writing any
+   output. Returns the stream count (0 = nothing worth precompressing), or -1 if
+   ytool is unavailable / the probe errored / no -m codec set is configured. Used to
+   gate CONTAINER files (e.g. a .tar whose first bytes are a tar header, not a codec
+   magic) so we only pay the full precomp on files that actually contain streams. */
+int ytool_scan_streams(const unsigned char* data, size_t len);
+
+/* Same detect-only probe, but on a file PATH directly (ytool reads the file itself)
+   -- avoids loading the whole file into RAM just to decide. Same return contract as
+   ytool_scan_streams(). Preferred when the bytes are not already buffered. */
+int ytool_scan_streams_path(const char* path);
+
 /* True if the configured ytool binary runs and reports a version. Cached after the
    first successful probe. Query before routing files so the caller can cleanly
    fall back to storing verbatim when ytool is absent. */

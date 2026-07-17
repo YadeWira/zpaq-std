@@ -44,13 +44,34 @@ static const char* const YT_CODECS = "preflate+brunsli+packpng+flac+packmp3+wavp
    verify-then-fallback + the stored CRC guarantee round-trip regardless; a bad
    choice only costs ratio, never correctness. */
 static std::string g_yt_params;   /* empty => the built-in default below */
+static int g_yt_threads = 1;      /* -t<N> for the default params; t-invariant output */
+
+void ytool_set_precomp_threads(int n) { g_yt_threads = (n > 0) ? n : 1; }
 
 std::string ytool_default_params(void) {
-  return std::string("-m") + YT_CODECS + " -l0 -t1";
+  char t[16]; snprintf(t, sizeof t, " -l0 -t%d", g_yt_threads > 0 ? g_yt_threads : 1);
+  return std::string("-m") + YT_CODECS + t;
 }
 void ytool_set_precomp_params(const std::string& params) { g_yt_params = params; }
 static std::string yt_params() {
   return g_yt_params.empty() ? ytool_default_params() : g_yt_params;
+}
+
+/* Extract the `-m<codecs>` token from a params string (the detector set). ytool's
+   `-scan` mode accepts ONLY -m<codecs> (+ optional -t) and REJECTS -l0, so the scan
+   command is built from just this token, not the full precomp params. Returns ""
+   if there is no -m token (then scan is not meaningful and callers skip it). */
+static std::string yt_mtoken(const std::string& params) {
+  size_t p = params.find("-m");
+  /* accept "-m" at start or after a space; skip a "-maxsize"-style false hit */
+  while (p != std::string::npos) {
+    bool at_bound = (p == 0 || params[p-1] == ' ');
+    if (at_bound) break;
+    p = params.find("-m", p + 2);
+  }
+  if (p == std::string::npos) return "";
+  size_t e = params.find(' ', p);
+  return params.substr(p, (e == std::string::npos) ? std::string::npos : e - p);
 }
 
 void ytool_set_binary(const std::string& path) { g_ytool_bin = path; }
@@ -207,6 +228,49 @@ static bool ytool_decode(const std::vector<unsigned char>& in,
   }
   yt_unlink(tin); yt_unlink(tout);
   return ok;
+}
+
+/* ---- detect-only scan: count recompressible streams without precompressing ----
+   Runs `ytool precomp -scan -m<codecs> <in> <dummy>` (which prints "SCAN <n> streams"
+   to stderr, exits 0, and never writes the output file). -scan takes -m<codecs> only
+   (it REJECTS -l0), so the command is built from just the -m token of the params. */
+static int yt_scan_path(const std::string& inpath) {
+  std::string mtok = yt_mtoken(yt_params());
+  if (mtok.empty()) return -1;                 /* no -m => scan not meaningful */
+  std::string tdummy = yt_tmpname("sd");
+  int n = -1;
+  std::string cmd = yt_q(ytool_bin()) + " precomp -scan " + mtok + " "
+                  + yt_q(inpath) + " " + yt_q(tdummy) + " 2>&1";
+  FILE* pipe = YT_POPEN(cmd.c_str(), "r");
+  if (pipe) {
+    char buf[512]; std::string all;
+    while (fgets(buf, sizeof buf, pipe) != NULL) all += buf;
+    int status = YT_PCLOSE(pipe);
+    if (status == 0) {
+      size_t sp = all.find("SCAN ");
+      if (sp != std::string::npos) {
+        long v = strtol(all.c_str() + sp + 5, NULL, 10);
+        if (v >= 0) n = (int)v;
+      }
+    }
+  }
+  yt_unlink(tdummy);
+  return n;
+}
+
+int ytool_scan_streams_path(const char* path) {
+  if (!path || !*path || !ytool_available()) return -1;
+  return yt_scan_path(path);
+}
+
+int ytool_scan_streams(const unsigned char* data, size_t len) {
+  if (!data || len == 0 || !ytool_available()) return -1;
+  if (yt_mtoken(yt_params()).empty()) return -1;
+  std::string tin = yt_tmpname("si");
+  int n = -1;
+  if (yt_write_file(tin, data, len)) n = yt_scan_path(tin);
+  yt_unlink(tin);
+  return n;
 }
 
 /* ---- container framing ---- */
