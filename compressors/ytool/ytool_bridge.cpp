@@ -150,7 +150,20 @@ static void yt_unlink(const std::string& path) { remove(path.c_str()); }
    stdout is drained and discarded (we only care about the exit code + the output
    FILE the command was told to write). Paths are double-quoted so spaces are safe. */
 static int yt_run(const std::string& cmd) {
-  FILE* pipe = YT_POPEN(cmd.c_str(), "r");
+#if defined(_WIN32)
+  /* _popen runs the command via `cmd.exe /c "<cmd>"`. cmd.exe strips the FIRST and
+     LAST quote of the command when it both begins and ends with `"` -- which
+     corrupts a command like `"exe" ... 2> "file"` (the exe loses its closing quote
+     and the last redirect target its opening one), so the scan silently fails and
+     container gating no-ops. Wrapping the whole command in ONE extra pair of quotes
+     is the documented fix: cmd.exe strips the added outer pair and leaves the inner
+     command intact. (Commands ending in `2>&1`, like precomp, worked without this;
+     wrapping is harmless for them too.) */
+  std::string full = "\"" + cmd + "\"";
+#else
+  const std::string& full = cmd;
+#endif
+  FILE* pipe = YT_POPEN(full.c_str(), "r");
   if (!pipe) return -1;
   char buf[512];
   while (fgets(buf, sizeof buf, pipe) != NULL) { /* discard */ }
@@ -237,24 +250,33 @@ static bool ytool_decode(const std::vector<unsigned char>& in,
 static int yt_scan_path(const std::string& inpath) {
   std::string mtok = yt_mtoken(yt_params());
   if (mtok.empty()) return -1;                 /* no -m => scan not meaningful */
+  /* ytool prints the "SCAN <n> streams" line to STDERR. We CANNOT rely on merging
+     it into the popen pipe with `2>&1`: on Windows _popen runs the command through
+     cmd.exe, which does not reliably honour `2>&1` for a quoted-exe command (the
+     pipe then carries stdout only, and the SCAN line -- on stderr -- is lost, so
+     gating silently no-ops). So redirect stdout AND stderr each to its OWN temp
+     file (no `&1` merge) and parse both -- robust on every platform regardless of
+     which stream the count lands on. Mirrors how precomp already succeeds via a
+     file, not the pipe. */
   std::string tdummy = yt_tmpname("sd");
+  std::string tso = yt_tmpname("so"), tse = yt_tmpname("se");
   int n = -1;
   std::string cmd = yt_q(ytool_bin()) + " precomp -scan " + mtok + " "
-                  + yt_q(inpath) + " " + yt_q(tdummy) + " 2>&1";
-  FILE* pipe = YT_POPEN(cmd.c_str(), "r");
-  if (pipe) {
-    char buf[512]; std::string all;
-    while (fgets(buf, sizeof buf, pipe) != NULL) all += buf;
-    int status = YT_PCLOSE(pipe);
-    if (status == 0) {
-      size_t sp = all.find("SCAN ");
-      if (sp != std::string::npos) {
-        long v = strtol(all.c_str() + sp + 5, NULL, 10);
-        if (v >= 0) n = (int)v;
-      }
+                  + yt_q(inpath) + " " + yt_q(tdummy)
+                  + " > " + yt_q(tso) + " 2> " + yt_q(tse);
+  int rc = yt_run(cmd);
+  if (rc == 0) {
+    std::vector<unsigned char> a, b;
+    yt_read_file(tso, a); yt_read_file(tse, b);
+    std::string all(a.begin(), a.end());
+    all.append(b.begin(), b.end());
+    size_t sp = all.find("SCAN ");
+    if (sp != std::string::npos) {
+      long v = strtol(all.c_str() + sp + 5, NULL, 10);
+      if (v >= 0) n = (int)v;
     }
   }
-  yt_unlink(tdummy);
+  yt_unlink(tdummy); yt_unlink(tso); yt_unlink(tse);
   return n;
 }
 
