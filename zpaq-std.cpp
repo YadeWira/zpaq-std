@@ -17962,7 +17962,12 @@ int unz(const char * archive,const char * key); // paranoid unzpaq 2.06
 
 
 
-void seppuku()
+/// Exit after closing the log handles and restoring the console.
+/// i_exitcode defaults to 0 because most call sites are "job done, quit"
+/// (help screens and the like). Command-line ERRORS must pass a non-zero
+/// code: a caller that gets 0 back believes the command succeeded, and for
+/// 'a' that means a backup silently wrote nothing yet reported success.
+void seppuku(int i_exitcode=0)
 {
 	if (g_output_handle)
 		fclose(g_output_handle);
@@ -17970,7 +17975,7 @@ void seppuku()
 		fclose(g_error_handle);
 
 	color_restore();
-	exit(0);
+	exit(i_exitcode);
 }
 
 
@@ -33010,10 +33015,24 @@ void restore_terminal_echo()
 #endif // corresponds to #ifndef (#ifndef _WIN32)
 }
 
+#ifdef _WIN32
+/// _getch() reads the CONSOLE, not stdin. With a redirected or closed stdin it
+/// therefore blocks forever and never reports EOF, so any non-interactive run
+/// that needed a password hung (a scheduled task on an encrypted archive
+/// without -key). When stdin is not a terminal, read stdin directly: a piped
+/// password now works on Windows too, and EOF is actually seen by the callers.
+int getch_or_stdin()
+{
+	if (!_isatty(_fileno(stdin)))
+		return getchar();
+	return _getch();
+}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+
 int read_char()
 {
 #ifdef _WIN32
-	return _getch();
+	return getch_or_stdin();
 #else
 	return getchar();
 #endif // corresponds to #ifdef (#ifdef _WIN32)
@@ -33055,7 +33074,9 @@ void disable_raw_mode()
 
 int read_key()
 {
-	int ch= _getch();
+	int ch= getch_or_stdin();
+	if (ch == EOF)
+		return EOF; /// let the password loops report it (see internal_password_*)
 	if (iscontrolsomething(ch)) /// ESC, control-C
 	{
 		restore_terminal_echo();
@@ -33066,7 +33087,7 @@ int read_key()
 
 	if ((ch == 224) || (ch == 0))
 	{
-		ch= _getch();
+		ch= getch_or_stdin();
 		switch (ch)
 		{
 		case 75:
@@ -33110,6 +33131,8 @@ void disable_raw_mode()
 int read_key()
 {
 	int ch= getchar();
+	if (ch == EOF)
+		return EOF; /// let the password loops report it (see internal_password_*)
 	if (iscontrolsomething(ch)) /// ESC, control-C
 	{
 		restore_terminal_echo();
@@ -33248,6 +33271,20 @@ string internal_password_withcursor(string i_default)
 	{
 		ch= read_key();
 
+	/// stdin is closed or exhausted: there is no password to be had, and
+	/// looping on a dead stream just pins a core forever (a cron job hitting
+	/// an encrypted archive without -key did exactly that). Fail loudly.
+	/// Note a piped password still works: "echo pw | zpaq-std ..." breaks on
+	/// the newline below, long before EOF is ever reached.
+		if (ch == EOF)
+		{
+			disable_raw_mode();
+			myprintf("\n");
+			myprintf("42026! Cannot read the password: stdin is closed or at EOF\n");
+			myprintf("42026! Use -key <password> or the FRANZKEY environment variable\n");
+			seppuku(2);
+		}
+
 		if ((ch == '\n') || (ch == '\r'))
 			break; // CR
 
@@ -33293,6 +33330,18 @@ string internal_password_nocursor(const string& i_default)
 	while (1)
 	{
 		ch= read_char();
+
+	/// See the EOF note in internal_password_withcursor(): without this the
+	/// loop spins at 100% CPU forever on a closed stdin, and isprint(EOF)
+	/// below is undefined behaviour on top of that.
+		if (ch == EOF)
+		{
+			restore_terminal_echo();
+			myprintf("\n");
+			myprintf("42026! Cannot read the password: stdin is closed or at EOF\n");
+			myprintf("42026! Use -key <password> or the FRANZKEY environment variable\n");
+			seppuku(2);
+		}
 
 		if ((ch == '\n') || (ch == '\r'))
 			break; // CR
@@ -46082,7 +46131,7 @@ class Jidac
 #endif								 // corresponds to #ifdef (#ifdef _WIN32)
 	void load_help_map();			 // not in the constructor!
 	void helphelp();				 // help
-	void usage(bool i_flagdie);		 // help
+	void usage(bool i_flagdie, int i_exitcode);		 // help
 	void examples(string i_command); // some examples
 									 // Support functions
 	void	printsanitizeflags();
@@ -53467,7 +53516,7 @@ void Jidac::load_help_map()
 	switches_map.insert(std::pair<string, HelpInfo>("voodoo", HelpInfo("dummy", help_voodooswitches, 4)));
 }
 
-void Jidac::usage(bool i_flagdie= true)
+void Jidac::usage(bool i_flagdie= true, int i_exitcode= 0)
 {
 #ifdef DLL
 	const char *base="DLL archiver";
@@ -53535,7 +53584,7 @@ void Jidac::usage(bool i_flagdie= true)
 
 
 	if (i_flagdie)
-		seppuku();
+		seppuku(i_exitcode);
 }
 void Jidac::helphelp()
 {
@@ -54250,6 +54299,27 @@ bool Jidac::cli_getstring	(const string& i_opt,string i_string,bool	i_flagoption
 		return true;
 	}
 	else
+	if ((!i_short.empty()) && (i_opt==i_short))
+	{
+	/// Short alias with the value in the NEXT argv ("-m 5"), exactly like the
+	/// long form ("-method 5"). Without this the alias is not consumed and the
+	/// bare value falls through to usage(), silently aborting the command.
+		(*o_thestring)=i_default;
+		if ( ((*i_i)<argc-1) )
+		{
+			(*o_thestring)=argv[++(*i_i)];
+			if (!do_not_print_headers())
+				if (flagdebug)
+				{
+					if ((mypos("password",i_string)!=-1) || (i_string=="-p"))
+						myprintf("00520: franz:%-21s %21s\n",i_string.c_str(),"(hidden)");
+					else
+						myprintf("00520: franz:%-21s %21s\n",i_string.c_str(),(*o_thestring).c_str());
+				}
+		}
+		return true;
+	}
+	else
 	if (i_short.size()==2)
 	{
 		if ((i_opt[0]=='-') && (isdigit(i_opt[2])))
@@ -54334,6 +54404,29 @@ bool Jidac::cli_getint(const string& i_opt,string i_string,bool	i_flagoptional,c
 		if (!do_not_print_headers())
 			if (flagdebug)
 				myprintf("00524: franz:%-21s %21s\n",i_string.c_str(),migliaia(*o_thenumber));
+		return true;
+	}
+	else
+	if ((!i_short.empty()) && (i_opt==i_short))
+	{
+	/// Short alias with the value in the NEXT argv ("-t 4"), exactly like the
+	/// long form ("-threads 4"). Without this the alias is not consumed and the
+	/// bare value falls through to usage(), silently aborting the command.
+		(*o_thenumber)=i_default;
+		if (i_flagoptional)
+		{
+			if ( ((*i_i)<argc-1) )
+				if (argv[(*i_i)+1][0]!='-')
+					(*o_thenumber)=(int)myatoll(argv[++(*i_i)]);
+		}
+		else
+		{
+			if ( ((*i_i)<argc-1) && (isdigit(argv[(*i_i)+1][0])) )
+				(*o_thenumber)=(int)myatoll(argv[++(*i_i)]);
+		}
+		if (!do_not_print_headers())
+			if (flagdebug)
+				myprintf("00525: franz:%-21s %21s\n",i_string.c_str(),migliaia(*o_thenumber));
 		return true;
 	}
 	else
@@ -55611,7 +55704,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			i--;
 		}
-		else if ((!flagforzarobocopy) && ((opt.size()<2 || opt[0]!='-'))) usage();
+		else if ((!flagforzarobocopy) && ((opt.size()<2 || opt[0]!='-'))) usage(true,2); // bad argument: NOT a success
 		else if (cli_getint		(opt,"-P",			false,	"-P",							argc,argv,&i,4,					&g_mysql_port));
 		else if (cli_getint		(opt,"-bandwidth",	false,	"",								argc,argv,&i,0,					&g_sftp_bandwidth));
 		else if (cli_getint		(opt,"-all",		false,	"",								argc,argv,&i,4,					&all));
@@ -55670,16 +55763,24 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="snappy") g_ma_level=1;
 					else if (g_ma_algorithm=="deflate") g_ma_level=6;
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
-					else if (g_ma_algorithm=="lzav") g_ma_level=0;
-					else if (g_ma_algorithm=="hs") g_ma_level=0;
+					else if (g_ma_algorithm=="lzav") g_ma_level=1;
+					else if (g_ma_algorithm=="hs") g_ma_level=1;
 						else if (g_ma_algorithm=="ppmd") g_ma_level=6; // PPMd model order
 					else g_ma_level=9;
 				}
-				if (g_ma_level<1) g_ma_level=1;
-				/* heatshrink and lzav support level 0 (smallest window) */
-				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav") {
+				/* heatshrink and lzav accept level 0 (smallest window / fast
+				 * variant). The generic "<1 -> 1" clamp used to run FIRST and
+				 * rewrote 0 to 1 before this test could ever fire, so level 0
+				 * was dead code: -ma:lzav:0 could never reach
+				 * lzav_compress_default(). Clamp per-algorithm instead. The
+				 * bare -ma:hs / -ma:lzav defaults are pinned to 1 above so an
+				 * invocation without an explicit level keeps behaving as it
+				 * ships today. */
+				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav")
+				{
 					if (g_ma_level<0) g_ma_level=0;
 				}
+				else if (g_ma_level<1) g_ma_level=1;
 				if (g_ma_algorithm=="zstd")
 				{
 					int zmax=ZSTD_maxCLevel();
@@ -55744,8 +55845,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 				else if (g_ma_level>15) g_ma_level=15;
 				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
 				{
-					std::string msg="Unknown -ma: algorithm '"+g_ma_algorithm+"'. Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd";
-					error(msg.c_str());
+					/* error() throws std::runtime_error, and nothing catches it
+					 * this early in argument parsing: it reached terminate() and
+					 * the process died with SIGABRT (rc 134) plus a raw C++
+					 * message. Print the list and exit cleanly instead. */
+					myprintf("00563! Unknown -ma: algorithm '%s'\n", g_ma_algorithm.c_str());
+					myprintf("00563! Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3\n");
+					myprintf("00563!        brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd\n");
+					seppuku(2);
 				}
 			}
 		}
@@ -55885,7 +55992,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			{  // negative version
 				version=atol(argv[i+1]);
 				if (version>-1)
-					usage();
+					usage(true,2); // bad -until version: NOT a success
 				++i;
 			}
 			else
@@ -56491,7 +56598,7 @@ int Jidac::doCommand()
 #ifndef ANCIENT
 	else if (command==':') return ls();
 #endif
-	else usage();
+	else usage(true,2); // unknown command: NOT a success
 	return 0;
 }
 
@@ -67526,9 +67633,19 @@ int Jidac::test()
 		myprintf("01442$ WARNING         : %08d (Cannot say anything)\n", status_0);
 	if (status_1)
 		myprintf("01443: GOOD            : %08d of %08d (stored=decompressed)\n", status_1, total_files);
+	/// `errors` (counted above) is the number of files that failed to
+	/// decompress. It used to be left out of the verdict entirely, so an
+	/// archive in which EVERY file was corrupted still printed
+	/// "VERDICT: OK": nothing survived to reach the CRC-32 stage, so
+	/// status_e stayed 0. The exit code was already correct; the line a
+	/// human (or a log grep) reads was not. read_errors (a damaged trailing
+	/// index) had the same problem: it returns 2 further down, yet the verdict
+	/// printed OK. Exit codes are unchanged here.
 	if (status_e == 0)
 	{
-		if (status_0)
+		if (errors || read_errors)
+			myprintf("01445! VERDICT         : WITH ERRORS          (%u file(s) failed to decompress, %d archive read error(s))\n", errors, read_errors);
+		else if (status_0)
 			myprintf("01444: VERDICT         : UNKNOWN  (Cannot say anything)\n");
 		else
 			myprintf("01445: VERDICT         : OK                   (CRC-32 stored vs decompressed)\n");

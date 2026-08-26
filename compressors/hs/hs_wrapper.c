@@ -7,7 +7,7 @@ simple one-shot API matching the rest of zpaq-std's external compressors:
   hs_compress(in, inlen, out, outcap, outlen, level)
       - level=0: window=11, lookahead=4 (default, ~2048 byte window)
       - level=1: window=13, lookahead=5 (~8192 byte window)
-      - level=2: window=15, lookahead=6 (max, ~32768 byte window)
+      - level=2: window=14, lookahead=6 (max, ~16384 byte window)
       Returns 0 on success (and sets *outlen to compressed size), or -1
       on any heatshrink error / out-of-space condition.
 
@@ -32,10 +32,20 @@ self-describing we prepend a tiny 1-byte header to the compressed data.
 
 #define HS_INBUF 256
 
+/* NOTE: window_sz2 must stay <= 14, even though heatshrink advertises
+ * HEATSHRINK_MAX_WINDOW_BITS 15. The encoder's search index is
+ * `int16_t index[2 << window_sz2]` (struct hs_index), so it can only
+ * represent positions 0..32767. At window_sz2 == 15 the working buffer is
+ * 2 << 15 == 65536 bytes and do_indexing() stores positions up to 65535,
+ * which wrap to negative int16_t. find_longest_match() then walks
+ * `pos = hsi->index[pos]` with a negative pos (out-of-bounds read) down a
+ * chain that can form a cycle, and heatshrink_encoder_poll() spins forever.
+ * Reproduced with any input >= 64 KB. 14 is the largest safe value:
+ * 2 << 14 == 32768 fits int16_t. */
 static int hs_window_for_level(int level) {
     if (level <= 0) return 11;
     if (level == 1) return 13;
-    return 15; /* level >= 2 */
+    return 14; /* level >= 2 (15 would overflow the int16_t search index) */
 }
 
 static int hs_lookahead_for_level(int level) {
@@ -60,6 +70,13 @@ int hs_compress_wrapper(const uint8_t* in, size_t inlen,
     heatshrink_encoder* hse = heatshrink_encoder_alloc(window_sz2, lookahead_sz2);
     if (!hse) return -1;
 
+    /* Safety iteration cap, mirroring hs_decompress_wrapper(). The encoder
+     * state machine should always make progress, but a bad window/lookahead
+     * pairing can livelock it (see hs_window_for_level); bail out instead of
+     * spinning forever. */
+    const unsigned long MAX_ITER = 100000000UL;
+    unsigned long iter = 0;
+
     /* Byte 0: low nibble = window_sz2, high nibble = lookahead_sz2 */
     out[0] = (uint8_t)((window_sz2 & 0x0F) | ((lookahead_sz2 & 0x0F) << 4));
     size_t produced = 1;
@@ -77,6 +94,7 @@ int hs_compress_wrapper(const uint8_t* in, size_t inlen,
 
         HSE_poll_res pr;
         do {
+            if (++iter > MAX_ITER) { heatshrink_encoder_free(hse); return -1; }
             size_t out_used = 0;
             pr = heatshrink_encoder_poll(hse, out + produced,
                                          outcap - produced, &out_used);
@@ -90,6 +108,7 @@ int hs_compress_wrapper(const uint8_t* in, size_t inlen,
 
     HSE_finish_res fr = heatshrink_encoder_finish(hse);
     while (fr == HSER_FINISH_MORE) {
+        if (++iter > MAX_ITER) { heatshrink_encoder_free(hse); return -1; }
         size_t out_used = 0;
         HSE_poll_res pr = heatshrink_encoder_poll(hse, out + produced,
                                                   outcap - produced, &out_used);
