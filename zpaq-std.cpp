@@ -1883,6 +1883,10 @@ int64_t g_allocatedram= 0;
 int64_t g_arrayram	  = 0;
 
 bool g_control_c		 = false;
+/// Exit code used once the abort housekeeping in my_handler() has run. Ctrl-C
+/// keeps the historical 1; the GUI's Cancel button sets 2 before triggering the
+/// same housekeeping, so an installer script can still tell the two apart.
+int	 g_abort_exitcode	 = 1;
 int	 g_incomplete_version= 0;
 
 int64_t g_starting_zpaqdate = 0;
@@ -50527,6 +50531,10 @@ string Jidac::sanitizzanomefile(string i_filename, int i_filelength, int &io_col
    ============================================================================ */
 #ifdef _WIN32
 #include <commctrl.h>
+#include <shobjidl.h>
+
+/// The GUI runs on its own thread and needs the same teardown as Ctrl-C.
+void my_handler(int s);
 
 /* 7zG-style progress dialog, styled like an Inno Setup wizard page: a progress
    bar plus two columns of stat rows (Elapsed/Remaining time, Total/Processed/
@@ -50550,8 +50558,57 @@ static HBRUSH           g_inno_brush = NULL;
 static bool             g_inno_dark = false;
 static HFONT            g_inno_font = NULL;
 static HWND             g_inno_btn_bg = NULL, g_inno_btn_cancel = NULL, g_inno_hot = NULL;
+static ITaskbarList3*   g_inno_taskbar = NULL;   // taskbar-button progress (may stay NULL)
+static HMODULE          g_inno_ole32   = NULL;
+static bool             g_inno_marquee = false;  // bar is in indeterminate mode
 #define IDC_INNO_BG     1001
 #define IDC_INNO_CANCEL 1002
+// Windows accent blue, used for the focused button's border.
+#define INNO_ACCENT     RGB(0, 120, 215)
+
+/* Taskbar-button progress (Win7+). ole32 is loaded at run time, matching how
+   this file already reaches dwmapi/uxtheme, so the link keeps no new
+   dependency and older Windows just degrades to no taskbar progress. The GUIDs
+   are spelled out locally to avoid needing -luuid. */
+static void inno_taskbar_init(HWND h)
+{
+	static const GUID clsid_TaskbarList=
+		{0x56FDF344,0xFD6D,0x11D0,{0x95,0x8A,0x00,0x60,0x97,0xC9,0xA0,0x90}};
+	static const GUID iid_ITaskbarList3=
+		{0xEA1AFB91,0x9E28,0x4B86,{0x90,0xE9,0x9E,0x9F,0x8A,0x5E,0xEF,0xAF}};
+	g_inno_ole32= LoadLibraryA("ole32.dll");
+	if (!g_inno_ole32) return;
+	typedef HRESULT (WINAPI *COINIT)(LPVOID, DWORD);
+	typedef HRESULT (WINAPI *COCREATE)(const GUID*, LPUNKNOWN, DWORD, const GUID*, LPVOID*);
+	COINIT   coinit  = (COINIT)  (void*)GetProcAddress(g_inno_ole32, "CoInitializeEx");
+	COCREATE cocreate= (COCREATE)(void*)GetProcAddress(g_inno_ole32, "CoCreateInstance");
+	if (!coinit || !cocreate) return;
+	coinit(NULL, 2 /* COINIT_APARTMENTTHREADED */);
+	void* p= NULL;
+	if (cocreate(&clsid_TaskbarList, NULL, 1 /* CLSCTX_INPROC_SERVER */,
+	             &iid_ITaskbarList3, &p) != S_OK || !p)
+		return;
+	g_inno_taskbar= (ITaskbarList3*)p;
+	if (g_inno_taskbar->HrInit() != S_OK)
+	{
+		g_inno_taskbar->Release();
+		g_inno_taskbar= NULL;
+		return;
+	}
+	g_inno_taskbar->SetProgressState(h, TBPF_INDETERMINATE);
+}
+static void inno_taskbar_done()
+{
+	if (g_inno_taskbar) { g_inno_taskbar->Release(); g_inno_taskbar= NULL; }
+	if (g_inno_ole32)
+	{
+		typedef void (WINAPI *COUNINIT)(void);
+		COUNINIT couninit= (COUNINIT)(void*)GetProcAddress(g_inno_ole32, "CoUninitialize");
+		if (couninit) couninit();
+		FreeLibrary(g_inno_ole32);
+		g_inno_ole32= NULL;
+	}
+}
 
 // stat-row labels + their grid position (col 0 = left, 1 = right; row in column)
 struct InnoRow { const char* label; int col, row; };
@@ -50565,9 +50622,15 @@ static const InnoRow g_inno_layout[7] = {
 	{ "Compression ratio:", 1, 2 },
 };
 
-static void inno_fmt_time(int sec, char* buf, size_t n)
+// Takes MILLISECONDS. Under a minute it shows one decimal of a second, because
+// integer seconds left both time fields reading "00:00:00" for the whole of any
+// sub-second run -- which looks broken rather than fast. A minute or more falls
+// back to HH:MM:SS, where the decimal would only add noise.
+static void inno_fmt_time(int ms, char* buf, size_t n)
 {
-	if (sec < 0) sec= 0;
+	if (ms < 0) ms= 0;
+	if (ms < 60000) { snprintf(buf, n, "%.1f s", ms / 1000.0); return; }
+	int sec= ms / 1000;
 	snprintf(buf, n, "%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
 }
 static void inno_fmt_bytes(long long v, char* buf, size_t n)
@@ -50633,6 +50696,24 @@ static void inno_theme_bar(HWND bar, bool dark)
 	SendMessageA(bar, PBM_SETBARCOLOR, 0, (LPARAM)RGB(38, 160, 38));
 }
 
+// Confirm, then abort the way Ctrl-C does. This used to be a bare
+// TerminateProcess(), which skipped my_handler() entirely: the archive's write
+// handles were never flushed/closed and a VSS snapshot taken for the run was
+// left behind on disk. Reuse the tested Ctrl-C teardown instead, keeping exit
+// code 2 so an installer can still distinguish "user cancelled" from Ctrl-C.
+static void inno_confirm_cancel(HWND h)
+{
+	if (MessageBoxA(h, "Cancel the current operation?", "zpaq-std",
+	                MB_YESNO | MB_ICONQUESTION) != IDYES)
+		return;
+	if (g_inno_taskbar) g_inno_taskbar->SetProgressState(h, TBPF_ERROR);
+	g_abort_exitcode= 2;
+	my_handler(SIGINT);           // housekeeping + exit(g_abort_exitcode) == 2
+	// my_handler() ends in exit(), so this is unreachable. It carries a distinct
+	// code on purpose: seeing 3 would mean the teardown above did NOT complete.
+	TerminateProcess(GetCurrentProcess(), 3);
+}
+
 static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
 	if (m == WM_CTLCOLORSTATIC)
@@ -50649,24 +50730,28 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 		{
 			bool pressed= (d->itemState & ODS_SELECTED) != 0;
 			bool hot    = (d->hwndItem == g_inno_hot);
+			// The accent border marks the keyboard-focused button. It was
+			// described in the layout comment below but never implemented, so
+			// both buttons drew identically and Tab gave no visual feedback.
+			bool focused= (d->itemState & ODS_FOCUS) != 0;
 			COLORREF face, border, txtcol;
 			if (g_inno_dark)
 			{
 				face  = pressed ? RGB(28, 28, 28) : hot ? RGB(60, 60, 60) : RGB(43, 43, 43);
-				border= RGB(94, 94, 94);
+				border= focused ? INNO_ACCENT : RGB(94, 94, 94);
 				txtcol= RGB(240, 240, 240);
 			}
 			else
 			{
 				face  = pressed ? RGB(204, 204, 204) : hot ? RGB(229, 241, 251) : RGB(252, 252, 252);
-				border= RGB(172, 172, 172);
+				border= focused ? INNO_ACCENT : RGB(172, 172, 172);
 				txtcol= RGB(0, 0, 0);
 			}
 			HDC  dc= d->hDC;
 			RECT r = d->rcItem;
 			FillRect(dc, &r, g_inno_brush);   // clear the rounded corners to window bg
 			HBRUSH fb= CreateSolidBrush(face);
-			HPEN   pen= CreatePen(PS_SOLID, 1, border);
+			HPEN   pen= CreatePen(PS_SOLID, focused ? 2 : 1, border);
 			HGDIOBJ of= SelectObject(dc, fb), op= SelectObject(dc, pen);
 			RoundRect(dc, r.left, r.top, r.right - 1, r.bottom - 1, 16, 16);
 			SelectObject(dc, of); SelectObject(dc, op);
@@ -50686,17 +50771,19 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 			ShowWindow(h, SW_MINIMIZE);
 			return 0;
 		}
-		if (LOWORD(w) == IDC_INNO_CANCEL)    // "Cancel": confirm, then abort the process
+		// IDCANCEL is what IsDialogMessage() posts for the Esc key.
+		if (LOWORD(w) == IDC_INNO_CANCEL || LOWORD(w) == IDCANCEL)
 		{
-			if (MessageBoxA(h, "Cancel the current operation?", "zpaq-std",
-			                MB_YESNO | MB_ICONQUESTION) == IDYES)
-				TerminateProcess(GetCurrentProcess(), 2);
+			inno_confirm_cancel(h);
 			return 0;
 		}
 		return 0;
 	}
 	if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
-	if (m == WM_CLOSE)   return 0;   // work owns the lifetime; ignore the [x]
+	// The [x] used to be swallowed silently, leaving no way to stop from the
+	// window itself. Route it to the same confirmation as Cancel; declining
+	// still leaves the lifetime to the work, exactly as before.
+	if (m == WM_CLOSE) { inno_confirm_cancel(h); return 0; }
 	return DefWindowProcA(h, m, w, l);
 }
 
@@ -50770,6 +50857,8 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 	SendMessageA(g_inno_btn_cancel, WM_SETFONT, (WPARAM)hf, TRUE);
 	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
 	UpdateWindow(g_inno_wnd);
+	inno_taskbar_init(g_inno_wnd);
+	SetFocus(g_inno_btn_bg);   // give the keyboard somewhere to start
 	int  last_pct= -1;
 	char prev[7][64]; for (int i= 0; i < 7; i++) prev[i][0]= 0;
 	char prev_title[96]= "";
@@ -50779,6 +50868,11 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE))
 		{
 			if (msg.message == WM_QUIT) goto done;
+			// Gives the window dialog-style keyboard handling for free: Tab and
+			// the arrows move between the WS_TABSTOP buttons, Space/Enter press
+			// the focused one, and Esc posts WM_COMMAND/IDCANCEL. Without this
+			// the buttons were mouse-only despite carrying WS_TABSTOP.
+			if (IsDialogMessageA(g_inno_wnd, &msg)) continue;
 			TranslateMessage(&msg);
 			DispatchMessageA(&msg);
 		}
@@ -50803,15 +50897,55 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			strcpy(prev_title, t);
 			SetWindowTextA(g_inno_wnd, t);
 		}
+		// While the operation is still being sized up there is no percentage to
+		// show, and the bar used to just sit empty at 0 next to a "Loading..."
+		// title. Run it as an indeterminate marquee instead, and switch to the
+		// real determinate bar as soon as the first progress arrives. Dark mode
+		// strips the bar's visual style (needed for the custom trough colour),
+		// but a marquee only animates while themed -- so keep the theme during
+		// the marquee and re-apply the dark styling on the way out.
+		if (!p.known && !g_inno_marquee)
+		{
+			inno_set_ctl_theme(g_inno_bar, NULL, NULL);
+			SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
+				GetWindowLongPtrA(g_inno_bar, GWL_STYLE) | PBS_MARQUEE);
+			SendMessageA(g_inno_bar, PBM_SETMARQUEE, TRUE, 30);
+			g_inno_marquee= true;
+		}
+		else if (p.known && g_inno_marquee)
+		{
+			SendMessageA(g_inno_bar, PBM_SETMARQUEE, FALSE, 0);
+			SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
+				GetWindowLongPtrA(g_inno_bar, GWL_STYLE) & ~PBS_MARQUEE);
+			inno_theme_bar(g_inno_bar, dark);
+			g_inno_marquee= false;
+			if (g_inno_taskbar) g_inno_taskbar->SetProgressState(g_inno_wnd, TBPF_NORMAL);
+		}
 		if (p.pct != last_pct)
 		{
 			last_pct= p.pct;
-			SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p.pct, 0);
+			if (!g_inno_marquee)
+				SendMessageA(g_inno_bar, PBM_SETPOS, (WPARAM)p.pct, 0);
+			// Mirror progress onto the taskbar button, so a minimised run (the
+			// whole point of "Background") still shows how far along it is.
+			if (g_inno_taskbar && p.known)
+				g_inno_taskbar->SetProgressValue(g_inno_wnd, (ULONGLONG)p.pct, 100);
 		}
 		// index order must match g_inno_layout: Elapsed, Remaining, Total, Processed,
 		// Speed, Compressed size, Compression ratio
 		char v[7][64], tmp[48];
-		inno_fmt_time(p.elapsed, v[0], sizeof(v[0]));
+		// Elapsed is recomputed here rather than taken from the pushed struct.
+		// print_progress() is driven by bytes READ, so it stops being called once
+		// the input is consumed -- and the remaining compression (long at -m5)
+		// then ran with the clock frozen at whatever the last read reported,
+		// making the window look hung. mtime() is GetTickCount() and g_start is
+		// written once at startup, so reading them from this thread is safe.
+		{
+			int64_t el= mtime() - g_start;
+			if (el < 0) el= 0;
+			if (el > 2147483647LL) el= 2147483647LL;
+			inno_fmt_time((int)el, v[0], sizeof(v[0]));
+		}
 		inno_fmt_time(p.eta,     v[1], sizeof(v[1]));
 		inno_fmt_bytes(p.total,  v[2], sizeof(v[2]));
 		inno_fmt_bytes(p.done,   v[3], sizeof(v[3]));
@@ -50819,6 +50953,14 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		if (p.compressed < 0)   // extract: no compressed-size / ratio to show
 		{
 			strcpy(v[5], "-"); strcpy(v[6], "-");
+		}
+		else if (p.compressed == 0)
+		{
+			// Adding, but no block has been flushed to the archive yet, so the
+			// compressed counter is genuinely still zero. Printing "0 B" / "0%"
+			// made both fields look broken (they are the two that stay blank in
+			// any short run); say "not known yet" instead.
+			strcpy(v[5], "..."); strcpy(v[6], "...");
 		}
 		else
 		{
@@ -50845,6 +50987,8 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		Sleep(80);
 	}
 done:
+	if (g_inno_taskbar && g_inno_wnd) g_inno_taskbar->SetProgressState(g_inno_wnd, TBPF_NOPROGRESS);
+	inno_taskbar_done();
 	if (g_inno_wnd) { DestroyWindow(g_inno_wnd); g_inno_wnd= NULL; }
 	if (g_inno_brush) { DeleteObject(g_inno_brush); g_inno_brush= NULL; }
 	return 0;
@@ -50914,13 +51058,22 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
     if (flaginnosetup)
     {
         int64_t   el_ms   = mtime() - g_start; if (el_ms < 1) el_ms = 1;
-        int       elapsed = (int)(el_ms / 1000);
         long long speed   = (long long)(td / (el_ms / 1000.0));
         int ip = (int)(td * 100.0 / (ts + 0.5));
         if (ip < 0)   ip = 0;
         if (ip > 100) ip = 100;
-        int eta = (speed > 0) ? (int)((ts - td) / speed) : 0;
-        if (eta < 0) eta = 0;
+        // elapsed/eta are handed over in MILLISECONDS (inno_fmt_time expects
+        // ms): whole seconds pinned both time fields at "00:00:00" for the
+        // entirety of any sub-second operation. Computed in double so a very
+        // large remaining size cannot overflow the multiply, then clamped to
+        // what an int can carry (~24 days).
+        const double MS_MAX = 2147483647.0;
+        double el_d = (double)el_ms;      if (el_d > MS_MAX) el_d = MS_MAX;
+        int elapsed = (int)el_d;
+        double eta_d = (speed > 0) ? ((double)(ts - td) * 1000.0 / (double)speed) : 0.0;
+        if (eta_d < 0)       eta_d = 0;
+        if (eta_d > MS_MAX)  eta_d = MS_MAX;
+        int eta = (int)eta_d;
         // 7zG-style GUI progress window (Windows; no-op elsewhere). i_scritti is the
         // compressed bytes written so far when adding, or -1 on extract.
         inno_gui_progress(ip, td, ts, speed, eta, elapsed, i_scritti);
@@ -65060,7 +65213,7 @@ void my_handler(int s)
 #endif // corresponds to #ifndef (#ifndef _WIN32)
 
 	myprintf("\nGoodbye after %1.3f seconds (%s)\n", (mtime() - g_start) / 1000.0, timetohuman((uint32_t)((mtime() - g_start) / 1000.0)).c_str());
-	exit(1);
+	exit(g_abort_exitcode);
 }
 
 
