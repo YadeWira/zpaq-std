@@ -1883,6 +1883,12 @@ int64_t g_allocatedram= 0;
 int64_t g_arrayram	  = 0;
 
 bool g_control_c		 = false;
+/// Set the moment a write fails because the target volume is full. Extraction
+/// used to keep going after that, failing every remaining file one by one while
+/// the progress bar advanced -- on a 46 GB archive that meant many minutes of
+/// grinding to produce a silently broken partial extraction. Workers stop as
+/// soon as they see it.
+volatile bool g_diskfull = false;
 /// Exit code used once the abort housekeeping in my_handler() has run. Ctrl-C
 /// keeps the historical 1; the GUI's Cancel button sets 2 before triggering the
 /// same housekeeping, so an installer script can still tell the two apart.
@@ -2587,6 +2593,39 @@ std::wstring utow(const char *ss, char slash= '\\')
 	return r;
 }
 
+/// zpaq-std keeps every path in UTF-8 internally, but Windows' fopen() decodes
+/// its argument using the system ANSI codepage. Any path holding a character
+/// outside that codepage therefore failed to open. Worse, most of these call
+/// sites are probes -- "can I write here?", "is this a zpaq file?" -- so the
+/// failure surfaced as a WRONG ANSWER rather than an error: extraction refused
+/// to start on a perfectly writable folder, and an archive whose name carried
+/// such a character was reported as AES-encrypted and prompted for a password.
+/// Romanian is a good example of how narrow the escape is: CP1250 has a-breve
+/// and i-circumflex but NOT s-comma / t-comma, so half a word works and half
+/// does not.
+///
+/// There are 40+ affected call sites. Converting them by hand would miss the
+/// next one somebody adds, so fopen() itself is redirected for the remainder of
+/// this file: _wfopen() takes UTF-16 and utow() is the codepage-independent
+/// converter already used for every other Windows path here.
+///
+/// This block MUST stay after utow() and before the first fopen() use (the
+/// first one is the error-log open, ~200 lines below). The bundled compressors
+/// are separate translation units and are not affected.
+static FILE *zpaq_fopen_utf8(const char *i_filename, const char *i_mode)
+{
+	if ((i_filename == NULL) || (i_mode == NULL))
+		return NULL;
+	std::wstring wname= utow(i_filename);
+	wchar_t		 wmode[16];
+	size_t		 i= 0;
+	for (; (i < 15) && (i_mode[i] != 0); i++)
+		wmode[i]= (wchar_t)(unsigned char)i_mode[i];
+	wmode[i]= 0;
+	return _wfopen(wname.c_str(), wmode);
+}
+#define fopen zpaq_fopen_utf8
+
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 
 
@@ -2916,8 +2955,20 @@ void handle_silent_mode(const char *format, va_list args)
 		fflush(g_output_handle);
 	}
 
-	if (flagerror)
-		my_print_on_error("%s", buffer);
+	/// Errors and warnings must stay visible even when everything else is
+	/// muted. my_print_on_error() alone is not enough: it drops the message
+	/// unless an explicit error-log file was requested (g_error), which is
+	/// empty by default -- so in -innosetup mode a failing run produced
+	/// literally zero output and the user had no way to learn why.
+	/// stderr is the right channel: stdout may be parsed by the caller
+	/// (an Inno Setup pipe reader), stderr is not.
+	if (flagerror || flagwarning)
+	{
+		if (flagerror)
+			my_print_on_error("%s", buffer);
+		fputs(buffer, stderr);
+		fflush(stderr);
+	}
 }
 
 void print_char_to_all(char c, bool is_error)
@@ -24907,7 +24958,10 @@ bool theonlyone(const char i_command, string i_archive)
 		CloseHandle(myevent);
 		myprintf("17264$ Running %s on (%s) <<%Z>>\n", decodedcommand.c_str(), hashato.c_str(), i_archive.c_str());
 		myprintf("17276! Sorry, another zpaqfranz is running, we need to abort\n");
-		exit(0);
+		/// Aborting because another instance holds the archive is a FAILURE:
+		/// nothing was written. This used to exit(0), so a caller (a backup
+		/// script, an installer) saw success and moved on.
+		seppuku(2);
 		return false;
 	}
 #endif // corresponds to #ifdef (#ifdef _WIN32)
@@ -27417,27 +27471,43 @@ int64_t getfreespace(string i_path)
 		string mydir= getfirstwindowsuncdir(i_path);
 		i_path		= mydir;
 	}
-	BOOL			 fResult;
 	unsigned __int64 i64FreeBytesToCaller, i64TotalBytes, i64FreeBytes;
-	WCHAR			*pszDrive= NULL, szDrive[4];
-	const size_t	 WCHARBUF= 512;
-	wchar_t			 wszDest[WCHARBUF];
-	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, i_path.c_str(), -1, wszDest, WCHARBUF);
-	pszDrive= wszDest;
-	if (i_path[1] == ':')
+
+	/// GetDiskFreeSpaceExW() reports the volume that CONTAINS the directory it
+	/// is given, which is what we actually want. The old code truncated any
+	/// "X:\..." path down to the bare drive root, so a destination sitting on a
+	/// volume mounted into a folder was measured against the WRONG disk: the
+	/// check passed, extraction started, and only then ran out of room.
+	/// It also converted with CP_ACP, mangling any UTF-8 path with characters
+	/// outside the system codepage; utow() is the project's own UTF-8 -> UTF-16
+	/// converter and is codepage-independent.
+	/// The directory may not exist yet, and then the call fails, so walk up to
+	/// the nearest existing ancestor -- ending at the drive root, which is the
+	/// behaviour this used to have unconditionally.
+	string probe= i_path;
+	for (int guard= 0; guard < 64; guard++)
 	{
-		szDrive[0]= pszDrive[0];
-		szDrive[1]= ':';
-		szDrive[2]= '\\';
-		szDrive[3]= '\0';
-		pszDrive  = szDrive;
-	}
-	fResult= GetDiskFreeSpaceEx((LPCTSTR)pszDrive,
+		if (probe.empty())
+			break;
+		std::wstring wprobe= utow(probe.c_str());
+		if (GetDiskFreeSpaceExW(wprobe.c_str(),
 								(PULARGE_INTEGER)&i64FreeBytesToCaller,
 								(PULARGE_INTEGER)&i64TotalBytes,
-								(PULARGE_INTEGER)&i64FreeBytes);
-	if (fResult)
-		spazio= i64FreeBytes;
+								(PULARGE_INTEGER)&i64FreeBytes))
+		{
+			/// Report what THIS user may actually write: on a volume with disk
+			/// quotas i64FreeBytesToCaller is smaller than the raw free space.
+			spazio= i64FreeBytesToCaller < i64FreeBytes ? i64FreeBytesToCaller : i64FreeBytes;
+			return spazio;
+		}
+		/// strip the trailing separator, then the last path component
+		while ((!probe.empty()) && ((probe[probe.size() - 1] == '/') || (probe[probe.size() - 1] == '\\')))
+			probe.erase(probe.size() - 1);
+		size_t cut= probe.find_last_of("/\\");
+		if (cut == string::npos)
+			break;
+		probe= probe.substr(0, cut + 1);   // keep the separator: "C:/" stays a root
+	}
 	return spazio; // Windows
 #endif			   // corresponds to #ifdef (#ifdef _WIN32)
 	myprintf("00075! WARNING CANNOT GET FREE DISK SPACE!\n");
@@ -27446,6 +27516,14 @@ int64_t getfreespace(string i_path)
 #ifdef unix
 void printerr(const char *i_where, const char *filename, int32_t i_fileattr)
 {
+	/// See the Windows twin: a full volume must stop the run, and the flag has
+	/// to be set even when the report itself is suppressed.
+	if (errno == ENOSPC)
+	{
+		if (!g_diskfull)
+			myprintf("00082! DISK FULL writing %Z -- aborting extraction\n", filename ? filename : "");
+		g_diskfull= true;
+	}
 	if (flagquiet)
 		return;
 	string lasterror = i_where;
@@ -27702,9 +27780,17 @@ void enumerateerrors()
 }
 void printerr(const char *i_where, const char *filename, int32_t i_fileattr)
 {
+	int					  err= GetLastError();
+	/// Flag this BEFORE the flagignore early-out: -ignore silences the report,
+	/// it must not make a full disk look survivable.
+	if ((err == ERROR_DISK_FULL) || (err == ERROR_HANDLE_DISK_FULL))
+	{
+		if (!g_diskfull)
+			myprintf("00082! DISK FULL writing %Z -- aborting extraction\n", filename ? filename : "");
+		g_diskfull= true;
+	}
 	if (flagignore)
 		return;
-	int					  err= GetLastError();
 	MAPPAERRORS::iterator a	 = g_errors.find(err);
 	if (a != g_errors.end())
 	{
@@ -31381,8 +31467,10 @@ bool headcompare(std::string i_file1, std::string i_file2) {
     if (len1 == 0) return true;
 
     // 3. Apertura file binaria
-    FILE *f1 = std::fopen(i_file1.c_str(), "rb");
-    FILE *f2 = std::fopen(i_file2.c_str(), "rb");
+    /// plain fopen(), not std::fopen(): on Windows it is redirected to the
+    /// UTF-8-safe wrapper defined near utow(), and a qualified call bypasses it
+    FILE *f1 = fopen(i_file1.c_str(), "rb");
+    FILE *f2 = fopen(i_file2.c_str(), "rb");
 
     if (!f1 || !f2) {
         if (f1) std::fclose(f1);
@@ -33020,14 +33108,29 @@ void restore_terminal_echo()
 }
 
 #ifdef _WIN32
+/// Is stdin an actual console, as opposed to a pipe, a file or a device?
+/// GetConsoleMode() succeeds only for a real console handle, which is exactly
+/// the question. _isatty() is NOT that test: it is true for ANY character
+/// device, **NUL included**, so `prog < NUL` -- the classic way to make a
+/// program non-interactive from a .cmd or a scheduled task -- looked
+/// interactive and went on to block in _getch() forever.
+static bool stdin_is_console()
+{
+	HANDLE h= GetStdHandle(STD_INPUT_HANDLE);
+	if ((h == NULL) || (h == INVALID_HANDLE_VALUE))
+		return false;
+	DWORD mode= 0;
+	return GetConsoleMode(h, &mode) != 0;
+}
+
 /// _getch() reads the CONSOLE, not stdin. With a redirected or closed stdin it
 /// therefore blocks forever and never reports EOF, so any non-interactive run
 /// that needed a password hung (a scheduled task on an encrypted archive
-/// without -key). When stdin is not a terminal, read stdin directly: a piped
+/// without -key). When stdin is not a console, read stdin directly: a piped
 /// password now works on Windows too, and EOF is actually seen by the callers.
 int getch_or_stdin()
 {
-	if (!_isatty(_fileno(stdin)))
+	if (!stdin_is_console())
 		return getchar();
 	return _getch();
 }
@@ -33275,13 +33378,16 @@ string internal_password_withcursor(string i_default)
 	{
 		ch= read_key();
 
-	/// stdin is closed or exhausted: there is no password to be had, and
-	/// looping on a dead stream just pins a core forever (a cron job hitting
-	/// an encrypted archive without -key did exactly that). Fail loudly.
-	/// Note a piped password still works: "echo pw | zpaq-std ..." breaks on
-	/// the newline below, long before EOF is ever reached.
+	/// EOF on stdin. If characters already arrived, this is simply a password
+	/// fed without a trailing newline ("zpaq-std ... < pw.txt", or cmd's
+	/// `set /p`): accept it exactly as if Enter had been pressed. With nothing
+	/// read there is no password to be had, and looping on a dead stream just
+	/// pins a core forever (a cron job hitting an encrypted archive without
+	/// -key did exactly that), so fail loudly instead.
 		if (ch == EOF)
 		{
+			if (state.length > 0)
+				break;
 			disable_raw_mode();
 			myprintf("\n");
 			myprintf("42026! Cannot read the password: stdin is closed or at EOF\n");
@@ -33335,11 +33441,14 @@ string internal_password_nocursor(const string& i_default)
 	{
 		ch= read_char();
 
-	/// See the EOF note in internal_password_withcursor(): without this the
-	/// loop spins at 100% CPU forever on a closed stdin, and isprint(EOF)
-	/// below is undefined behaviour on top of that.
+	/// See the EOF note in internal_password_withcursor(): a password already
+	/// underway is accepted as-is, an empty one is an error. Without handling
+	/// EOF at all the loop spins at 100% CPU forever on a closed stdin, and
+	/// isprint(EOF) below is undefined behaviour on top of that.
 		if (ch == EOF)
 		{
+			if (pos > 0)
+				break;
 			restore_terminal_echo();
 			myprintf("\n");
 			myprintf("42026! Cannot read the password: stdin is closed or at EOF\n");
@@ -33522,6 +33631,27 @@ bool is_file_franzen(const string& filename) {
 
 // Check if file starts with ZPAQ magic (7kSt) or zPQ
 
+/// Tri-state probe: 1 = zpaq magic present, 0 = readable but no magic (so it
+/// is presumably AES-encrypted), -1 = could not read 4 bytes at all.
+/// The caller used to collapse "unreadable" into "no magic", which meant an
+/// EMPTY or truncated .zpaq was announced as "Archive is AES-encrypted" and
+/// prompted for a password that never existed -- a badly misleading diagnosis
+/// for what is really an incomplete file (a copy that stopped half way).
+int probe_zpaq_magic(const string& filename)
+{
+    FILE* f = fopen(filename.c_str(), "rb");
+    if (f == NULL)
+        return -1;
+    char m[4] = {0};
+    bool got = (fread(m, 1, 4, f) == 4);
+    fclose(f);
+    if (!got)
+        return -1;
+    const bool is_7kSt = (memcmp(m, "7kSt", 4) == 0);
+    const bool is_zPQ  = (memcmp(m, "zPQ",  3) == 0) && (m[3] >= 1);
+    return (is_7kSt || is_zPQ) ? 1 : 0;
+}
+
 bool is_file_zpaq(const string& filename)
 {
     FILE* f = fopen(filename.c_str(), "rb");
@@ -33595,6 +33725,13 @@ ArchiveType InputArchive::detect_archive_type(const string& base_file)
 			return ARCHIVE_ZPAQ_AES;
 				else
 			return ARCHIVE_ZPAQ_PLAIN;
+		}
+		/// An archive we cannot even read 4 bytes from is not "encrypted", it is
+		/// damaged or empty. Say so instead of asking for a password.
+		if (probe_zpaq_magic(zpaq_file) < 0)
+		{
+			myprintf("39128! Archive is empty or unreadable (incomplete copy?): %s\n", zpaq_file.c_str());
+			error("Archive is empty or unreadable");
 		}
 		// Check if it starts with "7kSt" or zPQ or has AES salt
 		if (is_file_zpaq(zpaq_file))
@@ -59710,6 +59847,10 @@ ThreadReturn decompressThread(void *arg)
 	int next= 0; // current job
 	while (true)
 	{
+		/// The volume filled up: nothing further can be written, so stop instead
+		/// of failing every remaining block in turn.
+		if (g_diskfull)
+			return 0;
 		lock(job.mutex);
 		for (unsigned i= 0; i <= job.jd.block.size(); ++i)
 		{
@@ -60732,6 +60873,10 @@ ThreadReturn decompressthreadramdisk(void *arg)
 	int next= 0; // current job
 	while (true)
 	{
+		/// The volume filled up: nothing further can be written, so stop instead
+		/// of failing every remaining block in turn.
+		if (g_diskfull)
+			return 0;
 		lock(job.mutex);
 		for (unsigned i= 0; i <= job.jd.block.size(); ++i)
 		{
@@ -87736,7 +87881,7 @@ int Jidac::extract()
 			if (!saggiascrivibilitacartella(tofiles[0]))
 			{
 				myprintf("00877! Cannot write on <<-to %s>>\n", tofiles[0].c_str());
-				myprintf("00878: Aborting. Use -space to bypass and enforcing.\n");
+				myprintf("00878! Aborting. Use -space to bypass and enforcing.\n");
 				return 2;
 				/// error("Path seems not writeable");
 			}
@@ -88275,8 +88420,8 @@ int Jidac::extract()
 			{
 				if (!saggiascrivibilitacartella(tofiles[0]))
 				{
-					myprintf("00929: Cannot write on <<-to %s>>\n", tofiles[0].c_str());
-					myprintf("00930: Aborting. Use -space to bypass and enforcing.\n");
+					myprintf("00929! Cannot write on <<-to %s>>\n", tofiles[0].c_str());
+					myprintf("00930! Aborting. Use -space to bypass and enforcing.\n");
 					error("Path seems not writeable");
 				}
 				int64_t spazio= getfreespace(tofiles[0]);
