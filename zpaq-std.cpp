@@ -27404,27 +27404,47 @@ string makelongpath(const string& i_path)
 int64_t getfreespace(string i_path)
 {
 #ifndef _WIN32
-	if (i_path != "")
-		if (!direxists(i_path))
-		{
-			myprintf("00067! Path does not exists %Z\n", i_path.c_str());
+	if (i_path == "")
+		i_path= "./";
+	if (!direxists(i_path))
+	{
+		myprintf("00067! Path does not exists %Z\n", i_path.c_str());
 
-			vector<string> pezzi;
-			explode(i_path, '/', pezzi);
-			if (pezzi.size() >= 2)
+		/// Measure the volume that will hold the path once it is created, by
+		/// walking up to the nearest existing ancestor. The old code only
+		/// PRINTED a heuristic guess and then left i_path untouched, so
+		/// statvfs() failed and every not-yet-created destination reported
+		/// 0 bytes free -- which aborts with "Not enough free space" on a disk
+		/// that has plenty. Same defect as the Windows branch fixed in
+		/// v64.8j-pre8; a bare relative name ("out") has no ancestor at all
+		/// and means the current directory, not the root.
+		string probe= i_path;
+		while (true)
+		{
+			size_t slash= probe.find_last_of('/');
+			if (slash == string::npos)
 			{
-				string percorso= "/";
-				for (unsigned int i= 1; i < pezzi.size() - 1; i++)
-					percorso+= pezzi[i] + "/";
-				if (percorso != "/")
-				{
-					if (direxists(percorso))
-						myprintf("00071: Getting free space for %Z\n", percorso.c_str());
-					else
-						myprintf("00072! Sorry: cannot find the path heuristically %Z\n", percorso.c_str());
-				}
+				probe= ".";
+				break;
 			}
+			probe= probe.substr(0, slash);
+			if (probe == "")
+			{
+				probe= "/";
+				break;
+			}
+			if (direxists(probe))
+				break;
 		}
+		if (direxists(probe))
+		{
+			if (flagdebug2)
+				myprintf("00071: Getting free space for %Z (on behalf of %Z)\n", probe.c_str(), i_path.c_str());
+			i_path= probe;
+		}
+		else
+			myprintf("00072! Sorry: cannot find the path heuristically %Z\n", probe.c_str());
+	}
 #endif // corresponds to #ifndef (#ifndef _WIN32)
 
 #ifdef BSD
@@ -27486,6 +27506,7 @@ int64_t getfreespace(string i_path)
 	/// the nearest existing ancestor -- ending at the drive root, which is the
 	/// behaviour this used to have unconditionally.
 	string probe= i_path;
+	bool   triedcwd= false;
 	for (int guard= 0; guard < 64; guard++)
 	{
 		if (probe.empty())
@@ -27506,7 +27527,18 @@ int64_t getfreespace(string i_path)
 			probe.erase(probe.size() - 1);
 		size_t cut= probe.find_last_of("/\\");
 		if (cut == string::npos)
-			break;
+		{
+			/// No separator left to strip: a bare relative name ("out") has no
+			/// ancestor at all and lives in the CURRENT directory. Without this
+			/// the walk gave up and returned 0, so "x arc -to out" aborted with
+			/// "00935! Not enough free space" for a five-byte file on a disk
+			/// with room to spare (verified on the Win10 VM against pre8).
+			if (triedcwd)
+				break;
+			triedcwd= true;
+			probe	= ".";
+			continue;
+		}
 		probe= probe.substr(0, cut + 1);   // keep the separator: "C:/" stays a root
 	}
 	return spazio; // Windows
@@ -32486,6 +32518,14 @@ bool saggiascrivibilitacartella(string i_cartella)
 	if (flagdebug3)
 		myprintf("00172: i_cartella %s\n", i_cartella.c_str());
 	i_cartella= extractfilepath(i_cartella);
+	/// A bare relative name ("out", "run.pid") has no path component, so
+	/// extractfilepath() returns "" and the old code then tested "" + "/",
+	/// i.e. the writability of the filesystem ROOT instead of the place the
+	/// caller meant. On Linux as a normal user that aborts outright:
+	///   "00877! Cannot write on <<-to out>>"
+	/// A name with no directory in it means the current directory.
+	if (i_cartella == "")
+		i_cartella= "./";
 	if (flagdebug3)
 		myprintf("00173: i_cartella %s\n", i_cartella.c_str());
 	if (!isdirectory(i_cartella))
@@ -47958,6 +47998,14 @@ void Jidac::jidacreset()
 	dt.clear();
 	ht.clear();
 	edt.clear();
+	/// vf holds DTMap::iterator into edt. Clearing edt without clearing vf
+	/// leaves dangling iterators: the next scan appends to a non-empty vf and
+	/// the stale entries resolve to whatever map node the allocator reused, so
+	/// add() reads a file nobody selected. That inflated total_done against a
+	/// total_size the scan had counted correctly and made -append report
+	///   "02171$ HOUSTON expected 9, done 17, diff 8"
+	/// on a run that wrote the archive correctly.
+	vf.clear();
 	ht.resize(1);  // element 0 not used
 	ver.resize(1); // version 0
 	dhsize= dcsize= 0;
@@ -72258,15 +72306,14 @@ int Jidac::append()
 		if (flagdebug3)
 			myprintf("01820: Second round cdatasize %s  htsize %s\n", migliaia(g_cdatasize), migliaia2(g_htsize));
 		jidacreset();
-		/// jidacreset() leaves these two alone, and pass 1 already counted its
-		/// share into total_size. Carrying them over made add()'s closing
+		/// jidacreset() does not touch total_size, and pass 1 already counted
+		/// its share into it. Carrying that over made add()'s closing
 		/// "expected vs done" check compare a DOUBLED total_size against a
 		/// single total_done and report a bogus
-		///   "02171$ HOUSTON expected 10, done 5 ... almost certainly incompleted"
+		///   "02171$ HOUSTON expected 18, done 9 ... almost certainly incompleted"
 		/// with errors=2, on a run that had in fact written everything
-		/// correctly (the resulting archive verifies OK).
+		/// correctly. total_done needs no reset here: add() zeroes it itself.
 		total_size= 0;
-		total_done= 0;
 		return add();
 	}
 	else
