@@ -285,6 +285,14 @@ FL2OBJ := $(FL2SRC:.c=.o)
 LZ5OBJ := $(LZ5SRC:.c=.o)
 LIZOBJ := $(LIZSRC:.c=.o)
 BZIP2OBJ := $(BZIP2SRC:.c=.o)
+
+# libdivsufsort-lite, extraido del monolito (fase 0 del plan de Rust). Es de
+# terceros y autocontenido; estaba en medio de namespace libzpaq y su
+# #define INLINE_divsuf lo usaba tambien BLAKE3, fuera del namespace.
+DIVSUFSRC := libdivsufsort/divsufsort.cpp
+DIVSUFOBJ := $(DIVSUFSRC:.cpp=.o)
+DIVSUFINC := -Ilibdivsufsort
+
 BZIP3OBJ := $(BZIP3SRC:.c=.o)
 BROTLI_COMMON_OBJ := $(patsubst compressors/brotli/common/%.c,compressors/brotli/common/%.o,$(wildcard compressors/brotli/common/*.c))
 BROTLI_ENC_OBJ := $(patsubst compressors/brotli/enc/%.c,compressors/brotli/enc/%.o,$(wildcard compressors/brotli/enc/*.c))
@@ -307,8 +315,8 @@ PREFLATE_ROOT_OBJ := $(PREFLATE_ROOT_SRC:.cpp=.o)
 PREFLATE_SUP_OBJ  := $(PREFLATE_SUP_SRC:.cpp=.o)
 PREFLATEOBJ := $(PREFLATE_ROOT_OBJ) $(PREFLATE_SUP_OBJ)
 
-$(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -317,6 +325,9 @@ $(PROG): $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ
 # removes win/*.o between cross-compiles.
 win/manifest_res.o: win/zpaq-std.rc win/zpaq-std.manifest
 	$(CROSS_COMPILE)windres -I win win/zpaq-std.rc -o $@
+
+libdivsufsort/%.o: libdivsufsort/%.cpp
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(DIVSUFINC) -c $< -o $@
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@
