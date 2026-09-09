@@ -1784,6 +1784,7 @@ g++ -g -Wall -Wextra -Wpedantic -fsanitize=address,undefined -O3 zpaqfranz.cpp -
 	#include <cstddef>
 	#include <cstdio>
 	#include <dirent.h>
+	#include <glob.h>
 	#include <fcntl.h>
 	#include <iostream>
 	#include <map>
@@ -57961,6 +57962,35 @@ string fix_scandir(const string &i_path)
 // In zpaqfranz, sometimes, we DO not want to recurse
 void Jidac::scandir(bool i_checkifselected, DTMap &i_edt, string filename, bool i_recursive)
 {
+#ifndef _WIN32
+	/// Wildcard expansion of SOURCE paths existed only for Windows (see
+	/// wildcardMatch() and the base/pattern splitter, both inside #ifdef
+	/// _WIN32). On POSIX there was none -- so a QUOTED pattern, which is
+	/// exactly what the help tells you to write ("DO NOT FORGET DOUBLE QUOTES
+	/// ON *NIX!", "wildcards require double quotes") to stop the shell from
+	/// expanding it first, matched nothing at all: `sum "*.c"` answered
+	/// "Nothing to do" with .c files right there, and `cp "dir/*"` failed with
+	/// "cannot build source file list".
+	/// glob(3) is POSIX, needs no new dependency, and returns sorted paths so
+	/// the resulting archive stays deterministic. Only patterns that do not
+	/// exist as a literal name are expanded, so a real file called "a?b" is
+	/// still found by its own name. The expanded paths carry no wildcards, so
+	/// the recursion below terminates.
+	if ((!filename.empty()) && iswildcards(filename) && (!fileexists(filename)))
+	{
+		glob_t gl;
+		memset(&gl, 0, sizeof(gl));
+		if (glob(filename.c_str(), 0, NULL, &gl) == 0)
+		{
+			if (flagdebug2)
+				myprintf("00624: glob '%s' -> %d matches\n", filename.c_str(), (int)gl.gl_pathc);
+			for (size_t gi= 0; gi < gl.gl_pathc; gi++)
+				scandir(i_checkifselected, i_edt, gl.gl_pathv[gi], i_recursive);
+		}
+		globfree(&gl);
+		return;
+	}
+#endif
 	// Don't scan diretories excluded by -not
 	for (unsigned i= 0; i < notfiles.size(); ++i)
 		if (ispath(notfiles[i].c_str(), filename.c_str()))
@@ -72203,6 +72233,18 @@ int Jidac::append()
 {
 	myprintf("01819: Append 2-pass *** ALPHA STAGE *** ANTI-RANSOMWARE (FOR chflags sappend)\n");
 
+	/// The two-pass scheme needs an archive to append TO: pass 1 runs with
+	/// g_fakewrite to size the transaction, pass 2 writes it. With no archive
+	/// yet there is nothing to size, and this used to go ahead regardless and
+	/// leave behind a 0-byte, unusable .zpaq (rc=2). Creating the first
+	/// version is simply a normal add -- and a file that does not exist yet is
+	/// not what an append-only flag is protecting in the first place.
+	if (!fileexists(archive))
+	{
+		myprintf("01818: the archive does not exist yet: creating it with a normal add\n");
+		return add();
+	}
+
 	g_optional = "ransomware";
 	g_cdatasize= 0;
 	g_htsize   = 0;
@@ -72216,6 +72258,15 @@ int Jidac::append()
 		if (flagdebug3)
 			myprintf("01820: Second round cdatasize %s  htsize %s\n", migliaia(g_cdatasize), migliaia2(g_htsize));
 		jidacreset();
+		/// jidacreset() leaves these two alone, and pass 1 already counted its
+		/// share into total_size. Carrying them over made add()'s closing
+		/// "expected vs done" check compare a DOUBLED total_size against a
+		/// single total_done and report a bogus
+		///   "02171$ HOUSTON expected 10, done 5 ... almost certainly incompleted"
+		/// with errors=2, on a run that had in fact written everything
+		/// correctly (the resulting archive verifies OK).
+		total_size= 0;
+		total_done= 0;
 		return add();
 	}
 	else
