@@ -285,6 +285,39 @@ FL2OBJ := $(FL2SRC:.c=.o)
 LZ5OBJ := $(LZ5SRC:.c=.o)
 LIZOBJ := $(LIZSRC:.c=.o)
 BZIP2OBJ := $(BZIP2SRC:.c=.o)
+
+# --- EXPERIMENTO: bzip2 en Rust puro (libbz2-rs-sys) en lugar del C vendorizado.
+# make RUSTBZ2=1  [CROSS_COMPILE=...]
+# zpaq-std usa bzip2 por exactamente dos simbolos
+# (BZ2_bzBuffToBuffCompress/Decompress), asi que el cambio es solo de enlazado:
+# ni una linea de zpaq-std.cpp se toca. El crate se compila como staticlib con la
+# feature "export-symbols", que le pone #[export_name] a la API C de libbz2.
+RUSTBZ2 ?=
+ifeq ($(RUSTBZ2),1)
+  ifneq (,$(findstring x86_64-w64-mingw32,$(CROSS_COMPILE)))
+    RUST_TARGET := x86_64-pc-windows-gnu
+  else ifneq (,$(findstring i686-w64-mingw32,$(CROSS_COMPILE)))
+    RUST_TARGET := i686-pc-windows-gnu
+  else
+    RUST_TARGET := $(shell rustc -vV | sed -n 's/^host: //p')
+  endif
+  BZ2RS_LIB := rust/bz2rs/target/$(RUST_TARGET)/release/libbz2rs.a
+  # nada de bzip2 en C, y el archivo estatico al FINAL del enlazado, que es
+  # donde un .a resuelve los simbolos de los objetos que vienen antes
+  BZIP2OBJ  :=
+  LDLIBS    += $(BZ2RS_LIB)
+  # declarar la API de bzip2 como cdecl: ver el comentario en bzlib.h
+  ZPAQ_CPPFLAGS += -DBZ_RS_CDECL
+  # el staticlib arrastra la std de Rust: en windows-gnu pide estas del sistema
+  ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+    LDLIBS += -lws2_32 -luserenv -lntdll -lbcrypt -lsynchronization
+  endif
+  # prerequisito extra de $(PROG) sin receta: make une las listas
+  $(PROG): $(BZ2RS_LIB)
+  $(BZ2RS_LIB): rust/bz2rs/Cargo.toml rust/bz2rs/src/lib.rs
+	cd rust/bz2rs && cargo build --release --target $(RUST_TARGET)
+endif
+
 BZIP3OBJ := $(BZIP3SRC:.c=.o)
 BROTLI_COMMON_OBJ := $(patsubst compressors/brotli/common/%.c,compressors/brotli/common/%.o,$(wildcard compressors/brotli/common/*.c))
 BROTLI_ENC_OBJ := $(patsubst compressors/brotli/enc/%.c,compressors/brotli/enc/%.o,$(wildcard compressors/brotli/enc/*.c))
@@ -328,8 +361,10 @@ compressors/lizard/%.o: compressors/lizard/%.c compressors/lizard/entropy/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LIZINC) -c $< -o $@
 
 # Static pattern rules (specific files only, to avoid generic %.o:%.c match)
+ifneq ($(RUSTBZ2),1)
 $(BZIP2OBJ): compressors/bzip2/%.o: compressors/bzip2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(BZIP2INC) -c $< -o $@
+endif
 
 $(BZIP3OBJ): compressors/bzip3/%.o: compressors/bzip3/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(BZIP3INC) -c $< -o $@

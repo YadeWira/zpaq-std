@@ -81,6 +81,14 @@ typedef
       /* windows.h define small to char */
 #      undef small
 #   endif
+#   ifdef BZ_RS_CDECL
+   /* EXPERIMENTO (rama exp/rust-bzip2): la API se declara cdecl, no WINAPI.
+      Upstream usa __stdcall en _WIN32, que en i686 decora los nombres con
+      @<bytes de argumentos> (@28 / @24) y no coincide con lo que exporta
+      libbz2-rs-sys. En x86_64 no hay decoracion y el problema no aparece. */
+#   define BZ_API(func) func
+#   define BZ_EXTERN extern
+#   else
 #   ifdef BZ_EXPORT
 #   define BZ_API(func) WINAPI func
 #   define BZ_EXTERN extern
@@ -88,6 +96,7 @@ typedef
    /* import windows dll dynamically */
 #   define BZ_API(func) (WINAPI * func)
 #   define BZ_EXTERN
+#   endif
 #   endif
 #else
 #   define BZ_API(func) func

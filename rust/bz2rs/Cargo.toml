@@ -1,0 +1,20 @@
+[package]
+name = "bz2rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Un staticlib que no expone nada propio: sólo arrastra los símbolos C de
+# libbz2-rs-sys (la implementación de bzip2 en Rust puro) para que el enlazador
+# de zpaq-std los encuentre en lugar de los del bzip2 vendorizado en C.
+[lib]
+name = "bz2rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+libbz2-rs-sys = { version = "0.2", default-features = false, features = ["std", "rust-allocator", "export-symbols"] }
+
+[profile.release]
+opt-level = 3
+panic = "abort"
+codegen-units = 1
