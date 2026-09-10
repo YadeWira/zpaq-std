@@ -1,4 +1,125 @@
-### [Unreleased] - 2026-06-08
+### [64.8j] - 2026-09-10
+
+Eleven pre-releases. The first half added the `-ytool` precompressor and removed
+`-sa`; the second half is almost entirely bug fixes, most of them found by
+building a test harness and pointing it at the *published* binaries.
+
+**The archive format is unchanged throughout.** One behaviour change is worth
+calling out: since `pre11`, filenames with characters outside the Basic
+Multilingual Plane are written correctly on Windows, so those bytes differ from
+every earlier release (see below).
+
+#### Filenames and the OS boundary
+
+- **`pre11`** — `wtou()` (UTF-16 → UTF-8, Windows only) emitted a 3-byte sequence
+  for every UTF-16 unit ≥ 2048, **surrogates U+D800–U+DFFF included, without
+  pairing them**. A character outside the BMP *is* a surrogate pair, so it was
+  stored as CESU-8 rather than UTF-8 — `f0 9f 8e 89` became
+  `ed a0 bc ed be 89`. Its inverse `utow()` always handled the 4-byte case
+  correctly, so Windows → Windows round-tripped by accident while
+  Windows → archive → anywhere else produced a corrupted name. Affects emoji, CJK
+  from extension B up, most mathematical and musical symbols. Romanian ș/ț, BMP
+  CJK, Greek and Cyrillic were never affected, which is why it went unnoticed.
+  A *lone* surrogate is deliberately left on the old 3-byte path: it cannot be
+  represented in UTF-8 at all, and that encoding is exactly what `utow()`
+  reverses — mapping it to `?` would lose the file's name. Archives written
+  before this release keep their bytes and still extract as they did.
+
+- **`pre8`** — seven Windows fixes, all found chasing a report that an archive
+  "would not extract in Romanian". **It was never about the language**: a 46 GB
+  multi-part archive, a destination without room for it, and an installer running
+  the one mode that hides every error message. `fopen()` now goes through
+  `_wfopen(utow(...))`, so paths outside the system codepage work; the free-space
+  check measures the volume that actually contains the destination rather than
+  truncating to the drive letter; a full disk aborts the run instead of
+  continuing; and `-innosetup` no longer swallows errors and warnings.
+
+- **`pre9`** — four pre-existing bugs. The serious one: `jidacreset()` cleared
+  `edt` but not `vf`, which holds iterators *into* `edt`, so the next scan
+  appended to a stale `vf` and `add()` read a file nobody had selected. On
+  Windows `-append` died with an access violation and silently dropped the
+  appended file; on Linux it segfaults or reports a bogus
+  `HOUSTON expected/done`. The other three: the writability probe tested the
+  filesystem **root** for any bare relative name, the POSIX branch of the
+  free-space check reported 0 bytes free for any destination that did not exist
+  yet, and the Windows branch gave up on a bare relative name.
+
+#### Precompression
+
+- **`pre4`** — new **`-ytool`**, superseding `-pc`. Instead of the built-in
+  preflate path, zpaq-std shells out to
+  [ytool](https://github.com/YadeWira/ytool) (a Free Pascal recreation of xtool),
+  which detects far more embedded streams: gzip / zlib / ZIP / PDF DEFLATE
+  **plus** JPEG, PNG, MP3, raw WAV/PCM and LZO. Measured **−12.1% vs plain and
+  −5.2% vs `-pc`** on a mixed corpus with `-ma:flzma2`. Safe by construction: a
+  file is stored as a ytool container only if `decode(encode(x)) == x` was proven
+  byte-for-byte at encode time, and the container carries the original's size and
+  CRC-32 so extraction re-checks the reversed bytes.
+- **`pre5`** — container gating. `-ytool` used to look only at a file's first
+  bytes, so a **`.tar`** was a no-op and the recompressible files inside it were
+  invisible. Now a file with no offset-0 magic that looks like a container gets
+  ytool's cheap detect-only `-scan` probe. Also made the output invariant across
+  thread counts.
+- **`pre3`** — **`-sa` removed entirely**, along with the vendored packJPG.
+- **`pre2`** — `-pc` no longer touches the PNG family, reserved for a dedicated
+  transform.
+
+#### Other
+
+- **`pre10`** — `libdivsufsort-lite` lifted out of the monolith into its own
+  module and namespace. No behaviour change: byte-identical output, verified with
+  84 differential comparisons. This unblocks separating the format core.
+- **`pre6`** — six bugs from a full `-ma`/`-m` sweep: a `heatshrink` window size
+  that overflowed its `int16_t` search index and spun forever on inputs ≥ 64 KB,
+  short-alias flags in their space form, an invalid `-ma` name that carried on
+  instead of stopping, password handling at EOF, and an exit code that claimed
+  success after errors.
+- **`pre7`** — `-innosetup` GUI: Cancel now runs the same abort path as Ctrl+C
+  instead of killing the process, keyboard and `[x]` work, and the progress
+  readouts are honest.
+- **`pre1`** — version bump to 64.8j, and a password can be passed through the
+  `FRANZKEY` environment variable.
+
+#### Verification harness
+
+Added under `test/testlab/`, and worth mentioning because two of the bugs above
+were found by it rather than by a user: `golden_gate.sh` checks that the current
+build still extracts `.zpaq` files written by *published* releases; `os_msgs.sh`
+covers destination shapes and the numbered messages that nothing else looked at;
+`difftest.sh` compares two binaries for byte-identical output and
+cross-readability; `pin_corpus.sh` pins the corpus so a comparison cannot
+silently run on different inputs.
+
+---
+
+### [64.7g] - 2026-06-22
+
+The `-innosetup` progress window, the `-pc` speed arc, and a parallel front-end.
+
+- **`-innosetup`** (`pre4`–`pre14`) — a native Win32 progress window for
+  installer use, modelled on 7-Zip's 7zG and styled like an Inno Setup wizard
+  page: comctl32 v6 progress bar, the verb and percentage in the title bar, two
+  columns of stat rows, Background / Cancel buttons, and automatic dark/light
+  theme detection. `-innosetup:FILE` writes progress to a file instead.
+- **Parallel front-end** (`pre20`) — read, hash and fragment now run in a worker
+  pool ahead of the main thread, which had been the bottleneck on many small
+  files.
+- **`-pc` speedups** (`pre15`–`pre18`, `pre22`) — DEFLATE streams under 4 KB are
+  stored verbatim; cross-file prefetch overlaps preflate with the rest of
+  compression (prefetch cap later raised 8 → 32, ~2.2×); the reverse pass at
+  extract time is parallel and needs no temp file; the original is hashed in the
+  prefetch worker; and a zlib fast-path tries stock zlib configurations before
+  paying for preflate analysis. A `-pcc` deep-scan variant was tried and
+  **reverted** — it did not pay for itself.
+- **`-ma:ppmd`** (`pre3`) — PPMd var.H from the 7-Zip SDK as an external codec.
+- **32-bit builds are extract-only** (`pre15`) — heavy compression does not fit a
+  ~2 GB address space reliably, so `a` is disabled there.
+- **packJPG** (`pre19`) was added as an `-sa` step and later removed together
+  with `-sa` in 64.8j-pre3.
+
+---
+
+### [64.7g] - 2026-06-08
 
 **`-pc` faster.** Two speedups for the precompressor: (1) DEFLATE streams smaller
 than 4 KB are stored verbatim instead of run through preflate — tiny streams cost
@@ -79,7 +200,7 @@ on Windows too, so they are back. Bundled algorithms: 15 → 17.
   so `-ma:lz4/lz4hc/lz4f` apply instead of falling back.
 - Result: **full `-ma` round-trip verified on real Windows 10**, matching Linux.
 
-### [Unreleased] - 2026-06-07
+### [64.7g] - 2026-06-07
 
 **Windows 7+ cross-compile support**
 
@@ -101,7 +222,7 @@ on Windows too, so they are back. Bundled algorithms: 15 → 17.
 - Bundled algorithm count: 17 → 15. Use `-ma:lzh`/`-ma:bsc` for high ratio,
   `-ma:lzav`/`-ma:lz4` for speed.
 
-### [Unreleased] - 2026-06-03
+### [64.7g] - 2026-06-03
 
 **Bundled external compression algorithms (no system dependencies)**
 

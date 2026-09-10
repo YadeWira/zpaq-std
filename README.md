@@ -2,11 +2,15 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), maintained as a **single-file C++ program** with **18 bundled, swappable external compression algorithms** and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **17 bundled, swappable external compression libraries** (21 `-ma` switches) and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
-This is **YadeWira's personal fork**. The new work here is the bundled-compressors architecture: pick the algorithm at archive time, no host setup needed. The base code (the deduplication engine, the journaling archiver, the single-file C++ layout) is Franco Corbelli's, derived in turn from Matt Mahoney's public-domain zpaq 7.15. See [CONTRIBUTORS](CONTRIBUTORS) for the full attribution chain.
+This is **YadeWira's personal fork**. The new work here is the bundled-compressors architecture: pick the algorithm at archive time, no host setup needed. The base code (the deduplication engine, the journaling archiver) is Franco Corbelli's, derived in turn from Matt Mahoney's public-domain zpaq 7.15. See [CONTRIBUTORS](CONTRIBUTORS) for the full attribution chain.
+
+The application still lives in one ~104,000-line `zpaq-std.cpp`, but it is no longer
+strictly single-file: `libdivsufsort/` was lifted out into its own module, and
+`test/testlab/` holds the verification harness.
 
 ---
 
@@ -17,7 +21,7 @@ This is **YadeWira's personal fork**. The new work here is the bundled-compresso
 - **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive
 - **Append-only** — never modifies existing data; ideal for incremental cloud sync
 - **Self-verifying** — triple-checksums (CRC-32, XXHASH64, SHA-1) per block, with optional SHA-2/SHA-3/Whirlpool/BLAKE3
-- **Single file** — no repositories, no databases, no temp files; one `.zpaq` is the whole backup
+- **One archive file** — no repositories, no databases, no temp files; a single `.zpaq` is the whole backup
 
 ---
 
@@ -68,7 +72,43 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ---
 
-## Precompressor: `-pc`
+## Precompressors: `-ytool` and `-pc`
+
+Two precompressors, both **reversible and bit-exact**, both applied *before*
+compression so the second stage sees the real data instead of an
+already-compressed blob. `-ytool` is the newer one and supersedes `-pc`.
+
+| | `-ytool` | `-pc` |
+|---|---|---|
+| formats | DEFLATE (gz/zlib/zip/pdf) **plus ytool's own set** | DEFLATE only |
+| implementation | external `ytool` subprocess | bundled `preflate`, in-process |
+| needs anything installed | **yes**, the `ytool` binary | no |
+
+### `-ytool`
+
+Hands each candidate file to [ytool](https://github.com/YadeWira/ytool) (an
+open-source FPC recreation of xtool) and stores the result as a self-describing
+container. The binary is found via `ytool_set_binary()`, the `ZPAQ_YTOOL`
+environment variable, or `ytool` on `PATH` — in that order.
+
+```bash
+zpaq-std a backup.zpaq /data -ytool -ma:flzma2
+zpaq-std a backup.zpaq /data -ytool:<codecs|params>   # override ytool's arguments
+```
+
+- **Safe by construction**: a file is stored as a ytool container only if
+  `decode(encode(x)) == x` was proven byte-for-byte at encode time. The container
+  carries the original's size and CRC-32, so extraction re-checks the reversed
+  bytes. Anything that fails is stored verbatim.
+- **Deterministic**: ytool's `precomp` is only deterministic at `-t1` (there is a
+  real race above that), so zpaq-std always passes `-t1` and recovers throughput by
+  running many ytool processes in parallel — one per file, from its own prefetch
+  pool. Each file is deterministic *and* the batch is parallel, which keeps the
+  output dedup-friendly.
+- Deliberately no `-dd`: deduplication is left to zpaq's own content-defined
+  chunking.
+
+### `-pc`
 
 > ⚠️ **Experimental.** `-pc` is still under active development. It is designed to be
 > safe by construction — every stream is verified byte-for-byte at compress time and
@@ -142,29 +182,38 @@ zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
 
 ## No system dependencies
 
-All 18 libraries live inside `compressors/`:
+All 17 `-ma` libraries live inside `compressors/`:
 
 ```
 compressors/
-├── lz4/         2 .c  + 2 .h
-├── zstd/        1 .c  + 2 .h   (amalgamated)
-├── fl2/        13 .c + 22 .h   (fast-lzma2)
-├── lz5/         2 .c  + 4 .h
-├── lizard/     10 .c + 26 .h
-├── bzip2/       7 .c  +  2 .h
-├── bzip3/       1 .c  +  4 .h
-├── brotli/     35 .c + 71 .h   (enc+dec+common)
-├── snappy/      7 .cpp + 6 .h  (Google, BSD-3)
-├── libdeflate/ 39 .c  +  4 .h  (ebiggers, MIT; core+lib/x86+lib/arm)
-├── lzlib/      13 .c  +  1 .h  (lzip, BSD-2; single-TU wrapper)
-├── lzav/        1 .h            (header-only)
-├── hs/          2 .c  + 1 .h   (+ hs_wrapper.c glue)
-├── lzfse/       7 .c           (+lzvn helpers)
-├── bsc/        12 .cpp + libsais.c
-└── lzham/      19 .cpp
+├── lz4/          2 src +  2 h
+├── zstd/         1 src +  2 h   (amalgamated)
+├── fl2/         13 src + 22 h   (fast-lzma2)
+├── lz5/          2 src +  4 h
+├── lizard/      10 src + 26 h
+├── bzip2/        7 src +  2 h
+├── bzip3/        1 src +  4 h
+├── brotli/      35 src + 71 h   (enc+dec+common)
+├── snappy/       4 src +  6 h   (Google, BSD-3; .cc)
+├── libdeflate/  11 src + 28 h   (ebiggers, MIT)
+├── lzlib/        7 src +  7 h   (lzip, BSD-2)
+├── lzav/         0 src +  1 h   (header-only)
+├── hs/           3 src +  5 h   (+ hs_wrapper.c glue)
+├── lzfse/        7 src +  7 h   (+lzvn helpers)
+├── bsc/         12 src + 15 h   (+libsais)
+├── lzham/       20 src + 29 h   (richgel999)
+└── ppmd/         4 src +  7 h   (7-Zip SDK, + ppmd_wrapper.c glue)
 ```
 
-Total: **~145 source files, ~10.7 MB**. No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`. Just `make`.
+Plus three that are not `-ma` codecs: `preflate/` (the `-pc` DEFLATE
+recompressor), `zlib/` (stock zlib 1.3.1, for `-pc`'s byte-exact fast path) and
+`ytool/` (a subprocess bridge, see below).
+
+Total: **462 source files, 15 MB**. No `apt install`, no `brew install`, no `-lz`,
+no `-lbrotli`. Just `make`.
+
+The one exception is **`-ytool`**, which shells out to an external `ytool`
+binary — that flag, and only that flag, needs something installed on the host.
 
 ---
 
@@ -204,7 +253,7 @@ command is disabled — these binaries **extract, list and test** (and run the
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
-The output is a single `zpaq-std` binary, ~6.5 MB native / ~8.5 MB Windows.
+The output is a single `zpaq-std` binary, ~7.4 MB native / ~7.2 MB Windows (stripped).
 
 ---
 
@@ -228,14 +277,45 @@ The classic 7z-style verbs:
 - `l` list contents of a version
 - `i` show all versions and their stats
 - `c` compare / verify
+- `t` test the archive (recomputes the stored hashes)
 
-See `zpaq-std h <command>` for full help, or `zpaq-std h voodoo` for the full list of switches (the new `-ma:*` family is documented there).
+Those are the common ones; the built-in help documents **57** commands in total
+(`backup`, `testbackup`, `trim`, `crop`, `find`, `redu`, `dirsize`, `sum`,
+`collision`, `1on1`, `consolidate`, `versum`, `image`, `gui`, `tui`…).
+
+See `zpaq-std h <command>` for full help, or `zpaq-std h voodoo` for the full list of switches (the `-ma:*` family is documented there).
+
+---
+
+## Verification
+
+An archiver's only real promise is that what came out is what went in, so the
+harness lives in the repo under **`test/testlab/`** (see its `LEEME.md`). Four
+tools that measure different things:
+
+| tool | what it checks |
+|---|---|
+| `difftest.sh A B` | two binaries agree: byte-identical archives, each reads the other's, same `l`/`t` verdict |
+| `golden_gate.sh` | the current build still extracts `.zpaq` files written by **published** releases, with identical content and `t` == 0 |
+| `os_msgs.sh A B` | destination shapes and the numbered messages — bare relative name, nonexistent chain, UTF-8, long paths, symlinks, unwritable directories, `-append` on an existing archive |
+| `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
+
+`suite_*.sh` add round-trip sweeps over all 21 `-ma` codecs, every command, and
+corruption/robustness cases.
+
+The scripts are versioned here; the corpus, the golden archives and the reference
+binaries live outside the repo, with their sha256 manifests committed alongside.
+
+Bit-exactness deserves a caveat, because it is easy to misread: with `-ma` the
+block is stored and the codec is identified by a comment, so two builds can write
+**different bytes** and still be perfectly interoperable. It is a diagnostic, not
+a requirement — the harness reports the columns separately for that reason.
 
 ---
 
 ## Why a fork
 
-The original zpaq 7.15 (Matt Mahoney, 2009–2016) is unmaintained. This fork preserves the single-file C++ codebase of its upstream lineage and adds the **bundled-compressor** philosophy: pick the algorithm at archive time, no host setup needed.
+The original zpaq 7.15 (Matt Mahoney, 2009–2016) is unmaintained. This fork keeps the archive format and the dependency-free build of its upstream lineage and adds the **bundled-compressor** philosophy: pick the algorithm at archive time, no host setup needed.
 
 See [CONTRIBUTORS](CONTRIBUTORS) for full attributions.
 
