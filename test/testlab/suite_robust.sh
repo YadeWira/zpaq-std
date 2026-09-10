@@ -50,7 +50,10 @@ timeout 60 $Z t "$d/k.zpaq" < $d/pw2.txt > $O 2>&1; ok cifrado "password por std
 FRANZKEY=Correcta1 timeout 60 $Z t "$d/k.zpaq" > $O 2>&1 </dev/null; ok cifrado "password por env FRANZKEY" $? "" "$([ $? -eq 0 ] && echo OK)"
 
 ########## L: espacio insuficiente y -space ##########
-dd if=/dev/zero of=$d/disco.img bs=1M count=60 status=none
+# El disco tiene que ser MAS CHICO que los datos, si no el test no prueba nada:
+# antes eran 60 MB para ~23 MB (dupes 18M + edge 4.8M), o sea espacio de sobra, y
+# la extraccion funcionaba correctamente mientras el test esperaba un rechazo.
+dd if=/dev/zero of=$d/disco.img bs=1M count=16 status=none
 sudo /usr/sbin/mkfs.ext4 -F -q $d/disco.img 2>/dev/null
 mkdir -p $d/mnt && sudo mount -o loop $d/disco.img $d/mnt 2>/dev/null && sudo chown $(id -u):$(id -g) $d/mnt
 if mountpoint -q $d/mnt; then
@@ -61,15 +64,25 @@ if mountpoint -q $d/mnt; then
   n=$(find $d/mnt/out -type f 2>/dev/null | wc -l)
   ok espacio "destino con $((libre/1048576)) MB para ~21 MB" "$r" "archivos=$n $(grep -oE '00935!' $O|head -1)" "$([ $r -ne 0 ] && [ $n -eq 0 ] && echo RECHAZADO-BIEN || echo REVISAR)"
   sudo rm -rf $d/mnt/out 2>/dev/null
+  # Con -space se saltea el chequeo previo y se fuerza: tiene que ARRANCAR y
+  # despues abortar al llenarse el disco, DICIENDO por que.
+  # Ojo con lo que se busca: por esta ruta NO sale el "00082! DISK FULL" (ese lo
+  # emite printerr con errno==ENOSPC); sale el bloque de bytes escritos vs
+  # esperados, "Media full?". Buscar el mensaje equivocado hacia que este test
+  # marcara REVISAR sobre un comportamiento correcto.
   T $Z x "$d/big.zpaq" -to "$d/mnt/out2/" -force -space; r=$?
-  ok espacio "el mismo con -space (fuerza)" "$r" "$(grep -oE '00082!.*' $O|head -1|cut -c1-30)" "$([ $r -ne 0 ] && echo FALLO-ESPERADO)"
+  aviso=$(grep -cE '00082!|DISK FULL|Media full|WRITTEN BYTES' $O)
+  ok espacio "el mismo con -space: aborta y avisa" "$r" "aviso=$aviso" \
+     "$([ $r -ne 0 ] && [ "$aviso" -gt 0 ] && echo ABORTO-BIEN || echo REVISAR)"
   sudo umount $d/mnt 2>/dev/null
 else
   ok espacio "no pude montar el disco de prueba" - "sudo/mkfs no disponible" OMITIDO
 fi
 
 ########## M: pipes (-stdin / -stdout) ##########
-tar cf - -C $CORPUS text 2>/dev/null | timeout 120 $Z a "$d/pipe.zpaq" -stdin -m1 -summary > $O 2>&1; r=$?
+# OJO: -stdin necesita un NOMBRE ademas del flag (a arch.zpaq nombre.tar -stdin).
+# Sin el nombre da rc=2 y 0 bytes, y este test lo reportaba como bug del programa.
+tar cf - -C $CORPUS text 2>/dev/null | timeout 120 $Z a "$d/pipe.zpaq" text.tar -stdin -m1 -summary > $O 2>&1; r=$?
 ok pipes "-stdin (tar por pipe)" "$r" "arch=$(stat -c%s $d/pipe.zpaq 2>/dev/null||echo 0)" "$([ $r -eq 0 ] && echo OK)"
 if [ -f $d/pipe.zpaq ]; then
   timeout 120 $Z x "$d/pipe.zpaq" -stdout > $d/salida.tar 2>/dev/null </dev/null; r=$?
