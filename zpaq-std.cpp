@@ -2125,7 +2125,13 @@ bool flagnosort;
 bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
-bool flagprecomp;	// -pc : stream-recompression precompressor (preflate/PCF)
+// -pc (preflate/PCF stream recompression) fue QUITADO como encoder: lo reemplaza
+// -ytool, que detecta muchos mas formatos. El DECODER se queda entero y no es
+// negociable -- los archivos ya creados con -pc contienen contenedores PCF, y
+// pcf_authentic_reverse() los revierte re-encodeando para verificar autenticidad,
+// asi que preflate y la zlib vendorizada siguen compilandose. Quitarlos volveria
+// ilegibles archivos que existen en produccion.
+// Ver el golden set 'pc-legacy' en testlab, que existe exactamente para eso.
 bool flagytool;		// -ytool : external precompressor via the ytool subprocess (replaces -pc)
 bool flagcatpaqmode;
 bool flagdistinct;
@@ -53888,7 +53894,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
 	g_programflags.add(&flaginnosetup,		"-innosetup",			"Show a native GUI progress window (Windows); else print progress %%",	"");
-	g_programflags.add(&flagprecomp,		"-pc",					"Precompress: recompress DEFLATE in gzip/zlib/zip/pdf/png (preflate) before storing",	"a;");
 	g_programflags.add(&flagytool,			"-ytool",				"Precompress via the external ytool subprocess (replaces -pc). -ytool:<codecs|params> to customise",	"a;");
 
 
@@ -55033,6 +55038,15 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else
 		if (opt=="skipme")
 		{
+		}
+		else
+		if ((opt=="-pc") || (opt=="-pcc"))
+		{
+			/// Retirado en favor de -ytool. Un mensaje propio en vez del
+			/// "unknown option" genérico: quien lo tenga en un script merece
+			/// saber que se fue y con qué se reemplaza, no que se ignoro.
+			myprintf("00563! -pc was removed: use -ytool instead (it detects more formats)\n");
+			myprintf("00564: archives already made with -pc still extract normally\n");
 		}
 		else
 		{
@@ -99966,14 +99980,15 @@ static bool yt_should_encode(const unsigned char* data, size_t len, int64_t file
 // Encode dispatch: -ytool routes to the ytool subprocess bridge, -pc to preflate.
 // Same signature/semantics (verify-then-fallback inside), so the worker + inline
 // paths call this and stay identical otherwise.
+/// Quedo un solo encoder (-ytool). Estas dos siguen existiendo porque el worker
+/// de prefetch y el camino inline las comparten.
 static bool pc_transform_encode(const std::vector<unsigned char>& O, std::vector<unsigned char>& T)
 {
-	if (flagytool) return ytool_file_encode(O, T);
-	return pcf_file_encode(O, T);
+	return ytool_file_encode(O, T);
 }
 static bool pc_transform_candidate(const unsigned char* s, size_t got)
 {
-	return flagytool ? yt_magic_candidate(s, got) : pc_magic_candidate(s, got);
+	return yt_magic_candidate(s, got);
 }
 
 /* -pc cross-file prefetch: K worker threads run the expensive pcf_file_encode on
@@ -100086,15 +100101,13 @@ struct PcfPrefetch
 						if (rd == R.size())
 						{
 							// Mirror add()'s per-file transform decision so this worker only FRAGs
-							// files main treats as regular. -pc keeps its offset-0 sniff; -ytool
-							// adds container detection (magic OR a cheap -scan probe inside).
+							// files main treats as regular. -ytool does container detection
+							// (magic OR a cheap -scan probe inside).
 							bool will_be_pcf= false;
 							if (esz >= 18)
 							{
 								const unsigned char* d= R.empty() ? (const unsigned char *)"" : &R[0];
-								size_t got= R.size() < 4 ? R.size() : 4;
-								if (flagprecomp)     will_be_pcf= pc_transform_candidate(d, got);
-								else if (flagytool)  will_be_pcf= yt_should_encode(d, R.size(), esz);
+								if (flagytool)  will_be_pcf= yt_should_encode(d, R.size(), esz);
 							}
 							if (will_be_pcf)
 							{
@@ -100935,7 +100948,7 @@ int Jidac::add()
 			// stream, reversed on extraction. verify-then-fallback inside pcf_file_encode
 			// guarantees no corruption: a file that does not round-trip is stored verbatim.
 			// -sa removed. -pc (preflate) or -ytool (subprocess) precompress here.
-			if ((flagprecomp || flagytool) && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
+			if (flagytool && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
 			    && p->second.expectedsize >= 18
 			    && p->second.expectedsize <= ((int64_t)512 << 20))
 			{
@@ -100944,10 +100957,7 @@ int Jidac::add()
 				unsigned char sniff[512]= {0};
 				size_t got= fread(sniff, 1, sizeof sniff, in);
 				fseeko(in, 0, SEEK_SET);
-				bool gz = (got >= 3 && sniff[0] == 0x1f && sniff[1] == 0x8b && sniff[2] == 0x08);
-				bool zlb= (got >= 2 && (sniff[0] & 0x0f) == 0x08 && ((((unsigned)sniff[0] << 8) | sniff[1]) % 31) == 0);
-				bool zip= (got >= 4 && sniff[0] == 0x50 && sniff[1] == 0x4b && sniff[2] == 0x03 && sniff[3] == 0x04); // ZIP (PK\x03\x04)
-				bool pdf= (got >= 4 && sniff[0] == '%' && sniff[1] == 'P' && sniff[2] == 'D' && sniff[3] == 'F'); // %PDF
+				/// los magics de gz/zlib/zip/pdf los miraba -pc; -ytool usa los suyos
 				// worker_pcf: the prefetch worker already read the original, encoded it to a
 				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
 				// pc_magic_candidate() in the worker == this sniff, so worker_pcf implies the
@@ -100962,7 +100972,7 @@ int Jidac::add()
 				    && (yt_magic_candidate(sniff, got)
 				        || (yt_container_prefilter(sniff, got, p->second.expectedsize)
 				            && ytool_scan_streams_path(p->first.c_str()) > 0));
-				if (worker_pcf || (flagprecomp && (gz || zlb || zip || pdf)) || yt_inline)
+				if (worker_pcf || yt_inline)
 				{
 					std::vector<unsigned char> O, T;
 					bool got_pcf= false;

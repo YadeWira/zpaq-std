@@ -1,0 +1,7 @@
+generado con: refbin/zpaq-std-v64.8j-pre12-linux-x64
+sha256 del binario: 23f1f4df2758a3a5aa590a1632fccbde91eaa40abe5b1c082e46a759ba6d56e2
+fecha: 2026-09-10T15:04:54-05:00
+
+OJO: estos archivos usan -pc, cuyo ENCODER se quita en el commit siguiente.
+Existen para probar que el DECODER los sigue revirtiendo: es la unica garantia
+de que los archivos ya creados en produccion no quedan ilegibles.

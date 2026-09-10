@@ -1,3 +1,28 @@
+### [64.8j-pre13] - 2026-09-10
+
+**`-pc` removed as an encoder.** The older preflate/PCF precompressor no longer
+creates anything; `-ytool` handles DEFLATE and more, so there is no reason to keep
+two parallel paths through the compressor. Passing `-pc` (or `-pcc`) now says what
+to use instead rather than reporting an unknown option.
+
+**Archives already made with `-pc` still extract normally, and keeping that true
+is why preflate and the vendored stock zlib stay compiled.** Reversing a PCF
+container re-encodes it to prove the container is authentic — otherwise a verbatim
+file that merely begins with the `zPCF` magic could be wrongly "reversed" — so the
+decoder needs preflate's encoder and zlib. Dropping them would make existing
+archives unreadable, so only the encoder is gone.
+
+A golden set (`pc-legacy`) was created *before* the removal for exactly this: six
+`-pc` archives written by pre12, which every later build must still extract
+byte-for-byte. All three targets pass it 6/6.
+
+Also fixed a real limitation in the golden gate found while adding that set: it
+compared the **whole** corpus manifest, so adding a new corpus case invalidated
+every earlier golden set — the corpus could never grow. It now compares only the
+cases each set actually uses.
+
+---
+
 ### [64.8j] - 2026-09-10
 
 Eleven pre-releases. The first half added the `-ytool` precompressor and removed

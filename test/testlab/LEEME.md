@@ -164,6 +164,21 @@ el hash del nombre elegido —necesario para arreglar la causa 2— se volvió u
 estructural: **acumular los renombres y aplicarlos DESPUÉS del recorrido**, así
 el bucle no ve sus propias inserciones.
 
+## El set `pc-legacy`: para qué existe
+
+`-pc` se quitó como **encoder** en pre13, pero el **decoder** se queda: los
+archivos ya creados contienen contenedores PCF, y revertirlos re-encodea para
+probar que son auténticos (así un archivo verbatim que casualmente empieza con
+`zPCF` no se "revierte" por error). Eso obliga a que preflate y la zlib
+vendorizada sigan compilándose.
+
+`golden/pc-legacy` son 6 archivos `-pc` escritos por **pre12**, el último binario
+capaz de crearlos. Todo build posterior tiene que extraerlos byte a byte. Es la
+única garantía de que los archivos que existen en producción no queden ilegibles,
+y no se puede regenerar: hay que conservarlos.
+
+Se generó ANTES de tocar el código, que es el único momento en que era posible.
+
 ## Trampas que cuestan horas si no están escritas
 
 - **`myprintf` no es thread-safe.** Con `-debug3` y varios hilos la salida sale
@@ -201,5 +216,6 @@ el bucle no ve sus propias inserciones.
 | `golden-pre9-linux.sha256` | 136 golden escritos por pre9 en Linux |
 | `golden-pre9-win64.sha256` | 116 golden escritos por pre9 x64 en Windows (pre-arreglo de `wtou`) |
 | `golden-win64-postfix.sha256` | 116 golden escritos con `wtou` arreglado — 116/116 en Linux |
+| `golden-pc-legacy.sha256` | 6 golden hechos **con `-pc`** por pre12, el último binario que podía crearlos |
 | `golden-*-KNOWN_FAIL.txt` | fallos esperados por set, con el motivo |
 | `golden-*-ORIGEN.txt` | con qué binario y cuándo se generó cada set |

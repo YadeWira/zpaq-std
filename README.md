@@ -18,7 +18,7 @@ strictly single-file: `libdivsufsort/` was lifted out into its own module, and
 
 - **Deduplicated** — identical blocks across files and versions are stored once
 - **Versioned** — each run is a new "snapshot" inside the same `.zpaq` file
-- **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive
+- **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive, and optionally through the `-ytool` precompressor first
 - **Append-only** — never modifies existing data; ideal for incremental cloud sync
 - **Self-verifying** — triple-checksums (CRC-32, XXHASH64, SHA-1) per block, with optional SHA-2/SHA-3/Whirlpool/BLAKE3
 - **One archive file** — no repositories, no databases, no temp files; a single `.zpaq` is the whole backup
@@ -72,24 +72,16 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ---
 
-## Precompressors: `-ytool` and `-pc`
+## Precompressor: `-ytool`
 
-Two precompressors, both **reversible and bit-exact**, both applied *before*
-compression so the second stage sees the real data instead of an
-already-compressed blob. `-ytool` is the newer one and supersedes `-pc`.
-
-| | `-ytool` | `-pc` |
-|---|---|---|
-| formats | DEFLATE (gz/zlib/zip/pdf) **plus ytool's own set** | DEFLATE only |
-| implementation | external `ytool` subprocess | bundled `preflate`, in-process |
-| needs anything installed | **yes**, the `ytool` binary | no |
-
-### `-ytool`
+A **reversible, bit-exact** precompressor applied *before* compression, so the
+second stage sees the real data instead of an already-compressed blob.
 
 Hands each candidate file to [ytool](https://github.com/YadeWira/ytool) (an
 open-source FPC recreation of xtool) and stores the result as a self-describing
-container. The binary is found via `ytool_set_binary()`, the `ZPAQ_YTOOL`
-environment variable, or `ytool` on `PATH` — in that order.
+container. ytool detects gzip / zlib / ZIP / PDF DEFLATE **plus** JPEG, PNG, MP3,
+raw WAV/PCM and LZO. The binary is found via `ytool_set_binary()`, the
+`ZPAQ_YTOOL` environment variable, or `ytool` on `PATH` — in that order.
 
 ```bash
 zpaq-std a backup.zpaq /data -ytool -ma:flzma2
@@ -101,58 +93,32 @@ zpaq-std a backup.zpaq /data -ytool:<codecs|params>   # override ytool's argumen
   carries the original's size and CRC-32, so extraction re-checks the reversed
   bytes. Anything that fails is stored verbatim.
 - **Deterministic**: ytool's `precomp` is only deterministic at `-t1` (there is a
-  real race above that), so zpaq-std always passes `-t1` and recovers throughput by
-  running many ytool processes in parallel — one per file, from its own prefetch
-  pool. Each file is deterministic *and* the batch is parallel, which keeps the
-  output dedup-friendly.
+  real race above that), so zpaq-std always passes `-t1` and recovers throughput
+  by running many ytool processes in parallel — one per file, from its own
+  prefetch pool. Each file is deterministic *and* the batch is parallel, which
+  keeps the output dedup-friendly.
 - Deliberately no `-dd`: deduplication is left to zpaq's own content-defined
   chunking.
+- **It is the one thing that needs something installed on the host**: an external
+  `ytool` binary. Everything else in zpaq-std is self-contained.
 
-### `-pc`
+### `-pc` was removed
 
-> ⚠️ **Experimental.** `-pc` is still under active development. It is designed to be
-> safe by construction — every stream is verified byte-for-byte at compress time and
-> stored verbatim if it doesn't round-trip (see *Zero corruption risk* below) — but the
-> feature has not yet had the long-term field testing of the core archiver. Keep an
-> independent copy of critical data and run `-test` on important `-pc` archives.
+The older `-pc` (preflate/PCF DEFLATE recompression) **no longer creates
+anything**. It only ever handled DEFLATE, where `-ytool` handles that and more,
+so there was no reason to keep two parallel paths through the compressor. Passing
+`-pc` now prints what to use instead.
 
-`-pc` is a **reversible, bit-exact precompressor** applied *before* compression. It
-decodes embedded **DEFLATE** streams back to their raw bytes (using the bundled
-[preflate](https://github.com/deus-libri/preflate), Apache-2.0) so the second stage
-(`-ma` / zpaq) can compress the *real* data instead of an opaque, already-compressed
-blob — then re-encodes the DEFLATE **byte-for-byte** on extraction.
+**Archives already made with `-pc` still extract normally, and that is
+load-bearing.** Reversing a PCF container re-encodes it to prove the container is
+authentic — so a verbatim file that merely happens to start with the `zPCF` magic
+is never wrongly "reversed" — which means the *decoder* needs preflate's encoder
+and the vendored stock zlib. Both therefore stay compiled. Removing them would
+make existing archives unreadable, so the removal is of the encoder only.
 
-Detected automatically by content:
-
-| Input | What is recompressed |
-|---|---|
-| `.gz`, raw zlib | the whole-file DEFLATE stream |
-| **ZIP** | every deflated member → also `.jar`, `.apk`, OOXML `.docx/.xlsx/.pptx/.odt` |
-| **PDF** | embedded FlateDecode streams |
-
-`-pc` does **not** touch the PNG family (PNG/APNG/JNG/MNG) — reserved for a dedicated
-WebP-lossless-based transform, [packPNG](https://github.com/YadeWira/packPNG), which
-recompresses pixel data rather than the IDAT DEFLATE stream for a much bigger gain.
-
-```bash
-# Recompress streams, then pack the raw data with a strong codec
-zpaq-std a backup.zpaq /data -pc -ma:flzma2
-zpaq-std x backup.zpaq -to /restore/      # self-describing: auto-reverses
-```
-
-- **Pays off with a strong second stage** (LZMA/brotli). Typical archive shrink on
-  already-compressed inputs is ~**12–18%**; with a weak codec the intermediate
-  expansion may not be recovered, so use `-pc` together with e.g. `-ma:flzma2`.
-- **Self-describing**: a `-pc` archive auto-reverses on a plain extract — no flag needed.
-- **Zero corruption risk**: every stream is re-encoded and compared byte-for-byte at
-  compress time (*verify-then-fallback*); anything that doesn't round-trip is stored
-  verbatim. The franz per-file hash records the **original** file (so `-test`/`-verify`
-  work normally). Composes with `-ma` and `-chunk`.
-- **Speed**: streams under 4 KB are stored verbatim (their analysis isn't worth it),
-  and on 64-bit `-pc` prefetches/encodes upcoming files in parallel (tied to `-t`),
-  overlapping the work with the rest of compression.
-
----
+There is a golden set (`pc-legacy`) in `test/testlab/` whose whole purpose is to
+keep proving that: six `-pc` archives written by v64.8j-pre12, which every later
+build must still extract byte-for-byte.
 
 ## Installer progress: `-innosetup`
 
@@ -205,9 +171,10 @@ compressors/
 └── ppmd/         4 src +  7 h   (7-Zip SDK, + ppmd_wrapper.c glue)
 ```
 
-Plus three that are not `-ma` codecs: `preflate/` (the `-pc` DEFLATE
-recompressor), `zlib/` (stock zlib 1.3.1, for `-pc`'s byte-exact fast path) and
-`ytool/` (a subprocess bridge, see below).
+Plus three that are not `-ma` codecs: `ytool/` (a subprocess bridge, see above)
+and `preflate/` + `zlib/` (stock zlib 1.3.1), which are kept **only to keep
+reading archives made with the removed `-pc`** — see above for why the decoder
+cannot drop them.
 
 Total: **462 source files, 15 MB**. No `apt install`, no `brew install`, no `-lz`,
 no `-lbrotli`. Just `make`.

@@ -62,7 +62,14 @@ run() { case "$BIN" in *.exe) timeout $TMO wine "$BIN" "$@";; *) timeout $TMO "$
 if [ "$cmd" = "gen" ]; then
     bash "$W/pin_corpus.sh" verify >/dev/null || { echo "ABORTA: el corpus no coincide con el manifiesto"; exit 2; }
     rm -rf "$D"; mkdir -p "$D"
-    cp "$CORPUS/MANIFEST.sha256" "$D/corpus.sha256"
+    # Guardar solo las lineas del manifiesto de los CASOS que usa este set, no el
+    # manifiesto completo: si no, agregar un caso nuevo al corpus invalida todos
+    # los golden anteriores y el corpus no puede crecer nunca.
+    : > "$D/corpus.sha256"
+    for c in $CASES_SMALL $CASES_BIG; do
+        grep " corpus/$c/" "$CORPUS/MANIFEST.sha256" >> "$D/corpus.sha256" || true
+    done
+    printf '%s\n' $CASES_SMALL $CASES_BIG | sort -u > "$D/casos.txt"
     printf 'generado con: %s\nsha256 del binario: %s\nfecha: %s\n' \
       "$BIN" "$(sha256sum "$BIN" | cut -d' ' -f1)" "$(date -Is)" > "$D/ORIGEN.txt"
     n=0
@@ -84,14 +91,21 @@ fi
 
 # ---------------------------- check -----------------------------------------
 [ -d "$D" ] || { echo "no hay golden en $D (corre 'gen' primero)"; exit 2; }
+T_MAN=$(mktemp); trap 'rm -f "$T_MAN"' EXIT
 CSV=$D/check-$(basename "$BIN").csv
 LOG=$D/check-$(basename "$BIN").log
 echo "golden,x_rc,t_rc,contenido,resultado" > "$CSV"; : > "$LOG"
 
 # integridad de los propios golden: si cambiaron, el test no vale
 (cd "$D" && sha256sum -c golden.sha256 --quiet) || { echo "ABORTA: los golden cambiaron respecto de golden.sha256"; exit 2; }
-cmp -s "$D/corpus.sha256" "$CORPUS/MANIFEST.sha256" \
-  || { echo "ABORTA: el corpus no es el que se uso para generar estos golden"; exit 2; }
+# Comparar SOLO los casos que usa este set (ver 'gen'). Un caso nuevo en el
+# corpus no invalida los golden que no lo usan.
+if [ -s "$D/corpus.sha256" ]; then
+    : > "$T_MAN"
+    while read -r _ ruta; do grep -F " $ruta" "$CORPUS/MANIFEST.sha256" >> "$T_MAN" || true; done < "$D/corpus.sha256"
+    cmp -s "$D/corpus.sha256" "$T_MAN" \
+      || { echo "ABORTA: los casos del corpus que usan estos golden cambiaron"; exit 2; }
+fi
 
 # Fallos ESPERADOS: golden que no pueden pasar porque el bug esta EN LOS BYTES
 # del archivo historico, no en el binario que los lee. Un gate con fallos
