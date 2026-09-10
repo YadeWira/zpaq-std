@@ -104,21 +104,24 @@ zpaq-std a backup.zpaq /data -ytool:<codecs|params>   # override ytool's argumen
 
 ### `-pc` was removed
 
-The older `-pc` (preflate/PCF DEFLATE recompression) **no longer creates
-anything**. It only ever handled DEFLATE, where `-ytool` handles that and more,
-so there was no reason to keep two parallel paths through the compressor. Passing
-`-pc` now prints what to use instead.
+The older `-pc` (preflate/PCF DEFLATE recompression) is **gone entirely** —
+encoder and decoder — and `compressors/preflate/` and `compressors/zlib/` went
+with it: 87 source files, 2.3 MB, and about 410 KB off the binary. It only ever
+handled DEFLATE, which `-ytool` handles and more.
 
-**Archives already made with `-pc` still extract normally, and that is
-load-bearing.** Reversing a PCF container re-encodes it to prove the container is
-authentic — so a verbatim file that merely happens to start with the `zPCF` magic
-is never wrongly "reversed" — which means the *decoder* needs preflate's encoder
-and the vendored stock zlib. Both therefore stay compiled. Removing them would
-make existing archives unreadable, so the removal is of the encoder only.
+Passing `-pc` (or `-pcc`) prints what to use instead:
 
-There is a golden set (`pc-legacy`) in `test/testlab/` whose whole purpose is to
-keep proving that: six `-pc` archives written by v64.8j-pre12, which every later
-build must still extract byte-for-byte.
+```
+00563! -pc was removed: use -ytool instead (it detects more formats)
+       archives already made with -pc still extract normally
+```
+
+**A `.zpaq` written with `-pc` by v64.8j-pre13 or earlier can no longer be
+reversed.** Extraction leaves the PCF container on disk and warns per file
+(`00566!`); use pre13 to reverse one. This was accepted deliberately: the
+project has no production deployment, and keeping the decoder meant keeping
+preflate's encoder and a vendored stock zlib compiled forever, because reversing
+a PCF container re-encodes it to prove it is authentic.
 
 ## Installer progress: `-innosetup`
 
@@ -171,13 +174,10 @@ compressors/
 └── ppmd/         4 src +  7 h   (7-Zip SDK, + ppmd_wrapper.c glue)
 ```
 
-Plus three that are not `-ma` codecs: `ytool/` (a subprocess bridge, see above)
-and `preflate/` + `zlib/` (stock zlib 1.3.1), which are kept **only to keep
-reading archives made with the removed `-pc`** — see above for why the decoder
-cannot drop them.
+Plus `ytool/`, which is not an `-ma` codec but a subprocess bridge (see above).
 
-Total: **462 source files, 15 MB**. No `apt install`, no `brew install`, no `-lz`,
-no `-lbrotli`. Just `make`.
+Total: **379 source files, 8.7 MB of source**. No `apt install`, no `brew install`,
+no `-lz`, no `-lbrotli`. Just `make`.
 
 The one exception is **`-ytool`**, which shells out to an external `ytool`
 binary — that flag, and only that flag, needs something installed on the host.
@@ -220,7 +220,7 @@ command is disabled — these binaries **extract, list and test** (and run the
 
 On non-x86 the JIT is auto-disabled; on x86_64 you get HW SHA-1/SHA-2 acceleration (`-DHWSHA2`).
 
-The output is a single `zpaq-std` binary, ~7.4 MB native / ~7.2 MB Windows (stripped).
+The output is a single `zpaq-std` binary, ~6.9 MB native / ~6.9 MB Windows.
 
 ---
 

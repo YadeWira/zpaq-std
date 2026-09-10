@@ -1,0 +1,16 @@
+SET RETIRADO en v64.8j-pre14.
+
+Estos 6 archivos se hicieron con -pc por pre12. En pre14 se quito -pc POR
+COMPLETO (encoder y decoder, junto con preflate y la zlib vendorizada), asi que
+ningun build pre14+ puede revertirlos: la extraccion deja el contenedor zPCF en
+disco y avisa con 00566!.
+
+O sea que este set YA NO PUEDE PASAR, por diseno. No es un fallo.
+
+Se conservan como evidencia de que el decoder existio y de que la decision fue
+consciente. Para revertir uno de estos archivos hace falta v64.8j-pre13 o
+anterior.
+
+Su valor original era probar que quitar el encoder no rompia la lectura; eso se
+verifico en pre13 (6/6 en los tres targets) y ese resultado quedo en el commit
+y en las notas de ese release.

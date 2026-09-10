@@ -121,10 +121,6 @@ else
   LZHAM_THREADING := compressors/lzham/lzham_pthreads_threading.cpp
 endif
 LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp compressors/lzham/lzham_lzcomp.cpp compressors/lzham/lzham_lzcomp_internal.cpp compressors/lzham/lzham_lzcomp_state.cpp compressors/lzham/lzham_match_accel.cpp $(LZHAM_THREADING) compressors/lzham/lzham_assert.cpp compressors/lzham/lzham_checksum.cpp compressors/lzham/lzham_huffman_codes.cpp compressors/lzham/lzham_lzdecomp.cpp compressors/lzham/lzham_lzdecompbase.cpp compressors/lzham/lzham_mem.cpp compressors/lzham/lzham_polar_codes.cpp compressors/lzham/lzham_prefix_coding.cpp compressors/lzham/lzham_symbol_codec.cpp compressors/lzham/lzham_vector.cpp compressors/lzham/lzham_platform.cpp compressors/lzham/lzham_timer.cpp
-# preflate (Apache-2.0): C++ stream-recompression library for -pc. selftest.cpp is
-# standalone (has its own main) and must NOT be linked into the binary.
-PREFLATE_ROOT_SRC := $(filter-out compressors/preflate/selftest.cpp,$(wildcard compressors/preflate/*.cpp))
-PREFLATE_SUP_SRC  := $(wildcard compressors/preflate/support/*.cpp)
 
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
@@ -154,16 +150,6 @@ LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
 ZOPFLIINC :=
 BSCINC    := -Icompressors/bsc/libbsc -Icompressors/bsc/lzp -Icompressors/bsc/coder -Icompressors/bsc/coder/qlfc -Icompressors/bsc/bwt -Icompressors/bsc/bwt/libsais -Icompressors/bsc/st -Icompressors/bsc/adler32 -Icompressors/bsc/platform -Icompressors/bsc/filters
 LZHAMINC  := -Icompressors/lzham
-PREFLATEINC := -Icompressors/preflate -Icompressors/preflate/support
-# Vendored stock zlib 1.3.1, compiled with -DZ_PREFIX so all public symbols become
-# z_* (no clash with lzham's zlib-API shim / libdeflate). Used by -pc for the fast
-# zlib-config reconstruction path: most real DEFLATE streams reproduce byte-exact by
-# re-deflating with stock zlib at the right level/memLevel/strategy, skipping the
-# expensive preflate analysis (preflate stays the fallback). pcf_wrapper.cpp is the
-# only TU that includes zlib.h (with Z_PREFIX), via the preflate compile rule below.
-ZLIBSRC := $(wildcard compressors/zlib/*.c)
-ZLIBOBJ := $(ZLIBSRC:.c=.o)
-ZLIBINC := -Icompressors/zlib
 # (packJPG removed together with -sa.)
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
 
@@ -311,12 +297,8 @@ LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-PREFLATE_ROOT_OBJ := $(PREFLATE_ROOT_SRC:.cpp=.o)
-PREFLATE_SUP_OBJ  := $(PREFLATE_SUP_SRC:.cpp=.o)
-PREFLATEOBJ := $(PREFLATE_ROOT_OBJ) $(PREFLATE_SUP_OBJ)
-
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PREFLATEINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PREFLATEOBJ) $(ZLIBOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -368,18 +350,6 @@ $(LIBDEFLATE_X86_OBJ): compressors/libdeflate/lib/x86/%.o: compressors/libdeflat
 $(LIBDEFLATE_ARM_OBJ): compressors/libdeflate/lib/arm/%.o: compressors/libdeflate/lib/arm/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LIBDEFLATEINC) -c $< -o $@
 
-# vendored zlib (C): -DZ_PREFIX renames public symbols to z_* (collision-free).
-$(ZLIBOBJ): compressors/zlib/%.o: compressors/zlib/%.c
-	$(CC) $(ZPAQ_CFLAGS) -DZ_PREFIX $(ZLIBINC) -c $< -o $@
-
-# preflate: C++ (g++), root + support/ subdirs. -DZ_SOLO -DNO_GZIP matches upstream.
-# pcf_wrapper.cpp (a PREFLATE_ROOT TU) includes the vendored zlib.h, so the root rule
-# also gets $(ZLIBINC) -DZ_PREFIX (preflate itself never includes zlib.h, so this is inert there).
-$(PREFLATE_ROOT_OBJ): compressors/preflate/%.o: compressors/preflate/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) $(ZLIBINC) -DZ_PREFIX -DZ_SOLO -DNO_GZIP -c $< -o $@
-
-$(PREFLATE_SUP_OBJ): compressors/preflate/support/%.o: compressors/preflate/support/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) $(PREFLATEINC) -DZ_SOLO -DNO_GZIP -c $< -o $@
 
 # lzlib: single .c that #includes all other lzlib .c files (designed as one TU)
 $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c

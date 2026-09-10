@@ -1,3 +1,31 @@
+### [64.8j-pre14] - 2026-09-10
+
+**`-pc` removed entirely — decoder included.** pre13 kept the decoder so existing
+`-pc` archives would still extract; that reasoning assumed archives in the field.
+There are none, so the rest went too: `compressors/preflate/` and
+`compressors/zlib/`, **87 source files and 2.3 MB**, and about **410 KB off the
+binary** (7,357,480 -> 6,947,888 on Linux; similar on both Windows targets).
+
+A `.zpaq` written with `-pc` by pre13 or earlier can no longer be reversed.
+Extraction leaves the PCF container on disk and warns per file with `00566!`,
+naming pre13 as the version that can still do it. Detecting that case needs only
+the 4-byte `zPCF` magic, so the warning costs nothing.
+
+What did **not** change: `pc_reverse_file()` and the parallel reverse post-pass
+stay, because `-ytool` uses them. Reading that function before deleting it by line
+number is the only reason `-ytool` did not break — it handles `zYTL` containers
+first and only then fell through to PCF.
+
+Tested across every algorithm: **263 core round-trips and 117 flag combinations
+with no failures** (all 21 `-ma` codecs plus `-m0..-m5`), difftest 98 comparisons
+against pre13 with 0 divergences, the golden gate 9 cross-checks with 0 failures,
+and os_msgs 25/25.
+
+The `pc-legacy` golden set is retired with its reason recorded: by design it can
+no longer pass, and the archives are kept as evidence that the decoder existed.
+
+---
+
 ### [64.8j-pre13] - 2026-09-10
 
 **`-pc` removed as an encoder.** The older preflate/PCF precompressor no longer

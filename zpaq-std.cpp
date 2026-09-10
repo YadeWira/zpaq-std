@@ -2125,13 +2125,15 @@ bool flagnosort;
 bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
-// -pc (preflate/PCF stream recompression) fue QUITADO como encoder: lo reemplaza
-// -ytool, que detecta muchos mas formatos. El DECODER se queda entero y no es
-// negociable -- los archivos ya creados con -pc contienen contenedores PCF, y
-// pcf_authentic_reverse() los revierte re-encodeando para verificar autenticidad,
-// asi que preflate y la zlib vendorizada siguen compilandose. Quitarlos volveria
-// ilegibles archivos que existen en produccion.
-// Ver el golden set 'pc-legacy' en testlab, que existe exactamente para eso.
+// -pc (preflate/PCF stream recompression) fue QUITADO POR COMPLETO -- encoder y
+// decoder -- y con el se fueron compressors/preflate/ y compressors/zlib/
+// (87 archivos, 2,3 MB). Lo reemplaza -ytool, que detecta mas formatos.
+//
+// Consecuencia que hay que decir en voz alta: un .zpaq escrito con -pc por
+// v64.8j-pre13 o anterior YA NO SE PUEDE REVERTIR con este build. La extraccion
+// deja el contenedor PCF en disco y avisa (00566!). Se acepto a sabiendas porque
+// el proyecto no tiene uso en produccion; para revertir uno de esos archivos hay
+// que usar pre13.
 bool flagytool;		// -ytool : external precompressor via the ytool subprocess (replaces -pc)
 bool flagcatpaqmode;
 bool flagdistinct;
@@ -8704,10 +8706,9 @@ extern "C" {
 #endif
 
 /* preflate bridge for -pc (C++ API, std::vector — NOT extern "C"). Only this thin
- * header is visible here; preflate's own headers stay isolated in pcf_wrapper.cpp. */
-#include "pcf_wrapper.h"
+ * header is visible here. */
 /* ytool bridge for -ytool (subprocess precompressor; replaces -pc). Same
- * std::vector API shape as pcf_wrapper so it drops into the same hook points. */
+ * std::vector API shape the old pcf_wrapper had, so it drops into the same hook points. */
 #include "compressors/ytool/ytool_bridge.h"
 
 /* PPMd var.H one-shot wrapper for -ma:ppmd (C API, has its own extern "C" guard) */
@@ -58482,7 +58483,7 @@ struct PcRev
 
 // Reverse one extracted file in place from its stored PCF back to the original,
 // restoring date/attr. Cheap no-op for non-PCF files: the "zPCF" magic check + the
-// re-encode authenticity test inside pcf_authentic_reverse2 never touch a verbatim
+// authenticity test (size+CRC for ytool) never touches a verbatim
 // file. A file that DECODES as a PCF but fails the authenticity re-encode (rc==2)
 // is near-certainly a real PCF this build can no longer reproduce (codec version
 // skew): it is left untouched (never garbage), but LOUDLY -- silence there would
@@ -58524,22 +58525,14 @@ static bool pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
 		         "        reproduce; left COMPRESSED on disk\n", fn.c_str());
 		return false;
 	}
-	int rc= pcf_authentic_reverse2(stored, orig);
-	if (rc == 0)
-	{
-		delete_file(fn.c_str());
-		FP wf= myfopen(fn.c_str(), WB);
-		if (wf != FPNULL)
-		{
-			if (!orig.empty())
-				myfwrite(&orig[0], 1, orig.size(), wf);
-			close(fn.c_str(), date, attr, wf);
-		}
-		return true;
-	}
-	if (rc == 2)
-		myprintf("00566! WARN: %s decodes as -pc/-sa content but this build cannot\n"
-		         "        reproduce it (codec version skew?); left COMPRESSED on disk\n", fn.c_str());
+	/// Contenedor PCF del viejo -pc: este build ya no puede revertirlo, porque
+	/// preflate se fue con el. Se detecta por el magic (4 bytes, no hace falta
+	/// preflate para eso) y se avisa, en vez de dejar un archivo comprimido en
+	/// disco sin decir nada.
+	if ((stored.size() >= 5) && (stored[0] == 'z') && (stored[1] == 'P')
+	    && (stored[2] == 'C') && (stored[3] == 'F'))
+		myprintf("00566! WARN: %s is -pc content, removed in v64.8j-pre14; this build\n"
+		         "        cannot reverse it. Left COMPRESSED on disk -- use v64.8j-pre13\n", fn.c_str());
 	return false;
 }
 
@@ -64267,16 +64260,6 @@ int zpaq_main_internal(int argc, const char **argv)
 #endif
 
     pjidac = NULL;
-
-    // -pc Phase 1a: prove preflate links and round-trips bit-exact inside the real
-    // binary. Gated by env var so it never affects normal runs. Remove once -pc ships.
-    if (getenv("ZPAQ_PCF_SELFTEST"))
-    {
-        bool pcok = pcf_autotest();
-        printf("PCF_SELFTEST: %s\n", pcok ? "BIT-EXACT OK" : "FAIL");
-        fflush(stdout);
-        return pcok ? 0 : 1;
-    }
 
     if (!isatty(fileno(stdout)))
         flagnocolor = true;
@@ -87424,7 +87407,6 @@ int Jidac::extract()
 	// _init race, no nested-pool deadlock. K tied to howmanythreads (honours -t / x86 cap).
 	if (!flagtest && !job.pc_reverse_list.empty())
 	{
-		pcf_set_internal_threads(0);
 		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
 		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
 		std::atomic<size_t> pcidx(0);
@@ -99917,10 +99899,10 @@ void Jidac::preparahashtobewritten(const string &i_filename, const DTMap::iterat
 }
 
 
-// -pc magic sniff: does this 4-byte prefix look like a DEFLATE-bearing format
-// (gzip / zlib / zip / pdf / png)? Shared by the prefetch workers and the inline
-// path so both agree on which files are -pc candidates.
-static bool pc_magic_candidate(const unsigned char* s, size_t got)
+// DEFLATE magic sniff: does this 4-byte prefix look like a DEFLATE-bearing format
+// (gzip / zlib / zip / pdf)? Era el gate de -pc; ahora su unico consumidor es
+// yt_magic_candidate(), que lo usa como subconjunto de lo que detecta -ytool.
+static bool deflate_magic_candidate(const unsigned char* s, size_t got)
 {
 	bool gz = (got >= 3 && s[0] == 0x1f && s[1] == 0x8b && s[2] == 0x08);
 	bool zlb= (got >= 2 && (s[0] & 0x0f) == 0x08 && ((((unsigned)s[0] << 8) | s[1]) % 31) == 0);
@@ -99937,7 +99919,7 @@ static bool pc_magic_candidate(const unsigned char* s, size_t got)
 // slip through. Whichever codec of the requested set wins is ytool's decision.
 static bool yt_magic_candidate(const unsigned char* s, size_t got)
 {
-	if (pc_magic_candidate(s, got)) return true;                                  // gz/zlib/zip/pdf
+	if (deflate_magic_candidate(s, got)) return true;                             // gz/zlib/zip/pdf
 	bool jpg = (got >= 3 && s[0] == 0xFF && s[1] == 0xD8 && s[2] == 0xFF);        // JPEG
 	bool png = (got >= 4 && s[0] == 0x89 && s[1] == 0x50 && s[2] == 0x4e && s[3] == 0x47); // PNG/APNG
 	bool riff= (got >= 4 && s[0] == 'R' && s[1] == 'I' && s[2] == 'F' && s[3] == 'F');     // RIFF/WAV (PCM)
@@ -99991,7 +99973,7 @@ static bool pc_transform_candidate(const unsigned char* s, size_t got)
 	return yt_magic_candidate(s, got);
 }
 
-/* -pc cross-file prefetch: K worker threads run the expensive pcf_file_encode on
+/* Cross-file prefetch: K worker threads run the expensive precompressor encode on
    upcoming files ahead of the sequential add() loop, so preflate work overlaps
    with the rest of compression. The main loop consumes results in order via
    get()/consumed(); the RAM cache is bounded (workers block once over the cap).
@@ -100856,7 +100838,6 @@ int Jidac::add()
 		if (pc_K > 32) pc_K= 32;
 		if (pc_K < 1) pc_K= 1;
 	}
-	pcf_set_internal_threads(pc_K > 0 ? 0 : (howmanythreads >= 1 ? howmanythreads - 1 : 0));
 	// -ytool thread policy. ytool's precomp output is thread-count-INVARIANT (ytool
 	// c052153), so -t only trades throughput, never the stored bytes / dedup. Default
 	// -t1 (one ytool per file; parallelism across files via the pool). But when there
@@ -100945,7 +100926,7 @@ int Jidac::add()
 			// stream, recompress it to a self-describing PCF container before fragmentation.
 			// Per-file hashes are computed over the ORIGINAL (fed once here), so hexhash/
 			// file_crc32 stay the original's; the stored (fragmented) content is the PCF
-			// stream, reversed on extraction. verify-then-fallback inside pcf_file_encode
+			// stream, reversed on extraction. verify-then-fallback inside the encoder
 			// guarantees no corruption: a file that does not round-trip is stored verbatim.
 			// -sa removed. -pc (preflate) or -ytool (subprocess) precompress here.
 			if (flagytool && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
@@ -100960,7 +100941,7 @@ int Jidac::add()
 				/// los magics de gz/zlib/zip/pdf los miraba -pc; -ytool usa los suyos
 				// worker_pcf: the prefetch worker already read the original, encoded it to a
 				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
-				// pc_magic_candidate() in the worker == this sniff, so worker_pcf implies the
+				// the worker's candidate gate == this sniff, so worker_pcf implies the
 				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
 				// robust even if they ever diverged (prevents a double-hash on the normal path).
 				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
