@@ -1,0 +1,3 @@
+generado con: ./wtoufix-x86_64.exe
+sha256 del binario: f1f78401ebfbf57dc965543ca8da26fd44eb5baf9f8faa334a75c0b81c673f97
+fecha: 2026-09-10T10:58:58-05:00

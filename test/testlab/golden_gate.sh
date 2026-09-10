@@ -93,13 +93,22 @@ echo "golden,x_rc,t_rc,contenido,resultado" > "$CSV"; : > "$LOG"
 cmp -s "$D/corpus.sha256" "$CORPUS/MANIFEST.sha256" \
   || { echo "ABORTA: el corpus no es el que se uso para generar estos golden"; exit 2; }
 
+# Fallos ESPERADOS: golden que no pueden pasar porque el bug esta EN LOS BYTES
+# del archivo historico, no en el binario que los lee. Un gate con fallos
+# esperados sin declarar se malinterpreta como ruido y deja de servir.
+# Formato de $D/KNOWN_FAIL: una linea "<nombre-del-golden> motivo".
+declare -A KF
+if [ -f "$D/KNOWN_FAIL" ]; then
+    while read -r k rest; do [ -n "$k" ] && KF["$k"]="$rest"; done < "$D/KNOWN_FAIL"
+fi
+
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 # Un binario de Windows bajo wine NO resuelve una ruta Linux desnuda como
 # destino: getfreespace devuelve 0 y aborta con "00935! Not enough free space".
 # wine mapea '/' en la unidad Z:, asi que hay que prefijarlo. Sin esto los tres
 # .exe fallan el 100% de los golden por culpa del harness, no del binario.
 case "$BIN" in *.exe) TOPFX="Z:";; *) TOPFX="";; esac
-ok=0; bad=0
+ok=0; bad=0; esperados=0
 for f in "$D"/*.zpaq; do
     base=$(basename "$f" .zpaq); caso=${base##*--}
     rm -rf "$T/o"
@@ -112,11 +121,18 @@ for f in "$D"/*.zpaq; do
     elif ! diff -r "$CORPUS/$caso" "$ext" >>"$LOG" 2>&1; then cont=DIFF; fi
     res=PASA
     { [ "$xrc" = 0 ] && [ "$trc" = 0 ] && [ "$cont" = OK ]; } || res=FALLA
-    [ "$res" = PASA ] && ok=$((ok+1)) || { bad=$((bad+1)); printf '  FALLA %-34s x=%s t=%s %s\n' "$base" "$xrc" "$trc" "$cont"; }
+    if [ "$res" = FALLA ] && [ -n "${KF[$base]:-}" ]; then
+        res=ESPERADO; esperados=$((esperados+1))
+    fi
+    case "$res" in
+      PASA)     ok=$((ok+1)) ;;
+      ESPERADO) : ;;
+      *)        bad=$((bad+1)); printf '  FALLA %-34s x=%s t=%s %s\n' "$base" "$xrc" "$trc" "$cont" ;;
+    esac
     echo "$base,$xrc,$trc,$cont,$res" >> "$CSV"
 done
 echo
-echo "===== $((ok+bad)) golden, $ok pasan, $bad fallan  ($(basename "$BIN")) ====="
+echo "===== $((ok+bad+esperados)) golden, $ok pasan, $bad fallan, $esperados fallo esperado  ($(basename "$BIN")) ====="
 echo "  csv: $CSV"
 echo DONE_CHECK
 [ "$bad" -eq 0 ]

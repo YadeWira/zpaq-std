@@ -34,6 +34,12 @@ ningún test cubría eso.
 Dos guardas que abortan la corrida: si un golden cambió respecto de su sha256, o
 si el corpus no es el que se usó para generarlos.
 
+Y una **lista de fallos esperados** por set (`KNOWN_FAIL`): golden que no pueden
+pasar porque el bug está en los bytes del archivo histórico y no en el binario
+que los lee. Sin declararlos, un gate con fallos permanentes se lee como ruido y
+deja de servir. La lista sólo **degrada** un fallo real: un lector que sí pase
+ese caso lo sigue contando como éxito.
+
 ### `os_msgs.sh <binA> <binB> [tag]` — formas de destino y mensajes numerados
 
 25 casos. Cubre lo que `difftest` no mira: los mensajes numerados (`00067!`,
@@ -60,11 +66,12 @@ coincide con el manifiesto.
 Dos grupos de 16 fallos, con causas distintas. Ninguno es una regresión de pre10:
 los dos existen en las versiones publicadas.
 
-### `wtou` no combina pares surrogados → nombres fuera del BMP se corrompen
+### `wtou` no combinaba pares surrogados — ARREGLADO
 
-Encontrado por `golden_gate.sh` en su primera corrida: los 16 golden del caso
-`intl` escritos por el binario de **Windows** fallan al extraerse en **Linux**,
-en todos los métodos. `x` y `t` dan 0; lo que difiere es el nombre del archivo.
+Encontrado por `golden_gate.sh` en su primera corrida y **arreglado el mismo
+día**: los 16 golden del caso `intl` escritos por el binario de **Windows**
+fallaban al extraerse en **Linux**, en todos los métodos. `x` y `t` daban 0; lo
+que difería era el nombre del archivo.
 
 ```
 original / escrito en Linux:  emoji-🎉🔥.txt   f0 9f 8e 89  f0 9f 94 a5
@@ -91,6 +98,24 @@ escrituras históricas. Ni ș/ț rumanos ni CJK del BMP ni griego ni cirílico s
 ven afectados — por eso no se había notado.
 
 Es de la misma familia que el caso CLAAS: la frontera con el sistema operativo.
+
+**El arreglo**: `wtou` combina el par y emite 4 bytes. Un surrogate **huérfano**
+(alto sin bajo, o bajo suelto) se deja **a propósito** en su forma de 3 bytes:
+no es representable en UTF-8, NTFS los admite, y esa forma es exactamente la que
+`utow` revierte — mapearlo a `'?'` (que es lo que `utow` hace con entrada
+inválida) perdería el nombre del archivo.
+
+Medido: nombres correctos **2/5 → 5/5** (emoji, matemáticos y CJK extensión B);
+bytes guardados `ed a0 bc ed be 89` → `f0 9f 8e 89`; y un archivo **viejo** con
+nombres en CESU-8 leído por el binario arreglado **sigue dando los nombres
+originales**, o sea que no repara retroactivamente los bytes de un `.zpaq` ya
+creado pero tampoco rompe su lectura.
+
+**Los golden pre-arreglo no pueden pasar y no deben**: el bug está en los bytes
+del archivo histórico, no en el lector. Están declarados en
+`golden-pre9-win64-KNOWN_FAIL.txt`. La prueba de punta a punta es el set
+`win64-postfix`, escrito con el binario arreglado: **116/116 sin un solo fallo
+esperado**, contra 16 del set anterior.
 
 ### Archivos que difieren sólo en mayúsculas: se pierden 2 con `rc=0` y "all OK"
 
@@ -156,5 +181,7 @@ la confirmación en Windows real está pendiente.
 | `corpus-MANIFEST.sha256` | los 2.147 archivos del corpus |
 | `refbin-SHA256SUMS.txt` | los 6 binarios publicados de pre9/pre10 |
 | `golden-pre9-linux.sha256` | 136 golden escritos por pre9 en Linux |
-| `golden-pre9-win64.sha256` | 116 golden escritos por pre9 x64 en Windows |
+| `golden-pre9-win64.sha256` | 116 golden escritos por pre9 x64 en Windows (pre-arreglo de `wtou`) |
+| `golden-win64-postfix.sha256` | 116 golden escritos con `wtou` arreglado — 116/116 en Linux |
+| `golden-*-KNOWN_FAIL.txt` | fallos esperados por set, con el motivo |
 | `golden-*-ORIGEN.txt` | con qué binario y cuándo se generó cada set |

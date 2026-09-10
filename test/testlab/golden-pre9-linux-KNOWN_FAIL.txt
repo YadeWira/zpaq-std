@@ -1,0 +1,16 @@
+m1--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+m2--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+m3--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+m5--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_brotli_11--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_brotli_1--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_brotli_5--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_bzip2_9--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_bzip2--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_lzfse_1--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_lzfse--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_ppmd_2--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_ppmd_32--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_ppmd_6--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+ma_snappy--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.
+store--mixed case-collision: solo falla con un lector de Windows (demo.PQL vs Demo.PQL). Ver case-collision-silent-loss. En Linux pasa.

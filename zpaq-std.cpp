@@ -23721,6 +23721,38 @@ string wtou(const wchar_t *s)
 		return r;
 	for (; *s; ++s)
 	{
+		/// Un caracter fuera del BMP llega como PAR DE SURROGATES. Codificar cada
+		/// mitad por su cuenta da CESU-8, no UTF-8: dos secuencias de 3 bytes en
+		/// lugar de una de 4. El nombre guardado en el archivo queda con UTF-8
+		/// invalido y se corrompe al extraerlo en cualquier plataforma que no sea
+		/// Windows (en Windows sobrevivia por casualidad, porque utow() deshace la
+		/// misma conversion rota):
+		///
+		///   emoji-<U+1F389>.txt   correcto:  f0 9f 8e 89
+		///                         era:       ed a0 bc  ed be 89
+		///
+		/// Afecta emoji, CJK desde la extension B, simbolos matematicos y
+		/// musicales. NO afecta rumano, CJK del BMP, griego ni cirilico, que son
+		/// del BMP -- por eso paso desapercibido. Su inverso utow() (buscar
+		/// "surrogate pairs per UTF-16") siempre manejo bien el caso de 4 bytes:
+		/// el par estaba asimetrico.
+		if ((*s >= 0xD800) && (*s <= 0xDBFF) && (s[1] >= 0xDC00) && (s[1] <= 0xDFFF))
+		{
+			unsigned int codepoint= 0x10000u + (((unsigned int)*s - 0xD800u) << 10) +
+									((unsigned int)s[1] - 0xDC00u);
+			r+= 240 + (codepoint >> 18);
+			r+= 128 + ((codepoint >> 12) & 63);
+			r+= 128 + ((codepoint >> 6) & 63);
+			r+= 128 + (codepoint & 63);
+			++s; /// el surrogate bajo ya se consumio
+			continue;
+		}
+
+		/// Un surrogate HUERFANO (alto sin bajo, o bajo suelto) cae en el `else`
+		/// de abajo y se sigue codificando en 3 bytes, a proposito: no es
+		/// representable en UTF-8, NTFS los admite, y esa forma es exactamente la
+		/// que utow() revierte. Mapearlo a '?' -- que es lo que utow() hace con la
+		/// entrada invalida -- perderia el nombre del archivo.
 		if (*s == '\\')
 			r+= '/';
 		else if (*s < 128)
