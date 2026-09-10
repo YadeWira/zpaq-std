@@ -1,6 +1,9 @@
-8a1460daa92ce4ecb0817bc5bba93d1317dbdc1b5b029b110fddb84e9b021fc5  refbin/zpaq-std-v64.8j-pre10-linux-x64
-c70ea21b72f0c3cbf32025b2096e24365e27e9d513966a53ebb737879a63680c  refbin/zpaq-std-v64.8j-pre10-windows-x64.exe
-a33ea4b84462e62adc3ae0a915bb84af23e86e2eab572b9f09144f0add53562b  refbin/zpaq-std-v64.8j-pre10-windows-x86.exe
-4bde2cc7f04f7d69b37c61ce5f27587a79cfd3ef452f422821c8c519e1be9d99  refbin/zpaq-std-v64.8j-pre9-linux-x64
-233294a80d934ae1c5681a319c00d0e6e1967f986b40dd52e9a300fb9eb7cfb5  refbin/zpaq-std-v64.8j-pre9-windows-x64.exe
-d0c34fad5f2647ce1402dde6270e229a64fc260fa1b1dd8cf0535418c7e73ff0  refbin/zpaq-std-v64.8j-pre9-windows-x86.exe
+8a1460daa92ce4ecb0817bc5bba93d1317dbdc1b5b029b110fddb84e9b021fc5  zpaq-std-v64.8j-pre10-linux-x64
+c70ea21b72f0c3cbf32025b2096e24365e27e9d513966a53ebb737879a63680c  zpaq-std-v64.8j-pre10-windows-x64.exe
+a33ea4b84462e62adc3ae0a915bb84af23e86e2eab572b9f09144f0add53562b  zpaq-std-v64.8j-pre10-windows-x86.exe
+f67b8e4e7c50bf670e1329b0189230abaa80c632482317f1186d530f8e3be1cd  zpaq-std-v64.8j-pre11-linux-x64
+05cf6d72aab1604662ec5686123d40fca8d7c0327c1a0f5fa3fca1072df9a4b5  zpaq-std-v64.8j-pre11-windows-x64.exe
+96f9560af380fe75bd889891f902290895e5f35d901f3d856ac40c626a2e1d1b  zpaq-std-v64.8j-pre11-windows-x86.exe
+4bde2cc7f04f7d69b37c61ce5f27587a79cfd3ef452f422821c8c519e1be9d99  zpaq-std-v64.8j-pre9-linux-x64
+233294a80d934ae1c5681a319c00d0e6e1967f986b40dd52e9a300fb9eb7cfb5  zpaq-std-v64.8j-pre9-windows-x64.exe
+d0c34fad5f2647ce1402dde6270e229a64fc260fa1b1dd8cf0535418c7e73ff0  zpaq-std-v64.8j-pre9-windows-x86.exe

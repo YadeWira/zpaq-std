@@ -46543,6 +46543,17 @@ uint32_t Jidac::casekollision(DTMap &i_dtmap, vector<string> &o_collisions, bool
 	uint32_t fixed= 0;
 	o_collisions.clear();
 	vector<uint64_t> hashedstrings;
+	/// Los renombres se ACUMULAN y se aplican DESPUES del recorrido.
+	/// changedtmapkey() inserta en el mismo map que este for esta recorriendo, y
+	/// la clave nueva puede ordenar despues de p: el bucle terminaba visitando
+	/// la entrada que el mismo habia creado, la volvia a "arreglar", y el
+	/// prefijo de -to quedaba aplicado dos y hasta TRES veces
+	///   .../o/Z/.../o/Z/.../src/demo_00000001_00000001.PQL
+	/// Con el hash del nombre elegido registrado (que es necesario para que dos
+	/// colisiones distintas no se queden las dos con "_00000001") esa revisita
+	/// pasa a ser un BUCLE INFINITO. Aplicarlos al final saca el problema de
+	/// raiz: el recorrido ya no ve sus propias inserciones.
+	vector<std::pair<string, string> > arenombrar;
 	for (DTMap::iterator p= i_dtmap.begin(); p != i_dtmap.end(); ++p)
 		if (all || p->second.date)
 		{
@@ -46554,28 +46565,49 @@ uint32_t Jidac::casekollision(DTMap &i_dtmap, vector<string> &o_collisions, bool
 				if (i_fix)
 				{
 					char   buf[32];
-					string percorso	 = extractfilepath(fn);
-					string nomefile	 = prendinomefileebasta(fn);
-					string estensione= prendiestensione(fn);
+					/// El nombre corregido se construye en el espacio de CLAVES de
+					/// dt (p->first), NO sobre fn.
+					///
+					/// fn es rename(p->first), o sea la ruta de SALIDA, con el
+					/// mapeo de -to ya aplicado. Construir el reemplazo sobre fn y
+					/// despues guardarlo como clave de dt hacia que al extraer se
+					/// volviera a aplicar rename(): el prefijo de -to quedaba
+					/// aplicado DOS veces y el archivo "arreglado" caia en una ruta
+					/// duplicada,
+					///   o/Z/tmp/x/o/tmp/x/src/demo_00000001.PQL
+					/// mientras en el directorio de destino faltaba un archivo, y
+					/// la corrida reportaba el total completo con rc=0 y "all OK".
+					string percorso	 = extractfilepath(p->first);
+					string nomefile	 = prendinomefileebasta(p->first);
+					string estensione= prendiestensione(p->first);
 					int	   iterazione= 1;
 					string rifatto	 = "";
 					do
 					{
 						snprintf(buf, sizeof(buf), "_%08d", iterazione++);
-						if (percorso != "")
-							rifatto= percorso;
-						string pezzetto= buf;
+						/// reiniciar en cada vuelta: con percorso vacio (archivo en
+						/// la raiz) el nombre se iba acumulando entre iteraciones
+						rifatto= percorso;
 						if (nomefile != "")
 							rifatto+= nomefile + buf;
 						if (estensione != "")
 							rifatto+= "." + estensione;
-						hashato= hashastringa(rifatto);
+						/// La unicidad se prueba sobre la MISMA forma que guarda el
+						/// set: el nombre de SALIDA en minusculas. Antes se hasheaba
+						/// rifatto crudo, que no podia coincidir con nada del set y
+						/// hacia que se aceptara siempre el primer candidato.
+						hashato= hashastringa(stringtolower(rename(rifatto)));
 						if (binary_search(hashedstrings.begin(), hashedstrings.end(), hashato) == false)
 							break;
 					} while (iterazione < 1000);
 					if (iterazione < 1000)
 					{
-						changedtmapkey(p->first, rifatto);
+						arenombrar.push_back(std::make_pair(p->first, rifatto));
+						/// registrar el nombre elegido: si no, dos colisiones
+						/// distintas pueden quedarse las dos con "_00000001"
+						std::vector<uint64_t>::iterator itfix;
+						itfix= std::upper_bound(hashedstrings.begin(), hashedstrings.end(), hashato);
+						hashedstrings.insert(itfix, hashato);
 						fixed++;
 					}
 					else
@@ -46598,6 +46630,9 @@ uint32_t Jidac::casekollision(DTMap &i_dtmap, vector<string> &o_collisions, bool
 #endif // corresponds to #ifndef (#ifndef ANCIENT)
 			}
 		}
+	/// ahora si: ya nadie esta iterando i_dtmap
+	for (unsigned int i= 0; i < arenombrar.size(); i++)
+		changedtmapkey(arenombrar[i].first, arenombrar[i].second);
 	int64_t endkoll= mtime();
 	if (flagverbose)
 		myprintf("00420: done in %.2fs\n", (endkoll - startkoll) * 0.001);
@@ -86800,6 +86835,13 @@ int Jidac::extract()
 				myprintf("00902: -fixcase fixed         %9s files\n", migliaia(fixati));
 			kollisioni.clear();
 		}
+		else if (fixati > 0)
+			/// casekollision() llena o_collisions SOLO cuando i_fix es false, y aca
+			/// se la llama con true: la lista de "no arreglados" queda siempre
+			/// vacia. Sin esta rama la corrida decia "No unfixed case collision" sin
+			/// mencionar nada, incluso habiendo renombrado archivos, y el 00902 de
+			/// arriba era inalcanzable desde extract().
+			myprintf("00902: Case collisions renamed %9s files (extracting Unix filenames on Windows)\n", migliaia(fixati));
 		else
 			myprintf("00903: No unfixed case collision (extracting Unix filenames on Windows)\n");
 	}

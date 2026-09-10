@@ -5,7 +5,7 @@ de referencia) viven en `/mnt/IA_LAB/agentes/ZPAQ-STD/testlab/`, que es un solo
 disco sin redundancia y **explícitamente no es un respaldo** — por eso los
 manifiestos de sha256 están acá: si los datos se corrompen o cambian, se detecta.
 
-## Las tres herramientas, y por qué son tres
+## Las cuatro herramientas, y por qué son cuatro
 
 Miden cosas distintas y ninguna reemplaza a otra.
 
@@ -117,38 +117,52 @@ del archivo histórico, no en el lector. Están declarados en
 `win64-postfix`, escrito con el binario arreglado: **116/116 sin un solo fallo
 esperado**, contra 16 del set anterior.
 
-### Archivos que difieren sólo en mayúsculas: se pierden 2 con `rc=0` y "all OK"
+### Archivos que difieren sólo en mayúsculas — ARREGLADO
 
-Los otros 16 fallos son el caso `mixed` leído por un binario de **Windows**, y
-son una historia distinta. `corpus/mixed` tiene `demo.PQL` y `Demo.PQL`. Al
-extraerlos en Windows quedan **46 de 48** archivos — eso es una limitación
-inherente de un filesystem case-insensitive, no un defecto.
+Los otros 16 fallos son el caso `mixed` leído por un binario de **Windows**.
+`corpus/mixed` tiene `demo.PQL` y `Demo.PQL`.
 
-Lo que **sí** es un defecto es cómo se informa. zpaq tiene una comprobación
-dedicada a esto y dice que no hay nada:
+Que un filesystem case-insensitive no pueda tener los dos a la vez es una
+limitación inherente, no un defecto: **el árbol extraído nunca va a ser idéntico
+al original**, así que esos 16 golden fallan para siempre y está bien. Están
+declarados en `golden-*-KNOWN_FAIL.txt`.
 
-```
-00900: Found Unix attributes on Windows => checking for collision
-00417: Case-collision checks on 49 files done in 0.00s
-00903: No unfixed case collision (extracting Unix filenames on Windows)
-Extract 2.432.507 bytes (2.32 MB) in 48 files (1 folders)
-0.151s (all OK)                      <-- rc=0
-```
+Lo que **sí** era un defecto es lo que pasaba con la colisión, y tenía tres
+causas en las mismas 30 líneas de `Jidac::casekollision`:
 
-Reporta 48 extraídos, deja 46 en disco, no menciona la colisión y sale con
-**éxito**. O sea **pérdida silenciosa de datos con código de salida 0**, en el
-camino de código cuyo único propósito es atrapar exactamente esto.
+1. **El nombre corregido se construía sobre `rename(p->first)`** —la ruta de
+   SALIDA, con el `-to` ya aplicado— y se guardaba como **clave de `dt`**, que
+   vuelve a pasar por `rename()` al extraer. El prefijo quedaba aplicado dos
+   veces, y con tres nombres colisionando hasta **tres**:
 
-**Causa raíz NO determinada.** Dos hipótesis descartadas: el `binary_search` de
-`Jidac::casekollision` (:46506) opera sobre un vector que **sí** se mantiene
-ordenado con `upper_bound`+`insert`, y `ANCIENT` —que desactivaría esa
-inserción— sólo se define bajo `ESX`/`NAS`, no en los builds x86. Queda por
-revisar el filtro `if (all || p->second.date)` y en qué estado está `dt` cuando
-se llama desde `:86757`.
+   ```
+   ./tmp/x/src/DEMO.pql                                        <- 1 de 3
+   ./Z/tmp/x/o/tmp/x/src/Demo_00000001.PQL                     <- duplicada
+   ./Z/tmp/x/o/Z/tmp/x/o/.../demo_00000001_00000001.PQL        <- triplicada
+   ```
 
-**Salvedad**: medido **bajo wine**, no en una VM real. Wine emula la resolución
-de rutas case-insensitive de Windows, así que reproduce el comportamiento, pero
-la confirmación en Windows real está pendiente.
+2. **La unicidad del candidato se probaba hasheando `rifatto` crudo**, cuando el
+   set guarda el nombre de salida en minúsculas: nunca podía coincidir, así que
+   se aceptaba siempre el primer candidato y dos colisiones distintas se
+   quedaban las dos con `_00000001`.
+
+3. **`rifatto` no se reiniciaba** dentro del bucle cuando el archivo está en la
+   raíz del archivo, así que el nombre se acumulaba entre iteraciones.
+
+Y el reporte: `casekollision()` llena su lista de "no arreglados" **sólo** cuando
+`i_fix` es false, y `extract()` la llama con true. La lista quedaba siempre vacía,
+así que la corrida decía `00903: No unfixed case collision` mientras renombraba
+archivos, y el mensaje `00902` era inalcanzable. Ahora dice
+`00902: Case collisions renamed N files`.
+
+**Trampa al arreglarlo, que costó un cuelgue**: `changedtmapkey()` inserta en el
+mismo `map` que el bucle está recorriendo, y la clave nueva puede ordenar después
+del iterador actual — el bucle terminaba visitando la entrada que él mismo había
+creado. Eso ya pasaba antes (de ahí el `_00000001_00000001`), pero al registrar
+el hash del nombre elegido —necesario para arreglar la causa 2— se volvió un
+**bucle infinito**: el binario colgaba, detectado con `rc=124`. La solución es
+estructural: **acumular los renombres y aplicarlos DESPUÉS del recorrido**, así
+el bucle no ve sus propias inserciones.
 
 ## Trampas que cuestan horas si no están escritas
 
@@ -163,7 +177,11 @@ la confirmación en Windows real está pendiente.
 - **`FULL exename` es `argv[0]`**: difiere entre A y B por definición.
 - **`make clean` no borra los `.o`.** Entre cross-compiles:
   `find . -name '*.o' -delete && rm -f win/*.o`.
-- **Ante una diferencia entre A y B, correr primero A contra A.** Es lo que
+- **Ante una diferencia entre A y B, correr primero A contra A.**
+- **No mutar un contenedor mientras se lo itera.** `changedtmapkey()` inserta en
+  el `map` que el bucle recorre, así que el bucle visita sus propias
+  inserciones. Un arreglo que además registraba el nombre elegido convirtió eso
+  en un bucle infinito (`rc=124`). Acumular y aplicar después. Es lo que
   evitó atribuirle a Rust los 4 bytes del sello `jDC`.
 - **Que Linux compile no significa que esté bien.** Un macro `MAX` que en Linux
   llegaba de glibc rompió los dos targets MinGW. Verificar los tres siempre.
