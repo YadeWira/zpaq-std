@@ -1,0 +1,3 @@
+generado con: ./refbin/zpaq-std-v64.8j-pre9-linux-x64
+sha256 del binario: 4bde2cc7f04f7d69b37c61ce5f27587a79cfd3ef452f422821c8c519e1be9d99
+fecha: 2026-09-10T09:36:10-05:00

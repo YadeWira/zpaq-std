@@ -1,0 +1,3 @@
+generado con: ./refbin/zpaq-std-v64.8j-pre9-windows-x64.exe
+sha256 del binario: 233294a80d934ae1c5681a319c00d0e6e1967f986b40dd52e9a300fb9eb7cfb5
+fecha: 2026-09-10T09:37:36-05:00
