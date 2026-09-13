@@ -72,6 +72,59 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ---
 
+## zpaqf models: `-mf1` … `-mf5`
+
+`-mfN` is `-mN` with the model set from [zpaqf](https://github.com/kaitz/zpaqf),
+Kaitz's fork of zpaq 7.15. The output is an **ordinary zpaq archive**: the model
+travels inside the block header as ZPAQL bytecode, so any zpaq — including
+releases of this program that predate the flag — reads an `-mf` archive back.
+Nothing else changes: dedup, versioning and `-append` behave exactly as with `-m`.
+
+```sh
+zpaq-std a backup.zpaq /home/me/src -mf5     # like -m5, smaller on source code
+```
+
+Measured against `-mN` on the same corpus (negative = smaller):
+
+| corpus        | `-mf1` | `-mf2` | `-mf3`  | `-mf4` | `-mf5`  |
+|---------------|-------:|-------:|--------:|-------:|--------:|
+| text          |      0 |      0 |  +7.98% | −1.78% | **−4.13%** |
+| binaries      |      0 |      0 |  **−6.45%** | +1.70% | **−2.75%** |
+| raster images |      0 |      0 | **−14.26%** | +1.43% |  +1.07% |
+| mixed         |      0 |      0 |  −1.00% | −0.01% |       0 |
+| non-ASCII     |      0 |      0 |       0 |      0 | **−14.86%** |
+
+**`-mf5` is the one to reach for.** zpaqf's level 1 and 2 are the same code as
+zpaq's, and `-mf1`/`-mf2` come out byte-identical to `-m1`/`-m2` on every corpus
+here, so they exist for completeness only. `-mf4` is worse than `-m4` on
+anything that is not text. `-mf3` is a genuine trade: it replaces
+zpaq's LZ77+CM with LZMA, which wins big on binaries and raster and loses on text.
+
+Most of the `-mf5` gain on source code is not the models but **one line of type
+detection**. zpaq scores a fragment as text when a letter, digit, `.` or `,` is
+followed by a *space*; it never looks at newlines, so most source files score as
+binary and never reach the text models. zpaqf adds the newline test, and that is
+what flips them. The test is applied under `-mf` only: applying it to `-m` would
+change the chosen models, hence the bytes, of every plain `-m` archive against
+every release published so far.
+
+Two pieces of zpaqf are **not** carried here:
+
+- **WBPE** (transform 13) is GPL-3 and this project is MIT, so it is absent from
+  the source entirely, not merely disabled — shipping the text either way would
+  relicense the project. It is reachable only from level 3, which uses LZMA here.
+- zpaqf's **image/stream detector** is woven through its fragmentation loop
+  rather than being a liftable function. Without it `-mf` never selects the
+  image-specific models, which is why raster gains nothing at `-mf5` (`-mf3`
+  still gains, because LZMA gets there by a different route).
+
+`-mf3` does need the LZMA *encoder* that zpaqf's transform 14 assumes, so the
+LZMA SDK (Igor Pavlov, public domain) is bundled at `compressors/lzmasdk/` like
+every other codec here. Only the encoder is involved — the decoder is the ZPAQL
+in the archive — which is why an `-mf3` archive opens on binaries built without it.
+
+---
+
 ## Precompressor: `-ytool`
 
 A **reversible, bit-exact** precompressor applied *before* compression, so the
@@ -151,7 +204,7 @@ zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
 
 ## No system dependencies
 
-All 17 `-ma` libraries live inside `compressors/`:
+All 17 `-ma` libraries live inside `compressors/`, plus one more used by `-mf3`:
 
 ```
 compressors/
@@ -171,10 +224,13 @@ compressors/
 ├── lzfse/        7 src +  7 h   (+lzvn helpers)
 ├── bsc/         12 src + 15 h   (+libsais)
 ├── lzham/       20 src + 29 h   (richgel999)
-└── ppmd/         4 src +  7 h   (7-Zip SDK, + ppmd_wrapper.c glue)
+├── ppmd/         4 src +  7 h   (7-Zip SDK, + ppmd_wrapper.c glue)
+└── lzmasdk/      6 src + 11 h   (7-Zip SDK, encoder only; for -mf3)
 ```
 
-Plus `ytool/`, which is not an `-ma` codec but a subprocess bridge (see above).
+`lzmasdk/` is not an `-ma` codec either: it is the LZMA *encoder* that `-mf3`
+needs, because the matching decoder is the ZPAQL bytecode inside the archive.
+Plus `ytool/`, which is a subprocess bridge (see above).
 
 Total: **379 source files, 8.7 MB of source**. No `apt install`, no `brew install`,
 no `-lz`, no `-lbrotli`. Just `make`.

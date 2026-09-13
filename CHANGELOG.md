@@ -1,3 +1,55 @@
+### [64.8j-pre15] - 2026-09-13
+
+**zpaqf model set as `-mf1`..`-mf5`.** `makeConfig` and `compressBlock` from
+[zpaqf](https://github.com/kaitz/zpaqf) (Kaitz's fork of zpaq 7.15) are carried in
+alongside ours as `makeConfigF`/`compressBlockF`, and `-mfN` routes data blocks
+through them. Everything is additive: `-m1`..`-m5` are not touched and still
+produce byte-identical archives to every previous release, verified by difftest
+against pre13. `-mf` output is an ordinary zpaq archive — the model is ZPAQL
+bytecode in the block header — and pre13 extracts every `-mf` level correctly.
+
+Measured against `-mN`: `-mf5` is **−4.1% on text, −2.8% on binaries, −14.9% on
+non-ASCII names**; `-mf3` is **−6.5% on binaries and −14.3% on raster** but +8.0%
+on text; `-mf4` only helps on text; `-mf1`/`-mf2` come out byte-identical to
+`-m1`/`-m2` (zpaqf did not change those two levels).
+
+Most of the `-mf5` text gain turned out not to be the models at all but **one line
+of type detection**: zpaq only scores a fragment as text when a letter, digit, `.`
+or `,` is followed by a *space*, so newline-terminated source files score as binary
+and never reach the text models. zpaqf adds the newline test. (Upstream writes it
+as a condition ending in `|| '}' || '>'`, which are the constants 125 and 62, so
+the whole guard is always true and the test is just the newline.) It is applied
+under `-mf` only — applying it to `-m` would change the type byte, hence the
+models, hence the bytes of every plain `-m` archive ever published.
+
+`-mf3` needed the LZMA encoder that zpaqf's transform 14 assumes, so the LZMA SDK
+(Igor Pavlov, **public domain**) is vendored at `compressors/lzmasdk/`, 6 sources
+built single-threaded with `-DZ7_ST`. Only the encoder is involved: decoding is
+the ZPAQL postprocessor stored in the archive, which is why `-mf3` archives read
+back on binaries that have never heard of the SDK.
+
+Two things from zpaqf are deliberately **not** here. **WBPE** (transform 13) is
+GPL-3 against this project's MIT, so it is deleted from the source rather than
+left behind an `#ifdef` — shipping it either way would relicense the project.
+And zpaqf's image/stream detector is woven through its fragmentation loop instead
+of being a liftable function; without it `-mf` never selects the image models,
+which is why raster gains nothing at `-mf5` while `-mf3` (which reaches LZMA by a
+different route) still gains 14%.
+
+Verification: **70 round-trips** across all five levels and seven corpus shapes,
+each extracted with both the new binary and pre13, which knows nothing about
+`-mf`; **difftest 98 comparisons against pre13 with 0 divergences**; the golden
+gate over all three sets (136 + 116 + 116) with 0 failures; os_msgs 25/25;
+suite_core 263 round-trips and suite_flags 117 combinations, no failures. On
+Windows: x64 compresses and extracts every `-mf` level under wine, and the
+x86 build (extract-only by design) reads them back -- as does the published
+pre13 x86.
+
+Also noted while doing this: `make clean` only removes the binary, not the 131
+`.o` files under `compressors/`, so a cross build straight after a native one
+links host objects and fails with `undefined reference to franz_malloc(unsigned
+long)`. Wipe `*.o` between targets.
+
 ### [64.8j-pre14] - 2026-09-10
 
 **`-pc` removed entirely — decoder included.** pre13 kept the decoder so existing
