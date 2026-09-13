@@ -499,8 +499,18 @@ test: build
 test-nointel: nointel
 	@if [ -x "./$(PROG)" ]; then ./$(PROG) autotest -all; else echo "Run 'make nointel' first"; exit 1; fi
 
+# Removing only the binary left every *.o behind, so a cross build straight
+# after a native one relinked the host's objects: the link died on
+# "undefined reference to franz_malloc(unsigned long)", which is Linux's
+# size_t surviving in a mangled name that MinGW spells differently.
+# Sweep by name rather than listing the *OBJ variables: the objects sit at five
+# different depths under compressors/, and an explicit list goes stale the next
+# time a library is added -- which is exactly how that bug got in. Nothing here
+# risks a source file: no *.o is tracked (.gitignore line 7) and none is
+# vendored, so every match is a build artifact.
 clean:
-	$(RM) $(PROG)
+	$(RM) $(PROG) $(PROG).exe
+	find . -name '*.o' -type f -delete
 
 # Check (with JIT and SFTP status)
 check:

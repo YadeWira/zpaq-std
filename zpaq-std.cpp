@@ -25518,7 +25518,7 @@ XXH128_hash_t XXH3_128bits_digest (const XXH3_state_t* state)
     if (state->seed)
 	{
 		myprintf("00010! GURU XXH NO SEED!\n");
-		seppuku();
+		seppuku(2);
 	}
     return XXH3_128bits_withSecret(state->buffer, (size_t)(state->totalLen),
                                    secret, state->secretLimit + XXH_STRIPE_LEN);
@@ -27655,12 +27655,12 @@ char *mytohuman(int64_t i_bytes, char *i_buffer, int i_buffersize)
 	if (i_buffer == NULL)
 	{
 		myprintf("00037! guru i_buffer null\n");
-		seppuku();
+		seppuku(2);
 	}
 	if (i_buffersize < 5)
 	{
 		myprintf("00038! guru buffer too small\n");
-		seppuku();
+		seppuku(2);
 	}
 	if (i_bytes < 0)
 	{
@@ -27738,7 +27738,7 @@ int64_t myatoll(const char *i_str)
 	if (mystrnlen(i_str, 20) == 20) /// this should be 21, 9999999...TB
 	{
 		myprintf("00041! GURU on very long number (longer than 20 chars)\n");
-		seppuku();
+		seppuku(2);
 		exit(0);
 	}
 	string stringa= i_str;
@@ -27795,7 +27795,7 @@ int64_t myatoll(const char *i_str)
 	if (risultato < 0)
 	{
 		myprintf("00047! GURU NEGATIVE! final from %s to %s (%s)\n", i_str, migliaia(risultato), tohuman(risultato));
-		seppuku();
+		seppuku(2);
 		exit(0);
 		return 0;
 	}
@@ -29987,7 +29987,7 @@ std::string getwinexedir()
 	{
 		myprintf("\n");
 		myprintf("51348! getwinexedir() KO => seppuku\n");
-		seppuku();
+		seppuku(2);
 		return std::string(); // Error or buffer too small
 	}
 	// Convert to std::string for easier manipulation
@@ -31117,7 +31117,7 @@ class franz_do_hash
 		if (ffinalize == NULL)
 		{
 			myprintf("00772! GURU cannot find finalize for %s\n", i_type.c_str());
-			seppuku();
+			seppuku(2);
 			return;
 		}
 		i_hashtype2= i_type;
@@ -31144,7 +31144,7 @@ class franz_do_hash
 		if (p == g_mappatipohash.end())
 		{
 			myprintf("00773! GURU, cannot convert int %d to ASCII!\n", i_franzotype);
-			seppuku();
+			seppuku(2);
 			return;
 		}
 
@@ -33582,7 +33582,7 @@ string relativetolongpath(string i_filename)
 		if (buf == NULL)
 		{
 			myprintf("00191! guru in malloc\n");
-			seppuku();
+			seppuku(2);
 			return "";
 		}
 		uint64_t len2= GetFullPathNameW(utow(i_filename.c_str()).c_str(), len, buf, 0);
@@ -33949,7 +33949,7 @@ bool check_if_password(const string& i_filename)
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 		myprintf("\n");
 		myprintf("00202! ERR <%s> kind %s\n", i_filename.c_str(), migliaia((int64_t)err));
-		seppuku();
+		seppuku(2);
 		exit(0);
 	}
 	char	  s[4]= {0};
@@ -35214,13 +35214,13 @@ int inttoarray(int64_t i_number, char *i_buffer, int i_size)
 	if (i_buffer == NULL)
 	{
 		myprintf("00206! GURU buffer NULL!\n");
-		seppuku();
+		seppuku(2);
 		return 0;
 	}
 	if (i_size <= 0)
 	{
 		myprintf("00207! GURU i_size not positive!\n");
-		seppuku();
+		seppuku(2);
 		return 0;
 	}
 
@@ -35238,7 +35238,7 @@ int32_t arraytoint32(const char *i_buffer)
 	if (i_buffer == NULL)
 	{
 		myprintf("00208! i_buffer is NULL\n");
-		seppuku();
+		seppuku(2);
 		return -1;
 	}
 	int64_t risultato= 0;
@@ -35257,7 +35257,7 @@ int64_t arraytoint64(const char *i_buffer)
 	if (i_buffer == NULL)
 	{
 		myprintf("00209! i_buffer is NULL\n");
-		seppuku();
+		seppuku(2);
 		return -1;
 	}
 	int64_t risultato= 0;
@@ -35673,7 +35673,7 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 		{
 			myprintf("00244! GURU: the number %s cannot be stored in maxpart %s\n", migliaia(i_number), migliaia2(maxpart - 1));
 			myprintf("00245! maybe you need a longer ? pattern <<%s>>\n", firstfilename.c_str());
-			seppuku();
+			seppuku(2);
 			return "";
 		}
 		string part0= subpart(firstfilename, 0);
@@ -35947,7 +35947,7 @@ class easymultipart
 		if (howmanyjolly > 9)
 		{
 			myprintf("00265! too many jolly '?' (max 9), founded %d in %s\n", howmanyjolly, i_filename.c_str());
-			seppuku();
+			seppuku(2);
 			return;
 		}
 		if (!ismultipart)
@@ -36197,7 +36197,7 @@ class franzfs
 		if (!data)
 		{
 			myprintf("00309! Guru data is null\n");
-			seppuku();
+			seppuku(2);
 			return 0;
 		}
 		position= i_offset;
@@ -36271,7 +36271,7 @@ class franzfs
 		if (!data)
 		{
 			myprintf("00332! Guru data is null\n");
-			seppuku();
+			seppuku(2);
 			return 0;
 		}
 		if (position + i_size > filesize)
@@ -36383,7 +36383,7 @@ struct DT // if you get some warning here, update your compiler!
 			if (franz_block == NULL)
 			{
 				myprintf("00321! cannot franz_malloc\n");
-				seppuku();
+				seppuku(2);
 			}
 			memset(franz_block, 0, franz_block_size);
 			g_dt_ram+= franz_block_size;
@@ -42879,7 +42879,7 @@ franzimager::accumulatoreframmenti::accumulatoreframmenti(size_t i_dimensioneblo
 	if (m_buffer == NULL)
 	{
 		myprintf("46410! cannot allocate accumulator!\n");
-		seppuku();
+		seppuku(2);
 	}
 }
 
@@ -55576,7 +55576,7 @@ bool Jidac::cli_getkey	(const string& i_opt,string i_string,int argc,const char*
 						{
 							myprintf("\n");
 							myprintf("51852! You must enter the exact password TWICE\n");
-							seppuku();
+							seppuku(2);
 						}						
 					}
 				}
@@ -63720,7 +63720,7 @@ void *scriviramtodisk(void *t)
 			{
 				myprintf("\n");
 				myprintf("00851! Hard guru during fopen (no free RAM?)!\n");
-				seppuku();
+				seppuku(2);
 			}
 			par->o_timefilesystem+= (mtime() - startfilesystem);
 			int64_t startwrite= mtime();
@@ -70637,7 +70637,7 @@ int Jidac::robocopy()
 	if (buf == NULL)
 	{
 		myprintf("01632! GURU allocating io buf of size %s\n", g_ioBUFSIZE);
-		seppuku();
+		seppuku(2);
 		return 2;
 	}
 
@@ -73848,7 +73848,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
             free(inpBuf);
             free(cmpBuf);
             LZ4_freeStream(lz4Stream);
-            seppuku();
+            seppuku(2);
             return false;
         }
 
@@ -75671,7 +75671,7 @@ int Jidac::summa()
 			else
 			{
 				myprintf("02350! GURU edt not found %08d %s\n", (int)i, filename.c_str());
-				seppuku();
+				seppuku(2);
 				return 2;
 			}
 			for (const char *p= vec[i].second.c_str(); *p; ++p)
@@ -78200,7 +78200,7 @@ int Jidac::last2()
 			if (feof(myfile) || ferror(myfile))
 			{
 				myprintf("02695! File not in valid state for reading\n");
-				seppuku();
+				seppuku(2);
 				return 2;
 			}
 
@@ -78219,7 +78219,7 @@ int Jidac::last2()
 				{
 					myprintf("02695! GURU running fgets\n");
 				}
-				seppuku();
+				seppuku(2);
 				return 2;
 			}
 
@@ -82186,19 +82186,19 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 	if (i_files == NULL)
 	{
 		myprintf("03055! GURU reduz i_files null\n");
-		seppuku();
+		seppuku(2);
 		return 2;
 	}
 	if (i_myedt == NULL)
 	{
 		myprintf("03056! GURU reduz i_myedt null\n");
-		seppuku();
+		seppuku(2);
 		return 2;
 	}
 	if (i_vf == NULL)
 	{
 		myprintf("03057! GURU reduz i_vf null\n");
-		seppuku();
+		seppuku(2);
 		return 2;
 	}
 
@@ -82291,7 +82291,7 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 	if (buf == NULL)
 	{
 		myprintf("03063! GURU allocating io buf of size %s\n", g_ioBUFSIZE);
-		seppuku();
+		seppuku(2);
 		return 2;
 	}
 
@@ -84962,29 +84962,29 @@ bool Jidac::sanitizeline(string i_filename)
 		if (thechar < 0)
 		{
 			myprintf("03304! GURU unexpected end of file at %d\n", i);
-			seppuku();
+			seppuku(2);
 		}
 		if (thechar == EOF)
 		{
 			myprintf("03305! GURU unexpected end of file at %d\n", i);
-			seppuku();
+			seppuku(2);
 		}
 
 		if (!ishex(thechar))
 		{
 			myprintf("03306! GURU not HEX char at %d\n", i);
-			seppuku();
+			seppuku(2);
 		}
 	}
 	if (i_filename[64] != 32)
 	{
 		myprintf("03307! GURU not space after hash!\n");
-		seppuku();
+		seppuku(2);
 	}
 	if (i_filename[65] != 42)
 	{
 		myprintf("03308! GURU not asterisk after space!\n");
-		seppuku();
+		seppuku(2);
 	}
 	int verchar;
 	for (unsigned int i= 66; i < i_filename.size(); i++)
@@ -84999,7 +84999,7 @@ bool Jidac::sanitizeline(string i_filename)
 		if (!isnotevil(verchar))
 		{
 			myprintf("03309! GURU unallowed char founded at %d value %d\n", i, verchar);
-			seppuku();
+			seppuku(2);
 		}
 	}
 	return true;
@@ -85010,7 +85010,7 @@ bool Jidac::sanitizefile(string i_filename)
 	if (i_filename == "")
 	{
 		myprintf("03310! sanitize filename empty\n");
-		seppuku();
+		seppuku(2);
 		return false;
 	}
 
@@ -85022,7 +85022,7 @@ bool Jidac::sanitizefile(string i_filename)
 #endif // corresponds to #ifdef (#ifdef unix)
 	{
 		myprintf("03311! GURU file too big %s\n", migliaia(dimensione));
-		seppuku();
+		seppuku(2);
 		return false;
 	}
 
@@ -85030,7 +85030,7 @@ bool Jidac::sanitizefile(string i_filename)
 	if (myfile == NULL)
 	{
 		myprintf("03312! GURU cannot fdreadopen %s\n", i_filename.c_str());
-		seppuku();
+		seppuku(2);
 	}
 	/*
 		We really restrict file size, and we do not want buffer underrun
@@ -85070,7 +85070,7 @@ bool Jidac::sanitizefile(string i_filename)
 		if (!isnotevil(verchar))
 		{
 			myprintf("03313! GURU unallowed char founded at %d value %d\n", i, verchar);
-			seppuku();
+			seppuku(2);
 			return false;
 		}
 	}
@@ -90803,7 +90803,7 @@ int Jidac::fix(const string& i_thearchive)
 						{
 							myprintf("\n");
 							myprintf("04231! cannot write on %s\n", chunkname.c_str());
-							seppuku();
+							seppuku(2);
 						}
 						fclose(myfile);
 						touched++;
@@ -91750,7 +91750,7 @@ class franzfilesystem
 		if (pjidac == NULL)
 		{
 			myprintf("14792! GURU pjidac null\n");
-			seppuku();
+			seppuku(2);
 		}
 		string myhead = "Analyzing: ";
         myprintf("%s", myhead.c_str());
@@ -94982,7 +94982,7 @@ int Jidac::elaboradump(char *buffer, size_t buffer_size)
 	if (g_device_fd == -1)
 	{
 		myprintf("04298! Error, device not open\n");
-		seppuku();
+		seppuku(2);
 		return -1;
 	}
 
@@ -103034,7 +103034,7 @@ int Jidac::add()
 	if (buf == NULL)
 	{
 		myprintf("02074! GURU allocating io buf of size %s\n", g_ioBUFSIZE);
-		seppuku();
+		seppuku(2);
 		return 2;
 	}
 	franzfs thefranzfs_header;

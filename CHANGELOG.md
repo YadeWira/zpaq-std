@@ -1,3 +1,35 @@
+### [64.8j-pre16] - 2026-09-13
+
+**45 error paths reported failure with exit code 0.** `seppuku()` takes an exit
+code that defaults to 0, and its own comment already says command-line errors
+must pass a non-zero one — but 45 call sites printed an error and then called it
+bare. A script checking `$?` saw success on a failed allocation, a null pointer,
+an unreadable file, `cannot write on %s`, even "You must enter the exact
+password TWICE". Nine of them were followed by a dead `return 2` that could
+never run, which is what made the defect visible.
+
+All 45 now pass 2. They were identified by the message marker the codebase
+already uses — `!` for errors, `:` for information — and every one was read
+before changing: all are genuine failures, none is a "job done, quit".
+
+Reproducible against pre15, no special setup: give two different passwords when
+creating an encrypted archive.
+
+```sh
+printf 'uno\ndos\n' | zpaq-std a new.zpaq file.txt -key
+# pre15:  51852! You must enter the exact password TWICE   -> exit 0
+# now:    51852! You must enter the exact password TWICE   -> exit 2
+```
+
+**`make clean` left 135 object files behind.** It removed only the binary, so a
+cross build straight after a native one relinked the host's objects and died on
+`undefined reference to franz_malloc(unsigned long)` — Linux's `size_t`
+surviving in a mangled name MinGW spells differently. It now sweeps `*.o` by
+name rather than by an explicit list of the `*OBJ` variables: the objects sit at
+five different depths under `compressors/`, and a list goes stale the next time
+a library is added, which is how this got in. Verified by running the sequence
+that used to fail: native, `clean`, cross, `clean`, native.
+
 ### [64.8j-pre15] - 2026-09-13
 
 **zpaqf model set as `-mf1`..`-mf5`.** `makeConfig` and `compressBlock` from
