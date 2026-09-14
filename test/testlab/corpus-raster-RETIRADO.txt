@@ -1,0 +1,25 @@
+corpus-raster — RETIRADO 2026-09-14, reemplazado por corpus-raster2
+
+Se armó para medir los modelos de imagen de zpaqf y NO servía para eso: 8 de sus
+10 archivos no son las imágenes que su extensión dice. Verificado por magic:
+
+  0Wallb2.ppm, AO_line.ppm, _cshirt.ppm, gazb1.ppm,
+  NIGHT.PPM, _osdon01.ppm      -> empiezan con "PX\n"; los magic Netpbm válidos
+                                  son P1..P6, "PX" no existe
+  BEGIN.BMP                    -> empieza con "llllllll...", no es un BMP
+  LOGO2.BMP                    -> empieza con "P2\004\0PM", tampoco
+
+Solo EXAMPLE1.BMP (1 bit, bfOffBits=62) y nagel02.bmp (8 bit, bfOffBits=1078)
+son imágenes reales.
+
+Consecuencia: todo número "ráster" medido contra este corpus —incluida la tabla
+de la release v64.8j-pre15— describe el comportamiento sobre datos que no son
+imágenes. No es que las cifras estén mal calculadas: miden otra cosa.
+
+Los archivos se conservan como evidencia; no volver a usarlos para medir modelos
+de imagen. El reemplazo es corpus-raster2: 61 archivos filtrados POR MAGIC (no
+por extensión) desde /mnt/OSR_D3/.../image, cubriendo BMP de 24/8/4/1/32 bits en
+los bfOffBits que el detector acepta, más P4/P6/P5.
+
+Lección: filtrar por extensión al armar un corpus de formatos es exactamente el
+error que el corpus debería ayudar a encontrar.

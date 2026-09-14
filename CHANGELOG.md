@@ -1,3 +1,40 @@
+### [64.8j-pre17] - 2026-09-14
+
+**`-mf` removed.** The zpaqf model set shipped as `-mf1`..`-mf5` in pre15 and
+pre16 and is gone again: `makeConfigF`/`compressBlockF`, the LZMA reader, the
+image detector, the `-mf`-gated text test, and `compressors/lzmasdk/` with it.
+About 2,550 lines of source and 203 KB of binary (7,155,224 -> 6,951,984).
+
+**Existing `-mf` archives are unaffected and need no old build to read.** A `-mf`
+archive is an ordinary zpaq archive: the model travels inside the block header as
+ZPAQL bytecode, so decoding never depended on any of the removed code. This was
+verified while the feature still existed — pre13, which predates `-mf` entirely,
+extracted all five levels across seven corpus shapes, 70 round-trips with zero
+failures. That is the opposite of `-pc`, where the decoder *was* code and
+removing it orphaned archives.
+
+`-mf1`..`-mf5` now report `00574!` and exit 2 rather than falling through to the
+generic "unknown option ignored", which would have silently compressed with the
+default `-m1`: a script pinned to `-mf5` would have quietly lost the level.
+
+Everything the feature was gated behind was additive, and the removal is
+measurably clean: `-m0`..`-m5` and `-ma:zstd`/`-ma:ppmd`/`-ma:brotli` all produce
+**bit-exact** archives against pre16.
+
+Kept from the `-mf` work, because they stand on their own:
+
+- `corpus-raster` is retired and replaced by `corpus-raster2`, filtered by magic
+  instead of by extension. The old one had 8 of 10 files that were not the images
+  their names claimed, so the raster figures in the pre15 notes measured
+  something else. Reason recorded in `corpus-raster-RETIRADO.txt`.
+- `pin_corpus.sh` now pins every corpus rather than only the main one, so neither
+  can drift unnoticed.
+- `suite_extra`'s version count expected 4 from a scenario whose four `a` calls
+  include one over identical content, which writes no version -- exactly what the
+  assertion one line above demands (`delta=0 bytes`). The test asked for a no-op
+  add to both write nothing and create a version. Corrected to 3; pre13, pre16
+  and this build all report 3, so it was never a regression.
+
 ### [64.8j-pre16] - 2026-09-13
 
 **45 error paths reported failure with exit code 0.** `seppuku()` takes an exit

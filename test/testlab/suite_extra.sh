@@ -49,6 +49,11 @@ T $Z x "$d/v.zpaq" -to "$d/o4/" -force -summary; r=$?
 res=MATCH; diff -r $d/src "$d/o4$d/src" >>"$LOG" 2>&1 || res=MISMATCH
 ok H "extraer HEAD (v4)" "estado final" "$r" "$res"
 nv=$(timeout 60 $Z l "$d/v.zpaq" 2>/dev/null </dev/null | grep -oE '[0-9]+ versions' | head -1)
-ok H "conteo de versiones" "$nv" 0 "$([ "${nv%% *}" = "4" ] && echo OK || echo REVISAR)"
+# Son 3, no 4: hay cuatro 'a' pero el segundo corre sobre contenido IDENTICO y
+# 'a' no escribe version si nada cambio -- que es justamente lo que la asercion
+# DEDUP-OK de arriba exige (delta=0 bytes). El test se contradecia solo: pedia
+# que un add no-op no escribiera nada Y ademas creara una version. Verificado
+# contra pre13 y pre16: los tres binarios dan 3, no es una regresion.
+ok H "conteo de versiones" "$nv" 0 "$([ "${nv%% *}" = "3" ] && echo OK || echo REVISAR)"
 rm -rf $d
 echo DONE_EXTRA

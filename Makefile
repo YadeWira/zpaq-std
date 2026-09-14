@@ -109,10 +109,6 @@ LIBDEFLATE_X86_SRC  := $(wildcard compressors/libdeflate/lib/x86/*.c)
 LIBDEFLATE_ARM_SRC  := $(wildcard compressors/libdeflate/lib/arm/*.c)
 LZLIBSRC := compressors/lzlib/lzlib.c
 PPMDSRC  := compressors/ppmd/Ppmd7.c compressors/ppmd/Ppmd7Enc.c compressors/ppmd/Ppmd7Dec.c compressors/ppmd/ppmd_wrapper.c
-# LZMA SDK encoder, for zpaqf's transform 14 (-mf3). Decoding is the ZPAQL
-# bytecode carried in the archive, so no decoder of ours is involved -- LzmaDec.c
-# is only here because LzmaLib.c defines LzmaUncompress in the same TU.
-LZMASDKSRC := compressors/lzmasdk/LzmaLib.c compressors/lzmasdk/LzmaEnc.c compressors/lzmasdk/LzmaDec.c compressors/lzmasdk/LzFind.c compressors/lzmasdk/Alloc.c compressors/lzmasdk/CpuArch.c
 LZAVSRC  := compressors/lzav/lzav.h
 HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
@@ -148,7 +144,6 @@ SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
 LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm
 LZLIBINC := -Icompressors/lzlib
 PPMDINC  := -Icompressors/ppmd
-LZMASDKINC := -Icompressors/lzmasdk -DZ7_ST
 LZAVINC  := -Icompressors/lzav
 HSINC    := -Icompressors/hs
 LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
@@ -296,15 +291,14 @@ LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
 LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_OBJ)
 LZLIBOBJ := $(LZLIBSRC:.c=.o)
 PPMDOBJ  := $(PPMDSRC:.c=.o)
-LZMASDKOBJ := $(LZMASDKSRC:.c=.o)
 YTOOLOBJ := compressors/ytool/ytool_bridge.o   # ytool subprocess bridge (-ytool)
 HSOBJ    := $(HSSRC:.c=.o)
 LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(LZMASDKOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LZMASDKINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(LZMASDKOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -364,10 +358,6 @@ $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c
 # ppmd (PPMd var.H, public domain): Ppmd7 model + range enc/dec + one-shot wrapper
 $(PPMDOBJ): compressors/ppmd/%.o: compressors/ppmd/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(PPMDINC) -c $< -o $@
-
-# LZMA SDK (Igor Pavlov, public domain): encoder only, single-threaded
-$(LZMASDKOBJ): compressors/lzmasdk/%.o: compressors/lzmasdk/%.c
-	$(CC) $(ZPAQ_CFLAGS) $(LZMASDKINC) -c $< -o $@
 
 # ytool bridge (C++ leaf TU: std + popen only, no codec headers/deps)
 $(YTOOLOBJ): compressors/ytool/%.o: compressors/ytool/%.cpp
