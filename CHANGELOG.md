@@ -1,3 +1,72 @@
+### [64.8j-pre19] - 2026-09-15
+
+**`-ytool` removed.** It handed files to the external ytool binary to precompress
+recompressible streams before fragmentation, never left the experimental stage,
+and is gone: the `add()` hook, the container gating, the prefetch encode path,
+the parallel reverse post-pass, `compressors/ytool/` and `suite_ytool.sh`.
+About 506 lines and 49 KB of binary (6,951,960 → 6,902,808).
+
+**With it goes the last external dependency.** The README used to carry an
+exception — "`-ytool`, and only that flag, needs something installed on the
+host". There is no exception now: every flag works with nothing installed.
+
+Unlike `-mf`, a `-ytool` archive **does** need code to be read back: it stores the
+`zYTL` container, not the original. So the reverse is gone but the *detection*
+stays — a 4-byte magic check that warns per file (`00568!`) instead of leaving a
+compressed file on disk behind an "all OK" summary. Same treatment `zPCF` already
+had. Use pre18 or earlier to recover such files.
+
+The prefetch pool survives, because it does two jobs and only one was `-ytool`:
+the other is the front-end parallel fragmentation shipped in pre20. Renamed to
+match what is left of it: `YtPrefetch`→`FrontPrefetch`, `YtConsumeGuard`→
+`FrontConsumeGuard`, `yt_K`→`front_K`, and the `Kind` enum loses `CONTAINER`.
+
+**A bad rename from the previous change, fixed.** `pc_info()` became `yt_info()`
+in the `pc_*`→`yt_*` sweep. It was never the `-pc` precompressor: `pc` there meant
+*PC*, the platform — it prints the Windows version, whether the CPU is Intel/AMD
+and whether the JIT applies. It is now `platform_info()`. Applying a mechanical
+rename without reading each symbol is exactly the failure this whole cleanup was
+meant to prevent.
+
+Also corrected: the `-pc` rejection message claimed "archives already made with
+-pc still extract normally", which has been **false since pre14**, when the
+decoder went. It now says they cannot be reversed by this build.
+
+Verification: `-m0`..`-m5` plus `-ma:zstd`/`ppmd`/`bzip2` **bit-exact** against
+pre18; suite_core 263, suite_flags 117, suite_cmds 34, suite_extra 14, suite_glob
+11, suite_robust all verdicts correct; difftest 98 comparisons, 0 divergences;
+golden gate 136+116+116 with 0 failures; both pinned corpora unchanged. os_msgs
+reports 19 differences against pre18 and every one is the **same single line** —
+the `-ytool` entry in the `-debug3` flag dump; the new binary against itself is
+25/25.
+
+**`pc_*` renamed to `yt_*`, and one dead function removed.** After `-pc` went in
+pre14, the code that survived kept its `pc_` prefix even though every one of
+those symbols now forwards to `-ytool`. That prefix is a trap: it already nearly
+cost `-ytool` once, when `pc_reverse_file()` was about to be deleted by line
+number during the `-pc` removal without reading it first — it handles `zYTL`
+containers and `-ytool` depends on it.
+
+Renamed, 76 occurrences: `PcfPrefetch`→`YtPrefetch`, `PcfConsumeGuard`→
+`YtConsumeGuard`, `PcRev`→`YtRev`, and `pc_K`/`pc_reverse_file`/`pc_reverse_list`/
+`pc_transform_encode`/`pc_take_or_encode`/`pc_membuf*`/`pc_tmpname`/`pc_info`/
+`flagpc_file` to their `yt_` equivalents. The prefetch `Kind` enum went with
+them: `NOTPC`→`NONE`, `PCF`→`CONTAINER`.
+
+`pc_transform_candidate()` is **deleted**. It forwarded to `yt_magic_candidate()`
+and nothing called it — the compiler had been saying `defined but not used` on
+every build since pre14, and the comment above it claimed both it and its twin
+were shared by the prefetch worker and the inline path, which was true of only
+one of them.
+
+Also corrected about 15 comments that still described live code in terms of
+`preflate` and PCF, neither of which exists any more. The mentions that remain
+are the ones that should: the record of the removal, and the `zPCF` magic check
+that warns about archives this build can no longer reverse.
+
+No behaviour change, and it is checkable rather than asserted: `-m0`..`-m5` plus
+`-ma:zstd`/`ppmd`/`brotli`/`bzip2` are **bit-exact** against pre18.
+
 ### [64.8j-pre18] - 2026-09-15
 
 **Last traces of `-mf` gone.** pre17 removed the feature but kept a rejection

@@ -18,7 +18,7 @@ strictly single-file: `libdivsufsort/` was lifted out into its own module, and
 
 - **Deduplicated** — identical blocks across files and versions are stored once
 - **Versioned** — each run is a new "snapshot" inside the same `.zpaq` file
-- **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive, and optionally through the `-ytool` precompressor first
+- **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive
 - **Append-only** — never modifies existing data; ideal for incremental cloud sync
 - **Self-verifying** — triple-checksums (CRC-32, XXHASH64, SHA-1) per block, with optional SHA-2/SHA-3/Whirlpool/BLAKE3
 - **One archive file** — no repositories, no databases, no temp files; a single `.zpaq` is the whole backup
@@ -72,56 +72,19 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ---
 
-## Precompressor: `-ytool`
+## `-ytool` was removed
 
-A **reversible, bit-exact** precompressor applied *before* compression, so the
-second stage sees the real data instead of an already-compressed blob.
+`-ytool` handed files to the external [ytool](https://github.com/YadeWira/ytool)
+binary to precompress recompressible streams before fragmentation. It never left
+the experimental stage and was dropped in v64.8j-pre19, along with the last
+external dependency: **every flag now works with nothing installed on the host.**
 
-Hands each candidate file to [ytool](https://github.com/YadeWira/ytool) (an
-open-source FPC recreation of xtool) and stores the result as a self-describing
-container. ytool detects gzip / zlib / ZIP / PDF DEFLATE **plus** JPEG, PNG, MP3,
-raw WAV/PCM and LZO. The binary is found via `ytool_set_binary()`, the
-`ZPAQ_YTOOL` environment variable, or `ytool` on `PATH` — in that order.
+If you have an archive written with `-ytool`, extraction leaves the `zYTL`
+container on disk and says so per file (`00568!`) rather than pretending it
+succeeded. Use v64.8j-pre18 or earlier to get those files back. The same applies
+to `-pc`, removed in pre14 — use pre13 for those.
 
-```bash
-zpaq-std a backup.zpaq /data -ytool -ma:flzma2
-zpaq-std a backup.zpaq /data -ytool:<codecs|params>   # override ytool's arguments
-```
-
-- **Safe by construction**: a file is stored as a ytool container only if
-  `decode(encode(x)) == x` was proven byte-for-byte at encode time. The container
-  carries the original's size and CRC-32, so extraction re-checks the reversed
-  bytes. Anything that fails is stored verbatim.
-- **Deterministic**: ytool's `precomp` is only deterministic at `-t1` (there is a
-  real race above that), so zpaq-std always passes `-t1` and recovers throughput
-  by running many ytool processes in parallel — one per file, from its own
-  prefetch pool. Each file is deterministic *and* the batch is parallel, which
-  keeps the output dedup-friendly.
-- Deliberately no `-dd`: deduplication is left to zpaq's own content-defined
-  chunking.
-- **It is the one thing that needs something installed on the host**: an external
-  `ytool` binary. Everything else in zpaq-std is self-contained.
-
-### `-pc` was removed
-
-The older `-pc` (preflate/PCF DEFLATE recompression) is **gone entirely** —
-encoder and decoder — and `compressors/preflate/` and `compressors/zlib/` went
-with it: 87 source files, 2.3 MB, and about 410 KB off the binary. It only ever
-handled DEFLATE, which `-ytool` handles and more.
-
-Passing `-pc` (or `-pcc`) prints what to use instead:
-
-```
-00563! -pc was removed: use -ytool instead (it detects more formats)
-       archives already made with -pc still extract normally
-```
-
-**A `.zpaq` written with `-pc` by v64.8j-pre13 or earlier can no longer be
-reversed.** Extraction leaves the PCF container on disk and warns per file
-(`00566!`); use pre13 to reverse one. This was accepted deliberately: the
-project has no production deployment, and keeping the decoder meant keeping
-preflate's encoder and a vendored stock zlib compiled forever, because reversing
-a PCF container re-encodes it to prove it is authentic.
+---
 
 ## Installer progress: `-innosetup`
 
@@ -174,13 +137,13 @@ compressors/
 └── ppmd/         4 src +  7 h   (7-Zip SDK, + ppmd_wrapper.c glue)
 ```
 
-Plus `ytool/`, which is not an `-ma` codec but a subprocess bridge (see above).
 
-Total: **379 source files, 8.6 MB of source**. No `apt install`, no `brew install`,
+
+Total: **377 source files, 8.6 MB of source**. No `apt install`, no `brew install`,
 no `-lz`, no `-lbrotli`. Just `make`.
 
-The one exception is **`-ytool`**, which shells out to an external `ytool`
-binary — that flag, and only that flag, needs something installed on the host.
+There is no longer any exception: with `-ytool` gone, **no flag needs anything
+installed on the host.**
 
 ---
 

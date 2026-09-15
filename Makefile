@@ -291,14 +291,13 @@ LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
 LIBDEFLATEOBJ := $(LIBDEFLATE_CORE_OBJ) $(LIBDEFLATE_X86_OBJ) $(LIBDEFLATE_ARM_OBJ)
 LZLIBOBJ := $(LZLIBSRC:.c=.o)
 PPMDOBJ  := $(PPMDSRC:.c=.o)
-YTOOLOBJ := compressors/ytool/ytool_bridge.o   # ytool subprocess bridge (-ytool)
 HSOBJ    := $(HSSRC:.c=.o)
 LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(YTOOLOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -359,9 +358,6 @@ $(LZLIBOBJ): compressors/lzlib/%.o: compressors/lzlib/%.c
 $(PPMDOBJ): compressors/ppmd/%.o: compressors/ppmd/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(PPMDINC) -c $< -o $@
 
-# ytool bridge (C++ leaf TU: std + popen only, no codec headers/deps)
-$(YTOOLOBJ): compressors/ytool/%.o: compressors/ytool/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) -c $< -o $@
 
 # heatshrink: encoder, decoder and one-shot wrapper
 $(HSOBJ): compressors/hs/%.o: compressors/hs/%.c

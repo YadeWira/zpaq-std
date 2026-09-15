@@ -2134,7 +2134,6 @@ bool flaginnosetup;
 // deja el contenedor PCF en disco y avisa (00566!). Se acepto a sabiendas porque
 // el proyecto no tiene uso en produccion; para revertir uno de esos archivos hay
 // que usar pre13.
-bool flagytool;		// -ytool : external precompressor via the ytool subprocess (replaces -pc)
 bool flagcatpaqmode;
 bool flagdistinct;
 bool flagparanoid;
@@ -2203,8 +2202,8 @@ int	 g_ConsoleOutputCP;
 bool					 flagbarraod;
 bool					 flagbarraon;
 bool					 flagbarraos;
-// threading for the -pc cross-file prefetch pool (only <mutex> was included, and
-// only on Windows; the prefetcher needs these on every platform)
+// threading for the cross-file precompressor prefetch pool (only <mutex> was
+// included, and only on Windows; the prefetcher needs these on every platform)
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -8705,11 +8704,6 @@ extern "C" {
 }
 #endif
 
-/* preflate bridge for -pc (C++ API, std::vector — NOT extern "C"). Only this thin
- * header is visible here. */
-/* ytool bridge for -ytool (subprocess precompressor; replaces -pc). Same
- * std::vector API shape the old pcf_wrapper had, so it drops into the same hook points. */
-#include "compressors/ytool/ytool_bridge.h"
 
 /* PPMd var.H one-shot wrapper for -ma:ppmd (C API, has its own extern "C" guard) */
 #include "compressors/ppmd/ppmd_wrapper.h"
@@ -44699,7 +44693,7 @@ enum class ImageType { NTFS, RAW };
 class Jidac
 {
   public:
-	friend struct PcfPrefetch;	// -pc B(ii): worker calls updatehash() on its own files
+	friend struct FrontPrefetch;	// the prefetch worker calls updatehash() on its own files
 	int64_t read_archive(callback_function i_advance, const char *arc, int *errors= 0, int i_myappend= 0, bool i_quiet= false); // read arc
 
 	vector<HT>	   ht;		  // list of fragments
@@ -45148,7 +45142,7 @@ class Jidac
 						 const std::vector<DTMap::iterator> &internalfilelist,
 						 DTMap								&thedt);
 	string keyfile_to_string(string i_keyfile);
-	void   pc_info();
+	void   platform_info();
 	int	   xssh(uint64_t i_timetorun, std::string i_command, std::string &o_output);
 	void   exclude_output();
 
@@ -53896,7 +53890,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
 	g_programflags.add(&flaginnosetup,		"-innosetup",			"Show a native GUI progress window (Windows); else print progress %%",	"");
-	g_programflags.add(&flagytool,			"-ytool",				"Precompress via the external ytool subprocess (replaces -pc). -ytool:<codecs|params> to customise",	"a;");
 
 
 	for (int i=0; i<argc; i++)
@@ -54721,23 +54714,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getuint64	(opt,"-remotespeed",false,	"",								argc,argv,&i,g_remotespeed,		&g_remotespeed));
 		else if (cli_getuint64	(opt,"-checksize",	false,	"",								argc,argv,&i,g_checksize,		&g_checksize));
 		else if (cli_getstring	(opt,"-method",		false,	"-m",							argc,argv,&i,"",				&method));
-		else if (opt.rfind("-ytool:",0)==0)
-		{
-			// -ytool:<params> -- custom ytool precomp arguments. Bare `-ytool` is
-			// handled by g_programflags (default codecs); this branch takes the
-			// `:<params>` form. <params> is either a codec list (e.g. zlib+brunsli
-			// -> prefixed with -m) or raw ytool flags (e.g. -mzlib -c8mb -d1). The
-			// store-only (-l0) + deterministic (-t1) invariants are appended unless
-			// the user already gave -l / -t. Any params are SAFE: verify-then-
-			// fallback + the stored CRC guarantee a byte-exact round-trip regardless.
-			flagytool= true;
-			std::string x= opt.substr(7);
-			std::string params= (!x.empty() && x[0] != '-') ? ("-m" + x) : x;
-			std::string sp= " " + params;
-			if (sp.find(" -l") == std::string::npos) params+= " -l0";   // store-only default
-			if (sp.find(" -t") == std::string::npos) params+= " -t1";   // deterministic default
-			ytool_set_precomp_params(params);
-		}
 		else if ((opt=="-ma"||opt.rfind("-ma:",0)==0) && opt!="-maxsize")
 		{
 			string ma_value;
@@ -55044,11 +55020,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else
 		if ((opt=="-pc") || (opt=="-pcc"))
 		{
-			/// Retirado en favor de -ytool. Un mensaje propio en vez del
-			/// "unknown option" genérico: quien lo tenga en un script merece
-			/// saber que se fue y con qué se reemplaza, no que se ignoro.
-			myprintf("00563! -pc was removed: use -ytool instead (it detects more formats)\n");
-			myprintf("00564: archives already made with -pc still extract normally\n");
+			/// Mensaje propio en vez del "unknown option" generico, que IGNORA el
+			/// flag y sigue: quien lo tenga en un script merece enterarse.
+			/// Ojo: la segunda linea decia "still extract normally", falso desde la
+			/// pre14 -- al irse el decoder, un .zpaq hecho con -pc deja el contenedor
+			/// en disco y avisa con 00566!.
+			myprintf("00563! -pc was removed in v64.8j-pre14, with its decoder\n");
+			myprintf("00565: archives written with it cannot be reversed by this build\n");
 		}
 		else
 		{
@@ -58473,68 +58451,25 @@ void Jidac::writefranzattr(DTMap::iterator i_dtmap, libzpaq::StringBuffer &i_sb,
 // pointing to it. Then the checksums are verified. Then for each file
 // pointing to the block, each of the fragments that it points to within
 // the block are written in order.
-// -pc: one extracted file pending reverse (stored PCF stream -> original), with the
-// date/attr to restore. Collected during the (serialized) write phase, then reversed
-// in a parallel post-pass — the reverse (preflate reencode) is the extraction bottleneck.
-struct PcRev
-{
-	std::string fn; int64_t date; int64_t attr;
-	PcRev(const std::string& f, int64_t d, int64_t a) : fn(f), date(d), attr(a) {}
-};
-
-// Reverse one extracted file in place from its stored PCF back to the original,
-// restoring date/attr. Cheap no-op for non-PCF files: the "zPCF" magic check + the
-// authenticity test (size+CRC for ytool) never touches a verbatim
-// file. A file that DECODES as a PCF but fails the authenticity re-encode (rc==2)
-// is near-certainly a real PCF this build can no longer reproduce (codec version
-// skew): it is left untouched (never garbage), but LOUDLY -- silence there would
-// hide an unrestored file behind an "all OK" extraction summary.
-// Returns true only if it actually reversed a precompressed container (real work),
-// false for the common no-op (a plain, non-container file) or a left-compressed
-// warning case -- lets the post-pass count/report genuine reversals, not every file.
-static bool pc_reverse_file(const std::string& fn, int64_t date, int64_t attr)
+// -ytool and -pc are both gone, so nothing here can reverse a precompressed
+// container any more. What stays is the 4-byte magic check: an archive written
+// with either flag stores the CONTAINER, not the original, and extracting it
+// silently would leave a compressed file on disk behind an "all OK" summary.
+// Detecting that costs one 4-byte read and needs no codec at all.
+static void yt_warn_if_container(const std::string& fn)
 {
 	FP rf= myfopen(fn.c_str(), RB);
-	if (rf == FPNULL) return false;
-	fseeko(rf, 0, SEEK_END);
-	int64_t fsz= ftello(rf);
-	fseeko(rf, 0, SEEK_SET);
-	if (fsz < 5 || fsz > ((int64_t)1 << 31)) { myfclose(&rf); return false; }
-	std::vector<unsigned char> stored((size_t)fsz), orig;
-	size_t rd= stored.empty() ? 0 : fread(&stored[0], 1, stored.size(), rf);
+	if (rf == FPNULL) return;
+	unsigned char m[4]= {0};
+	size_t rd= fread(m, 1, 4, rf);
 	myfclose(&rf);
-	if (rd != stored.size()) return false;
-	// Self-describing: a ytool container (zYTL magic) reverses via the ytool
-	// subprocess; a PCF container (zPCF) via preflate. Both are safe no-ops on a
-	// plain file (magic mismatch). Authenticity (size+CRC for ytool, re-encode for
-	// PCF) rejects a verbatim file that merely starts with the magic.
-	if (ytool_is_container(&stored[0], stored.size()))
-	{
-		if (ytool_authentic_reverse(stored, orig))
-		{
-			delete_file(fn.c_str());
-			FP wf= myfopen(fn.c_str(), WB);
-			if (wf != FPNULL)
-			{
-				if (!orig.empty())
-					myfwrite(&orig[0], 1, orig.size(), wf);
-				close(fn.c_str(), date, attr, wf);
-			}
-			return true;
-		}
-		myprintf("00568! WARN: %s is -ytool content this build/ytool cannot\n"
-		         "        reproduce; left COMPRESSED on disk\n", fn.c_str());
-		return false;
-	}
-	/// Contenedor PCF del viejo -pc: este build ya no puede revertirlo, porque
-	/// preflate se fue con el. Se detecta por el magic (4 bytes, no hace falta
-	/// preflate para eso) y se avisa, en vez de dejar un archivo comprimido en
-	/// disco sin decir nada.
-	if ((stored.size() >= 5) && (stored[0] == 'z') && (stored[1] == 'P')
-	    && (stored[2] == 'C') && (stored[3] == 'F'))
+	if (rd != 4 || m[0] != 'z') return;
+	if (m[1] == 'Y' && m[2] == 'T' && m[3] == 'L')
+		myprintf("00568! WARN: %s is -ytool content, removed in v64.8j-pre19; this\n"
+		         "        build cannot reverse it. Left COMPRESSED on disk\n", fn.c_str());
+	else if (m[1] == 'P' && m[2] == 'C' && m[3] == 'F')
 		myprintf("00566! WARN: %s is -pc content, removed in v64.8j-pre14; this build\n"
 		         "        cannot reverse it. Left COMPRESSED on disk -- use v64.8j-pre13\n", fn.c_str());
-	return false;
 }
 
 struct ExtractJob
@@ -58550,7 +58485,6 @@ struct ExtractJob
 	int64_t			total_size;	 // bytes to extract
 	int64_t			total_done;	 // bytes extracted so far
 	uint64_t		last_write;	 // last fseek
-	std::vector<PcRev> pc_reverse_list; // -pc: files to reverse (parallel post-pass); pushed under write_mutex
 	ExtractJob(Jidac &j) : chunk(0), job(0), jd(j), outf(FPNULL), lastdt(j.dt.end()),
 						   maxMemory(0), total_size(0), total_done(0), last_write(0)
 	{
@@ -59577,12 +59511,9 @@ ThreadReturn decompressThread(void *arg)
 							date= attr= 0; // not last frag
 						close(fn.c_str(), date, attr, job.outf);
 						job.outf= FPNULL;
-						// -pc: defer the (expensive, ~serial-per-file) PCF reverse to a
-						// parallel post-pass after the decode finishes — just record this
-						// file here (cheap, under write_mutex). Self-describing: every
-						// extracted file is recorded; non-PCF files are a no-op in
-						// pc_reverse_file (the "zPCF" magic + re-encode authenticity test).
-						job.pc_reverse_list.push_back(PcRev(fn, date, attr));
+						// Nothing left to reverse, so the deferred parallel post-pass is
+						// gone; only the cheap magic check remains.
+						yt_warn_if_container(fn);
 					}
 					job.lastdt= job.jd.dt.end();
 				}
@@ -63329,7 +63260,7 @@ int Jidac::autotest()
 {
 	myprintf("01147: Self-test for correct internal functioning\n"); // for non-Intel CPU
 	if (all)
-		pc_info();
+		platform_info();
 
 
 	if (flagchecktxt)
@@ -71721,7 +71652,7 @@ int Jidac::loadzfsdiff(string i_filediff, vector<string> &o_added, vector<string
 	return o_added.size();
 }
 
-void Jidac::pc_info()
+void Jidac::platform_info()
 {
 #ifdef _WIN32
 	/*
@@ -72404,7 +72335,7 @@ int Jidac::cercapartizione(char i_lettera, franzdriveinfo &o_drive)
 int Jidac::benchmark()
 {
 	
-	pc_info();
+	platform_info();
 
 	vector<string> array_cpu;
 	vector<float>  array_single;
@@ -87401,46 +87332,6 @@ int Jidac::extract()
 		for (unsigned i= 0; i < tid.size(); ++i)
 			join(tid[i]);
 
-	// -pc A-fix: reverse the stored PCF streams back to the originals in PARALLEL.
-	// The reverse (preflate reencode) is ~serial per file and was the extraction
-	// bottleneck; each file is independent. preflate runs inline in each worker
-	// (pool off) so the workers are the only parallelism axis — no globalTaskPool
-	// _init race, no nested-pool deadlock. K tied to howmanythreads (honours -t / x86 cap).
-	if (!flagtest && !job.pc_reverse_list.empty())
-	{
-		int pcK= howmanythreads; if (pcK < 1) pcK= 1;
-		if ((size_t)pcK > job.pc_reverse_list.size()) pcK= (int)job.pc_reverse_list.size();
-		std::atomic<size_t> pcidx(0);
-		// Post-pass progress: the main extract % has already reached 100% by here, and
-		// reversing the precompressed (-ytool/-pc) streams runs AFTER that -- without a
-		// sign of life it looks hung. Count only GENUINE reversals (pc_reverse_file
-		// returns true), so a plain archive with no precompressed content prints
-		// nothing; one with content shows a live, growing count on a rewritten line.
-		std::atomic<size_t> pcdone(0);
-		std::mutex pcbar_mx;
-		std::vector<std::thread> pcrev;
-		for (int i= 0; i < pcK; i++)
-			pcrev.push_back(std::thread([&] {
-				for (;;)
-				{
-					size_t j= pcidx.fetch_add(1);
-					if (j >= job.pc_reverse_list.size()) break;
-					if (pc_reverse_file(job.pc_reverse_list[j].fn,
-					                    job.pc_reverse_list[j].date,
-					                    job.pc_reverse_list[j].attr))
-					{
-						size_t d= ++pcdone;
-						std::lock_guard<std::mutex> lk(pcbar_mx);
-						myprintf("\rReversing precompressed streams: %s", migliaia(d));
-						fflush(stdout);
-					}
-				}
-			}));
-		for (size_t i= 0; i < pcrev.size(); i++) pcrev[i].join();
-		if (pcdone.load() > 0)
-			myprintf("\rReversing precompressed streams: %s ... done\n", migliaia(pcdone.load()));
-	}
-
 	// Create empty directories and set file dates and attributes
 	if (!flagtest)
 		for (DTMap::reverse_iterator p= dt.rbegin(); p != dt.rend(); ++p)
@@ -99900,87 +99791,6 @@ void Jidac::preparahashtobewritten(const string &i_filename, const DTMap::iterat
 }
 
 
-// DEFLATE magic sniff: does this 4-byte prefix look like a DEFLATE-bearing format
-// (gzip / zlib / zip / pdf)? Era el gate de -pc; ahora su unico consumidor es
-// yt_magic_candidate(), que lo usa como subconjunto de lo que detecta -ytool.
-static bool deflate_magic_candidate(const unsigned char* s, size_t got)
-{
-	bool gz = (got >= 3 && s[0] == 0x1f && s[1] == 0x8b && s[2] == 0x08);
-	bool zlb= (got >= 2 && (s[0] & 0x0f) == 0x08 && ((((unsigned)s[0] << 8) | s[1]) % 31) == 0);
-	bool zip= (got >= 4 && s[0] == 0x50 && s[1] == 0x4b && s[2] == 0x03 && s[3] == 0x04);
-	bool pdf= (got >= 4 && s[0] == '%' && s[1] == 'P' && s[2] == 'D' && s[3] == 'F');
-	// PNG/APNG is intentionally excluded: -pc no longer recompresses the PNG family
-	// (reserved for a dedicated WebP-lossless transform, packPNG).
-	return gz || zlb || zip || pdf;
-}
-
-// -ytool magic sniff: ytool detects more formats than -pc's DEFLATE set, so a
-// broader candidate gate (gz/zlib/zip/pdf + jpeg/png/mp3/RIFF-WAV). Files that do
-// not match are left regular; ytool's verify-then-fallback still protects any that
-// slip through. Whichever codec of the requested set wins is ytool's decision.
-static bool yt_magic_candidate(const unsigned char* s, size_t got)
-{
-	if (deflate_magic_candidate(s, got)) return true;                             // gz/zlib/zip/pdf
-	bool jpg = (got >= 3 && s[0] == 0xFF && s[1] == 0xD8 && s[2] == 0xFF);        // JPEG
-	bool png = (got >= 4 && s[0] == 0x89 && s[1] == 0x50 && s[2] == 0x4e && s[3] == 0x47); // PNG/APNG
-	bool riff= (got >= 4 && s[0] == 'R' && s[1] == 'I' && s[2] == 'F' && s[3] == 'F');     // RIFF/WAV (PCM)
-	bool mp3 = (got >= 3 && s[0] == 'I' && s[1] == 'D' && s[2] == '3')            // MP3 (ID3)
-	         || (got >= 2 && s[0] == 0xFF && (s[1] & 0xE0) == 0xE0);              // MP3 (frame sync)
-	return jpg || png || riff || mp3;
-}
-
-// -ytool CONTAINER gating. A file whose first bytes are NOT a codec magic (e.g. a
-// .tar: its head is a tar header, not gz/jpg/...) can still hold recompressible
-// streams inside. yt_magic_candidate() only sees offset 0, so such containers were
-// a no-op. Two-step gate: (1) a CHEAP prefilter (no subprocess) says "this might be
-// a container worth probing" -- POSIX tar (ustar at offset 257) or any large blob;
-// (2) ytool's detect-only `-scan` counts the streams actually inside. We only pay
-// the (cheap) scan when the prefilter fires, and only pay the full precomp when the
-// scan finds streams. YT_SCAN_MIN keeps small files on the free offset-0 path.
-// tar is the one common container whose magic is NOT at offset 0 (it lives at byte
-// 257) -- zip/gz/pdf/jpg/... are already caught by yt_magic_candidate. So tar is the
-// PRIMARY trigger (any size); the size backstop only catches a very large non-tar
-// non-magic blob, kept high so ordinary large files (video, DB dumps) do NOT pay a
-// pointless scan. A scan reads the whole file inside ytool, so it is not free.
-static const int64_t YT_SCAN_MIN = (int64_t)256 << 20;   // 256 MiB backstop
-static bool yt_container_prefilter(const unsigned char* s, size_t got, int64_t filesize)
-{
-	bool tar = (got >= 262 && memcmp(s + 257, "ustar", 5) == 0);   // POSIX/GNU tar
-	return tar || (filesize >= YT_SCAN_MIN);
-}
-// Whole-buffer decision for -ytool: encode this file via ytool? Offset-0 magic is a
-// free yes; otherwise, if it looks like a container, run the cheap -scan probe. May
-// spawn ONE detect-only ytool subprocess (bounded to prefiltered files). Never
-// throws; on any scan error returns false (store verbatim) -- safe.
-static bool yt_should_encode(const unsigned char* data, size_t len, int64_t filesize)
-{
-	if (len < 18) return false;
-	if (yt_magic_candidate(data, len < 4 ? len : 4)) return true;     // offset-0 magic
-	if (!yt_container_prefilter(data, len, filesize)) return false;   // cheap reject
-	return ytool_scan_streams(data, len) > 0;                         // probe inside
-}
-
-// Encode dispatch: -ytool routes to the ytool subprocess bridge, -pc to preflate.
-// Same signature/semantics (verify-then-fallback inside), so the worker + inline
-// paths call this and stay identical otherwise.
-/// Quedo un solo encoder (-ytool). Estas dos siguen existiendo porque el worker
-/// de prefetch y el camino inline las comparten.
-static bool pc_transform_encode(const std::vector<unsigned char>& O, std::vector<unsigned char>& T)
-{
-	return ytool_file_encode(O, T);
-}
-static bool pc_transform_candidate(const unsigned char* s, size_t got)
-{
-	return yt_magic_candidate(s, got);
-}
-
-/* Cross-file prefetch: K worker threads run the expensive precompressor encode on
-   upcoming files ahead of the sequential add() loop, so preflate work overlaps
-   with the rest of compression. The main loop consumes results in order via
-   get()/consumed(); the RAM cache is bounded (workers block once over the cap).
-   Files larger than maxfile are left to the main loop (TOOBIG -> inline, where
-   preflate's own pool parallelises within the stream). Workers are plain threads
-   (not preflate-pool threads), so there is no nested-pool deadlock. */
 /* Front-end parallel refactor (step 1): pure content-defined fragmentation + SHA1
    over a whole-file RAM buffer, byte-identical to the inline add() loop. The rolling
    hash / order-1 context / SHA1 are reset per fragment (exactly as the main loop:
@@ -100019,12 +99829,13 @@ static void fragment_buffer(const unsigned char* data, size_t n,
 	}
 }
 
-struct PcfPrefetch
+
+struct FrontPrefetch
 {
-	enum Kind { NOTPC= 0, PCF= 1, TOOBIG= 2, FRAG= 3 };
+	enum Kind { NONE= 0, CONTAINER= 1, TOOBIG= 2, FRAG= 3 };
 	// T holds the bytes to fragment (PCF stream for PCF, raw file for FRAG); fraglist
 	// holds their precomputed fragment boundaries (FRAG kind, and PCF in step 3b).
-	struct Item { Kind kind= NOTPC; std::vector<unsigned char> T; std::vector<FrontFrag> fraglist; long long bytes= 0; bool done= false; bool hashed= false; };
+	struct Item { Kind kind= NONE; std::vector<unsigned char> T; std::vector<FrontFrag> fraglist; long long bytes= 0; bool done= false; bool hashed= false; };
 
 	Jidac*											jd= NULL;	// -pc B(ii): for updatehash() from the worker
 	std::vector<DTMap::iterator>*					vf= NULL;
@@ -100047,7 +99858,7 @@ struct PcfPrefetch
 		vf= &v; n= v.size(); claim.store(0); stopflag.store(false);
 		inflight= 0; cap= capbytes; maxfile= maxfilebytes; active= true;
 		fr_max= fmax; fr_min= fmin; fr_hthr= fhthr; fr_chk= fchk;
-		for (int i= 0; i < K; i++) workers.push_back(std::thread(&PcfPrefetch::worker, this));
+		for (int i= 0; i < K; i++) workers.push_back(std::thread(&FrontPrefetch::worker, this));
 	}
 	void worker()
 	{
@@ -100073,68 +99884,29 @@ struct PcfPrefetch
 						it->kind= TOOBIG;            // too big to prefetch: main does it inline
 					else
 					{
-						// Read the whole file ONCE, then decide precomp-vs-fragment. Both
-						// outcomes need the full bytes (precomp feeds the transform, FRAG feeds
-						// fragmentation, franz-hash runs over the original either way), and a
-						// single buffer also lets -ytool inspect the WHOLE file to gate CONTAINER
-						// files -- e.g. a .tar -- that carry no codec magic at offset 0.
+						// Read the whole file ONCE, then fragment. With the precompressors
+						// gone there is no longer a decision here: every prefetched file is
+						// a FRAG. (The franz-hash runs over the same buffer, so the main
+						// thread is left with dedup, assembly and dispatch.)
 						fseeko(f, 0, SEEK_SET);
 						std::vector<unsigned char> R((size_t)esz);
 						size_t rd= R.empty() ? 0 : fread(&R[0], 1, R.size(), f);
 						if (rd == R.size())
 						{
-							// Mirror add()'s per-file transform decision so this worker only FRAGs
-							// files main treats as regular. -ytool does container detection
-							// (magic OR a cheap -scan probe inside).
-							bool will_be_pcf= false;
-							if (esz >= 18)
+							if (jd && g_franzotype > 0)
 							{
-								const unsigned char* d= R.empty() ? (const unsigned char *)"" : &R[0];
-								if (flagytool)  will_be_pcf= yt_should_encode(d, R.size(), esz);
-							}
-							if (will_be_pcf)
-							{
-								std::vector<unsigned char> T;
-								if (pc_transform_encode(R, T))
+								for (size_t off= 0; off < R.size();)
 								{
-									it->kind= PCF;
-									it->T.swap(T);
-									// -pc B(ii): hash the ORIGINAL here (its franz identity) so the
-									// main loop need not re-read+re-hash the file. updatehash leaves
-									// file_crc32=CRC(original)/hashedsize=|R|; the main loop overwrites
-									// file_crc32 with the stored-PCF CRC.
-									if (jd && g_franzotype > 0)
-									{
-										for (size_t off= 0; off < R.size();)
-										{
-											size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-											jd->updatehash(&p, (char *)&R[off], (int)ck);
-											off+= ck;
-										}
-										it->hashed= true;
-									}
+									size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
+									jd->updatehash(&p, (char *)&R[off], (int)ck);
+									off+= ck;
 								}
-								// encode failed -> leave NOTPC; main handles it inline (unchanged)
+								it->hashed= true;
 							}
-							else
-							{
-								// unambiguously regular file: franz-hash + fragment here so the
-								// main thread only dedups, assembles and dispatches.
-								if (jd && g_franzotype > 0)
-								{
-									for (size_t off= 0; off < R.size();)
-									{
-										size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-										jd->updatehash(&p, (char *)&R[off], (int)ck);
-										off+= ck;
-									}
-									it->hashed= true;
-								}
-								fragment_buffer(R.empty() ? (const unsigned char *)"" : &R[0],
-								                R.size(), fr_max, fr_min, fr_hthr, fr_chk, it->fraglist);
-								it->T.swap(R);   // T holds the raw bytes (fragmentation source)
-								it->kind= FRAG;
-							}
+							fragment_buffer(R.empty() ? (const unsigned char *)"" : &R[0],
+							                R.size(), fr_max, fr_min, fr_hthr, fr_chk, it->fraglist);
+							it->T.swap(R);   // T holds the raw bytes (fragmentation source)
+							it->kind= FRAG;
 						}
 					}
 					myfclose(&f);
@@ -100173,31 +99945,21 @@ struct PcfPrefetch
 		for (size_t i= 0; i < workers.size(); i++) if (workers[i].joinable()) workers[i].join();
 		workers.clear(); cache.clear(); inflight= 0; active= false;
 	}
-	~PcfPrefetch() { stop(); }   // RAII: always join workers on any add() exit path
+	~FrontPrefetch() { stop(); }   // RAII: always join workers on any add() exit path
 };
 
-// RAII for one add() file iteration: fetch the prefetched -pc result on
+// RAII for one add() file iteration: fetch the prefetched result on
 // construction, release its cache slot on destruction — so every file is consumed
 // exactly once, even across continue/break. Inactive (pf==NULL) when -pc prefetch
 // is off or on the sentinel iteration.
-struct PcfConsumeGuard
+struct FrontConsumeGuard
 {
-	PcfPrefetch*					pf;
+	FrontPrefetch*					pf;
 	unsigned						fi;
-	std::shared_ptr<PcfPrefetch::Item> item;
-	PcfConsumeGuard(PcfPrefetch* p, unsigned f): pf(p), fi(f) { if (pf) item= pf->get(fi); }
-	~PcfConsumeGuard() { if (pf) pf->consumed(fi); }
+	std::shared_ptr<FrontPrefetch::Item> item;
+	FrontConsumeGuard(FrontPrefetch* p, unsigned f): pf(p), fi(f) { if (pf) item= pf->get(fi); }
+	~FrontConsumeGuard() { if (pf) pf->consumed(fi); }
 };
-
-// Use the worker's prefetched PCF if present, otherwise encode inline now (the
-// caller has already read the original into O). Keeps the existing -pc block a
-// one-line change.
-static bool pc_take_or_encode(const std::shared_ptr<PcfPrefetch::Item>& it,
-                              std::vector<unsigned char>& O, std::vector<unsigned char>& T)
-{
-	if (it && it->kind == PcfPrefetch::PCF) { T.swap(it->T); return true; }
-	return pc_transform_encode(O, T);
-}
 
 
 int Jidac::add()
@@ -100823,46 +100585,27 @@ int Jidac::add()
 	const unsigned HASH_MULT_HIT = 314159265u;
 	const unsigned HASH_MULT_MISS= 271828182u;
 
-	// -pc cross-file prefetch. K tied to howmanythreads => honours -t / -t0 and the
-	// 32-bit 2-core cap automatically. When active, preflate runs INLINE in each
+	// Cross-file prefetch. K tied to howmanythreads => honours -t / -t0 and the
+	// 32-bit 2-core cap automatically. When active, the encoder runs INLINE in each
 	// worker (internal pool off) so the workers are the only parallelism axis (no
-	// pool _init race, no nested-pool deadlock); when inactive, preflate keeps its
+	// pool _init race, no nested-pool deadlock); when inactive, it keeps its
 	// own pool but capped to the thread budget.
-	PcfPrefetch g_pcfetch;
-	int pc_K= 0;
+	FrontPrefetch g_frontfetch;
+	int front_K= 0;
 	// Front-end prefetch pool. Active for every add() (>=2 threads, not stdin/image):
 	// workers read + franz-hash + fragment regular files (and, with -pc, encode the
 	// PCF stream) ahead of the main thread, which is then left with only dedup +
 	// block assembly + dispatch. -t1 disables it -> the serial step-2 path runs.
 	if (!flagstdin && !flagimage && howmanythreads >= 2)
 	{
-		pc_K= howmanythreads - 1;
-		if (pc_K > 32) pc_K= 32;
-		if (pc_K < 1) pc_K= 1;
+		front_K= howmanythreads - 1;
+		if (front_K > 32) front_K= 32;
+		if (front_K < 1) front_K= 1;
 	}
-	// -ytool thread policy. ytool's precomp output is thread-count-INVARIANT (ytool
-	// c052153), so -t only trades throughput, never the stored bytes / dedup. Default
-	// -t1 (one ytool per file; parallelism across files via the pool). But when there
-	// are FEWER candidate files than pool workers, those workers would sit idle and a
-	// lone big file would precompress single-threaded -- so hand each ytool the spare
-	// cores. A -ytool:<params> override that fixes -t wins over this (yt_params()).
-	if (flagytool)
-	{
-		int ytn= 1;
-		if (howmanythreads >= 2)
-		{
-			size_t nf= vf.size();
-			if (nf <= 1) ytn= howmanythreads;                 // lone file: all cores
-			else if (pc_K > 0 && nf < (size_t)pc_K)           // fewer files than workers
-				ytn= (int)(howmanythreads / nf);
-			if (ytn < 1) ytn= 1;
-		}
-		ytool_set_precomp_threads(ytn);
-	}
-	if (pc_K > 0)
+	if (front_K > 0)
 	{
 		bool is64= (sizeof(void *) >= 8);
-		g_pcfetch.start(this, vf, pc_K,
+		g_frontfetch.start(this, vf, front_K,
 		                is64 ? (512LL << 20) : (96LL << 20),   // RAM cache cap
 		                is64 ? (64LL << 20) : (16LL << 20),    // prefetch files up to this; bigger => inline
 		                MAX_FRAGMENT, MIN_FRAGMENT, h_threshold, check_boundary);
@@ -100870,17 +100613,12 @@ int Jidac::add()
 
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
 	{
-		// -pc: pick up this file's prefetched result (and release it at iteration end)
-		PcfConsumeGuard pcg((pc_K > 0 && fi < vf.size()) ? &g_pcfetch : NULL, (unsigned)fi);
+		// Pick up this file's prefetched result (and release it at iteration end)
+		FrontConsumeGuard pcg((front_K > 0 && fi < vf.size()) ? &g_frontfetch : NULL, (unsigned)fi);
 		FP				in	  = FPNULL;
 		int				bufptr= 0, buflen= 0; // read pointer and limit
 		DTMap::iterator p;
 		bool			flagmemfile= false;
-		bool			flagpc_file= false;	// -pc: this file was stored as a PCF stream
-		string			pc_tmpname = "";	// -pc: temp file holding the PCF stream (deleted after)
-		std::vector<unsigned char> pc_membuf;		// -pc B(i): PCF stream fed from RAM (no temp file)
-		size_t			pc_membuf_pos= 0;	// read cursor into pc_membuf
-		bool			pc_membuf_active= false;	// fragment loop reads pc_membuf instead of 'in'
 
 		if (fi < vf.size())
 		{
@@ -100924,107 +100662,6 @@ int Jidac::add()
 					}
 				}
 			}
-			// -pc PRECOMPRESSOR (Phase 1c): if enabled and the whole file is a gzip/zlib
-			// stream, recompress it to a self-describing PCF container before fragmentation.
-			// Per-file hashes are computed over the ORIGINAL (fed once here), so hexhash/
-			// file_crc32 stay the original's; the stored (fragmented) content is the PCF
-			// stream, reversed on extraction. verify-then-fallback inside the encoder
-			// guarantees no corruption: a file that does not round-trip is stored verbatim.
-			// -sa removed. -pc (preflate) or -ytool (subprocess) precompress here.
-			if (flagytool && (in != FPNULL) && !flagstdin && !flagmemfile && !flagimage
-			    && p->second.expectedsize >= 18
-			    && p->second.expectedsize <= ((int64_t)512 << 20))
-			{
-				// 512-byte sniff: first 4 give the offset-0 codec magic; byte 257 lets
-				// yt_container_prefilter() spot a POSIX tar header for -ytool container gating.
-				unsigned char sniff[512]= {0};
-				size_t got= fread(sniff, 1, sizeof sniff, in);
-				fseeko(in, 0, SEEK_SET);
-				/// los magics de gz/zlib/zip/pdf los miraba -pc; -ytool usa los suyos
-				// worker_pcf: the prefetch worker already read the original, encoded it to a
-				// PCF stream, and (if franz hashing is on) hashed the original into p->second.
-				// the worker's candidate gate == this sniff, so worker_pcf implies the
-				// sniff is true; the `||` makes the "worker hashed => flagpc_file set" invariant
-				// robust even if they ever diverged (prevents a double-hash on the normal path).
-				bool worker_pcf= (pcg.item && pcg.item->kind == PcfPrefetch::PCF);
-				// -ytool inline gate (files the worker skipped as TOOBIG): offset-0 magic is a
-				// free yes; otherwise, if it looks like a container, a cheap detect-only -scan on
-				// the file path (no RAM load) confirms streams inside before the full precomp.
-				// Short-circuits so small non-magic files never spawn a scan.
-				bool yt_inline= flagytool && !worker_pcf
-				    && (yt_magic_candidate(sniff, got)
-				        || (yt_container_prefilter(sniff, got, p->second.expectedsize)
-				            && ytool_scan_streams_path(p->first.c_str()) > 0));
-				if (worker_pcf || yt_inline)
-				{
-					std::vector<unsigned char> O, T;
-					bool got_pcf= false;
-					if (worker_pcf)
-					{
-						// -pc B(ii): take the prefetched PCF; do NOT re-read or re-hash the
-						// original — the worker already did both (saves a full read + hash pass).
-						T.swap(pcg.item->T);
-						got_pcf= true;
-						// Safety net (never taken in practice: jd is always set, so the worker
-						// hashes whenever g_franzotype>0). If the invariant were ever broken,
-						// re-read+hash here rather than silently storing a wrong franz hash.
-						if (g_franzotype > 0 && !pcg.item->hashed)
-						{
-							O.resize((size_t)p->second.expectedsize);
-							size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
-							if (rd == O.size())
-								for (size_t off= 0; off < O.size();)
-								{
-									size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-									updatehash(&p, (char *)&O[off], (int)ck);
-									off+= ck;
-								}
-						}
-					}
-					else
-					{
-						O.resize((size_t)p->second.expectedsize);
-						size_t rd= O.empty() ? 0 : fread(&O[0], 1, O.size(), in);
-						if (rd == O.size() && pc_take_or_encode(pcg.item, O, T))
-						{
-							// inline encode (prefetch off, or worker said NOTPC but it round-
-							// trips here): hash the original now, as in B(i).
-							if (g_franzotype > 0)
-								for (size_t off= 0; off < O.size();)
-								{
-									size_t ck= O.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-									updatehash(&p, (char *)&O[off], (int)ck);
-									off+= ck;
-								}
-							got_pcf= true;
-						}
-					}
-					if (got_pcf)
-					{
-						// -pc B(i): feed the PCF stream from RAM — no temp-file round-trip.
-						// file_crc32 = CRC of the STORED PCF (matches per-block CRCs / the 't'
-						// verify), overwriting any CRC(original) left by updatehash. total_size
-						// tracks the PCF fragment bytes, not the original; p->second.size (the
-						// recorded original size) is intentionally unchanged.
-						uint32_t pcfcrc= 0;
-						for (size_t off= 0; off < T.size();)
-						{
-							size_t ck= T.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-							pcfcrc= crc32_16bytes((char *)&T[off], (int)ck, pcfcrc);
-							off+= ck;
-						}
-						p->second.file_crc32= pcfcrc;
-						total_size+= (int64_t)T.size() - p->second.size;
-						p->second.expectedsize= (int64_t)T.size();
-						myfclose(&in);				// original no longer needed; fragments come from RAM
-						pc_membuf.swap(T);
-						pc_membuf_pos= 0;
-						pc_membuf_active= true;
-						flagpc_file= true;
-					}
-					else fseeko(in, 0, SEEK_SET);
-				}
-			}
 			p->second.data= 1; // add in every case
 		}
 
@@ -101049,7 +100686,7 @@ int Jidac::add()
 		size_t                     frag_idx        = 0;
 		bool                       use_fraglist    = false;
 		const size_t               FRONT_WHOLE_MAX = ((size_t)64 << 20); // 64 MiB cap
-		if (pcg.item && pcg.item->kind == PcfPrefetch::FRAG)
+		if (pcg.item && pcg.item->kind == FrontPrefetch::FRAG)
 		{
 			// step 3: the prefetch worker already read + franz-hashed + fragmented this
 			// regular file in parallel. Take its buffers; the fj-loop consumes the list
@@ -101059,7 +100696,7 @@ int Jidac::add()
 			use_fraglist= true;
 		}
 		else if (fi < vf.size() && in != FPNULL
-		    && !pc_membuf_active && !flagstdin && !flagmemfile && !flagimage
+		    && !flagstdin && !flagmemfile && !flagimage
 		    && p->second.expectedsize >= 0
 		    && (uint64_t)p->second.expectedsize <= (uint64_t)FRONT_WHOLE_MAX)
 		{
@@ -101071,7 +100708,7 @@ int Jidac::add()
 				fb.resize(esz);
 				if (fread(&fb[0], 1, esz, in) == esz)
 				{
-					if (g_franzotype > 0 && !flagpc_file)
+					if (g_franzotype > 0)
 						for (size_t off= 0; off < esz;)
 						{
 							size_t ck= esz - off; if (ck > (16u << 20)) ck= (16u << 20);
@@ -101289,15 +100926,7 @@ int Jidac::add()
 						else
 						{
 							// Common handling for non-imaging (uguale per Windows e Linux)
-							if (pc_membuf_active) // -pc B(i): PCF stream straight from RAM (no temp)
-							{
-								size_t avail= pc_membuf.size() - pc_membuf_pos;
-								size_t nrd	= avail < (size_t)g_ioBUFSIZE ? avail : (size_t)g_ioBUFSIZE;
-								if (nrd) memcpy(buf, &pc_membuf[pc_membuf_pos], nrd);
-								pc_membuf_pos+= nrd;
-								buflen= (int)nrd;
-							}
-							else if (flagmemfile)
+							if (flagmemfile)
 								buflen= thefranzfs.ramread(g_ioBUFSIZE, buf);
 							else if (flagstdin)
 								buflen= fread(buf, 1, g_ioBUFSIZE, stdin);
@@ -101331,7 +100960,7 @@ int Jidac::add()
 					if (bufptr == 0)
 						if (buflen > 0)
 						{
-							if (g_franzotype > 0 && !flagpc_file) // -pc: original already hashed in pre-pass
+							if (g_franzotype > 0)
 								updatehash(&p, buf, buflen);
 							if (!flagnoeta)
 							{
@@ -102233,9 +101862,6 @@ int Jidac::add()
 				if (!flagstdin)
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 					myfclose(&in);
-			// -pc: drop the temporary PCF stream file once the source has been read
-			if (flagpc_file && !pc_tmpname.empty())
-				delete_file(pc_tmpname.c_str());
 		}
 	}
 	assert(sb.size() == 0);
