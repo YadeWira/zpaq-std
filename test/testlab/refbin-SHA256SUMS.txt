@@ -22,6 +22,9 @@ b2067f5e321c690b514e9e0a1f49684ddd68bac61cff4f5fa86bcdf38d0ded29  zpaq-std-v64.8
 ce3af311a522cce1cdd2cae44fdfa6d7b892404c92d90fc87bcb2c3ae22591c0  zpaq-std-v64.8j-pre18-linux-x64
 f39579d2e7793831007d4b0571182ccf4978e2f91d90754fb5783ac2bada183b  zpaq-std-v64.8j-pre18-windows-x64.exe
 2f10ab6dfe690fda642f4ba52421b304ffcab1e4230231518925eeed384fd99c  zpaq-std-v64.8j-pre18-windows-x86.exe
+e0d4ef022465f4f36c526ce3117d9098692eec7eef0598f06f67ad0c8db6ddc8  zpaq-std-v64.8j-pre19-linux-x64
+9ab85d13efae252d163af2e8708ad0ce98dfa55a5cd40173498cee11f801a2c8  zpaq-std-v64.8j-pre19-windows-x64.exe
+51bb748def9d00b1e161b3c37b326c34c508b754b57fece864aa9ce0d5b62e45  zpaq-std-v64.8j-pre19-windows-x86.exe
 4bde2cc7f04f7d69b37c61ce5f27587a79cfd3ef452f422821c8c519e1be9d99  zpaq-std-v64.8j-pre9-linux-x64
 233294a80d934ae1c5681a319c00d0e6e1967f986b40dd52e9a300fb9eb7cfb5  zpaq-std-v64.8j-pre9-windows-x64.exe
 d0c34fad5f2647ce1402dde6270e229a64fc260fa1b1dd8cf0535418c7e73ff0  zpaq-std-v64.8j-pre9-windows-x86.exe
