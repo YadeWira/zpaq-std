@@ -1,3 +1,22 @@
+### [64.8j-pre18] - 2026-09-15
+
+**Last traces of `-mf` gone.** pre17 removed the feature but kept a rejection
+handler and a README section for anyone who had used it. There is no one: it was
+never used in production, so the compatibility scaffolding protected nobody.
+
+With that out, **this source now differs from pre14 — which predates `-mf`
+entirely — only in the 45 `seppuku()` → `seppuku(2)` exit codes from pre16**, and
+two blank lines. The feature has left no trace in the code at all.
+
+One consequence worth stating: `-mf5` is now an unrecognised flag like any typo.
+It prints `00562! Unknown option ignored`, exits 0, and compresses with the
+default method. The pre17 handler existed to stop exactly that; it is gone
+because there are no scripts to protect.
+
+`-m0`..`-m5` and `-ma:zstd`/`-ma:ppmd` remain bit-exact against pre17. The
+CHANGELOG entries for pre15 through pre17 stay: they are the record that the
+feature existed and why it went, which is the one thing worth keeping about it.
+
 ### [64.8j-pre17] - 2026-09-14
 
 **`-mf` removed.** The zpaqf model set shipped as `-mf1`..`-mf5` in pre15 and

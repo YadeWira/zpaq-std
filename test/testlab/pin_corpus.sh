@@ -13,11 +13,10 @@
 set -u
 W=/mnt/IA_LAB/agentes/ZPAQ-STD/testlab
 
-# corpus-raster2 se fija igual que corpus: los modelos de imagen de -mf eligen el
-# modelo segun la CABECERA del archivo, asi que un corpus que se mueve cambia que
-# ramas se ejercitan y no solo cuanto comprime. Su antecesor corpus-raster esta
+# corpus-raster2 se fija igual que corpus. Su antecesor corpus-raster esta
 # RETIRADO (ver corpus-raster-RETIRADO.txt): 8 de sus 10 archivos no eran las
-# imagenes que su extension decia, porque se lo armo filtrando por extension.
+# imagenes que su extension decia, porque se lo armo filtrando por extension --
+# justo el error que un corpus de formatos deberia ayudar a encontrar.
 DIRS="corpus corpus-raster2"
 
 cd "$W" || exit 2

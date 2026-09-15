@@ -72,21 +72,6 @@ The chosen algo and original size are recorded in each block's metadata as `zpaq
 
 ---
 
-## `-mf` was removed
-
-`-mf1`..`-mf5` shipped the model set from [zpaqf](https://github.com/kaitz/zpaqf)
-in v64.8j-pre15 and pre16, and were dropped again in pre17. Use `-mN`.
-
-**Archives written with `-mf` still extract, with any zpaq.** There is nothing to
-migrate and nothing that needs an old build: a `-mf` archive is an ordinary zpaq
-archive, because the model travels inside the block header as ZPAQL bytecode
-rather than living in the program. That is the whole reason removing it is free,
-and it is the opposite of the `-pc` situation, where the decoder was code.
-
-The LZMA SDK that `-mf3` needed went with it.
-
----
-
 ## Precompressor: `-ytool`
 
 A **reversible, bit-exact** precompressor applied *before* compression, so the

@@ -55042,18 +55042,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		{
 		}
 		else
-		if (opt.size()==4 && opt[0]=='-' && opt[1]=='m' && opt[2]=='f' && isdigit(opt[3]))
-		{
-			/// -mf1..-mf5 (zpaqf models) fueron retirados. Merece mensaje propio, no
-			/// el "unknown option" generico: ese camino IGNORA el flag y sigue con el
-			/// metodo por defecto, asi que un script con -mf5 pasaria a comprimir con
-			/// -m1 en silencio. A diferencia de -pc, aca no queda ningun archivo
-			/// huerfano: el modelo viaja como ZPAQL dentro del bloque.
-			myprintf("00574! -mf was removed: use -m%c for a comparable level\n", opt[3]);
-			myprintf("00576: archives already made with -mf extract normally, by any zpaq\n");
-			return 2;
-		}
-		else if ((opt=="-pc") || (opt=="-pcc"))
+		if ((opt=="-pc") || (opt=="-pcc"))
 		{
 			/// Retirado en favor de -ytool. Un mensaje propio en vez del
 			/// "unknown option" genérico: quien lo tenga en un script merece
