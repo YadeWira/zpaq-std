@@ -272,7 +272,7 @@ LZ5OBJ := $(LZ5SRC:.c=.o)
 LIZOBJ := $(LIZSRC:.c=.o)
 BZIP2OBJ := $(BZIP2SRC:.c=.o)
 
-# libdivsufsort-lite, extraido del monolito (fase 0 del plan de Rust). Es de
+# libdivsufsort-lite, extraido del monolito para poder partirlo en modulos. Es de
 # terceros y autocontenido; estaba en medio de namespace libzpaq y su
 # #define INLINE_divsuf lo usaba tambien BLAKE3, fuera del namespace.
 DIVSUFSRC := libdivsufsort/divsufsort.cpp

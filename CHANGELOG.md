@@ -1,3 +1,38 @@
+### [64.8j-pre20] - 2026-09-18
+
+**Housekeeping. No change to compression and no change to any archive.**
+
+- **The CUDA source in bsc is gone** — or rather, the half of it that could go.
+  bsc ships optional GPU support (`libcubwt.cu`, `st.cu`) that this project never
+  compiles: `LIBBSC_CUDA_SUPPORT` is defined nowhere, there is no `nvcc` in the
+  Makefile, and the binary carries no CUDA symbol and links no CUDA library. The
+  two `.cu` implementations (171 KB) are removed. The `.cuh` headers **stay and
+  cannot go**: `bwt.cpp:41` and `st.cpp:43` include them with no preprocessor
+  guard, so deleting them breaks the build — verified, not assumed. Recorded in
+  `compressors/bsc/LEEME-cuda.md` so a future re-vendor knows this copy is no
+  longer pristine.
+- **`docs/PRECOMP-DESIGN.md` deleted**: the design of `-pc`, removed in pre14.
+  Its own first line read "Status: DESIGN / not implemented", so it was
+  misleading before the feature even went.
+- **The five `## [Unreleased]` headings inherited from zpaqfranz** are relabelled
+  `## Planned at the time of [60.x]`. They were never unreleased versions: each is
+  a wish-list attached to the release below it, every entry starting with
+  "Planned". Giving them version numbers would have been a nicer-looking lie.
+- **Two Windows XP leftovers.** The alternate-streams APIs
+  (`FindFirstStreamW`/`FindNextStreamW`) are still loaded through
+  `GetProcAddress` because XP lacked them; the target has been Windows 10 for a
+  while, so the comment now says the dynamic load is vestigial rather than
+  necessary. And the failure message said "Alternate streams not supported in
+  Windows XP" — those APIs exist since Vista, so if they are missing it is not
+  the version. It now states what the user actually needs: ADS are unavailable
+  because `FindFirstStreamW` was not found. (The COM/OLE dynamic-load refactor
+  stays deferred.)
+- A Makefile comment still credited libdivsufsort's extraction to "fase 0 del
+  plan de Rust"; that plan is cancelled and the extraction stands on its own.
+
+Verified: `-m1`/`-m5`/`-ma:bsc`/`-ma:zstd` **bit-exact** against pre19 — `-ma:bsc`
+in particular, since bsc is the library whose files were touched.
+
 ### [64.8j-pre19] - 2026-09-15
 
 **`-ytool` removed.** It handed files to the external ytool binary to precompress
@@ -917,7 +952,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - macOS: `brew install curl`
   - See documentation for full list of package manager commands.
 
-## [Unreleased]
+## Planned at the time of [60.10]
 - Planned SFTP key file support.
 - Multi-monitor testing for future releases.
 - Enhanced `tui` and `ls` functionality (e.g., TAB support for `ls`).
@@ -958,7 +993,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - For further details or to report issues, refer to the GitHub issues section.
 - Future plans include a switch to convert "normal" `.zpaq` archives directly into backups.
 
-## [Unreleased]
+## Planned at the time of [60.9]
 - Planned switch to convert "normal" `.zpaq` archives into backups.
 
 ---
@@ -999,7 +1034,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **Hints**: Additional context for changes can be found in [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues?q=is%3Aissue).
 - **Request**: Testing on Apple Silicon (Mx) systems is desired; contact the author if you can provide access.
 
-## [Unreleased]
+## Planned at the time of [60.8]
 - Planned `forcejit` switch for overriding JIT detection.
 - Support for `-backupzeta` with encrypted multipart archives.
 - Potential removal of `-nomore` LargePages experiment.
@@ -1042,7 +1077,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - The `-salt` switch is intended for development and debugging, not end-user scenarios.
 - Additional context and explanations for many features can be found in the linked GitHub issues.
 
-## [Unreleased]
+## Planned at the time of [60.7]
 - Planned support for `-backupzeta` with encrypted volumes.
 
 ---
@@ -1124,7 +1159,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - New features may introduce bugs; users should verify archive integrity after use.
 - Report issues or suggestions at [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues).
 
-## [Unreleased]
+## Planned at the time of [60.5]
 - Potential `.zpaq` rollback on Control-C termination.
 - Future evolution of `-symlink` handling.
 

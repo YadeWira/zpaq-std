@@ -34213,7 +34213,11 @@ struct VER
   int64_t usize;         // uncompressed size of files
   VER() {memset(this, 0, sizeof(*this));}
 };
-// Windows API functions not in Windows XP to be dynamically loaded
+// FindFirstStreamW / FindNextStreamW / GetFinalPathNameByHandleW se cargan a mano
+// con GetProcAddress. El motivo original era Windows XP, que no las tiene; el
+// target es Windows 10 desde hace tiempo (_WIN32_WINNT 0x0A00), asi que hoy la
+// carga dinamica es innecesaria -- pero desarmarla es un refactor con riesgo y
+// sin premio, y queda anotado como tal, no como algo que haga falta por XP.
 #ifndef unix
 typedef HANDLE (WINAPI* FindFirstStreamW_t)
                    (LPCWSTR, STREAM_INFO_LEVELS, LPVOID, DWORD);
@@ -55246,7 +55250,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 			reinterpret_cast<void*>(GetProcAddress(h, "GetFinalPathNameByHandleW")));
 	}
 	if ((!findFirstStreamW) || (!findNextStreamW))
-		myprintf("00577$ Alternate streams not supported in Windows XP\n");
+		// No decir "Windows XP": el target es Windows 10 y estas APIs existen
+		// desde Vista, asi que si faltan NO es por la version. Lo que el usuario
+		// necesita saber es que los ADS quedan fuera, no una conjetura de por que.
+		myprintf("00577$ Alternate streams unavailable: this Windows has no FindFirstStreamW\n");
 #endif
 
 /// postop
