@@ -20,9 +20,9 @@
   "Planned". Giving them version numbers would have been a nicer-looking lie.
 - **Two Windows XP leftovers.** The alternate-streams APIs
   (`FindFirstStreamW`/`FindNextStreamW`) are still loaded through
-  `GetProcAddress` because XP lacked them; the target has been Windows 10 for a
-  while, so the comment now says the dynamic load is vestigial rather than
-  necessary. And the failure message said "Alternate streams not supported in
+  `GetProcAddress` because XP lacked them; the target is Windows 7 and those APIs
+  exist since Vista, so the comment now says the dynamic load is vestigial rather
+  than necessary. And the failure message said "Alternate streams not supported in
   Windows XP" — those APIs exist since Vista, so if they are missing it is not
   the version. It now states what the user actually needs: ADS are unavailable
   because `FindFirstStreamW` was not found. (The COM/OLE dynamic-load refactor

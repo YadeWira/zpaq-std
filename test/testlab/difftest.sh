@@ -107,7 +107,7 @@ one(){ # caso metodo
 }
 
 CASES="${CASES:-text bin img mixed intl edge precomp}"
-METHODS="${METHODS:--m1 -m2 -m3 -m5 -ma:zstd -ma:flzma2 -ma:ppmd -ma:bsc -ma:brotli -ma:lz4 -ma:bzip2 -ma:snappy -ma:lzfse -store}"
+METHODS="${METHODS:--m1 -m2 -m3 -m5 -ma:zstd -ma:flzma2 -ma:ppmd -ma:bsc -ma:brotli -ma:lz4 -ma:bzip2 -ma:snappy -ma:lzfse -ma:deflate -ma:lzav -store}"
 for c in $CASES; do for m in $METHODS; do one "$c" "$m"; done; done
 
 tot=$(($(wc -l < "$CSV")-1))

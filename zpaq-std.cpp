@@ -58398,6 +58398,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else if (g_ma_algorithm=="lzav") g_ma_level=1;
 					else if (g_ma_algorithm=="hs") g_ma_level=1;
+					/// bsc SIN nivel caia en el "else g_ma_level=9" de abajo y quedaba en
+					/// 9 (bloque ST5, el mas lento), aunque el clamp de mas abajo y el
+					/// README dicen desde siempre que el default es 3. Ver la nota del
+					/// clamp de bsc.
+					else if (g_ma_algorithm=="bsc") g_ma_level=3;
 						else if (g_ma_algorithm=="ppmd") g_ma_level=6; // PPMd model order
 					else g_ma_level=9;
 				}
@@ -58462,7 +58467,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 				else if (g_ma_algorithm=="bsc")
 				{
 					/* bsc block sorter index: ST3..ST5 (1=fast, 9=high ratio) */
-					if (g_ma_level<1) g_ma_level=3;
+					/// Aca habia un "if (g_ma_level<1) g_ma_level=3;" que era CODIGO
+					/// MUERTO: el clamp generico de arriba ("else if (g_ma_level<1)
+					/// g_ma_level=1;") ya habia subido el valor, asi que la condicion
+					/// nunca podia ser cierta y el 3 no se aplicaba nunca. Es el mismo
+					/// defecto que la nota de hs/lzav dice haber arreglado para esos dos.
+					/// El default de 3 ahora vive donde corresponde, arriba, con los
+					/// demas defaults explicitos. Un "-ma:bsc:0" sigue yendo a 1 por el
+					/// clamp generico, que con este mapeo da el mismo ST3 que el 3.
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_algorithm=="lzh")
