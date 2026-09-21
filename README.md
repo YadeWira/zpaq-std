@@ -147,6 +147,39 @@ installed on the host.**
 
 ---
 
+## Optional: `mount` (off by default)
+
+`zpaqfranz` 65.x added a `mount` command that exposes an archive as a read-only
+drive. **zpaq-std does not ship it**, because it would break the one promise this
+project keeps: that no flag needs anything installed. It needs FUSE on Linux or
+WinFsp on Windows — at build time *and* at run time.
+
+The code is carried, inert, behind `ZPAQMOUNT`, and there is a build switch for
+anyone who wants it:
+
+```sh
+make MOUNT=1                                   # Linux, needs libfuse3-dev
+make MOUNT=1 CROSS_COMPILE=x86_64-w64-mingw32- \
+     WINFSP_INC=/path/to/WinFsp/inc            # Windows, needs WinFsp "Developer"
+```
+
+Without `MOUNT=1` nothing changes: the default binary carries **no mount symbol
+at all**, and `zpaq-std mount` answers `00590!` explaining it is disabled rather
+than falling through to the help screen.
+
+**On licensing**: neither library is bundled or statically linked. On Linux the
+build links dynamically against the system `libfuse3`, which is the use LGPL-2.1
+contemplates; on Windows nothing is linked at all — WinFsp is resolved with
+`LoadLibrary` at run time. Bundling them *would* be a licensing problem (libfuse
+is LGPL-2.1, WinFsp is GPLv3, this project is MIT), which is exactly why the
+switch uses the system's copies instead.
+
+**Untested by us.** There is no FUSE on the development machine and no WinFsp in
+the test VM, and upstream says of its own feature *"not really tested on \*nix"*.
+Verify it yourself before relying on it.
+
+---
+
 ## Build
 
 Requires only a C++ compiler (g++, clang++) and GNU make. pthread for multithreading.

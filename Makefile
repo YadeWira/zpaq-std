@@ -23,6 +23,7 @@
 #
 # Options:
 # make CROSS_COMPILE=aarch64-linux-gnu-   Cross-compile for another arch
+# make MOUNT=1                          Build WITH the mount command (needs FUSE/WinFsp)
 #
 # Download:
 # make nightly             Nightly (risky)
@@ -381,6 +382,45 @@ $(LZHAMOBJ): compressors/lzham/%.o: compressors/lzham/%.cpp
 m32: clean
 	CXXFLAGS="-m32" CFLAGS="-m32" make build
 	@echo "32-bit build completed (i386/i686)"
+
+# ---------------------------------------------------------------------------
+# MOUNT=1 -- compilar CON el comando 'mount' (el archivo como unidad de disco).
+#
+# APAGADO POR DEFECTO, a proposito. El binario que publicamos no lo lleva, para
+# que siga valiendo que ningun flag de zpaq-std necesita algo instalado. Con
+# MOUNT=1 eso deja de ser cierto: hace falta FUSE (Linux) o WinFsp (Windows),
+# en tiempo de compilacion Y de ejecucion.
+#
+#   Linux        apt install libfuse3-dev   (o fuse3-devel / pacman -S fuse3)
+#   Windows      WinFsp de https://winfsp.dev, con el componente "Developer"
+#                (la instalacion por defecto trae solo el runtime, sin headers)
+#
+# Licencias: NO se empaqueta ninguna de las dos ni se enlazan estaticamente. En
+# Linux se enlaza dinamicamente contra la libfuse3 del sistema, que es el uso
+# que la LGPL-2.1 contempla; en Windows ni siquiera se enlaza -- el codigo de
+# upstream resuelve WinFsp con LoadLibrary en tiempo de ejecucion. Por eso esta
+# opcion no relicencia nada. Empaquetarlas SI lo haria, y por eso no se hace.
+#
+# Sin probar por nosotros: no hay fuse3 en la maquina de desarrollo ni WinFsp en
+# la VM, y upstream dice de su propia feature "not really tested on *nix".
+# Quien la active deberia verificarla antes de confiar en ella.
+ifdef MOUNT
+  ZPAQ_CPPFLAGS += -DZPAQMOUNT
+  ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+    # WinFsp: solo headers; la DLL se carga en runtime, no se enlaza
+    WINFSP_INC ?= /usr/share/winfsp/inc
+    ZPAQ_CPPFLAGS += -I$(WINFSP_INC)
+  else
+    FUSE_CFLAGS := $(shell pkg-config --cflags fuse3 2>/dev/null)
+    FUSE_LIBS   := $(shell pkg-config --libs   fuse3 2>/dev/null)
+    ifeq ($(strip $(FUSE_CFLAGS)$(FUSE_LIBS)),)
+      $(error MOUNT=1 pero no encuentro fuse3. Instala libfuse3-dev/fuse3-devel, \
+        o pasa FUSE_CFLAGS=... FUSE_LIBS=... a mano)
+    endif
+    ZPAQ_CPPFLAGS += $(FUSE_CFLAGS)
+    LDLIBS        += $(FUSE_LIBS)
+  endif
+endif
 
 # Debug
 debug: ZPAQ_CXXFLAGS = -g -O0 -Wall -Wextra -pthread
