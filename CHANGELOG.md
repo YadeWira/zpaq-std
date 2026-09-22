@@ -1,3 +1,95 @@
+### [65.2k-pre21] - 2026-09-22
+
+**The base moved to zpaqfranz 65.2, two codecs were brought up to date, and an
+`-ma` archive now says what it is instead of looking like a corrupt zpaq.**
+
+#### `-ma` archives declare themselves (issue #1, kaitz)
+
+An archive holding `-ma` blocks cannot be extracted by any other zpaq — the
+payload is compressed by a codec no other implementation has. That much is
+inherent. What was wrong is that it did not *say so*: same `.zpaq` name, same
+magic bytes, a header that is byte-for-byte standard, and `zpaq l` listing the
+correct original sizes and printing `all OK`. Only extraction failed, and it
+failed on a fragment hash — which is what a genuinely corrupt archive looks like.
+
+Two changes, both measured against zpaq 7.15 and zpaqfranz 64.8j:
+
+- **The `-ma` blocks are now tagged with a post-processing type no zpaq knows**,
+  so other tools reject them by name: `skipping [2..2] at 1319: unknown post
+  processing type`. They still list the archive correctly and, in a mixed
+  archive, still recover the native files. Exit status is non-zero and **no file
+  is ever written** — verified in every case.
+- **Creating one prints a warning** (`00596!`) naming what it means, because that
+  is the one moment where choosing `-m0`…`-m5` is still free.
+
+The tag is placed **per block, from the block's own `zpaqstd-ma:` comment** — not
+from a global flag. That matters: the first attempt marked by a global and caught
+the index blocks too, which corrupted the listing other tools produce (`N
+fragments have unknown size`, wrong file count). It also means a block is tagged
+only when it really carries external payload: incompressible input under
+`-ma:zstd` produces zero tags and stays universally readable. Attempts to forge
+the tag through `-comment` or a filename do not work — the field is ours.
+
+**Compatibility is one-way, in the useful direction.** This version reads
+everything written before it (verified over pre9…pre20 × 7 codecs, plus native,
+on Linux and on Windows 7 x64/x86); older zpaq-std versions cannot read the new
+`-ma` blocks. Native `-m0`…`-m5` output is unchanged, so old versions and every
+other zpaq still read it. In a mixed or appended archive an old version still
+recovers everything it could recover before, file by file. **Upgrade the machine
+that restores before the one that compresses.**
+
+Giving these archives their own extension was tried and **backed out**: renaming
+breaks two paths that build names by hand — multipart wrote parts zpaq-std itself
+could no longer find, and the backup index assumes the exact length of
+`_00000001.zpaq`. That is the naming machinery behind the 46 GB CLAAS case, so it
+gets its own change and its own test pass.
+
+#### Codecs up to date (rule 3)
+
+- **libdeflate 1.24 → 1.26.** Changes no output at all: the only edit to
+  `deflate_compress.c` is accepting level −1 as an alias for 6, the rest is build
+  and portability work. `-ma:deflate` is bit-exact against pre20 at every level.
+  Note 1.26 now **requires a C11 compiler** — it dropped its own `restrict`
+  fallback. All three toolchains here report `__STDC_VERSION__ 201710L`.
+- **lzav 5.8 → 5.17.** This one does change its output: archives come out ~0.5%
+  smaller at the default level, ~0.3% at `-ma:lzav:1`. Old archives keep working
+  in both directions — `LZAV_FMT_MIN` is 2 and the 5.17 decompressor still
+  handles format 2 and 3, while 5.8 already wrote format 3.
+
+Both vendored trees were verified pristine against upstream before being
+replaced, so nothing local was lost.
+
+#### `-ma:bsc` ran at the wrong default
+
+The clamp block carried `if (g_ma_level<1) g_ma_level=3;`, which was **dead
+code**: the generic `else if (g_ma_level<1) g_ma_level=1;` fifty lines above had
+already raised the value, so the condition could never be true. A bare `-ma:bsc`
+fell through to `else g_ma_level=9` and ran at ST5 instead of the documented ST3.
+This is the same defect the `hs`/`lzav` comment in the same function describes
+fixing for those two; it had stayed alive for bsc. The default now lives with the
+other explicit defaults. It is a real behaviour change: a bare `-ma:bsc` is now
+faster with a slightly worse ratio, which is what the README has documented all
+along.
+
+Two more README cells were wrong and are corrected: the default for `-ma:lzav`
+and `-ma:hs` is 1, not 0 — both pinned to 1 in the source, and measured.
+
+#### Verification
+
+`difftest` covered neither of the codecs being updated — `-ma:deflate` and
+`-ma:lzav` were missing from `METHODS`, so the differential tool was blind
+exactly where it was needed. Both added. Three testlab scripts had also drifted
+between their repo copy and the working copy; `pin_corpus.sh` was the old
+one-corpus version, which is why `corpus-raster2` was going unverified.
+
+Full battery green on the release binary: suite_core 263, flags 117, cmds 38,
+extra 15, glob 11, robust 24; golden gate 136/136, 100/100, 116/116; os_msgs
+25/25; both pinned corpora clean. `difftest` divergences are confined to `-ma`
+methods, none native, every one with the signature `bit=NO A_lee_B=NO B_lee_A=SI
+l=SI t=SI`. Real Windows 7 SP1, x64 and x86: old archives read, new archives
+written there return to Linux matching by sha256, and a native `-m5` written on
+Win7 still opens in zpaq 7.15.
+
 ### [64.8j-pre20] - 2026-09-18
 
 **Housekeeping. No change to compression and no change to any archive.**

@@ -13685,7 +13685,14 @@ private:
 //////////////////////// Compressor //////////////////////////
 class Compressor {
 public:
-  Compressor(): enc(z), in(0), state(INIT), verify(false) {}
+  Compressor(): enc(z), in(0), state(INIT), verify(false), mablock(false) {}
+  /// Marca ESTE bloque como portador de carga -ma. Cambia un solo byte: el tipo
+  /// de post-proceso pasa de 0 (PASS) a 2, que ningun zpaq conoce, asi que en
+  /// vez de copiar los bytes comprimidos y morir con un hash que no cuadra,
+  /// dicen "unknown post processing type" y saltean el bloque. Se marca POR
+  /// BLOQUE, nunca global: si se marca el indice tambien, el listado ajeno sale
+  /// mal (probado: "N fragments have unknown size" y la cuenta de archivos mal).
+  void setMaBlock(bool v) {mablock=v;}
   void setOutput(Writer* out) {enc.out=out;}
   void writeTag();
   void startBlock(int level);  // level=1,2,3
@@ -13709,6 +13716,7 @@ public:
   void endBlock();
   int stat(int x) {return enc.stat(x);}
 private:
+  bool mablock;  /// este bloque lleva carga -ma (ver setMaBlock)
   ZPAQL z, pz;  // model and test postprocessor
   Encoder enc;  // arithmetic encoder containing predictor
   Reader* in;   // input source
@@ -15732,6 +15740,11 @@ int PostProcessor::write(int c) {
     case 0:  // initial state
       if (c<0) error("Unexpected EOS");
       state=c+1;  // 1=PASS, 2=PROG
+      /// 2 = nuestro marcador de bloque -ma. Los datos van crudos igual que en
+      /// PASS, asi que se trata como PASS; lo que lo distingue es que un zpaq
+      /// ajeno NO lo conoce y corta con un error nombrado. Aceptar el 2 ademas
+      /// del 0 es lo que deja leer todos los -ma escritos hasta hoy.
+      if (c==2) state=1;
       if (state>2) error("unknown post processing type");
       if (state==1) z.clear();
       break;
@@ -16459,7 +16472,10 @@ void Compressor::postProcess(const char* pcomp, int len) {
       pz.initp();
   }
   else
-    enc.compress(0);
+    /// 0 = PASS (sin post-proceso). 2 = PASS igual, pero marcado como nuestro:
+    /// los datos van crudos y el codec se resuelve leyendo el comentario
+    /// "zpaqstd-ma:". Un zpaq ajeno rechaza el 2 con un mensaje que se entiende.
+    enc.compress(mablock ? 2 : 0);
   state=SEG2;
 }
 // Compress n bytes, or to EOF if n < 0
@@ -19343,6 +19359,10 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   co.startBlock(config.c_str(), args, &pcomp_cmd);
   std::string cs=itos(n);
   if (comment) cs=cs+" "+comment;
+  /// El propio comentario dice si este bloque lleva carga -ma. Es el unico
+  /// lugar con el dato exacto y por bloque: marcar por la global g_ma_algorithm
+  /// alcanzaria tambien a los bloques de indice, que NO llevan carga externa.
+  co.setMaBlock(comment && strstr(comment, "zpaqstd-ma:")!=NULL);
   co.startSegment(filename, cs.c_str());
   if (args[1]>=1 && args[1]<=7 && args[1]!=4) {  // LZ77 or BWT
     LZBuffer lz(*in, args);
@@ -51795,6 +51815,7 @@ int unzPostProcessor::write(int c) {
     case 0:  // initial state
       if (c<0) unzerror("Unexpected EOS");
       state=c+1;  // 1=PASS, 2=PROG
+      if (c==2) state=1;  /// marcador de bloque -ma; ver la nota en PostProcessor
       if (state>2) unzerror("unknown post processing type");
       if (state==1) z.clear();
       break;
@@ -59031,6 +59052,33 @@ int Jidac::loadparameters(int argc, const char** argv)
 			printbar('$');
 	}
 #endif // corresponds to #ifdef (#ifdef _WIN32)
+
+	/// ---- -ma: decir en voz alta que este archivo no es portable ------------
+	/// Va aca, al final del parseo, porque es el primer punto donde se conocen
+	/// las DOS cosas: el nombre del archivo (se parsea primero) y si hay -ma (se
+	/// parsea despues). Vale para 'a' y para 'backup' ('Z').
+	///
+	/// Se evaluo darle otra extension (.zpqs) para que el NOMBRE no mienta, y se
+	/// descarto POR AHORA con motivo medido: renombrar rompe dos caminos que
+	/// arman nombres a mano. Multiparte quedo escribiendo "parte_001.zpqs" y el
+	/// propio zpaq-std ya no encontraba su archivo ("Archive not found"); y el
+	/// indice .txt de backup recorta con un substr(size - 13) que da por sentado
+	/// el largo de "_00000001.zpaq". Es la maquinaria de nombres donde vivio el
+	/// caso CLAAS de 46 GB, asi que se hace aparte y con su propia tanda de
+	/// pruebas, no de refilon. Ver el issue #1 (kaitz).
+	if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
+	{
+		myprintf("00596! -ma:%s: this archive will NOT open in any other zpaq\n",
+		         g_ma_algorithm.c_str());
+		myprintf("00597: the -ma blocks are marked with a post-processing type no other zpaq\n"
+		         "       knows, so zpaq, zpaqfranz and the plugins skip them saying 'unknown\n"
+		         "       post processing type' instead of failing on a hash that does not add up\n");
+		myprintf("00598: they still LIST the archive correctly, and in a mixed archive they do\n"
+		         "       recover the native files -- only the -ma blocks are lost to them\n");
+		myprintf("00599! older zpaq-std versions cannot read these blocks either: upgrade the\n"
+		         "       machine that RESTORES before the one that compresses\n");
+		myprintf("00600: use -m0..-m5 instead if the archive has to be portable\n");
+	}
 
 	return 0;
 }

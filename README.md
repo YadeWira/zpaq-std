@@ -51,6 +51,62 @@ The killer feature of this fork. You can pick **which external algorithm compres
 
 If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).
 
+### Portability: an `-ma` archive only opens in zpaq-std
+
+**This is the price of the feature, and it is worth stating plainly.** An archive
+that contains `-ma` blocks **cannot be extracted by any other zpaq**. The reason
+is the design: the payload is compressed by an external codec that no other
+implementation has, and the codec is named in a block comment
+(`zpaqstd-ma:<algo>:<level>:<original>`).
+
+Measured against the two reference implementations:
+
+| method | zpaq 7.15 | zpaqfranz 64.8j |
+|---|---|---|
+| `-m0` … `-m5` (native) | extracts correctly | extracts correctly |
+| any `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
+
+Those `-ma` blocks are deliberately tagged with a **post-processing type that no
+zpaq knows**, so other tools reject them by name:
+
+```
+Job 4: skipping [2..2] at 1319: unknown post processing type
+Extracted 1 of 2 files OK (1 errors)
+```
+
+That is a great deal better than what the format would do otherwise — read the
+compressed bytes as if they were raw and die on a fragment hash that does not add
+up, which looks exactly like a corrupt archive. Three things follow:
+
+- **Other tools still list the archive correctly** and, in a mixed archive, they
+  still recover the native files. Only the `-ma` blocks are lost to them.
+- **Nothing bad is ever written.** Measured in every case: non-zero exit status
+  and no file on disk. It never hands back wrong data as if it were good.
+- **A block is tagged only if it really carries external-codec payload.** When
+  the external pass does not beat the original, the data stays native and the
+  archive remains universally readable — verified: incompressible input with
+  `-ma:zstd` produces zero tags and zpaq 7.15 extracts it.
+
+#### Upgrading
+
+The tag is not understood by **older zpaq-std versions either**. The compatibility
+is one-way, and it is the useful direction:
+
+| | |
+|---|---|
+| new version reading old archives | **yes** — verified over pre9…pre20 × 7 codecs, plus native |
+| old version reading new `-ma` blocks | no |
+| old version reading new **native** archives | **yes** — those bytes are unchanged |
+
+In a mixed or appended archive an old version still recovers everything it could
+recover before, file by file; it fails only on the new `-ma` blocks. Still, the
+rule when upgrading is simple: **upgrade the machine that RESTORES before the one
+that compresses.**
+
+**Use `-m0`…`-m5` if the archive has to be readable anywhere else.** Raised as
+issue #1 by kaitz, and the report is correct on the substance (the header,
+however, is unchanged — it is byte-for-byte a standard zpaq header).
+
 ### Example
 
 ```bash
