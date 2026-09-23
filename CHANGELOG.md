@@ -22,7 +22,7 @@ them byte for byte.
 - The window is capped at **4 MB** (lz6's `*_window` API), so a foreign zpaq
   needs 4 MB per thread, not 16. lz6 measured the cost at +0.13% (dickens) and
   +0.75% (samba) for the fast encoder.
-- The code is copied unmodified from lz6 commit `721fa64`, in `compressors/lz6/`
+- The code is copied unmodified from lz6 commit `a8e1b51` (`v1.6.4-pre` plus a version-number fix), in `compressors/lz6/`
   (see `VERSION`). Every global symbol is `LZ6`-prefixed, so it links next to
   LZ5 without clashes.
 
