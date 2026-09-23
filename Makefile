@@ -207,6 +207,11 @@ ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   # Use -Wl,--start-group/--end-group to handle circular deps between
   # msvcrt/advapi32 (registry calls in the C runtime).
   ZPAQ_WIN_LIBS := -Wl,--start-group -lmsvcrt -ladvapi32 -lkernel32 -luser32 -lshell32 -Wl,--end-group -lurlmon -lws2_32 -lbcrypt -lwininet -lcomctl32 -lgdi32
+  # Reproducible .exe: without this the linker writes the build time into the
+  # PE header (TimeDateStamp), so two builds of the same source differ in 4 bytes
+  # (the stamp and the checksum derived from it) and no longer compare bit-exact.
+  # See SOURCE_DATE_EPOCH below: the strip step rewrites the header too.
+  ZPAQ_WIN_LIBS += -Wl,--no-insert-timestamp
   # RT_MANIFEST resource: enables Common-Controls v6 (themed/visual-styled progress
   # bar) for the -innosetup GUI window. Built with windres for the Windows target.
   WINRES := win/manifest_res.o
@@ -222,8 +227,14 @@ endif
 # also drops debug symbols, shrinking the binary. No-op on other targets.
 # Note: MinGW gcc auto-appends .exe, so the produced file is $(PROG).exe
 # even though the make target is $(PROG).
+# strip REWRITES the PE header and stamps it with the CURRENT time, even when the
+# linker was told --no-insert-timestamp -- measured: 0 after the link, the wall
+# clock after the strip. It has no --no-insert-timestamp of its own, but it does
+# honour SOURCE_DATE_EPOCH, the reproducible-builds convention. 0 by default;
+# a packager can still pass their own.
+SOURCE_DATE_EPOCH ?= 0
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
-  ZPAQ_POSTLINK := $(STRIP) --remove-section=.comment $(PROG).exe
+  ZPAQ_POSTLINK := SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(STRIP) --remove-section=.comment $(PROG).exe
 else
   ZPAQ_POSTLINK := true
 endif
