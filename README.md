@@ -8,7 +8,7 @@ Think of it as a single-file "Time Machine": every run only adds the deltas, so 
 
 This is **YadeWira's personal fork**. The new work here is the bundled-compressors architecture: pick the algorithm at archive time, no host setup needed. The base code (the deduplication engine, the journaling archiver) is Franco Corbelli's, derived in turn from Matt Mahoney's public-domain zpaq 7.15. See [CONTRIBUTORS](CONTRIBUTORS) for the full attribution chain.
 
-The application still lives in one ~104,000-line `zpaq-std.cpp`, but it is no longer
+The application still lives in one ~113,000-line `zpaq-std.cpp`, but it is no longer
 strictly single-file: `libdivsufsort/` was lifted out into its own module, and
 `test/testlab/` holds the verification harness.
 
