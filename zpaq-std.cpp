@@ -30346,6 +30346,39 @@ FP myfopen(const char *filename, MODE mode, int64_t i_date= 0)
 		myprintf("00089: CreateFile\n");
 
 	FP risultato= CreateFile(utow(filename).c_str(), access, share, NULL, disp, FILE_ATTRIBUTE_NORMAL, NULL);
+	/// Issue #172 de upstream: en Windows, explorer.exe, el indexador o el antivirus
+	/// toman a veces un handle EXCLUSIVO por un instante sobre un archivo recien
+	/// creado, y la apertura falla con ERROR_SHARING_VIOLATION aunque un momento
+	/// despues andaria. Al extraer eso da un "Failed extracted file" espurio.
+	/// Reintento acotado (10 x 50 ms = medio segundo por apertura), y SOLO ante
+	/// violacion de uso compartido o de bloqueo: un ACCESS_DENIED es un problema de
+	/// permisos real y tiene que seguir fallando al instante (medido en Win7: 94 ms,
+	/// igual que sin el arreglo). El bloqueo del indexador dura menos de 100 ms segun
+	/// el reportante; no se estira mas porque la extraccion abre un archivo mas de una
+	/// vez y la espera se suma: con 20 intentos, un archivo bloqueado DE VERDAD costaba
+	/// 2,6 s. Upstream ya tenia un reintento parcial (66935!), solo para RBPLUS y de
+	/// una sola vez. El codigo de error se lee ACA, pegado a CreateFile: el myprintf de
+	/// debug de abajo puede pisarlo.
+	if (risultato == FPNULL)
+	{
+		DWORD errore= GetLastError();
+		for (int intento= 1; intento <= 10; intento++)
+		{
+			if ((errore != ERROR_SHARING_VIOLATION) && (errore != ERROR_LOCK_VIOLATION))
+				break;
+			if (g_control_c)
+				break;
+			Sleep(50);
+			risultato= CreateFile(utow(filename).c_str(), access, share, NULL, disp, FILE_ATTRIBUTE_NORMAL, NULL);
+			if (risultato != FPNULL)
+			{
+				if (flagdebug3)
+					myprintf("00601: CreateFile ok on retry %d (file briefly locked by another process)\n", intento);
+				break;
+			}
+			errore= GetLastError();
+		}
+	}
 	if (flagdebug3)
 		myprintf("00090: Createfile risultato %s\n", migliaia(int64_t(risultato)));
 
