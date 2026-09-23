@@ -4988,6 +4988,17 @@ bool					 flagbarraos;
 #include <atomic>
 #include <memory>
 
+/// -innosetup: avance REAL de 'a'. print_progress() se mueve por bytes LEIDOS, y
+/// con -m5 un bloque se lee en un segundo y se comprime en minutos: la ventana
+/// quedaba en 99% todo ese rato. Estos contadores, en bytes de los ARCHIVOS:
+///   g_prog_cm      lo ya comprimido (libzpaq lo suma cada 16 KB, y cada bloque
+///                  termina sumando exacto sus bytes de datos)
+///   g_prog_queued  lo entregado al compresor (bloques encolados)
+///   g_prog_sbpend  lo que esta en el bloque que se esta armando
+/// avance = leido - (queued - cm) - sbpend. Los fragmentos duplicados nunca
+/// entran a un bloque, asi que cuentan como hechos al leerse, que es lo correcto.
+std::atomic<int64_t> g_prog_cm(0), g_prog_queued(0), g_prog_sbpend(0);
+
 std::vector<std::string> g_addedchunklist;
 int						 g_franzotype;
 int						 g_franzotypelen;
@@ -5721,8 +5732,25 @@ bool should_skip_print(const char *format)
 	return false;
 }
 
+void inno_gui_note_error(const char* line, bool iserror);	// -innosetup failure view
 void handle_silent_mode(const char *format, va_list args)
 {
+	/// %Z is zpaq-std's own specifier (a file name), which only
+	/// my_vprintf_refactored() understands. Handed raw to vsnprintf() it came out
+	/// as a literal "%Z" -- so in -innosetup mode every message naming a file lost
+	/// the name, on stderr too ("UKONE [very bad] 0/207 %Z"). Same rewrite as the
+	/// DLL callback path above: %Z -> %s.
+	char zformat[8192];
+	{
+		size_t i= 0, j= 0;
+		while (format[i] != '\0' && j < sizeof(zformat) - 2)
+		{
+			if (format[i] == '%' && format[i + 1] == 'Z') { zformat[j++]= '%'; zformat[j++]= 's'; i+= 2; }
+			else zformat[j++]= format[i++];
+		}
+		zformat[j]= '\0';
+		format= zformat;
+	}
 	char buffer[8192];
 	int	 ret= vsnprintf(buffer, sizeof(buffer), format, args);
 	if (ret >= (int)sizeof(buffer))
@@ -5754,6 +5782,8 @@ void handle_silent_mode(const char *format, va_list args)
 			my_print_on_error("%s", buffer);
 		fputs(buffer, stderr);
 		fflush(stderr);
+		if (flaginnosetup)
+			inno_gui_note_error(buffer, flagerror);
 	}
 }
 
@@ -13694,7 +13724,7 @@ private:
 //////////////////////// Compressor //////////////////////////
 class Compressor {
 public:
-  Compressor(): enc(z), in(0), state(INIT), verify(false), mablock(false) {}
+  Compressor(): enc(z), in(0), state(INIT), verify(false), mablock(false), prog(0), progcred(0) {}
   /// Marca ESTE bloque como portador de carga -ma. Cambia un solo byte: el tipo
   /// de post-proceso pasa de 0 (PASS) a 2, que ningun zpaq conoce, asi que en
   /// vez de copiar los bytes comprimidos y morir con un hash que no cuadra,
@@ -13702,6 +13732,9 @@ public:
   /// BLOQUE, nunca global: si se marca el indice tambien, el listado ajeno sale
   /// mal (probado: "N fragments have unknown size" y la cuenta de archivos mal).
   void setMaBlock(bool v) {mablock=v;}
+  /// -innosetup: suma a *p cada tramo de entrada ya comprimido (ver g_prog_cm)
+  void setProgress(std::atomic<int64_t>* p) {prog=p; progcred=0;}
+  int64_t progressCredited() const {return progcred;}
   void setOutput(Writer* out) {enc.out=out;}
   void writeTag();
   void startBlock(int level);  // level=1,2,3
@@ -13726,6 +13759,8 @@ public:
   int stat(int x) {return enc.stat(x);}
 private:
   bool mablock;  /// este bloque lleva carga -ma (ver setMaBlock)
+  std::atomic<int64_t>* prog;  /// contador de avance, o NULL
+  int64_t progcred;            /// lo que este bloque ya sumo a *prog
   ZPAQL z, pz;  // model and test postprocessor
   Encoder enc;  // arithmetic encoder containing predictor
   Reader* in;   // input source
@@ -13852,7 +13887,8 @@ void compress(Reader* in, Writer* out, const char* method,
      const char* filename=0, const char* comment=0, bool dosha1=true);
 // Same as compress() but output is 1 block, ignoring block size parameter.
 void compressBlock(StringBuffer* in, Writer* out, const char* method,
-     const char* filename=0, const char* comment=0, bool dosha1=true);
+     const char* filename=0, const char* comment=0, bool dosha1=true,
+     std::atomic<int64_t>* prog=0);
 // Read 16 bit little-endian number
 int toU16(const char* p) {
   return (p[0]&255)+256*(p[1]&255);
@@ -16524,6 +16560,7 @@ bool Compressor::compress(int n) {
         else sha1.put(ch);
       }
     }
+    if (prog) { *prog+= nr; progcred+= nr; }
   }
   return true;
 }
@@ -19352,7 +19389,11 @@ const std::string& zpaqlz5_bytecode() {
 // as a decimal string, plus " jDC\x01" for a journaling method (method[0]
 // is not 's'). Write the generated method to methodOut if not 0.
 void compressBlock(StringBuffer* in, Writer* out, const char* method_,
-                   const char* filename, const char* comment, bool dosha1) {
+                   const char* filename, const char* comment, bool dosha1,
+                   std::atomic<int64_t>* prog) {
+  /// -innosetup: el bloque termina sumando a *prog exactamente in->size(),
+  /// comprima como comprima (con preprocesado LZ77/BWT libzpaq ve menos bytes).
+  const int64_t prog_n= in->size();
   assert(in);
   assert(out);
   assert(method_);
@@ -19386,7 +19427,9 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     if (comment) cs=cs+" "+comment;
     co.startSegment(filename, cs.c_str());
     co.setInput(in);
+    co.setProgress(prog);
     co.compress();
+    if (prog) *prog+= prog_n - co.progressCredited();
     co.endSegment(sha1bin);
     co.endBlock();
     return;
@@ -19541,6 +19584,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   /// alcanzaria tambien a los bloques de indice, que NO llevan carga externa.
   co.setMaBlock(comment && strstr(comment, "zpaqstd-ma:")!=NULL);
   co.startSegment(filename, cs.c_str());
+  co.setProgress(prog);
   if (args[1]>=1 && args[1]<=7 && args[1]!=4) {  // LZ77 or BWT
     LZBuffer lz(*in, args);
     co.setInput(&lz);
@@ -19552,6 +19596,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     co.setInput(in);
     co.compress();
   }
+  if (prog) *prog+= prog_n - co.progressCredited();
 #ifdef DEBUG  // verify pre-post processing are inverses
   int64_t outsize;
   const char* sha1result=co.endSegmentChecksum(&outsize, dosha1);
@@ -53101,6 +53146,18 @@ static HWND             g_inno_btn_bg = NULL, g_inno_btn_cancel = NULL, g_inno_h
 static ITaskbarList3*   g_inno_taskbar = NULL;   // taskbar-button progress (may stay NULL)
 static HMODULE          g_inno_ole32   = NULL;
 static bool             g_inno_marquee = false;  // bar is in indeterminate mode
+/// The window starts BEFORE the command is parsed (it is created while the
+/// switches are read), so it used to guess the verb from the data -- and a
+/// failing extract showed "Compressing... 100%". inno_gui_setmode() sets it once
+/// the command is known: 'a' add, 'x' extract, 't' test, 0 = not known yet.
+static volatile LONG    g_inno_mode    = 0;
+/// Failure view: set by inno_gui_finish() when the run returns non-zero.
+static volatile LONG    g_inno_failed  = 0;
+static int              g_inno_rc      = 0;
+static char             g_inno_errmsg[256] = "";  // last error (or warning) line
+static bool             g_inno_haserr  = false;   // g_inno_errmsg holds an error, not a warning
+static HANDLE           g_inno_closed  = NULL;    // signalled when the failure view is dismissed
+static HWND             g_inno_status  = NULL;    // status line, left of the buttons
 #define IDC_INNO_BG     1001
 #define IDC_INNO_CANCEL 1002
 // Windows accent blue, used for the focused button's border.
@@ -53259,7 +53316,10 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 	if (m == WM_CTLCOLORSTATIC)
 	{
 		HDC dc= (HDC)w;
-		SetTextColor(dc, g_inno_fg);
+		if ((HWND)l == g_inno_status && g_inno_failed)
+			SetTextColor(dc, g_inno_dark ? RGB(255, 125, 115) : RGB(196, 43, 28));
+		else
+			SetTextColor(dc, g_inno_fg);
 		SetBkColor(dc, g_inno_bg);
 		return (LRESULT)(g_inno_brush ? g_inno_brush : (HBRUSH)(COLOR_BTNFACE + 1));
 	}
@@ -53314,6 +53374,9 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 		// IDCANCEL is what IsDialogMessage() posts for the Esc key.
 		if (LOWORD(w) == IDC_INNO_CANCEL || LOWORD(w) == IDCANCEL)
 		{
+			// After a failure the work is over: the button reads "Close" and
+			// just dismisses the window, no confirmation.
+			if (g_inno_failed) { if (g_inno_closed) SetEvent(g_inno_closed); return 0; }
 			inno_confirm_cancel(h);
 			return 0;
 		}
@@ -53323,7 +53386,12 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 	// The [x] used to be swallowed silently, leaving no way to stop from the
 	// window itself. Route it to the same confirmation as Cancel; declining
 	// still leaves the lifetime to the work, exactly as before.
-	if (m == WM_CLOSE) { inno_confirm_cancel(h); return 0; }
+	if (m == WM_CLOSE)
+	{
+		if (g_inno_failed) { if (g_inno_closed) SetEvent(g_inno_closed); return 0; }
+		inno_confirm_cancel(h);
+		return 0;
+	}
 	return DefWindowProcA(h, m, w, l);
 }
 
@@ -53395,6 +53463,11 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		CW - M - btnW * 2 - btnGap, btnY, btnW, btnH, g_inno_wnd, (HMENU)IDC_INNO_BG, hi, NULL);
 	SendMessageA(g_inno_btn_bg, WM_SETFONT, (WPARAM)hf, TRUE);
 	SendMessageA(g_inno_btn_cancel, WM_SETFONT, (WPARAM)hf, TRUE);
+	// Status line in the free space left of the buttons: empty while working,
+	// the error when the run fails (SS_ENDELLIPSIS: a long one ends in "...").
+	g_inno_status= CreateWindowExA(0, "STATIC", "", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_ENDELLIPSIS,
+		M, btnY + 6, CW - M - btnW * 2 - btnGap - M - 8, rowH, g_inno_wnd, NULL, hi, NULL);
+	SendMessageA(g_inno_status, WM_SETFONT, (WPARAM)hf, TRUE);
 	ShowWindow(g_inno_wnd, SW_SHOWNORMAL);
 	UpdateWindow(g_inno_wnd);
 	inno_taskbar_init(g_inno_wnd);
@@ -53417,6 +53490,58 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 			DispatchMessageA(&msg);
 		}
 		if (InterlockedCompareExchange(&g_inno_quit, 0, 0)) break;
+		// Failure view, applied once: the run is over and returned non-zero.
+		// Before this a failing run looked exactly like a good one -- the bar
+		// was forced to 100%, green, and the window closed after a second,
+		// while the reason only went to stderr, which an installer hides.
+		static bool fail_shown= false;
+		if (g_inno_failed)
+		{
+			if (!fail_shown)
+			{
+				fail_shown= true;
+				LONG md= g_inno_mode;
+				const char* what= (md == 'x') ? "Extraction failed" : (md == 't') ? "Test failed"
+				                : (md == 'a') ? "Compression failed" : "Failed";
+				SetWindowTextA(g_inno_wnd, what);
+				char st[320];
+				if (g_inno_errmsg[0])
+					snprintf(st, sizeof(st), "%s", g_inno_errmsg);
+				else
+					snprintf(st, sizeof(st), "exit code %d", g_inno_rc);
+				// The Background button goes away, so the message takes its place
+				// and gets two lines (SS_EDITCONTROL wraps, and ends in "..." only
+				// past the second): a path no longer gets cut halfway.
+				{
+					RECT sr; GetWindowRect(g_inno_status, &sr);
+					POINT tl= { sr.left, sr.top }; ScreenToClient(g_inno_wnd, &tl);
+					RECT br; GetWindowRect(g_inno_btn_cancel, &br);
+					POINT bl= { br.left, br.top }; ScreenToClient(g_inno_wnd, &bl);
+					SetWindowLongPtrA(g_inno_status, GWL_STYLE,
+						(GetWindowLongPtrA(g_inno_status, GWL_STYLE) | SS_EDITCONTROL));
+					MoveWindow(g_inno_status, tl.x, bl.y - 4, bl.x - tl.x - 12, 36, TRUE);
+				}
+				SetWindowTextA(g_inno_status, st);
+				if (g_inno_marquee)
+				{
+					SendMessageA(g_inno_bar, PBM_SETMARQUEE, FALSE, 0);
+					SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
+						GetWindowLongPtrA(g_inno_bar, GWL_STYLE) & ~PBS_MARQUEE);
+					inno_theme_bar(g_inno_bar, dark);
+					g_inno_marquee= false;
+				}
+				SendMessageA(g_inno_bar, PBM_SETSTATE, PBST_ERROR, 0);            // themed: red
+				SendMessageA(g_inno_bar, PBM_SETBARCOLOR, 0, (LPARAM)RGB(196, 43, 28)); // unthemed (dark)
+				if (g_inno_taskbar) g_inno_taskbar->SetProgressState(g_inno_wnd, TBPF_ERROR);
+				ShowWindow(g_inno_btn_bg, SW_HIDE);
+				SetWindowTextA(g_inno_btn_cancel, "Close");
+				SetFocus(g_inno_btn_cancel);
+				InvalidateRect(g_inno_btn_cancel, NULL, TRUE);
+				FlashWindow(g_inno_wnd, TRUE);
+			}
+			Sleep(80);
+			continue;
+		}
 		InnoProg p;
 		if (g_inno_cs_init)
 		{
@@ -53427,11 +53552,37 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		// operation is unknown and we're still preparing, so show "Loading...".
 		// Then the verb comes from the compressed counter (>=0 adding, -1 extract):
 		// "Compressing... 72%" / "Extracting... 72%".
+		LONG md= g_inno_mode;
+		bool adding= (md == 'a') || (md == 0 && p.compressed >= 0);
+		// 'a': what counts is what has been COMPRESSED, not what has been read
+		// (see g_prog_cm). print_progress() stops being called once the input is
+		// consumed, and at -m5 the whole compression came after that: the bar sat
+		// at 99% with "0.0 s" remaining for minutes. So the percentage, the speed
+		// and the remaining time are recomputed here, from the real progress.
+		if (adding && p.known && p.total > 0 && p.pct < 100)
+		{
+			int64_t pend= (g_prog_queued.load() - g_prog_cm.load()) + g_prog_sbpend.load();
+			if (pend < 0) pend= 0;
+			int64_t dn= p.done - pend;
+			if (dn < 0) dn= 0;
+			if (dn > p.total) dn= p.total;
+			int64_t el= mtime() - g_start;
+			if (el < 1) el= 1;
+			p.done = dn;
+			p.pct  = (int)((double)dn * 100.0 / (double)p.total);
+			if (p.pct > 99 && dn < p.total) p.pct= 99;
+			p.speed= (long long)((double)dn * 1000.0 / (double)el);
+			double eta= (dn > 0) ? (double)(p.total - dn) * (double)el / (double)dn : 0.0;
+			if (eta > 2147483647.0) eta= 2147483647.0;
+			p.eta= (int)eta;
+		}
+		const char* verb= (md == 'x') ? "Extracting" : (md == 't') ? "Testing"
+		                : adding ? "Compressing" : "Extracting";
 		char t[96];
 		if (!p.known)
 			snprintf(t, sizeof(t), "Loading...");
 		else
-			snprintf(t, sizeof(t), "%s... %d%%", (p.compressed < 0) ? "Extracting" : "Compressing", p.pct);
+			snprintf(t, sizeof(t), "%s... %d%%", verb, p.pct);
 		if (strcmp(t, prev_title) != 0)
 		{
 			strcpy(prev_title, t);
@@ -53573,11 +53724,81 @@ static void inno_gui_stop()
 	CloseHandle(g_inno_thread);
 	g_inno_thread= NULL;
 }
+/// The command, once parsed: fixes the verb in the title. Also forgets what
+/// was said while parsing (the -ma notices are '!' too), so the failure view
+/// shows the error of the RUN, not a notice printed before it started.
+void inno_gui_setmode(char command)
+{
+	LONG md= 0;
+	if (command == 'a' || command == 'Z') md= 'a';
+	else if (command == 'x')              md= 'x';
+	else if (command == 't')              md= 't';
+	InterlockedExchange(&g_inno_mode, md);
+	if (g_inno_cs_init) EnterCriticalSection(&g_inno_cs);
+	g_inno_errmsg[0]= 0; g_inno_haserr= false;
+	if (g_inno_cs_init) LeaveCriticalSection(&g_inno_cs);
+}
+/// Called for every error ('!') or warning ('$') line in -innosetup mode. Keeps
+/// the FIRST one, without its numeric code: that is the line the failure view
+/// shows. The first problem is the cause; what follows is its consequences
+/// (a corrupt archive says "bad checksum", then one "UKONE" line per file).
+void inno_gui_note_error(const char* line, bool iserror)
+{
+	if (!line) return;
+	if (g_inno_errmsg[0]) return;
+	const char* q= line;
+	if (strlen(q) > 6 && isdigit((unsigned char)q[0]) && isdigit((unsigned char)q[4]) && q[6] == ' ')
+		q+= 7;
+	while (*q == ' ') q++;
+	char tmp[256]; size_t k= 0;
+	for (; *q && k < sizeof(tmp) - 1; q++)
+	{
+		if (*q == '\r' || *q == '\n') { if (k && tmp[k - 1] != ' ') tmp[k++]= ' '; continue; }
+		tmp[k++]= *q;
+	}
+	while (k && tmp[k - 1] == ' ') k--;
+	tmp[k]= 0;
+	if (!k) return;
+	if (g_inno_cs_init) EnterCriticalSection(&g_inno_cs);
+	strcpy(g_inno_errmsg, tmp);
+	if (iserror) g_inno_haserr= true;
+	if (g_inno_cs_init) LeaveCriticalSection(&g_inno_cs);
+}
+/// End of the run. Success: 100%, held a second, closed (as before). Failure:
+/// red bar, "... failed" title, the error on the status line, and the window
+/// stays until the user closes it -- or 10 s, so an unattended (/VERYSILENT)
+/// install never hangs on it. The exit code is not touched either way.
+static void inno_gui_finish(int rc)
+{
+	if (!g_inno_thread) return;
+	if (rc == 0)
+	{
+		inno_gui_set(100);
+		Sleep(1000);
+		inno_gui_stop();
+		return;
+	}
+	g_inno_rc= rc;
+	g_inno_closed= CreateEventA(NULL, TRUE, FALSE, NULL);
+	InterlockedExchange(&g_inno_failed, 1);
+	if (g_inno_closed)
+	{
+		WaitForSingleObject(g_inno_closed, 10000);
+		CloseHandle(g_inno_closed);
+		g_inno_closed= NULL;
+	}
+	else
+		Sleep(10000);
+	inno_gui_stop();
+}
 #else
 static void inno_gui_start(const char*) {}
 static void inno_gui_progress(int, long long, long long, long long, int, int, long long) {}
 static void inno_gui_set(int) {}
 static void inno_gui_stop() {}
+void inno_gui_setmode(char) {}
+void inno_gui_note_error(const char*, bool) {}
+static void inno_gui_finish(int) {}
 #endif
 
 /*
@@ -59284,29 +59505,35 @@ int Jidac::loadparameters(int argc, const char** argv)
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
-		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder: this archive opens in\n"
-		         "       any zpaq, 7.15 included (zpaq-std decodes them natively, others run it)\n",
+		///
+		/// OJO con los avisos de varias lineas: un codigo "NNNNN:" se BORRA en
+		/// pantalla salvo con -debug (my_vprintf_refactored), y uno "NNNNN!" se
+		/// conserva. Una continuacion sangrada 7 espacios solo queda alineada
+		/// detras de un "!"; detras de un ":" queda desfasada. Por eso aca: una
+		/// sola linea con ":", o varias con "!".
+		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder: any zpaq can extract them\n",
 		         g_ma_algorithm.c_str());
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
 		/// velocidad, niveles), no el formato de bloque, que lz6 congelo.
 		if (g_ma_algorithm=="lz6")
-			myprintf("00603: lz6 is EXPERIMENTAL and subject to major changes: its compression and\n"
-			         "       levels may differ in future releases. Archives already written stay\n"
-			         "       readable: the block format is frozen and each block carries its decoder\n");
+			myprintf("00603! lz6 is EXPERIMENTAL: its compression and levels may change in future\n"
+			         "       releases. Archives already written stay readable (frozen block format)\n");
 	}
 	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{
-		myprintf("00596! -ma:%s: this archive will NOT open in any other zpaq\n",
+		/// Eran 9 lineas en cada 'a' (00596..00600). El detalle -- el tipo de
+		/// post-proceso que los demas zpaq rechazan limpio, que igual listan el
+		/// archivo -- esta en el README; aca va lo que hay que saber para actuar.
+		myprintf("00596! -ma:%s: this archive will NOT open in any other zpaq, and older zpaq-std\n"
+		         "       versions may not read it either: upgrade the machine that RESTORES first.\n"
+		         "       Use -m0..-m5, -ma:lz5 or -ma:lz6 if the archive has to be portable\n",
 		         g_ma_algorithm.c_str());
-		myprintf("00597: the -ma blocks are marked with a post-processing type no other zpaq\n"
-		         "       knows, so zpaq, zpaqfranz and the plugins skip them saying 'unknown\n"
-		         "       post processing type' instead of failing on a hash that does not add up\n");
-		myprintf("00598: they still LIST the archive correctly, and in a mixed archive they do\n"
-		         "       recover the native files -- only the -ma blocks are lost to them\n");
-		myprintf("00599! older zpaq-std versions cannot read these blocks either: upgrade the\n"
-		         "       machine that RESTORES before the one that compresses\n");
-		myprintf("00600: use -m0..-m5 instead if the archive has to be portable\n");
 	}
+
+	/// -innosetup: the command is known only now (the window was opened while
+	/// the switches were still being read).
+	if (flaginnosetup)
+		inno_gui_setmode(command);
 
 	return 0;
 }
@@ -63759,9 +63986,10 @@ struct CJ
 	string		 filename;	 // to write in filename field
 	string		 comment;	 // if "" use default
 	string		 method;	 // compression level or "" to mark end of data
+	int64_t		 progdata;	 // -innosetup: bytes de ARCHIVOS del bloque, o -1
 	Semaphore	 full;		 // 1 if in is FULL of data ready to compress
 	Semaphore	 compressed; // 1 if out contains COMPRESSED data
-	CJ() : state(EMPTY)
+	CJ() : state(EMPTY), progdata(-1)
 	{
 	}
 };
@@ -63815,12 +64043,12 @@ class CompressJob
 		delete[] q;
 	}
 	void		appendz(StringBuffer &s, const char *filename, const string &method,
-						const char *comment= 0);
+						const char *comment= 0, int64_t progdata= -1);
 	vector<int> csize; // compressed block sizes
 };
 // Write s at the back of the queue. Signal end of input with method=""
 void CompressJob::appendz(StringBuffer &s, const char *fn, const string &method,
-						  const char *comment)
+						  const char *comment, int64_t progdata)
 {
 	for (unsigned k= (method == "") ? qsize : 1; k > 0; --k)
 	{
@@ -63835,6 +64063,7 @@ void CompressJob::appendz(StringBuffer &s, const char *fn, const string &method,
 				q[j].comment = comment ? comment : "jDC\x01";
 				//		myprintf("00644: the method |%s| fn |%s|\n",method.c_str(),fn);
 				q[j].method= method;
+				q[j].progdata= progdata;
 				q[j].in.resize(0);
 				q[j].in.swap(s);
 				q[j].state= CJ::FULL;
@@ -63877,8 +64106,15 @@ ThreadReturn compressThread(void *arg)
 			release(job.mutex);
 			job.compressors.wait();
 			/// myprintf("00645: compressblock meth %s filena %s %s\n",cj.method.c_str(),cj.filename.c_str(),cj.comment.c_str());
-			libzpaq::compressBlock(&cj.in, &cj.out, cj.method.c_str(),
-								   cj.filename.c_str(), cj.comment == "" ? 0 : cj.comment.c_str());
+			{
+				const int64_t insz= cj.in.size();
+				libzpaq::compressBlock(&cj.in, &cj.out, cj.method.c_str(),
+									   cj.filename.c_str(), cj.comment == "" ? 0 : cj.comment.c_str(),
+									   true, cj.progdata >= 0 ? &g_prog_cm : 0);
+				/// compressBlock sumo insz; se completa hasta los bytes de datos del bloque
+				if (cj.progdata >= 0)
+					g_prog_cm+= cj.progdata - insz;
+			}
 			cj.in.resize(0);
 			lock(job.mutex);
 			///	myprintf("00646: Farei qualcosa <<%s>> %08X size %ld\n",myblock.filename.c_str(),myblock.crc32,myblock.crc32size);
@@ -70846,15 +71082,8 @@ extern "C" {
 int main(int argc, const char **argv)
 {
     int rc = zpaq_main_internal(argc, argv);
-    if (flaginnosetup)   // show a final 100% and hold the window briefly, then close
-    {
-        inno_gui_set(100);              // force the bar to 100% (regardless of rc:
-                                        // extract may return a benign nonzero error count)
-#ifdef _WIN32
-        Sleep(1000);                    // hold ~1s so the 100% is visible before closing
-#endif
-        inno_gui_stop();                // close the GUI window (Windows; no-op elsewhere)
-    }
+    if (flaginnosetup)   // success: 100% for a second; failure: shown in red (inno_gui_finish)
+        inno_gui_finish(rc);
     return rc;
 }
 #else
@@ -70876,15 +71105,8 @@ int main()
         argp[i] = args[i].c_str();
     }
     int rc = zpaq_main_internal(argc, &argp[0]);
-    if (flaginnosetup)   // show a final 100% and hold the window briefly, then close
-    {
-        inno_gui_set(100);              // force the bar to 100% (regardless of rc:
-                                        // extract may return a benign nonzero error count)
-#ifdef _WIN32
-        Sleep(1000);                    // hold ~1s so the 100% is visible before closing
-#endif
-        inno_gui_stop();                // close the GUI window (Windows; no-op elsewhere)
-    }
+    if (flaginnosetup)   // success: 100% for a second; failure: shown in red (inno_gui_finish)
+        inno_gui_finish(rc);
     return rc;
 }
 #endif // unix
@@ -109686,6 +109908,7 @@ int Jidac::add()
 	}
 	string externaloutputfile= "";
 	g_scritti				 = 0;
+	g_prog_cm= 0; g_prog_queued= 0; g_prog_sbpend= 0;
 	string primalettera		 = "";
 
 	string ffranzotype= decodefranzoffset(g_franzotype);
@@ -111058,11 +111281,14 @@ int Jidac::add()
 					assert(frags > 0);
 					assert(frags < ht.size());
 					/// uint64_t theblocksize=0;
+					int64_t prog_blockdata= 0;	// -innosetup: bytes de archivos de este bloque
 					for (unsigned i= ht.size() - frags; i < ht.size(); ++i)
 					{
 						// theblocksize+=ht[i].usize;
+						prog_blockdata+= ht[i].usize;
 						puti(sb, ht[i].usize, 4); // list of frag sizes
 					}
+					g_prog_sbpend= prog_blockdata;
 					puti(sb, 0, 4);		// omit first frag ID to make block movable
 					puti(sb, frags, 4); // number of frags
 					string m= method;
@@ -111612,7 +111838,8 @@ int Jidac::add()
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
 							{
 								string mc= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
-								job.appendz(sb, fn.c_str(), m, mc.c_str());
+								job.appendz(sb, fn.c_str(), m, mc.c_str(), prog_blockdata);
+								g_prog_queued+= prog_blockdata;
 							}
 						}
 						else
@@ -111625,7 +111852,11 @@ int Jidac::add()
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
-								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str());
+								g_prog_queued+= prog_blockdata;
+								g_prog_sbpend= 0;
+								const int64_t insz= my_cj_in.size();
+								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str(), true, &g_prog_cm);
+								g_prog_cm+= prog_blockdata - insz;
 								job.csize.push_back(my_cj_out.size());
 								if (job.out && my_cj_out.size() > 0)
 								{
@@ -111658,6 +111889,7 @@ int Jidac::add()
 					}
 
 					assert(sb.size() == 0);
+					g_prog_sbpend= 0;
 					blocklist.push_back(ht.size() - frags); // mark block start
 					frags= redundancy= text= exe= 0;
 					memset(o1prev, 0, sizeof(o1prev));
@@ -111665,6 +111897,7 @@ int Jidac::add()
 
 				assert(sz == 0 || fi < vf.size());
 				sb.write(&fragbuf[0], sz);
+				g_prog_sbpend= sb.size();
 				++frags;
 				redundancy+= hits;
 				exe+= exe1 * 4;
@@ -111742,6 +111975,11 @@ int Jidac::add()
 			join(tid[i]);
 		join(wid);
 	}
+	/// -innosetup: con todo comprimido, lo comprimido tiene que ser EXACTAMENTE lo
+	/// encolado, y nada pendiente. Si no, la barra no llegaria a 100 (o se pasaria).
+	if (flagdebug)
+		myprintf("02124: progress compressed=%s queued=%s pending=%s\n",
+		         migliaia(g_prog_cm.load()), migliaia2(g_prog_queued.load()), migliaia3(g_prog_sbpend.load()));
 
 	salt[0]^= '7' ^ 'z';
 

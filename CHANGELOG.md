@@ -1,3 +1,83 @@
+### [65.2k-pre26] - 2026-09-23
+
+**The `-innosetup` window shows real progress, and a failure looks like one.**
+Also shorter, aligned `-ma` notices.
+
+#### `-innosetup`: real progress
+
+With `-m5`, the window jumped to 99% within a second and stayed there for the
+whole compression, with "Remaining 0.0 s", the read speed instead of the real
+one, and "Compressed size" at `...`: it looked hung. Measured on 43 MB: 2 min
+27 s at 99%.
+
+Progress was driven by bytes READ, and one `-m5` block is read in a second and
+compressed in minutes. It now counts what has been compressed: libzpaq reports
+every 16 KB of input it codes, each block ends by crediting exactly its bytes,
+and deduplicated fragments count as done when read. The window recomputes the
+percentage, speed and remaining time from that every 80 ms. Checked: the count
+closes exactly (compressed = queued, nothing pending) for `-m0`, `-m1`, `-m3`,
+`-m5`, `-ma`, one thread and deduplication; on Windows the same 43 MB now climbs
+from 11% to 100% over the run.
+"Compressed size" still reads `...` until the first block is written: before
+that, its real size is not known.
+
+#### `-innosetup`: failures
+
+A failing run looked exactly like a good one: the bar was forced to 100%, green,
+and the window closed after a second. The reason only went to stderr, which an
+installer hides. Measured: a corrupt archive showed "Extracting... 100%" with
+20 of 43 MB processed; a missing archive showed "Compressing... 100%".
+
+Now, when the run returns non-zero:
+
+- the title says **"Extraction failed"** (or Compression / Test), the bar and
+  the taskbar button turn **red**, and the window flashes;
+- the **first** error or warning is shown in red, without its code — the first
+  one is the cause (`bad checksum`), what follows are consequences;
+- "Background" goes away and "Cancel" becomes **"Close"**, which closes without
+  asking;
+- the window stays until closed, **or 10 s**, so an unattended (`/VERYSILENT`)
+  install never hangs on it. The exit code is unchanged.
+
+The verb in the title was guessed from the data, because the window opens before
+the command is parsed; it is now set from the command.
+
+#### `-silent` / `-innosetup`: file names in messages
+
+In both modes every message naming a file printed a literal `%Z` (or `%`)
+instead of the name, on stderr too: `UKONE [very bad] 0/207 %Z`. The silent
+path formatted with `vsnprintf()`, which does not know zpaq-std's own `%Z`; it
+now rewrites it to `%s`, as the DLL path already did.
+
+#### Shorter `-ma` notices
+
+Creating an archive with a non-portable `-ma` codec printed 9 lines on every
+`a`, and its continuation lines came out misaligned:
+
+```
+the -ma blocks are marked with a post-processing type no other zpaq
+       knows, so zpaq, zpaqfranz and the plugins skip them saying 'unknown
+```
+
+A message whose code ends in `:` loses the code on screen (it only shows with
+`-debug`), while one ending in `!` keeps it; the continuation lines were indented
+for a code that was no longer there. The same was true of the lz5/lz6 notices
+added in pre24 and pre25.
+
+Now:
+
+```
+00596! -ma:flzma2: this archive will NOT open in any other zpaq, and older zpaq-std
+       versions may not read it either: upgrade the machine that RESTORES first.
+       Use -m0..-m5, -ma:lz5 or -ma:lz6 if the archive has to be portable
+```
+
+- It also names `-ma:lz5` and `-ma:lz6` as the portable alternatives.
+- `-ma:lz5`/`lz6` print one line (`00602`), and `-ma:lz6` adds two aligned
+  lines (`00603!`) saying lz6 is experimental.
+- The detail that was dropped (other zpaq tools reject these blocks cleanly and
+  still list the archive) stays in the README.
+
 ### [65.2k-pre25] - 2026-09-23
 
 **New `-ma:lz6`: a fast, low-CPU codec whose archives open in any zpaq.**
