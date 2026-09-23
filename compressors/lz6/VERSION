@@ -1,0 +1,7 @@
+lz6 lib/, frozen at commit 721fa6456bf7887b8c77b326ce07d091545574de
+Source: https://github.com/YadeWira/lz6 (lib/, BSD 2-Clause, see LICENSE)
+Files copied unmodified: lz6.c lz6hc.c lz6.h lz6hc.h lz6common.h mem.h LICENSE
+Used by zpaq-std -ma:lz6 through LZ6_compress_fast_window, LZ6_compress_HC_window
+and LZ6_decompress_safe only. The HC block format is lz6's frozen "portable
+profile" (same raw block format as LZ5 v1.5), decoded by the ZPAQLZ5 program.
+Do not patch these files here: send changes to the lz6 repository.

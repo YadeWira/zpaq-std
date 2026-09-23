@@ -27,13 +27,15 @@ python3 -c "
 import random; random.seed(11); w='alfa beta gamma delta epsilon zeta eta theta iota kappa'.split()
 open('$OUT/src/t.txt','w').write(' '.join(random.choice(w) for _ in range(120000)))"
 REF=$(sha256sum < "$OUT/src/t.txt" | cut -d' ' -f1)
-ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd"
+ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd"
 malos=0
 for a in $ALGOS; do
   arch=$OUT/$a.zpaq; rm -f "$arch"
   timeout 300 "$Z" a "$arch" "$OUT/src" -t1 -ma:$a </dev/null >/dev/null 2>&1
-  # "zpaqstd-ma2:" = bloque que lleva su propio decodificador ZPAQL (ZPAQLZ5)
-  n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2?:$a:")
+  # "zpaqstd-ma2:" = bloque que lleva su propio decodificador ZPAQL (ZPAQLZ5).
+  # lz6 se etiqueta "zpaqstd-ma2:lz5-lz6:" (formato LZ5, compresor lz6), de ahi
+  # el prefijo opcional; "lz5" no calza con "lz5-lz6:".
+  n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2?:([a-z0-9]+-)?$a:")
   rm -rf "$OUT/o"; mkdir -p "$OUT/o"
   timeout 300 "$Z" x "$arch" -to "$OUT/o" -force </dev/null >/dev/null 2>&1
   g=$(find "$OUT/o" -type f -name t.txt -print -quit)
@@ -41,11 +43,11 @@ for a in $ALGOS; do
   if [ "$n" -gt 0 ] && [ "$iv" = OK ]; then r=OK
   elif [ "$n" -eq 0 ]; then r=NO-CORRE; malos=$((malos+1))
   else r=FALLA; malos=$((malos+1)); fi
-  # Los -ma:lz5 llevan su decodificador ZPAQL: zpaq 7.15 TIENE que extraerlos.
+  # Los -ma:lz5 y -ma:lz6 llevan su decodificador ZPAQL: zpaq 7.15 TIENE que extraerlos.
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz5|lz5hc|lz5f)
+  case "$a" in lz5|lz5hc|lz5f|lz6)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1
@@ -57,5 +59,6 @@ for a in $ALGOS; do
   printf '  %-8s marca=%-2s ida_vuelta=%-5s zpaq715=%-5s %s\n' "$a" "$n" "$iv" "$z715" "$r"
   echo "$a,$n,$iv,$z715,$r" >> "$CSV"
 done
-echo "--- 21 codecs, $((21-malos)) corren y vuelven, $malos a revisar ---"
+nc=$(echo $ALGOS | wc -w)
+echo "--- $nc codecs, $((nc-malos)) corren y vuelven, $malos a revisar ---"
 echo DONE_MA_CORRE

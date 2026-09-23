@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **17 bundled, swappable external compression libraries** (21 `-ma` switches) and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **18 bundled, swappable external compression libraries** (22 `-ma` switches) and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -34,7 +34,8 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 v1.10.0 | 1–12 | 9 | speed (fastest) |
 | `-ma:zstd:N` | zstd v1.5.7 | 1–22 | 3 | balanced (general purpose) |
 | `-ma:flzma2:N` | fast-lzma2 v1.0.1 | 1–10 | 5 | LZMA2 fast, 2–8× faster than ref |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 | 1–15 | 9 | LZ4-compatible, denser |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 | 1–15 | 9 | LZ4-compatible, denser; **opens in any zpaq** |
+| `-ma:lz6:N` | lz6 (YadeWira, BSD-2), **experimental** | 0–15 | 0 | 0 = fast, low CPU; 1–15 = HC; **opens in any zpaq** |
 | `-ma:lizard:N` | Lizard v2.1 | 10–49 | 17 | LZ4-class with better ratio |
 | `-ma:bzip2:N` | bzip2 v1.0.8 | 1–9 | 9 | BWT+HF, classic |
 | `-ma:bzip3:N` | bzip3 v1.5.4 | 1–9 | 9 | BWT+ANS, modern bzip2 successor |
@@ -53,7 +54,7 @@ If the external pass produces output larger than `orig - 16` bytes, the original
 
 ### Portability: which `-ma` archives open in other zpaq tools
 
-**`-ma:lz5`, `-ma:lz5hc` and `-ma:lz5f` are portable.** Their blocks carry their
+**`-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f` and `-ma:lz6` are portable.** Their blocks carry their
 own decoder, written in ZPAQL — the bytecode language every zpaq implementation
 runs (see [ZPAQLZ5](#zpaqlz5-an--ma-codec-any-zpaq-can-extract) below). **Every
 other `-ma` codec is not**: its payload is compressed by a codec no other
@@ -65,7 +66,7 @@ Measured against the two reference implementations:
 | method | zpaq 7.15 | zpaqfranz 64.8j |
 |---|---|---|
 | `-m0` … `-m5` (native) | extracts correctly | extracts correctly |
-| `-ma:lz5` / `lz5hc` / `lz5f` | **extracts correctly** | **extracts correctly** |
+| `-ma:lz5` / `lz5hc` / `lz5f` / `lz6` | **extracts correctly** | **extracts correctly** |
 | any other `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
 
 Those `-ma` blocks are deliberately tagged with a **post-processing type that no
@@ -103,8 +104,29 @@ an LZ5 block decoder written in ZPAQL, and every `-ma:lz5` block carries it:
 | zpaq-std itself | recognises its own decoder byte for byte and decodes LZ5 **natively** |
 | older zpaq-std versions (pre20 on) | run the ZPAQL, so they extract these archives too |
 
-One decoder serves all three switches, because `lz5`, `lz5hc` and `lz5f` write the
-same block format. It only works because LZ5 has no entropy coding: a brotli
+One decoder serves all four switches, because `lz5`, `lz5hc`, `lz5f` and `lz6`
+write the same block format: lz6's block format is LZ5 v1.5's, frozen by lz6 as its
+portable profile. `-ma:lz6` caps its window at 4 MB, so a foreign zpaq needs 4 MB
+per thread, not 16.
+
+> **lz6 is experimental and subject to major changes.** What can change is lz6's
+> *encoder*: its ratio, speed and levels, so `-ma:lz6` may compress differently
+> from one zpaq-std release to the next, and its levels may be renumbered. What
+> cannot change is the *block format* `-ma:lz6` writes, which lz6 froze as its
+> portable profile: every archive already written carries its own decoder and
+> stays readable, by zpaq-std and by any other zpaq. Any future lz6 format would
+> get a new name, never this one.
+
+Measured on 19.9 MB (text, binary, 3 MB of random data), one thread:
+
+| method | archive | CPU | opens in zpaq 7.15 |
+|---|---|---|---|
+| `-m1` | 8.47 MB | 1.11 s | yes |
+| `-ma:lz4f` | 13.96 MB | 0.26 s | no |
+| `-ma:lz5f` | 10.52 MB | 0.31 s | yes |
+| **`-ma:lz6`** (0, fast) | **10.22 MB** | **0.31 s** | **yes** |
+| `-ma:lz6:9` | 9.09 MB | 1.09 s | yes |
+| `-ma:lz6:15` | 8.34 MB | 5.70 s | yes | It only works because LZ5 has no entropy coding: a brotli
 decoder in ZPAQL was measured at about 63 KB of bytecode and 1.6 MB/s, which is
 why the other codecs stay non-portable. The decoder is frozen: every archive
 already written carries its own copy, and zpaq-std recognises it byte for byte.
@@ -117,7 +139,7 @@ non-portable codecs the compatibility is one-way, and it is the useful direction
 | | |
 |---|---|
 | new version reading old archives | **yes** — verified over pre9…pre20 × 7 codecs, plus native |
-| old version reading new `-ma` blocks | no — **except `-ma:lz5`/`lz5hc`/`lz5f`**, which every version from pre20 on extracts by running their ZPAQL decoder |
+| old version reading new `-ma` blocks | no — **except `-ma:lz5`/`lz5hc`/`lz5f`/`lz6`**, which every version from pre20 on extracts by running their ZPAQL decoder |
 | old version reading new **native** archives | **yes** — those bytes are unchanged |
 
 In a mixed or appended archive an old version still recovers everything it could
@@ -125,8 +147,8 @@ recover before, file by file; it fails only on the new `-ma` blocks. Still, the
 rule when upgrading is simple: **upgrade the machine that RESTORES before the one
 that compresses.**
 
-**Use `-m0`…`-m5`, or `-ma:lz5`, if the archive has to be readable anywhere
-else.** Raised as
+**Use `-m0`…`-m5`, `-ma:lz5` or `-ma:lz6`, if the archive has to be readable
+anywhere else.** Raised as
 issue #1 by kaitz, and the report is correct on the substance (the header,
 however, is unchanged — it is byte-for-byte a standard zpaq header).
 
@@ -193,7 +215,7 @@ zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
 
 ## No system dependencies
 
-All 17 `-ma` libraries live inside `compressors/`:
+All 18 `-ma` libraries live inside `compressors/`:
 
 ```
 compressors/
@@ -201,6 +223,7 @@ compressors/
 ├── zstd/         1 src +  2 h   (amalgamated)
 ├── fl2/         13 src + 22 h   (fast-lzma2)
 ├── lz5/          2 src +  4 h
+├── lz6/          2 src +  4 h   (YadeWira, BSD-2; frozen, see VERSION)
 ├── lizard/      10 src + 26 h
 ├── bzip2/        7 src +  2 h
 ├── bzip3/        1 src +  4 h
@@ -342,7 +365,7 @@ tools that measure different things:
 | `os_msgs.sh A B` | destination shapes and the numbered messages — bare relative name, nonexistent chain, UTF-8, long paths, symlinks, unwritable directories, `-append` on an existing archive |
 | `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
 
-`suite_*.sh` add round-trip sweeps over all 21 `-ma` codecs, every command, and
+`suite_*.sh` add round-trip sweeps over all 22 `-ma` codecs, every command, and
 corruption/robustness cases.
 
 The scripts are versioned here; the corpus, the golden archives and the reference

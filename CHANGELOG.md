@@ -1,3 +1,54 @@
+### [65.2k-pre25] - 2026-09-23
+
+**New `-ma:lz6`: a fast, low-CPU codec whose archives open in any zpaq.**
+
+> **lz6 is experimental and subject to major changes.** What can change is lz6's
+> *encoder*: its ratio, speed and levels, so `-ma:lz6` may compress differently
+> from one zpaq-std release to the next, and its levels may be renumbered. What
+> cannot change is the *block format* `-ma:lz6` writes, which lz6 froze as its
+> portable profile: every archive already written carries its own decoder and
+> stays readable, by zpaq-std and by any other zpaq. Any future lz6 format would
+> get a new name, never this one.
+
+#### `-ma:lz6`
+
+[lz6](https://github.com/YadeWira/lz6) (BSD-2) writes the same block format as
+LZ5 v1.5, frozen by lz6 as its portable profile. So `-ma:lz6` blocks carry the
+same ZPAQLZ5 decoder as `-ma:lz5`, unchanged, and zpaq 7.15 and zpaqfranz extract
+them byte for byte.
+
+- **Level 0 (default)** is lz6's fast encoder: low CPU, the use case of backups
+  of servers and VMs. **1–15** are its HC levels.
+- The window is capped at **4 MB** (lz6's `*_window` API), so a foreign zpaq
+  needs 4 MB per thread, not 16. lz6 measured the cost at +0.13% (dickens) and
+  +0.75% (samba) for the fast encoder.
+- The code is copied unmodified from lz6 commit `721fa64`, in `compressors/lz6/`
+  (see `VERSION`). Every global symbol is `LZ6`-prefixed, so it links next to
+  LZ5 without clashes.
+
+Measured on 19.9 MB (text, binary, 3 MB of random data), one thread:
+
+| method | archive | CPU | opens in zpaq 7.15 |
+|---|---|---|---|
+| `-m1` | 8.47 MB | 1.11 s | yes |
+| `-ma:lz4f` | 13.96 MB | 0.26 s | no |
+| `-ma:lz5f` | 10.52 MB | 0.31 s | yes |
+| **`-ma:lz6`** | **10.22 MB** | **0.31 s** | **yes** |
+| `-ma:lz6:15` | 8.34 MB | 5.70 s | yes |
+
+**Compatibility.** The blocks are tagged `zpaqstd-ma2:lz5-lz6:`. pre24
+recognises the ZPAQLZ5 bytecode and does not run it, so it needs to find
+`zpaqstd-ma2:lz5` in the comment to decode natively; with a plain `lz6` tag it
+would have handed back the compressed bytes. With this tag pre24 decodes them
+with its LZ5 decoder, which reads lz6 blocks identically (checked on lz6's 23 test
+vectors). **Every version from pre20 on extracts `-ma:lz6` archives** (measured
+on pre20, pre23 and pre24).
+
+#### Tests
+
+`suite_ma_corre` covers 22 codecs and requires zpaq 7.15 to extract `lz6`;
+`difftest` covers `-ma:lz6`.
+
 ### [65.2k-pre24] - 2026-09-23
 
 **`-ma:lz5` archives open in any zpaq: zpaq 7.15, zpaqfranz, and older

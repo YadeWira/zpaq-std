@@ -91,6 +91,7 @@ else
   LZ4SRC  := compressors/lz4/lz4.c compressors/lz4/lz4hc.c
 endif
 LZ5SRC  := compressors/lz5/lz5.c compressors/lz5/lz5hc.c
+LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c
 ZSTDSRC := compressors/zstd/zstd.c
 # fl2 util.c uses POSIX (chown/lstat/__errno_location) not in MinGW.
 # Skip it on Windows cross-compile. fast-lzma2 only needs lzma2_*.c
@@ -126,6 +127,7 @@ LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp c
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
 LZ5INC  := -Icompressors/lz5
+LZ6INC  := -Icompressors/lz6
 LIZINC  := -Icompressors/lizard -Icompressors/lizard/entropy
 BZIP2INC := -Icompressors/bzip2
 # bzip2 uses glibc fortify symbols (__fprintf_chk/__assert_fail) not
@@ -281,6 +283,7 @@ build: $(PROG)
 
 FL2OBJ := $(FL2SRC:.c=.o)
 LZ5OBJ := $(LZ5SRC:.c=.o)
+LZ6OBJ := $(LZ6SRC:.c=.o)
 LIZOBJ := $(LIZSRC:.c=.o)
 BZIP2OBJ := $(BZIP2SRC:.c=.o)
 
@@ -308,8 +311,8 @@ LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -327,6 +330,9 @@ compressors/fl2/%.o: compressors/fl2/%.c
 
 compressors/lz5/%.o: compressors/lz5/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZ5INC) -c $< -o $@
+
+compressors/lz6/%.o: compressors/lz6/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(LZ6INC) -c $< -o $@
 
 compressors/lizard/%.o: compressors/lizard/%.c compressors/lizard/entropy/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LIZINC) -c $< -o $@

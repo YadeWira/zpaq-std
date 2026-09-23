@@ -11435,6 +11435,15 @@ extern "C" {
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include "compressors/lz6/lz6.h"
+#include "compressors/lz6/lz6hc.h"
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include "compressors/lizard/lizard_compress.h"
 #include "compressors/lizard/lizard_decompress.h"
 #ifdef __cplusplus
@@ -56085,9 +56094,10 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  zstd: levels 1..22 (1=fast, 3=default, 19+=ultra, 22=max)");
 		scrivi_riga(" ", "  flzma2: LZMA2 fast (1=fast, 5=default, 10=ultra, 2-8x faster than ref)");
 		scrivi_riga(" ", "  lz5: auto (1-4 fast, 5-15 HC). lz5hc: always HC. lz5f: always fast");
+		scrivi_riga(" ", "  lz6: EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lizard: 10-49 (10=fastLZ4, 20-29=LIZv1, 30-39=+Huffman, 40-49=+++)");
 		scrivi_riga(" ", "  bzip2: BWT+HF (1=fast/100K, 9=best/900K, default 9)");
-		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 5)");
+		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 9)");
 		scrivi_riga(" ", "  brotli: Google (0=fast, 11=default, 11=max)");
 		scrivi_riga(" ", "  snappy: Google (1=default, 2=best; very fast, like lz4)");
 		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
@@ -58620,6 +58630,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else if (g_ma_algorithm=="lzav") g_ma_level=1;
 					else if (g_ma_algorithm=="hs") g_ma_level=1;
+					/// lz6: 0 es el compresor rapido (poca CPU), el default que pidio lz6
+					/// pensando en lo que busca Franco; 1..15 son los niveles HC.
+					else if (g_ma_algorithm=="lz6") g_ma_level=0;
 					/// bsc SIN nivel caia en el "else g_ma_level=9" de abajo y quedaba en
 					/// 9 (bloque ST5, el mas lento), aunque el clamp de mas abajo y el
 					/// README dicen desde siempre que el default es 3. Ver la nota del
@@ -58636,7 +58649,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 				 * bare -ma:hs / -ma:lzav defaults are pinned to 1 above so an
 				 * invocation without an explicit level keeps behaving as it
 				 * ships today. */
-				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav")
+				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav" || g_ma_algorithm=="lz6")
 				{
 					if (g_ma_level<0) g_ma_level=0;
 				}
@@ -58710,14 +58723,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lz6"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
 				{
 					/* error() throws std::runtime_error, and nothing catches it
 					 * this early in argument parsing: it reached terminate() and
 					 * the process died with SIGABRT (rc 134) plus a raw C++
 					 * message. Print the list and exit cleanly instead. */
 					myprintf("00563! Unknown -ma: algorithm '%s'\n", g_ma_algorithm.c_str());
-					myprintf("00563! Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lizard bzip2 bzip3\n");
+					myprintf("00563! Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lizard bzip2 bzip3\n");
 					myprintf("00563!        brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd\n");
 					seppuku(2);
 				}
@@ -59267,13 +59280,19 @@ int Jidac::loadparameters(int argc, const char** argv)
 	/// el largo de "_00000001.zpaq". Es la maquinaria de nombres donde vivio el
 	/// caso CLAAS de 46 GB, asi que se hace aparte y con su propia tanda de
 	/// pruebas, no de refilon. Ver el issue #1 (kaitz).
-	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f")
+	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder: this archive opens in\n"
 		         "       any zpaq, 7.15 included (zpaq-std decodes them natively, others run it)\n",
 		         g_ma_algorithm.c_str());
+		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
+		/// velocidad, niveles), no el formato de bloque, que lz6 congelo.
+		if (g_ma_algorithm=="lz6")
+			myprintf("00603: lz6 is EXPERIMENTAL and subject to major changes: its compression and\n"
+			         "       levels may differ in future releases. Archives already written stay\n"
+			         "       readable: the block format is frozen and each block carries its decoder\n");
 	}
 	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{
@@ -65178,6 +65197,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t zstd_orig= 0;
 			int64_t fl2_orig= 0;
 			int64_t lz5_orig= 0;
+			int64_t lz6_orig= 0;
 			int64_t liz_orig= 0;
 			int64_t bz2_orig= 0;
 			int64_t bz3_orig= 0;
@@ -65237,8 +65257,14 @@ ThreadReturn decompressThread(void *arg)
 					}
 					/// ZPAQLZ5: los bloques -ma:lz5 nuevos llevan su decodificador y la
 					/// etiqueta "zpaqstd-ma2:" (ver la rama de escritura).
+					auto m6 = cs.find("zpaqstd-ma2:lz5-lz6:");
+					if (m6 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + m6 + 20, "%d:%" SCNd64, &lvl, &lz6_orig);
+					}
 					auto m5b = cs.find("zpaqstd-ma2:lz5");
-					if (m5b != string::npos)
+					if (m5b != string::npos && m6 == string::npos)
 					{
 						int lvl;
 						const char* p = cs.c_str() + m5b + 15;
@@ -65433,6 +65459,22 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lz5_orig;
+			}
+			// lz6: mismo formato que LZ5, decodificado con el decodificador de lz6
+			else if (lz6_orig > 0 && (int64_t)out.size() == lz6_orig)
+			{
+				output_size = lz6_orig;
+			}
+			else if (lz6_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(lz6_orig);
+				int r2 = LZ6_decompress_safe((const char *)out.data(), &decomp2[0], (int)out.size(), (int)lz6_orig);
+				if (r2 != (int)lz6_orig)
+					error("31319 lz6 decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = lz6_orig;
 			}
 			// Lizard decompress segment data if compressed externally
 			else if (liz_orig > 0)
@@ -111153,6 +111195,49 @@ int Jidac::add()
 									ma_comment="zpaqstd-ma2:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								delete[] lz5buf;
+							}
+						}
+					}
+					else if (g_ma_algorithm=="lz6" && sb.size()>16)
+					{
+						/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION)
+						/// escribe el MISMO formato de bloque que LZ5 v1.5: es su "perfil
+						/// portable", congelado. Asi que el bloque lleva el mismo decodificador
+						/// ZPAQLZ5 que -ma:lz5, sin un byte distinto. La ventana se limita a 2^22
+						/// (la de ZPAQLZ5): un zpaq ajeno reserva 4 MB por hilo y no 16, a un costo
+						/// medido por lz6 de +0.13% en dickens y +0.75% en samba con el rapido.
+						int64_t orig_size=sb.size();
+						int dstCap=LZ6_compressBound((int)orig_size);
+						if (dstCap>0&&dstCap<256*1024*1024)
+						{
+							char* lz6buf=new(std::nothrow) char[dstCap];
+							if (lz6buf)
+							{
+								int lz6size=0;
+								if (g_ma_level<=0)
+									lz6size=LZ6_compress_fast_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,1,22);
+								else
+									lz6size=LZ6_compress_HC_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,g_ma_level,22);
+								if (lz6size>0&&(int64_t)lz6size<orig_size-16)
+								{
+									libzpaq::SHA1 sh1;
+									sh1.write((const char*)sb.data(), orig_size);
+									const char* r1=sh1.result();
+									char hx[41];
+									for (int k=0; k<20; ++k)
+										snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
+									sb.reset();
+									sb.write(lz6buf,lz6size);
+									m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
+									/// "zpaqstd-ma2:lz5-lz6:" y no "zpaqstd-ma2:lz6:". pre24 toma el atajo
+									/// de ZPAQLZ5 (reconoce el bytecode y NO lo ejecuta) y despues busca
+									/// "zpaqstd-ma2:lz5" en el comentario para decodificar nativo: con
+									/// "lz6" a secas no lo encontraba y devolvia los bytes comprimidos.
+									/// Con este prefijo pre24 decodifica con LZ5_decompress_safe, que lee
+									/// estos bloques igual (medido con los 23 vectores de lz6).
+									ma_comment="zpaqstd-ma2:lz5-lz6:"+itos(g_ma_level)+":"+itos(orig_size);
+								}
+								delete[] lz6buf;
 							}
 						}
 					}
