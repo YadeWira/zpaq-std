@@ -1,3 +1,44 @@
+### [65.2k-pre24] - 2026-09-23
+
+**`-ma:lz5` archives open in any zpaq: zpaq 7.15, zpaqfranz, and older
+zpaq-std.** It is the first `-ma` codec that is portable.
+
+#### ZPAQLZ5: the block carries its own decoder
+
+Every `-ma:lz5`, `-ma:lz5hc` and `-ma:lz5f` block now carries an LZ5 block
+decoder written in ZPAQL as its post-processor, the same way zpaq's own `-m1`
+carries its LZ77 decoder. Any zpaq runs it without knowing what LZ5 is.
+
+- About **430 bytes** of bytecode per block. The window (4 MB) is declared in
+  the block header, not in the program.
+- In other tools it decodes at **62–103 MB/s** with the ZPAQL JIT and 11 MB/s
+  without.
+- **zpaq-std does not run it.** When the post-processor loads a program that
+  matches the canonical ZPAQLZ5 bytecode byte for byte, it switches to
+  pass-through and decodes LZ5 natively. The paranoid `p` command keeps no such
+  shortcut, on purpose.
+- The segment SHA-1 is the original data's, which is what a foreign zpaq checks.
+- The program is **frozen**: every archive carries its own copy and zpaq-std
+  recognises it byte for byte. A different decoder would be added alongside.
+- zpaq-std prints `00602:` instead of the non-portable warning `00596!` when it
+  creates these archives.
+
+The other 18 `-ma` codecs stay non-portable, still marked so other tools reject
+them cleanly. The roadmap for the rest is in issue #2.
+
+**Compatibility.** The new blocks are tagged `zpaqstd-ma2:` instead of
+`zpaqstd-ma:`. With the old tag, pre21–pre23 would run the ZPAQL and then decode
+LZ5 a second time (measured: `31319`). No released version knows the new tag, so
+**every version from pre20 on extracts the new archives** (measured on pre20 and
+pre23). Old `-ma:lz5` archives still open in pre24. Each block is about 437
+bytes larger.
+
+#### Tests
+
+- `suite_ma_corre` also checks that zpaq 7.15 extracts `lz5`, `lz5hc` and
+  `lz5f`; against pre23 it reports all three `NO-PORTABLE`.
+- `difftest` also covers `-ma:lz5`.
+
 ### [65.2k-pre23] - 2026-09-23
 
 **`-ma:bzip3` works for the first time. It never compressed with bzip3 before —

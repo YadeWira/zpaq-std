@@ -51,12 +51,13 @@ The killer feature of this fork. You can pick **which external algorithm compres
 
 If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).
 
-### Portability: an `-ma` archive only opens in zpaq-std
+### Portability: which `-ma` archives open in other zpaq tools
 
-**This is the price of the feature, and it is worth stating plainly.** An archive
-that contains `-ma` blocks **cannot be extracted by any other zpaq**. The reason
-is the design: the payload is compressed by an external codec that no other
-implementation has, and the codec is named in a block comment
+**`-ma:lz5`, `-ma:lz5hc` and `-ma:lz5f` are portable.** Their blocks carry their
+own decoder, written in ZPAQL — the bytecode language every zpaq implementation
+runs (see [ZPAQLZ5](#zpaqlz5-an--ma-codec-any-zpaq-can-extract) below). **Every
+other `-ma` codec is not**: its payload is compressed by a codec no other
+implementation has, and the codec is named only in a block comment
 (`zpaqstd-ma:<algo>:<level>:<original>`).
 
 Measured against the two reference implementations:
@@ -64,7 +65,8 @@ Measured against the two reference implementations:
 | method | zpaq 7.15 | zpaqfranz 64.8j |
 |---|---|---|
 | `-m0` … `-m5` (native) | extracts correctly | extracts correctly |
-| any `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
+| `-ma:lz5` / `lz5hc` / `lz5f` | **extracts correctly** | **extracts correctly** |
+| any other `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
 
 Those `-ma` blocks are deliberately tagged with a **post-processing type that no
 zpaq knows**, so other tools reject them by name:
@@ -87,15 +89,35 @@ up, which looks exactly like a corrupt archive. Three things follow:
   archive remains universally readable — verified: incompressible input with
   `-ma:zstd` produces zero tags and zpaq 7.15 extracts it.
 
+#### ZPAQLZ5: an `-ma` codec any zpaq can extract
+
+A zpaq block can carry its own decompressor as a ZPAQL program (the
+post-processor), and any zpaq that follows the specification runs it without
+knowing what algorithm it is — that is how zpaq's own `-m1`/`-m2` work. ZPAQLZ5 is
+an LZ5 block decoder written in ZPAQL, and every `-ma:lz5` block carries it:
+
+| | |
+|---|---|
+| decoder size | about **430 bytes** per block |
+| decode speed in other tools | **62–103 MB/s** with the ZPAQL JIT, **11 MB/s** without |
+| zpaq-std itself | recognises its own decoder byte for byte and decodes LZ5 **natively** |
+| older zpaq-std versions (pre20 on) | run the ZPAQL, so they extract these archives too |
+
+One decoder serves all three switches, because `lz5`, `lz5hc` and `lz5f` write the
+same block format. It only works because LZ5 has no entropy coding: a brotli
+decoder in ZPAQL was measured at about 63 KB of bytecode and 1.6 MB/s, which is
+why the other codecs stay non-portable. The decoder is frozen: every archive
+already written carries its own copy, and zpaq-std recognises it byte for byte.
+
 #### Upgrading
 
-The tag is not understood by **older zpaq-std versions either**. The compatibility
-is one-way, and it is the useful direction:
+The tag is not understood by **older zpaq-std versions either**. For the
+non-portable codecs the compatibility is one-way, and it is the useful direction:
 
 | | |
 |---|---|
 | new version reading old archives | **yes** — verified over pre9…pre20 × 7 codecs, plus native |
-| old version reading new `-ma` blocks | no |
+| old version reading new `-ma` blocks | no — **except `-ma:lz5`/`lz5hc`/`lz5f`**, which every version from pre20 on extracts by running their ZPAQL decoder |
 | old version reading new **native** archives | **yes** — those bytes are unchanged |
 
 In a mixed or appended archive an old version still recovers everything it could
@@ -103,7 +125,8 @@ recover before, file by file; it fails only on the new `-ma` blocks. Still, the
 rule when upgrading is simple: **upgrade the machine that RESTORES before the one
 that compresses.**
 
-**Use `-m0`…`-m5` if the archive has to be readable anywhere else.** Raised as
+**Use `-m0`…`-m5`, or `-ma:lz5`, if the archive has to be readable anywhere
+else.** Raised as
 issue #1 by kaitz, and the report is correct on the substance (the header,
 however, is unchanged — it is byte-for-byte a standard zpaq header).
 

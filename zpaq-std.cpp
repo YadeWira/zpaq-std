@@ -15725,6 +15725,7 @@ int Decoder::skip() {
   }
 }
 ////////////////////// PostProcessor //////////////////////
+const std::string& zpaqlz5_bytecode();  /// ZPAQLZ5, definido junto a compressBlock
 // Copy ph, pm from block header
 void PostProcessor::init(int h, int m) {
   state=hsize=0;
@@ -15772,6 +15773,20 @@ int PostProcessor::write(int c) {
       assert(z.hend<z.header.isize());
       z.header[z.hend++]=c;  // one byte of pcomp
       if (z.hend-z.hbegin==hsize) {  // last byte of pcomp?
+        /// ZPAQLZ5: si el programa es EXACTAMENTE el nuestro, no se ejecuta. Se pasa
+        /// a PASS: sale el LZ5 crudo y la capa -ma lo decodifica con LZ5 nativo
+        /// (unas 10 veces mas rapido que el ZPAQL). Solo con igualdad byte a byte:
+        /// cualquier otro programa se ejecuta como siempre. El post-procesador de
+        /// unzpaq (el del comando p) NO tiene este atajo, a proposito: es el
+        /// verificador independiente y tiene que correr el ZPAQL de verdad.
+        {
+          const std::string& bc=zpaqlz5_bytecode();
+          if (int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0) {
+            z.clear();
+            state=1;
+            break;
+          }
+        }
         hsize=(z.cend-2)+z.hend-z.hbegin;
         z.header[0]=hsize&255;  // header size with empty COMP
         z.header[1]=hsize>>8;
@@ -19202,6 +19217,125 @@ std::string makeConfig(const char* method, int args[]) {
   }
   return hdr+itos(ncomp)+"\n"+comp+hcomp+"halt\n"+pcomp;
 }
+/// ---- ZPAQLZ5: bloques -ma:lz5 que CUALQUIER zpaq puede extraer --------------
+/// Un bloque zpaq puede llevar su propio decodificador como programa ZPAQL (el
+/// post-procesador PCOMP), y todo zpaq que siga la especificacion lo ejecuta sin
+/// saber que algoritmo es. Este es un decodificador de bloques LZ5 v1.5 escrito en
+/// ZPAQL: ~430 bytes compilado. zpaq 7.15 y zpaqfranz extraen asi los -ma:lz5
+/// (medido: 62-103 MB/s con JIT, 11 MB/s sin JIT). zpaq-std NO lo ejecuta: reconoce
+/// este bytecode exacto en el post-procesador y decodifica con LZ5 nativo.
+/// Sirve igual para los tres switches (lz5, lz5hc, lz5f escriben el mismo bloque) y
+/// para los bloques HC de lz6, que tienen el mismo formato: la ventana NO esta en el
+/// bytecode sino en la cabecera del bloque (pm), asi que el programa es uno solo.
+/// ESTE PROGRAMA NO PUEDE CAMBIAR NUNCA: el atajo nativo lo compara byte a byte, y
+/// cada archivo ya escrito lleva su copia. Si hace falta otro, se agrega al lado.
+static const char* const ZPAQLZ5_CUERPO=
+"hcomp\n"
+"  halt\n"
+"pcomp zpaqlz5 ;\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 2 r=a 3 r=a 4 r=a 6 r=a 7 r=a 8 r=a 9\n"
+"    halt\n"
+"  endif\n"
+"  d=a\n"
+"  a=r 9 a== 0 if\n"
+"    a= 1 r=a 5 r=a 9\n"
+"  endif\n"
+"  a=r 1\n"
+"  a== 0 ifl\n"
+"    a=d r=a 6\n"
+"    a&= 7 r=a 3\n"
+"    a=d a>>= 6 a== 0 if\n"
+"      a=d a>>= 3 a&= 7 r=a 2\n"
+"      a== 7 if a= 1 r=a 1 else a= 6 r=a 1 endif\n"
+"    else\n"
+"      a=d a>>= 3 a&= 3 r=a 2\n"
+"      a== 3 if a= 1 r=a 1 else a= 6 r=a 1 endif\n"
+"    endif\n"
+"  elsel\n"
+"    a== 1 ifl\n"
+"      a=r 2 a+=d r=a 2\n"
+"      a=d a== 255 ifnot a= 6 r=a 1 endif\n"
+"    elsel\n"
+"      a== 2 ifl\n"
+"        a=d *b=a out b++\n"
+"        a=r 2 a-- r=a 2\n"
+"        a== 0 if a= 7 r=a 1 endif\n"
+"      elsel\n"
+"        a== 3 ifl\n"
+"          a=r 4 a+=d r=a 4\n"
+"          a= 8 r=a 1\n"
+"        elsel\n"
+"          a== 4 ifl\n"
+"            a=d c=r 8 a<<=c c=a a=r 4 a+=c r=a 4\n"
+"            a=r 8 a+= 8 r=a 8\n"
+"            a=r 7 a-- r=a 7\n"
+"            a== 0 if a= 8 r=a 1 endif\n"
+"          elsel\n"
+"            a=r 3 a+=d r=a 3\n"
+"            a=d a== 255 ifnot a= 9 r=a 1 endif\n"
+"          endif\n"
+"        endif\n"
+"      endif\n"
+"    endif\n"
+"  endif\n"
+"  do\n"
+"    a=r 1\n"
+"    a== 6 ifl\n"
+"      a=r 2 a== 0 if a= 7 r=a 1 else a= 2 r=a 1 endif\n"
+"    elsel\n"
+"      a== 7 ifl\n"
+"        a=r 6 a>>= 7 a== 1 ifl\n"
+"          a=r 6 a>>= 5 a&= 3 a<<= 8 r=a 4\n"
+"          a= 3 r=a 1\n"
+"        elsel\n"
+"          a=r 6 a>>= 6 a== 0 ifl\n"
+"            a=0 r=a 4 r=a 8 a= 2 r=a 7 a= 4 r=a 1\n"
+"          elsel\n"
+"            a=r 6 a>>= 5 a== 2 ifl\n"
+"              a=0 r=a 4 r=a 8 a= 3 r=a 7 a= 4 r=a 1\n"
+"            elsel\n"
+"              a=r 5 r=a 4 a= 8 r=a 1\n"
+"            endif\n"
+"          endif\n"
+"        endif\n"
+"      elsel\n"
+"        a== 8 ifl\n"
+"          a=r 4 r=a 5\n"
+"          a=r 3 a== 7 if a= 5 r=a 1 else a= 9 r=a 1 endif\n"
+"        elsel\n"
+"          a== 9 ifl\n"
+"            a=r 3 a+= 3 r=a 3\n"
+"            a=b c=r 4 a-=c c=a\n"
+"            do\n"
+"              a=*c *b=a out b++ c++\n"
+"              a=r 3 a-- r=a 3\n"
+"            a> 0 while\n"
+"            a=0 r=a 1\n"
+"          endif\n"
+"        endif\n"
+"      endif\n"
+"    endif\n"
+"  a=r 1 a> 5 while\n"
+"  halt\n"
+"end\n";
+std::string zpaqlz5_config(int pm) {
+  return "comp 0 0 0 "+itos(pm)+" 0\n"+ZPAQLZ5_CUERPO;
+}
+static std::string zpaqlz5_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqlz5_config(22);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+/// Compilado UNA vez; la inicializacion de un static local es segura entre hilos.
+const std::string& zpaqlz5_bytecode() {
+  static const std::string b=zpaqlz5_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -19214,6 +19348,40 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   assert(out);
   assert(method_);
   assert(method_[0]);
+  /// ZPAQLZ5: method_ = "zpaqlz5:<pm>:<tamano original>:<sha1 del ORIGINAL en hex>".
+  /// El SHA-1 del segmento tiene que ser el del original, no el de los bytes LZ5 que
+  /// entran aca: un zpaq ajeno corre el decodificador, obtiene el original y lo
+  /// compara contra este SHA-1. Por eso viaja en el metodo (interno, no se escribe).
+  /// El comentario empieza con el tamano ORIGINAL, como en un bloque nativo.
+  if (strncmp(method_, "zpaqlz5:", 8)==0) {
+    int pm=0;
+    unsigned long long orig=0;
+    char hex[41]={0};
+    if (sscanf(method_+8, "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || pm<16 || pm>24)
+      error("bad zpaqlz5 method");
+    char sha1bin[20];
+    for (int i=0; i<20; ++i) {
+      unsigned v=0;
+      sscanf(hex+2*i, "%2x", &v);
+      sha1bin[i]=(char)v;
+    }
+    const std::string cfg=zpaqlz5_config(pm);
+    int args[9]={0};
+    Compressor co;
+    co.setOutput(out);
+    StringBuffer pcomp_cmd;
+    co.writeTag();
+    co.startBlock(cfg.c_str(), args, &pcomp_cmd);
+    std::string cs=itos((int64_t)orig);
+    if (comment) cs=cs+" "+comment;
+    co.startSegment(filename, cs.c_str());
+    co.setInput(in);
+    co.compress();
+    co.endSegment(sha1bin);
+    co.endBlock();
+    return;
+  }
   std::string method=method_;
   const unsigned n=in->size();  // input size
   const int arg0=std::max(lg(n+4095)-20, 0);  // block size
@@ -59099,7 +59267,15 @@ int Jidac::loadparameters(int argc, const char** argv)
 	/// el largo de "_00000001.zpaq". Es la maquinaria de nombres donde vivio el
 	/// caso CLAAS de 46 GB, asi que se hace aparte y con su propia tanda de
 	/// pruebas, no de refilon. Ver el issue #1 (kaitz).
-	if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
+	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f")
+	    && ((command=='a') || (command=='Z')))
+	{
+		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
+		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder: this archive opens in\n"
+		         "       any zpaq, 7.15 included (zpaq-std decodes them natively, others run it)\n",
+		         g_ma_algorithm.c_str());
+	}
+	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{
 		myprintf("00596! -ma:%s: this archive will NOT open in any other zpaq\n",
 		         g_ma_algorithm.c_str());
@@ -65059,6 +65235,17 @@ ThreadReturn decompressThread(void *arg)
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz5_orig);
 					}
+					/// ZPAQLZ5: los bloques -ma:lz5 nuevos llevan su decodificador y la
+					/// etiqueta "zpaqstd-ma2:" (ver la rama de escritura).
+					auto m5b = cs.find("zpaqstd-ma2:lz5");
+					if (m5b != string::npos)
+					{
+						int lvl;
+						const char* p = cs.c_str() + m5b + 15;
+						while (*p && *p != ':') p++;
+						if (*p == ':')
+							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz5_orig);
+					}
 					auto ml = cs.find("zpaqstd-ma:lizard");
 					if (ml != string::npos)
 					{
@@ -65228,6 +65415,14 @@ ThreadReturn decompressThread(void *arg)
 				output_size = fl2_orig;
 			}
 			// LZ5 decompress segment data if compressed externally
+			/// ZPAQLZ5: si el bloque trae un decodificador que NO es el nuestro (el atajo
+			/// no aplico y se ejecuto el ZPAQL), la salida ya es el original: no se vuelve
+			/// a descomprimir. En un bloque sin decodificador el LZ5 siempre es al menos
+			/// 16 bytes mas chico que el original, asi que nunca coincide por accidente.
+			else if (lz5_orig > 0 && (int64_t)out.size() == lz5_orig)
+			{
+				output_size = lz5_orig;
+			}
 			else if (lz5_orig > 0)
 			{
 				string decomp2;
@@ -110938,10 +111133,24 @@ int Jidac::add()
 									lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
 								if (lz5size>0&&(int64_t)lz5size<orig_size-16)
 								{
+									/// ZPAQLZ5: el bloque lleva su decodificador ZPAQL, asi que
+									/// cualquier zpaq lo extrae. El SHA-1 del segmento tiene que
+									/// ser el del ORIGINAL: se toma aca, antes de pisar sb.
+									libzpaq::SHA1 sh1;
+									sh1.write((const char*)sb.data(), orig_size);
+									const char* r1=sh1.result();
+									char hx[41];
+									for (int k=0; k<20; ++k)
+										snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
 									sb.reset();
 									sb.write(lz5buf,lz5size);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+									m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
+									/// "zpaqstd-ma2:" y no "zpaqstd-ma:": ninguna version anterior de
+									/// zpaq-std reconoce esta etiqueta, asi que corren el decodificador
+									/// ZPAQL del bloque y listo. Con la etiqueta vieja, pre21-pre23
+									/// descomprimian DOS veces (el ZPAQL y despues LZ5) y fallaban
+									/// con 31319 -- medido. Asi el archivo lo abre toda version.
+									ma_comment="zpaqstd-ma2:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								delete[] lz5buf;
 							}
