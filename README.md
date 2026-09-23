@@ -210,6 +210,14 @@ zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
   if it had not been passed (normal output, nothing silenced).
 - Works for any long operation (`a` compress, `x`/`t` extract, …). No installer
   scripting, output redirection or progress files needed — the window is self-contained.
+- **Progress is real.** When compressing, the bar follows what has been
+  compressed, not what has been read: at `-m5` those are minutes apart.
+- **A failure is shown as one.** On a non-zero exit the title says "Extraction
+  failed" (or Compression / Test), the bar and the taskbar button turn red, the
+  first error is shown (e.g. `bad checksum`, `Archive not found: …`), and the
+  window closes on **Close** or by itself after **10 s**, so an unattended
+  (`/VERYSILENT`) install never hangs. The exit code is unchanged: the
+  installer should still check it.
 
 ---
 
