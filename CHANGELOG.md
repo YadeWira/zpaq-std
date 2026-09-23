@@ -1,3 +1,55 @@
+### [65.2k-pre22] - 2026-09-22
+
+**One fix: an archive whose hashes an older version had already zeroed never
+recovered, and `v` reported those files as FAILED forever.**
+
+This is a follow-up to upstream issue #282, whose original symptom was already
+fixed in 65.1 and therefore in pre21: when **only a file attribute** changes (not
+size, not date), the file is not re-read, and older versions stored a zero hash
+and printed `ERROR expected N getted 0 bytes`. It affected **Linux and Windows**
+alike, in every release up to and including pre20.
+
+65.1 fixed it by **carrying the hash over** from the previous version instead of
+re-reading. That is correct whenever the previous hash is good. When it is not,
+`carryoverhash()` rightly refuses it — and the code then wrote the zero anyway.
+Two consequences, both measured on pre21:
+
+- **An archive already damaged by pre20 or earlier never heals.** Every later
+  attribute-only change carries the zero into the new version, so `v` keeps
+  failing no matter which version wrote the latest entry.
+- **Changing the hash algorithm between runs** and then changing an attribute
+  produces the same zero, on a clean archive.
+
+The root cause is two decisions that do not talk to each other: *which files to
+re-read* looks at date and size; *which entries to write* also looks at the
+attribute. An attribute-only change falls between them. The fix goes at the
+first one: when only the attribute changed **and there is no usable previous
+hash**, re-read the file. The content did not change, so dedup finds the same
+fragments — it costs one read, not space. The attribute test is **the same
+expression** the write side uses, on purpose: if the two drift apart, the gap
+reopens.
+
+Verified on Linux and on real Windows 7 SP1 with `attrib -A` (the trigger from
+the original report):
+
+| case | pre21 | pre22 |
+|---|---|---|
+| archive damaged by pre20, then an attribute change | `v` FAIL | `v` OK, 1 re-read |
+| hash algorithm changed, then an attribute change | `v` FAIL | `v` OK |
+| healthy archive, attribute change | OK | OK, **0 re-reads** |
+| file genuinely unreadable | reported | **still reported** |
+
+The last two rows are the ones that must not change: a healthy archive keeps the
+fast path, and a file that really cannot be read is still an error.
+
+Full battery green; `difftest` against pre21 gives **0 divergences** — the fix
+changes no archive bytes outside the attribute-only path.
+
+Note for archives already affected: the **old** versions keep their zero hash,
+because a journaling archive never rewrites history. What heals is the latest
+entry, which is what `v` checks. Any change that makes zpaq-std re-read the file
+repairs it; an attribute change now does too.
+
 ### [65.2k-pre21] - 2026-09-22
 
 **The base moved to zpaqfranz 65.2, two codecs were brought up to date, and an

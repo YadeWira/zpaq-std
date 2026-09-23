@@ -109687,8 +109687,38 @@ int Jidac::add()
 			p->second.date+= 1; // just a little bit...
 		if (a != dt.end())
 			a->second.data= 1; // keep
+
+		/// Continuacion del #282 de upstream. Un cambio de SOLO atributo no relee el
+		/// archivo (esta seleccion mira fecha y tamano), pero SI escribe una entrada
+		/// nueva (la escritura, mas abajo, tambien mira el atributo). La 65.1 lo
+		/// arreglo copiando el hash de la version anterior -- y carryoverhash()
+		/// rechaza bien un hash en ceros, pero cuando lo rechaza el codigo escribe el
+		/// cero igual. Resultado medido: un archivo que pre20 ya habia envenenado
+		/// arrastraba el cero a CADA version nueva, y "v" fallaba para siempre.
+		/// Lo mismo pasa si se cambio de algoritmo de hash entre corridas.
+		/// Arreglo: en ese caso exacto, releer. El contenido no cambio, asi que el
+		/// dedup encuentra los mismos fragmentos: cuesta una lectura, no espacio.
+		/// La condicion de atributo es la MISMA expresion que usa la escritura, a
+		/// proposito: si divergen, vuelve a abrirse la grieta.
+		bool rileggiperhash= false;
+		if ((a != dt.end()) && (p->second.date) && (p->second.size > 0)
+			&& (g_franzotype != FRANZO_NONE) && (g_franzotype != FRANZO_CRC_32)
+			&& (p->second.date == a->second.date) && (p->second.size == a->second.size)
+			&& ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr))
+		{
+			string	 hashprevio= "";
+			uint32_t crcprevio = 0;
+			carryoverhash(a, hashprevio, crcprevio);
+			if (hashprevio == "") /// solo lo carga si es del mismo tipo y no es todo ceros
+			{
+				rileggiperhash= true;
+				if (flagdebug3)
+					myprintf("02123: re-reading %Z: attribute-only change and no usable previous hash\n", filename.c_str());
+			}
+		}
 		if ((p->second.forceadd) || ((p->second.date) && (p->first != "") && (p->first[p->first.size() - 1] != '/') &&
 									 (flagforce ||
+									  rileggiperhash ||
 									  a == dt.end() ||
 									  ((!(isads(filename))) && (!flagdonotforcexls) && (isxls(filename))) ||
 									  p->second.date != a->second.date ||
