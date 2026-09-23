@@ -1,3 +1,83 @@
+### [65.2k-pre23] - 2026-09-23
+
+**`-ma:bzip3` works for the first time. It never compressed with bzip3 before —
+not once, since the initial commit — and every test said it was fine.**
+
+#### `-ma:bzip3` was dead, and nothing noticed
+
+Asking for `-ma:bzip3` produced an archive **byte-identical to `-m1`**, at every
+level. The call to `bz3_compress()` passed `out_size = 0`, and libbz3 reads that
+argument as the **capacity** of the output buffer ("make sure to set out_size to
+the size of the output buffer"); it returned `BZ3_ERR_DATA_TOO_BIG` every time,
+and the block silently fell back to the native method.
+
+It went unnoticed because a codec that does nothing is perfectly reversible:
+storing the block natively round-trips too. `suite_core` checked `-ma:bzip3` in
+all 263 of its cases and passed. The symptom that gave it away was a README
+cell — the documented default level made no difference, because no level did.
+
+Fixing it exposed **two bugs in libbz3 1.5.3** itself, both fixed upstream in
+**1.5.4**, which is what now ships:
+
+- when the input is an **exact multiple** of the block size, the compressor wrote
+  the **last block empty** (`size = in_size % block_size` is 0) — data that
+  cannot be recovered;
+- the decompressor **rejected incompressible blocks** (it compared a block's
+  compressed size against the uncompressed block size instead of
+  `bz3_bound(block_size)`).
+
+Neither ever reached an archive in the field, for the same reason the first bug
+was invisible: zpaq-std had never written a bzip3 block. So updating costs no
+compatibility. Measured after the fix, on the difftest corpus: text −29 %,
+binary −22 %, images −25 %, mixed −9 %.
+
+**Compatibility.** A new `-ma:bzip3` archive **may not open in pre21 or pre22**:
+their decoder is 1.5.3, which rejects incompressible blocks. Measured: level 1
+over data with random content fails there with `31319 bzip3 decompression
+failed` — loudly, never with wrong data. Upgrade the machine that restores first.
+
+#### A test that checks the codec actually ran
+
+`test/testlab/suite_ma_corre.sh`: over compressible text, each of the 21 `-ma`
+switches must leave its `zpaqstd-ma:<algo>:` comment in the archive **and** come
+back byte for byte. Validated against pre22, where it reports exactly the bug
+this release fixes:
+
+```
+bzip3    marca=0  ida_vuelta=OK    NO-CORRE
+```
+
+The round trip passes and the suite still catches it. `difftest.sh` now covers
+`-ma:bzip3` as well.
+
+#### README defaults, all four now match the binary
+
+`lzh` is 4 (the README said 1), `bzip3` is 9 (said 5), `lzfse` is 1 (said 0, and
+0 and 1 give the same output — it has one internal level). None of the three
+ever had an explicit default in the code; `git log -S` shows the README rows were
+written with nothing behind them, so the behaviour users have always had is the
+code's, and the README is what changed. (`bsc` was the opposite case, fixed in
+the code in pre21.)
+
+#### Reproducible Windows builds
+
+The `.exe` builds are now byte-identical from one build to the next. Before, two
+builds of the same source differed in 4 bytes: the PE link timestamp and the
+checksum derived from it. `-Wl,--no-insert-timestamp` alone does not fix it —
+the post-link `strip` rewrites the header with the current time — so `strip` runs
+with `SOURCE_DATE_EPOCH` (default 0). The published binary can now be checked
+against the tested one with `sha256sum`.
+
+#### Verification
+
+Full battery green: suite_core 263, flags 117, cmds 38, extra 15, glob 11,
+robust 24, **ma_corre 21/21**; golden gate 136/136, 100/100, 116/116; os_msgs
+25/25; both pinned corpora clean. `difftest` against pre22: 119 comparisons, 5
+divergences, **all of them `-ma:bzip3`, none native**. Real Windows 7 SP1, x64
+and x86: bzip3 compresses at levels 1 and 9 over data with random content and an
+exact-multiple block, `t` and `x` pass on both, the archives return to Linux
+matching by sha256, and they carry the bzip3 comment — the codec really ran.
+
 ### [65.2k-pre22] - 2026-09-22
 
 **One fix: an archive whose hashes an older version had already zeroed never

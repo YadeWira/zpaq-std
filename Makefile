@@ -139,7 +139,7 @@ BZIP2INC := -Icompressors/bzip2
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   BZIP2INC += -U_FORTIFY_SOURCE -DBZ_NO_STDIO
 endif
-BZIP3INC := -Icompressors/bzip3 -DVERSION='"1.5.3"' -Wno-unused-function
+BZIP3INC := -Icompressors/bzip3 -DVERSION='"1.5.4"' -Wno-unused-function
 BROTLIINC := -Icompressors/brotli/include -Icompressors/brotli/common
 SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
 LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm

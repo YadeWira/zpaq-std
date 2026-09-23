@@ -37,16 +37,16 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 | 1–15 | 9 | LZ4-compatible, denser |
 | `-ma:lizard:N` | Lizard v2.1 | 10–49 | 17 | LZ4-class with better ratio |
 | `-ma:bzip2:N` | bzip2 v1.0.8 | 1–9 | 9 | BWT+HF, classic |
-| `-ma:bzip3:N` | bzip3 v1.5.3 | 1–9 | 5 | BWT+ANS, modern bzip2 successor |
+| `-ma:bzip3:N` | bzip3 v1.5.4 | 1–9 | 9 | BWT+ANS, modern bzip2 successor |
 | `-ma:brotli:N` | brotli v1.2.0 | 0–11 | 11 | Google's compressor (text) |
 | `-ma:snappy:N` | Snappy v1.2.1 | 1–2 | 1 | Google's, like lz4 but tighter |
 | `-ma:deflate:N` | libdeflate v1.26 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
 | `-ma:lz:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
 | `-ma:lzav:N` | LZAV v5.17 (avaneev) | 0–1 | 1 | LZ77, header-only, very fast |
 | `-ma:hs:N` | heatshrink v0.4.1 (atomicobject) | 0–2 | 1 | tiny, embedded-grade (2KB/8KB/32KB window) |
-| `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 0 | high ratio on text/structured data |
+| `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 1 | high ratio on text/structured data (one internal level: 0 and 1 give the same output) |
 | `-ma:bsc:N` | libbsc v3.3.12 (IlyaGrebnov, Apache-2.0) | 1–9 | 3 | BWT/ST + LZP + QLFC, very slow |
-| `-ma:lzh:N` | LZHAM (richgel999, Public Domain) | 1–4 | 1 | LZMA-class, very slow |
+| `-ma:lzh:N` | LZHAM (richgel999, Public Domain) | 1–4 | 4 | LZMA-class, very slow |
 | `-ma:ppmd:N` | PPMd var.H (7-Zip SDK, Public Domain) | 2–32 (order) | 6 | context modeling, strong on natural-language text |
 
 If the external pass produces output larger than `orig - 16` bytes, the original is kept (no regression).

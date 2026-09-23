@@ -910,8 +910,7 @@ BZIP3_API int bz3_compress(u32 block_size, const u8 * const in, u8 * out, size_t
     // Compress and write the blocks.
     size_t in_offset = 0;
     for (u32 i = 0; i < n_blocks; i++) {
-        s32 size = block_size;
-        if (i == n_blocks - 1) size = in_size % block_size;
+        s32 size = (s32)(i == n_blocks - 1 ? in_size - in_offset : block_size);
         memcpy(compression_buf, in + in_offset, size);
         s32 out_size_block = bz3_encode_block(state, compression_buf, size);
         if (bz3_last_error(state) != BZ3_OK) {
@@ -963,7 +962,7 @@ BZIP3_API int bz3_decompress(const uint8_t * in, uint8_t * out, size_t in_size, 
             return BZ3_ERR_MALFORMED_HEADER;
         }
         s32 size = read_neutral_s32(in);
-        if (size < 0 || size > block_size) goto malformed_header;
+        if (size < 0 || size > (s32)bz3_bound(block_size)) goto malformed_header;
         if (in_size < size + 8) {
             bz3_free(state);
             free(compression_buf);

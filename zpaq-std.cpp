@@ -110966,7 +110966,15 @@ int Jidac::add()
 							char* bz3buf=new(std::nothrow) char[dstCap];
 							if (bz3buf)
 							{
-								size_t bz3out=0;
+								/// out_size ENTRA como capacidad del buffer: libbz3.h dice "make
+								/// sure to set out_size to the size of the output buffer", y la
+								/// implementacion devuelve BZ3_ERR_DATA_TOO_BIG si es menor que
+								/// bz3_bound(). Aca estaba en 0, asi que bz3_compress fallaba
+								/// SIEMPRE y el bloque caia al metodo nativo sin avisar:
+								/// -ma:bzip3 no comprimio nunca con bzip3, desde el commit
+								/// inicial. Las pruebas de ida y vuelta pasaban igual, porque
+								/// guardar sin el codec tambien es reversible.
+								size_t bz3out=dstCap;
 								int rc=bz3_compress((uint32_t)(g_ma_level*100000),(const uint8_t*)sb.data(),(uint8_t*)bz3buf,(size_t)orig_size,&bz3out);
 								if (rc==0&&bz3out>0&&(int64_t)bz3out<orig_size-16)
 								{
