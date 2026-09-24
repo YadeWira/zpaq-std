@@ -33,17 +33,17 @@ The killer feature of this fork. You can pick **which external algorithm compres
 |---|---|---|---|---|
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 v1.10.0 | 1–12 | 9 | speed (fastest) |
 | `-ma:zstd:N` | zstd v1.5.7 | 1–22 | 3 | balanced (general purpose) |
-| `-ma:flzma2:N` | fast-lzma2 v1.0.1 | 1–10 | 5 | LZMA2 fast, 2–8× faster than ref |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 | 1–15 | 9 | LZ4-compatible, denser; **opens in any zpaq** |
+| `-ma:flzma2:N` | fast-lzma2 v1.0.1 — **ZPAQFLZMA2** | 1–10 | 5 | LZMA2 fast, 2–8× faster than ref; **opens in any zpaq** |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 — **ZPAQLZ5** | 1–15 | 9 | LZ4-compatible, denser; **opens in any zpaq** |
 | `-ma:lz6:N` | lz6 (YadeWira, BSD-2), **experimental** | 0–15 | 0 | 0 = fast, low CPU; 1–15 = HC; **opens in any zpaq** |
-| `-ma:lzma:N` | LZMA SDK 26.03 (Igor Pavlov, public domain) | 0–9 | 6 | LZMA ratio, fast extraction; **opens in any zpaq** (ZPAQL decoder by kaitz) |
+| `-ma:lzma:N` | LZMA SDK 26.03 (Igor Pavlov, public domain) — **ZPAQLZMA** | 0–9 | 6 | LZMA ratio, fast extraction; **opens in any zpaq** (ZPAQL decoder by kaitz) |
 | `-ma:lizard:N` | Lizard v2.1 | 10–49 | 17 | LZ4-class with better ratio |
 | `-ma:bzip2:N` | bzip2 v1.0.8 | 1–9 | 9 | BWT+HF, classic |
 | `-ma:bzip3:N` | bzip3 v1.5.4 | 1–9 | 9 | BWT+ANS, modern bzip2 successor |
 | `-ma:brotli:N` | brotli v1.2.0 | 0–11 | 11 | Google's compressor (text) |
-| `-ma:snappy:N` | Snappy v1.2.1 | 1–2 | 1 | Google's, like lz4 but tighter |
+| `-ma:snappy:N` | Snappy v1.2.1 — **ZPAQSNAPPY** | 1–2 | 1 | Google's, like lz4 but tighter; **opens in any zpaq** |
 | `-ma:deflate:N` | libdeflate v1.26 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
-| `-ma:lz:N` | lzlib v1.16 | 0–9 | 6 | LZMA, BSD-2 lzip stream API |
+| `-ma:lz:N` | lzlib v1.16 — **ZPAQLZIP** | 0–9 | 6 | LZMA, BSD-2 lzip stream API; **opens in any zpaq** |
 | `-ma:lzav:N` | LZAV v5.17 (avaneev) | 0–1 | 1 | LZ77, header-only, very fast |
 | `-ma:hs:N` | heatshrink v0.4.1 (atomicobject) | 0–2 | 1 | tiny, embedded-grade (2KB/8KB/32KB window) |
 | `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 1 | high ratio on text/structured data (one internal level: 0 and 1 give the same output) |
@@ -55,7 +55,7 @@ If the external pass produces output larger than `orig - 16` bytes, the original
 
 ### Portability: which `-ma` archives open in other zpaq tools
 
-**`-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6` and `-ma:lzma` are portable.** Their blocks carry their
+**`-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz` and `-ma:snappy` are portable.** Their blocks carry their
 own decoder, written in ZPAQL — the bytecode language every zpaq implementation
 runs (see [ZPAQLZ5](#zpaqlz5-an--ma-codec-any-zpaq-can-extract) below). **Every
 other `-ma` codec is not**: its payload is compressed by a codec no other
@@ -67,7 +67,7 @@ Measured against the two reference implementations:
 | method | zpaq 7.15 | zpaqfranz 64.8j |
 |---|---|---|
 | `-m0` … `-m5` (native) | extracts correctly | extracts correctly |
-| `-ma:lz5` / `lz5hc` / `lz5f` / `lz6` / `lzma` | **extracts correctly** | **extracts correctly** |
+| `lz5` `lz5hc` `lz5f` `lz6` `lzma` `flzma2` `lz` `snappy` | **extracts correctly** | **extracts correctly** |
 | any other `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
 
 Those `-ma` blocks are deliberately tagged with a **post-processing type that no
@@ -90,6 +90,22 @@ up, which looks exactly like a corrupt archive. Three things follow:
   the external pass does not beat the original, the data stays native and the
   archive remains universally readable — verified: incompressible input with
   `-ma:zstd` produces zero tags and zpaq 7.15 extracts it.
+
+#### The portable codecs, by name
+
+Each portable codec is named after the ZPAQL decoder its blocks carry. The
+switch stays the same; the name is what the block holds.
+
+| switch | name | decoder in the block | bytecode | in other tools (JIT / no JIT) | memory per thread |
+|---|---|---|---|---|---|
+| `-ma:lz5` / `lz5hc` / `lz5f` | **ZPAQLZ5** | LZ5 v1.5 block, zpaq-std | 433 B | 62–103 / 11 MB/s | 4 MB |
+| `-ma:lz6` | uses ZPAQLZ5 | the same program (lz6 writes LZ5's block format) | 433 B | same | 4 MB |
+| `-ma:lzma` | **ZPAQLZMA** | LZMA1, **kaitz** (zpaqf) | 1,998 B | 13–36 / 0.8–2.3 MB/s | 2 × dictionary |
+| `-ma:lz` | **ZPAQLZIP** | the same ZPAQLZMA program (lzip's LZMA1, re-wrapped) | 1,998 B | same | 2 × dictionary |
+| `-ma:flzma2` | **ZPAQFLZMA2** | LZMA2, zpaq-std, derived from kaitz's | 2,155 B | 22–40 / 1.6–2.3 MB/s | block + compressed |
+| `-ma:snappy` | **ZPAQSNAPPY** | snappy block, zpaq-std | 307 B | 50–100 / 13 MB/s | 64 KB |
+
+`lz6` will get its own name when it stops being experimental.
 
 #### ZPAQLZ5: an `-ma` codec any zpaq can extract
 
@@ -161,6 +177,28 @@ zpaq-std only takes the native shortcut for blocks tagged as its own
 (`zpaqstd-ma2:`): zpaqf's `-m3` blocks carry the very same program, and zpaq-std
 still runs it for them, exactly as before.
 
+#### ZPAQFLZMA2, ZPAQLZIP, ZPAQSNAPPY
+
+- **ZPAQFLZMA2** (`-ma:flzma2`): fast-lzma2 writes LZMA2 — LZMA cut into chunks
+  of up to 2 MB, each with its own header, which can restart the decoder, change
+  properties, reset the dictionary or be stored uncompressed. No LZMA2 decoder in
+  ZPAQL existed, so zpaq-std wrote one on top of kaitz's LZMA1 decoder: his
+  per-symbol loop is kept verbatim, and a chunk walker goes around it. Verified
+  with zpaq 7.15 on 80 fast-lzma2 streams (8 inputs × levels 1–10, every chunk
+  type).
+- **ZPAQLZIP** (`-ma:lz`): an lzip member is plain LZMA1 (lc=3 lp=0 pb=2) between
+  a 6-byte header and a 20-byte trailer. zpaq-std keeps only the LZMA inside,
+  with the header ZPAQLZMA reads, so **the very same program** extracts it; its
+  blocks are tagged like `-ma:lzma` blocks (with `:lzip` at the end), which is
+  what lets pre27 — the first version that knows ZPAQLZMA — read them too.
+- **ZPAQSNAPPY** (`-ma:snappy`): snappy's raw block, decoded one byte at a time
+  with a 64 KB circular window (snappy never emits an offset of 64 KB or more).
+  Checked also on the cases snappy does not produce but the format allows
+  (4-byte offsets, 3- and 4-byte literal lengths).
+
+Archives written by older versions with these three codecs (non-portable, the
+`zpaqstd-ma:` tag) still extract: zpaq-std keeps both readers.
+
 Portable decoders only make sense for some codecs: a brotli decoder in ZPAQL was
 measured at about 63 KB of bytecode and 1.6 MB/s, which is why most codecs stay
 non-portable. The roadmap is issue #2.
@@ -173,7 +211,7 @@ non-portable codecs the compatibility is one-way, and it is the useful direction
 | | |
 |---|---|
 | new version reading old archives | **yes** — verified over pre9…pre20 × 7 codecs, plus native |
-| old version reading new `-ma` blocks | no — **except `-ma:lz5`/`lz5hc`/`lz5f`/`lz6`/`lzma`**, which every version from pre20 on extracts by running their ZPAQL decoder |
+| old version reading new `-ma` blocks | no — **except the portable codecs** (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`, `snappy`), which every version from pre20 on extracts by running their ZPAQL decoder |
 | old version reading new **native** archives | **yes** — those bytes are unchanged |
 
 In a mixed or appended archive an old version still recovers everything it could
@@ -181,8 +219,8 @@ recover before, file by file; it fails only on the new `-ma` blocks. Still, the
 rule when upgrading is simple: **upgrade the machine that RESTORES before the one
 that compresses.**
 
-**Use `-m0`…`-m5`, `-ma:lz5`, `-ma:lz6` or `-ma:lzma` if the archive has to be
-readable anywhere else.** Raised as
+**Use `-m0`…`-m5` or a portable `-ma` codec (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`,
+`snappy`) if the archive has to be readable anywhere else.** Raised as
 issue #1 by kaitz, and the report is correct on the substance (the header,
 however, is unchanged — it is byte-for-byte a standard zpaq header).
 
@@ -267,7 +305,7 @@ compressors/
 ├── lz5/          2 src +  4 h
 ├── lz6/          2 src +  4 h   (YadeWira, BSD-2; frozen, see VERSION)
 ├── lzmasdk/      7 src + 14 h   (LZMA SDK 26.03, public domain)
-├── zpaqlzma/     kaitz's LZMA decoder in ZPAQL (public domain)
+├── zpaqlzma/     ZPAQL decoders: kaitz's LZMA1 and ZPAQFLZMA2 (public domain)
 ├── lizard/      10 src + 26 h
 ├── bzip2/        7 src +  2 h
 ├── bzip3/        1 src +  4 h

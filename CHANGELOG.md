@@ -1,3 +1,65 @@
+### [65.2k-pre28] - 2026-09-24
+
+**Three more `-ma` codecs open in any zpaq — `flzma2`, `lz` and `snappy` — and
+the portable codecs get names.**
+
+#### ZPAQFLZMA2: `-ma:flzma2`
+
+fast-lzma2 writes LZMA2: LZMA cut into chunks of up to 2 MB, each with its own
+header, which can restart the decoder, change properties, reset the dictionary
+or be stored uncompressed. No LZMA2 decoder in ZPAQL existed, so zpaq-std wrote
+one on top of kaitz's LZMA1 decoder (zpaqf, public domain): his per-symbol loop
+is kept verbatim, except that posState and the lp bits count from the last
+dictionary reset, and a chunk walker goes around it.
+
+- **Verified** with zpaq 7.15 (zpaqd) on 80 fast-lzma2 streams — 8 inputs ×
+  levels 1–10 — which between them use every chunk type: dictionary resets in
+  mid-stream (low levels, small dictionaries), state and property resets, and
+  uncompressed chunks.
+- 2,155 bytes of bytecode; 22–40 MB/s in other tools with the JIT, 1.6–2.3 MB/s
+  without.
+- The block holds the original size (4 bytes) and FL2_compress's output as is;
+  zpaq-std decodes it natively with fast-lzma2.
+
+#### ZPAQLZIP: `-ma:lz`
+
+An lzip member is plain LZMA1 (lc=3 lp=0 pb=2) between a 6-byte header and a
+20-byte trailer. zpaq-std now keeps only the LZMA inside, with the header
+ZPAQLZMA reads, so **the same ZPAQLZMA program** extracts it in any zpaq, and
+zpaq-std decodes it with the LZMA SDK. The blocks are tagged like `-ma:lzma`
+blocks, with `:lzip` at the end: pre27 recognises ZPAQLZMA and skips it, so it
+needs a tag it knows to decode natively. With a new tag it would have handed
+back raw LZMA (the lz6 lesson from pre25).
+
+#### ZPAQSNAPPY: `-ma:snappy`
+
+A decoder for snappy's raw block, written for zpaq-std: one byte at a time, with
+a 64 KB circular window, since snappy never emits an offset of 64 KB or more.
+307 bytes of bytecode; 50–100 MB/s in other tools with the JIT, 13 MB/s
+without. Checked also on the cases snappy does not produce but the format
+allows: 4-byte offsets, 3- and 4-byte literal lengths.
+
+#### Names
+
+Each portable codec is named after the ZPAQL decoder its blocks carry, in the
+help text, in the `00602` notice and in the README: **ZPAQLZ5** (`lz5`),
+**ZPAQLZMA** (`lzma`), **ZPAQLZIP** (`lz`), **ZPAQFLZMA2** (`flzma2`),
+**ZPAQSNAPPY** (`snappy`). The switches do not change. `lz6` uses ZPAQLZ5 and
+gets its own name when it stops being experimental.
+
+#### Compatibility
+
+- Every zpaq-std from pre20 on extracts the new `flzma2`, `lz` and `snappy`
+  blocks (measured on pre20, pre23–pre27): they run the decoder.
+- Archives written before with these three codecs (non-portable, tagged
+  `zpaqstd-ma:`) still extract: both readers stay.
+
+#### Correction
+
+pre27 said kaitz's LZMA decoder is "about 300 bytes" of bytecode. It is
+**1,998**: the 300 came from zpaqd's listing, which does not give the size.
+ZPAQLZ5's 433 was right.
+
 ### [65.2k-pre27] - 2026-09-24
 
 **New `-ma:lzma`: LZMA that any zpaq can extract, with kaitz's ZPAQL decoder.**

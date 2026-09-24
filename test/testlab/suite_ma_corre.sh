@@ -36,6 +36,9 @@ for a in $ALGOS; do
   # lz6 se etiqueta "zpaqstd-ma2:lz5-lz6:" (formato LZ5, compresor lz6), de ahi
   # el prefijo opcional; "lz5" no calza con "lz5-lz6:".
   n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2?:([a-z0-9]+-)?$a:")
+  # lz (lzlib) se guarda como el LZMA de adentro del miembro lzip, con la etiqueta
+  # de -ma:lzma (ZPAQLZIP): "zpaqstd-ma2:lzma:<nivel>:<tamano>:lzip".
+  [ "$a" = lz ] && n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2:lzma:[0-9]+:[0-9]+:lzip")
   rm -rf "$OUT/o"; mkdir -p "$OUT/o"
   timeout 300 "$Z" x "$arch" -to "$OUT/o" -force </dev/null >/dev/null 2>&1
   g=$(find "$OUT/o" -type f -name t.txt -print -quit)
@@ -47,7 +50,7 @@ for a in $ALGOS; do
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz5|lz5hc|lz5f|lz6|lzma)
+  case "$a" in lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1
