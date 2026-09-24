@@ -27,7 +27,7 @@ python3 -c "
 import random; random.seed(11); w='alfa beta gamma delta epsilon zeta eta theta iota kappa'.split()
 open('$OUT/src/t.txt','w').write(' '.join(random.choice(w) for _ in range(120000)))"
 REF=$(sha256sum < "$OUT/src/t.txt" | cut -d' ' -f1)
-ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd"
+ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd"
 malos=0
 for a in $ALGOS; do
   arch=$OUT/$a.zpaq; rm -f "$arch"
@@ -47,7 +47,7 @@ for a in $ALGOS; do
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz5|lz5hc|lz5f|lz6)
+  case "$a" in lz5|lz5hc|lz5f|lz6|lzma)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1

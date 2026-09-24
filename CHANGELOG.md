@@ -1,3 +1,52 @@
+### [65.2k-pre27] - 2026-09-24
+
+**New `-ma:lzma`: LZMA that any zpaq can extract, with kaitz's ZPAQL decoder.**
+
+#### `-ma:lzma`
+
+Each block is compressed with the LZMA SDK (26.03, public domain) and carries
+**kaitz's LZMA1 decoder written in ZPAQL**, taken unchanged from his
+[zpaqf](https://github.com/kaitz/zpaqf) (public domain), where it serves his own
+`-m3`. zpaq 7.15 and zpaqfranz extract these archives byte for byte. Thanks to
+kaitz, who pointed us to it in issue #1.
+
+- The program zpaq-std compiles is **byte-identical** to the one zpaqf writes.
+  Its body is the same for every block size and level; only the `comp` line
+  changes (`ph=15` for lc=3 lp=0, `pm` = 2 × the dictionary).
+- About **300 bytes** of bytecode per block. In other tools it decodes at
+  13–36 MB/s with the ZPAQL JIT and 0.8–2.3 MB/s without, and needs 2 × the
+  dictionary per thread (32 MB for a 16 MB block).
+- zpaq-std recognises the program and decodes LZMA natively.
+- Levels 0–9 as in the LZMA SDK; default **6**, as xz.
+
+What it adds is LZMA's ratio **and** fast extraction, readable anywhere: on
+samba (21.6 MB) it gives 3.93 MB against 4.05 MB for `-m3`, which takes 5 s to
+extract against about 0.5 s.
+
+**The native shortcut now needs the tag.** Until pre26 zpaq-std skipped a
+program as soon as it recognised the bytecode. zpaqf's own `-m3` blocks carry
+this very LZMA program, without any zpaq-std tag, so a zpaq-std that recognised
+it would have handed back raw LZMA for them. The shortcut is now allowed only
+when the reader has seen a `zpaqstd-ma2:` tag in the block comment; any other
+block runs its program as before. Checked: zpaqf `-m3` archives still extract
+identically.
+
+**Compatibility.** Tagged `zpaqstd-ma2:lzma:`, which no released version knows,
+so every zpaq-std from pre20 on runs the decoder and extracts correctly
+(measured on pre20, pre23, pre24, pre25 and pre26).
+
+#### `-innosetup`
+
+- In dark mode, the "Loading..." bar of the first seconds was light: Windows
+  only animates a themed marquee, and themed means light. In dark mode the
+  marquee is now drawn by zpaq-std, in the bar's own dark trough and green.
+- On failure, "Remaining time" shows `-` instead of its last value.
+
+#### Tests
+
+`suite_ma_corre` covers 23 codecs and requires zpaq 7.15 to extract `lzma`;
+`difftest` covers `-ma:lzma`.
+
 ### [65.2k-pre26] - 2026-09-23
 
 **The `-innosetup` window shows real progress, and a failure looks like one.**

@@ -11471,6 +11471,9 @@ extern "C" {
 }
 #endif
 
+/// LZMA SDK (-ma:lzma). Its headers carry their own extern "C" (7zTypes.h).
+#include "compressors/lzmasdk/LzmaLib.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -13629,7 +13632,15 @@ class PostProcessor {
   int ph, pm;  // sizes of H and M in z
 public:
   ZPAQL z;     // holds PCOMP
-  PostProcessor(): state(0), hsize(0), ph(0), pm(0) {}
+  PostProcessor(): state(0), hsize(0), ph(0), pm(0), shortcut(false) {}
+  /// Native shortcut for zpaq-std's own portable -ma blocks (ZPAQLZ5, ZPAQLZMA):
+  /// skip running a program zpaq-std recognises byte for byte, and let the -ma
+  /// layer decode natively. Only allowed when the READER has seen a
+  /// "zpaqstd-ma2:" tag in the block comment: the same program can be carried
+  /// by someone else's blocks (zpaqf's own -m3 carries the very LZMA decoder
+  /// -ma:lzma uses), and those have no -ma layer to decode them.
+  bool shortcut;
+  void setNativeShortcut(bool v) {shortcut=v;}
   void init(int h, int m);  // ph, pm sizes of H and M
   int write(int c);  // Input a byte, return state
   int getState() const {return state;}
@@ -13648,6 +13659,7 @@ public:
   void readComment(Writer* = 0);
   void setOutput(Writer* out) {pp.setOutput(out);}
   void setSHA1(SHA1* sha1ptr) {pp.setSHA1(sha1ptr);}
+  void setNativeShortcut(bool v) {pp.setNativeShortcut(v);}  /// see PostProcessor::shortcut
   bool decompress(int n = -1);  // n bytes, -1=all, return true until done
   ///bool pcomp(Writer* out2) {return pp.z.write(out2, true);}
   void readSegmentEnd(char* sha1string = 0);
@@ -15770,7 +15782,8 @@ int Decoder::skip() {
   }
 }
 ////////////////////// PostProcessor //////////////////////
-const std::string& zpaqlz5_bytecode();  /// ZPAQLZ5, definido junto a compressBlock
+const std::string& zpaqlz5_bytecode();   /// ZPAQLZ5, definido junto a compressBlock
+const std::string& zpaqlzma_bytecode();  /// ZPAQLZMA, idem
 // Copy ph, pm from block header
 void PostProcessor::init(int h, int m) {
   state=hsize=0;
@@ -15824,9 +15837,11 @@ int PostProcessor::write(int c) {
         /// cualquier otro programa se ejecuta como siempre. El post-procesador de
         /// unzpaq (el del comando p) NO tiene este atajo, a proposito: es el
         /// verificador independiente y tiene que correr el ZPAQL de verdad.
-        {
+        if (shortcut) {
           const std::string& bc=zpaqlz5_bytecode();
-          if (int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0) {
+          const std::string& bl=zpaqlzma_bytecode();
+          if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
+           || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -19382,6 +19397,27 @@ const std::string& zpaqlz5_bytecode() {
   return b;
 }
 
+/// ZPAQLZMA: el decodificador LZMA1 en ZPAQL de kaitz (zpaqf), para -ma:lzma.
+/// Ver compressors/zpaqlzma/zpaqlzma_body.h. ph=15 corresponde a lc=3 lp=0 (lo
+/// que -ma:lzma usa siempre); pm = diccionario x2, porque el programa guarda en M
+/// el diccionario (= la salida entera) y detras los datos comprimidos.
+#include "compressors/zpaqlzma/zpaqlzma_body.h"
+std::string zpaqlzma_config(int pm) {
+  return "comp 0 0 15 "+itos(pm)+" 0\n"+ZPAQLZMA_CUERPO;
+}
+static std::string zpaqlzma_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqlzma_config(25);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqlzma_bytecode() {
+  static const std::string b=zpaqlzma_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -19403,20 +19439,22 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   /// entran aca: un zpaq ajeno corre el decodificador, obtiene el original y lo
   /// compara contra este SHA-1. Por eso viaja en el metodo (interno, no se escribe).
   /// El comentario empieza con el tamano ORIGINAL, como en un bloque nativo.
-  if (strncmp(method_, "zpaqlz5:", 8)==0) {
+  /// ZPAQLZMA: igual, con "zpaqlzma:<pm>:<orig>:<sha1>" (pm 17..31).
+  const bool es_lzma= strncmp(method_, "zpaqlzma:", 9)==0;
+  if (es_lzma || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+8, "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || pm<16 || pm>24)
-      error("bad zpaqlz5 method");
+    if (sscanf(method_+(es_lzma ? 9 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_lzma && (pm<16 || pm>24)) || (es_lzma && (pm<17 || pm>31)))
+      error("bad zpaqlz5/zpaqlzma method");
     char sha1bin[20];
     for (int i=0; i<20; ++i) {
       unsigned v=0;
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=zpaqlz5_config(pm);
+    const std::string cfg=es_lzma ? zpaqlzma_config(pm) : zpaqlz5_config(pm);
     int args[9]={0};
     Compressor co;
     co.setOutput(out);
@@ -53158,6 +53196,12 @@ static char             g_inno_errmsg[256] = "";  // last error (or warning) lin
 static bool             g_inno_haserr  = false;   // g_inno_errmsg holds an error, not a warning
 static HANDLE           g_inno_closed  = NULL;    // signalled when the failure view is dismissed
 static HWND             g_inno_status  = NULL;    // status line, left of the buttons
+/// Dark mode "Loading..." bar. A themed marquee is the only kind Windows
+/// animates, and themed means LIGHT: the first seconds showed a light bar in a
+/// dark window. In dark mode the marquee is drawn here instead, over the bar's
+/// own rectangle, with the bar's own dark trough and green.
+static HWND             g_inno_marq    = NULL;
+static int              g_inno_marq_x  = 0;
 #define IDC_INNO_BG     1001
 #define IDC_INNO_CANCEL 1002
 // Windows accent blue, used for the focused button's border.
@@ -53326,6 +53370,22 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 	if (m == WM_DRAWITEM)   // flat, rounded, Inno-style owner-drawn buttons
 	{
 		DRAWITEMSTRUCT* d= (DRAWITEMSTRUCT*)l;
+		if (d->CtlType == ODT_STATIC && d->hwndItem == g_inno_marq)
+		{
+			RECT r= d->rcItem;
+			HBRUSH tb= CreateSolidBrush(RGB(45, 45, 45));
+			FillRect(d->hDC, &r, tb); DeleteObject(tb);
+			int w= r.right - r.left, seg= w / 4;
+			int x0= r.left + g_inno_marq_x - seg;          // enters from the left
+			RECT sr= { x0 < r.left ? r.left : x0, r.top,
+			           (x0 + seg) > r.right ? r.right : (x0 + seg), r.bottom };
+			if (sr.right > sr.left)
+			{
+				HBRUSH gb= CreateSolidBrush(RGB(38, 160, 38));
+				FillRect(d->hDC, &sr, gb); DeleteObject(gb);
+			}
+			return TRUE;
+		}
 		if (d->CtlType == ODT_BUTTON)
 		{
 			bool pressed= (d->itemState & ODS_SELECTED) != 0;
@@ -53452,6 +53512,9 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		M, 150, CW - 2 * M, 22, g_inno_wnd, NULL, hi, NULL);
 	SendMessageA(g_inno_bar, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
 	inno_theme_bar(g_inno_bar, dark);
+	if (dark)
+		g_inno_marq= CreateWindowExA(0, "STATIC", "", WS_CHILD | SS_OWNERDRAW,
+			M, 150, CW - 2 * M, 22, g_inno_wnd, NULL, hi, NULL);
 	// Buttons right-aligned to the same right margin; owner-drawn (WM_DRAWITEM) as
 	// flat rounded rects, with "Background" getting the accent border (the default).
 	const int btnW= 90, btnH= 28, btnY= 190, btnGap= 10;
@@ -53524,15 +53587,24 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 				SetWindowTextA(g_inno_status, st);
 				if (g_inno_marquee)
 				{
-					SendMessageA(g_inno_bar, PBM_SETMARQUEE, FALSE, 0);
-					SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
-						GetWindowLongPtrA(g_inno_bar, GWL_STYLE) & ~PBS_MARQUEE);
-					inno_theme_bar(g_inno_bar, dark);
+					if (g_inno_marq)
+					{
+						ShowWindow(g_inno_marq, SW_HIDE);
+						ShowWindow(g_inno_bar, SW_SHOW);
+					}
+					else
+					{
+						SendMessageA(g_inno_bar, PBM_SETMARQUEE, FALSE, 0);
+						SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
+							GetWindowLongPtrA(g_inno_bar, GWL_STYLE) & ~PBS_MARQUEE);
+						inno_theme_bar(g_inno_bar, dark);
+					}
 					g_inno_marquee= false;
 				}
 				SendMessageA(g_inno_bar, PBM_SETSTATE, PBST_ERROR, 0);            // themed: red
 				SendMessageA(g_inno_bar, PBM_SETBARCOLOR, 0, (LPARAM)RGB(196, 43, 28)); // unthemed (dark)
 				if (g_inno_taskbar) g_inno_taskbar->SetProgressState(g_inno_wnd, TBPF_ERROR);
+				SetWindowTextA(g_inno_val[1], "-");   // "Remaining": nothing remains
 				ShowWindow(g_inno_btn_bg, SW_HIDE);
 				SetWindowTextA(g_inno_btn_cancel, "Close");
 				SetFocus(g_inno_btn_cancel);
@@ -53597,20 +53669,44 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		// the marquee and re-apply the dark styling on the way out.
 		if (!p.known && !g_inno_marquee)
 		{
-			inno_set_ctl_theme(g_inno_bar, NULL, NULL);
-			SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
-				GetWindowLongPtrA(g_inno_bar, GWL_STYLE) | PBS_MARQUEE);
-			SendMessageA(g_inno_bar, PBM_SETMARQUEE, TRUE, 30);
+			if (g_inno_marq)   // dark: our own marquee over the bar (see g_inno_marq)
+			{
+				ShowWindow(g_inno_bar, SW_HIDE);
+				ShowWindow(g_inno_marq, SW_SHOW);
+			}
+			else
+			{
+				inno_set_ctl_theme(g_inno_bar, NULL, NULL);
+				SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
+					GetWindowLongPtrA(g_inno_bar, GWL_STYLE) | PBS_MARQUEE);
+				SendMessageA(g_inno_bar, PBM_SETMARQUEE, TRUE, 30);
+			}
 			g_inno_marquee= true;
 		}
 		else if (p.known && g_inno_marquee)
 		{
-			SendMessageA(g_inno_bar, PBM_SETMARQUEE, FALSE, 0);
-			SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
-				GetWindowLongPtrA(g_inno_bar, GWL_STYLE) & ~PBS_MARQUEE);
-			inno_theme_bar(g_inno_bar, dark);
+			if (g_inno_marq)
+			{
+				ShowWindow(g_inno_marq, SW_HIDE);
+				ShowWindow(g_inno_bar, SW_SHOW);
+			}
+			else
+			{
+				SendMessageA(g_inno_bar, PBM_SETMARQUEE, FALSE, 0);
+				SetWindowLongPtrA(g_inno_bar, GWL_STYLE,
+					GetWindowLongPtrA(g_inno_bar, GWL_STYLE) & ~PBS_MARQUEE);
+				inno_theme_bar(g_inno_bar, dark);
+			}
 			g_inno_marquee= false;
 			if (g_inno_taskbar) g_inno_taskbar->SetProgressState(g_inno_wnd, TBPF_NORMAL);
+		}
+		if (g_inno_marquee && g_inno_marq)
+		{
+			RECT mr; GetClientRect(g_inno_marq, &mr);
+			int w= mr.right, seg= w / 4;
+			g_inno_marq_x+= w / 40 + 1;                     // one pass ~3 s at 80 ms
+			if (g_inno_marq_x > w + seg) g_inno_marq_x= 0;
+			InvalidateRect(g_inno_marq, NULL, FALSE);
 		}
 		if (p.pct != last_pct)
 		{
@@ -56316,6 +56412,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  flzma2: LZMA2 fast (1=fast, 5=default, 10=ultra, 2-8x faster than ref)");
 		scrivi_riga(" ", "  lz5: auto (1-4 fast, 5-15 HC). lz5hc: always HC. lz5f: always fast");
 		scrivi_riga(" ", "  lz6: EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
+		scrivi_riga(" ", "  lzma: LZMA SDK 0..9 (default 6); opens in any zpaq (ZPAQL decoder by kaitz)");
 		scrivi_riga(" ", "  lizard: 10-49 (10=fastLZ4, 20-29=LIZv1, 30-39=+Huffman, 40-49=+++)");
 		scrivi_riga(" ", "  bzip2: BWT+HF (1=fast/100K, 9=best/900K, default 9)");
 		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 9)");
@@ -58854,6 +58951,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 					/// lz6: 0 es el compresor rapido (poca CPU), el default que pidio lz6
 					/// pensando en lo que busca Franco; 1..15 son los niveles HC.
 					else if (g_ma_algorithm=="lz6") g_ma_level=0;
+					/// lzma: 6, el default de xz; 0..9 como el LZMA SDK.
+					else if (g_ma_algorithm=="lzma") g_ma_level=6;
 					/// bsc SIN nivel caia en el "else g_ma_level=9" de abajo y quedaba en
 					/// 9 (bloque ST5, el mas lento), aunque el clamp de mas abajo y el
 					/// README dicen desde siempre que el default es 3. Ver la nota del
@@ -58870,7 +58969,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 				 * bare -ma:hs / -ma:lzav defaults are pinned to 1 above so an
 				 * invocation without an explicit level keeps behaving as it
 				 * ships today. */
-				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav" || g_ma_algorithm=="lz6")
+				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma")
 				{
 					if (g_ma_level<0) g_ma_level=0;
 				}
@@ -58939,19 +59038,19 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level<1) g_ma_level=1;
 					if (g_ma_level>4) g_ma_level=4;
 				}
-				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3")
+				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3"||g_ma_algorithm=="lzma")
 				{
 					if (g_ma_level>9) g_ma_level=9;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lz6"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lz6"&&g_ma_algorithm!="lzma"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
 				{
 					/* error() throws std::runtime_error, and nothing catches it
 					 * this early in argument parsing: it reached terminate() and
 					 * the process died with SIGABRT (rc 134) plus a raw C++
 					 * message. Print the list and exit cleanly instead. */
 					myprintf("00563! Unknown -ma: algorithm '%s'\n", g_ma_algorithm.c_str());
-					myprintf("00563! Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lizard bzip2 bzip3\n");
+					myprintf("00563! Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard bzip2 bzip3\n");
 					myprintf("00563!        brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd\n");
 					seppuku(2);
 				}
@@ -59501,7 +59600,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	/// el largo de "_00000001.zpaq". Es la maquinaria de nombres donde vivio el
 	/// caso CLAAS de 46 GB, asi que se hace aparte y con su propia tanda de
 	/// pruebas, no de refilon. Ver el issue #1 (kaitz).
-	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6")
+	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
@@ -65434,6 +65533,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t fl2_orig= 0;
 			int64_t lz5_orig= 0;
 			int64_t lz6_orig= 0;
+			int64_t lzma_orig= 0;
 			int64_t liz_orig= 0;
 			int64_t bz2_orig= 0;
 			int64_t bz3_orig= 0;
@@ -65493,6 +65593,15 @@ ThreadReturn decompressThread(void *arg)
 					}
 					/// ZPAQLZ5: los bloques -ma:lz5 nuevos llevan su decodificador y la
 					/// etiqueta "zpaqstd-ma2:" (ver la rama de escritura).
+					auto mlzma = cs.find("zpaqstd-ma2:lzma:");
+					if (mlzma != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + mlzma + 17, "%d:%" SCNd64, &lvl, &lzma_orig);
+					}
+					/// Bloques propios con decodificador ZPAQL: el atajo nativo solo se
+					/// permite aca, con la etiqueta a la vista (ver PostProcessor::shortcut).
+					d.setNativeShortcut(cs.find("zpaqstd-ma2:") != string::npos);
 					auto m6 = cs.find("zpaqstd-ma2:lz5-lz6:");
 					if (m6 != string::npos)
 					{
@@ -65695,6 +65804,32 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lz5_orig;
+			}
+			// ZPAQLZMA: si corrio el ZPAQL (otro programa, o sin atajo) la salida ya es el
+			// original; si no, LZMA nativo: 5 bytes de propiedades, 4 de tamano, LZMA crudo.
+			else if (lzma_orig > 0 && (int64_t)out.size() == lzma_orig)
+			{
+				output_size = lzma_orig;
+			}
+			else if (lzma_orig > 0)
+			{
+				if (out.size() < 10)
+					error("31319 lzma decompression failed");
+				const unsigned char* src = (const unsigned char *)out.data();
+				uint64_t hsz = 0;
+				for (int i = 0; i < 4; i++)
+					hsz |= (uint64_t)src[5 + i] << (8 * i);
+				if ((int64_t)hsz != lzma_orig)
+					error("31319 lzma decompression failed");
+				string decomp2;
+				decomp2.resize(lzma_orig);
+				size_t dlen = (size_t)lzma_orig, slen = out.size() - 9;
+				int r2 = LzmaUncompress((unsigned char *)&decomp2[0], &dlen, src + 9, &slen, src, LZMA_PROPS_SIZE);
+				if ((r2 != SZ_OK && r2 != SZ_ERROR_INPUT_EOF) || (int64_t)dlen != lzma_orig)
+					error("31319 lzma decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = lzma_orig;
 			}
 			// lz6: mismo formato que LZ5, decodificado con el decodificador de lz6
 			else if (lz6_orig > 0 && (int64_t)out.size() == lz6_orig)
@@ -111464,6 +111599,49 @@ int Jidac::add()
 									ma_comment="zpaqstd-ma2:lz5-lz6:"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								delete[] lz6buf;
+							}
+						}
+					}
+					else if (g_ma_algorithm=="lzma" && sb.size()>16)
+					{
+						/// ZPAQLZMA: LZMA1 del LZMA SDK, con el decodificador ZPAQL de kaitz (zpaqf)
+						/// en cada bloque: cualquier zpaq lo extrae. El flujo es el que ese programa
+						/// lee: 5 bytes de propiedades (lc=3 lp=0 pb=2 + diccionario), 4 del tamano
+						/// original, y el LZMA crudo, sin marca de fin (el tamano dice donde termina).
+						/// El diccionario es la menor potencia de 2 >= el bloque (minimo 64 KB) y
+						/// pm = diccionario x2: en el programa, M guarda la salida entera y detras
+						/// los datos comprimidos, que tienen que caber (por eso lo comprimido tiene
+						/// que ser menor que el diccionario, y lo es: si no, el bloque queda nativo).
+						int64_t orig_size=sb.size();
+						int k=16;
+						while (k<30 && ((int64_t)1<<k)<orig_size) k++;
+						if (((int64_t)1<<k)>=orig_size)
+						{
+							size_t dstCap=(size_t)orig_size+orig_size/3+(1<<16);
+							unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap+9];
+							if (lzbuf)
+							{
+								size_t destLen=dstCap, propsSize=LZMA_PROPS_SIZE;
+								int res=LzmaCompress(lzbuf+9, &destLen, (const unsigned char*)sb.data(), (size_t)orig_size,
+								                     lzbuf, &propsSize, g_ma_level, (unsigned)1<<k, 3, 0, 2, -1, 1);
+								int64_t total=(int64_t)destLen+9;
+								if (res==SZ_OK && propsSize==LZMA_PROPS_SIZE && total<orig_size-16
+								    && total<((int64_t)1<<k) && lzbuf[9]==0)
+								{
+									for (int i=0; i<4; i++)
+										lzbuf[5+i]=(unsigned char)((uint64_t)orig_size>>(8*i));
+									libzpaq::SHA1 sh1;
+									sh1.write((const char*)sb.data(), orig_size);
+									const char* r1=sh1.result();
+									char hx[41];
+									for (int q=0; q<20; ++q)
+										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+									sb.reset();
+									sb.write((const char*)lzbuf,(int)total);
+									m="zpaqlzma:"+itos(k+1)+":"+itos(orig_size)+":"+hx;
+									ma_comment="zpaqstd-ma2:lzma:"+itos(g_ma_level)+":"+itos(orig_size);
+								}
+								delete[] lzbuf;
 							}
 						}
 					}
