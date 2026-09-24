@@ -50,7 +50,7 @@ for a in $ALGOS; do
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav)
+  case "$a" in lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav|deflate|hs)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1

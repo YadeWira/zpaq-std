@@ -15787,6 +15787,8 @@ const std::string& zpaqlzma_bytecode();  /// ZPAQLZMA, idem
 const std::string& zpaqflzma2_bytecode(); /// ZPAQFLZMA2, idem
 const std::string& zpaqsnappy_bytecode(); /// ZPAQSNAPPY, idem
 const std::string& zpaqlzav_bytecode();   /// ZPAQLZAV, idem
+const std::string& zpaqdeflate_bytecode(); /// ZPAQDEFLATE, idem
+const std::string& zpaqhs_bytecode();      /// ZPAQHS, idem
 // Copy ph, pm from block header
 void PostProcessor::init(int h, int m) {
   state=hsize=0;
@@ -15846,11 +15848,15 @@ int PostProcessor::write(int c) {
           const std::string& b2=zpaqflzma2_bytecode();
           const std::string& bs=zpaqsnappy_bytecode();
           const std::string& bv=zpaqlzav_bytecode();
+          const std::string& bd=zpaqdeflate_bytecode();
+          const std::string& bh=zpaqhs_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
            || (int(bs.size())==hsize && memcmp(&z.header[z.hbegin], bs.data(), hsize)==0)
-           || (int(bv.size())==hsize && memcmp(&z.header[z.hbegin], bv.data(), hsize)==0)) {
+           || (int(bv.size())==hsize && memcmp(&z.header[z.hbegin], bv.data(), hsize)==0)
+           || (int(bd.size())==hsize && memcmp(&z.header[z.hbegin], bd.data(), hsize)==0)
+           || (int(bh.size())==hsize && memcmp(&z.header[z.hbegin], bh.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -19697,6 +19703,116 @@ const std::string& zpaqlzav_bytecode() {
   return b;
 }
 
+/// ZPAQDEFLATE: deflate crudo en ZPAQL (Huffman canonico bit a bit, el metodo de
+/// puff), para -ma:deflate. Ver compressors/zpaqdeflate/. ph=10: tablas de Huffman,
+/// bases y bits extra en H; pm tal que entren la salida entera y el comprimido.
+#include "compressors/zpaqdeflate/zpaqdeflate_body.h"
+std::string zpaqdeflate_config(int pm) {
+  return "comp 0 0 10 "+itos(pm)+" 0\n"+ZPAQDEFLATE_CUERPO;
+}
+static std::string zpaqdeflate_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqdeflate_config(26);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqdeflate_bytecode() {
+  static const std::string b=zpaqdeflate_compilar();
+  return b;
+}
+
+/// ---- ZPAQHS: bloques -ma:hs (heatshrink) que CUALQUIER zpaq puede extraer ----
+/// Decodificador de heatshrink en ZPAQL, un byte por llamada, sobre un bufer de
+/// bits (del mas significativo al menos). Lee el flujo tal como lo escribe
+/// hs_wrapper: un byte de parametros (W ventana, L lookahead) y los bits. M es la
+/// ventana circular: pm = W (11, 13 o 14 segun el nivel), y M arranca en ceros como
+/// el bufer del decodificador de heatshrink. Verificado con zpaqd 7.15: 15
+/// vectores (los niveles 0, 1 y 2). zpaq-std 2026. CONGELADO, como los demas.
+static const char* const ZPAQHS_CUERPO=
+"hcomp\n"
+"  halt\n"
+"pcomp zpaqhs ;\n"
+"(ZPAQHS: decodificador de heatshrink para zpaq-std -ma:hs, como lo escribe su\n"
+" envoltorio: un byte de parametros, W ventana en el nibble bajo y L lookahead en\n"
+" el alto, y el flujo de bits, del mas significativo al menos. Marca 1: literal de\n"
+" 8 bits. Marca 0: indice de W bits, offset = indice + 1, y largo de L bits, cuenta\n"
+" = largo + 1. M es la ventana circular de 2 a la W: zpaq-std pone pm = W, y M\n"
+" arranca en ceros como el bufer del decodificador de heatshrink, asi que hasta\n"
+" una referencia antes del principio da lo mismo. El relleno del ultimo byte son\n"
+" menos de 8 bits en cero: una marca 0 con el indice incompleto, que no emite nada.\n"
+" r1 estado, r2 bufer de bits, r3 bits en el, r5 W, r6 L, r7 offset, r8 cuenta,\n"
+" r9 avanzo, r10 temporal. zpaq-std 2026.)\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 2 r=a 3 r=a 5 r=a 6 r=a 7 r=a 8 r=a 9 r=a 10\n"
+"    halt\n"
+"  endif\n"
+"  d=a\n"
+"  a=r 1 a== 0 if\n"
+"    a=d a&= 15 r=a 5\n"
+"    a=d a>>= 4 r=a 6\n"
+"    a= 1 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a=r 2 a<<= 8 a+=d r=a 2\n"
+"  a=r 3 a+= 8 r=a 3\n"
+"  do\n"
+"    a=0 r=a 9\n"
+"    a=r 1\n"
+"    a== 1 ifl\n"
+"      a=r 3 a> 0 ifl\n"
+"        a-- r=a 3 c=a a=r 2 a>>=c a&= 1\n"
+"        a== 1 if a= 2 else a= 3 endif r=a 1\n"
+"        a= 1 r=a 9\n"
+"      endif\n"
+"    elsel\n"
+"      a== 2 ifl\n"
+"        a=r 3 a> 7 ifl\n"
+"          a-= 8 r=a 3 c=a a=r 2 a>>=c a&= 255 *b=a out b++\n"
+"          a= 1 r=a 1 r=a 9\n"
+"        endif\n"
+"      elsel\n"
+"        a== 3 ifl\n"
+"          a=r 3 d=r 5 a<d ifnotl\n"
+"            a-=d r=a 3 c=a a=r 2 a>>=c r=a 10\n"
+"            a= 1 c=r 5 a<<=c a-- d=a a=r 10 a&=d a++ r=a 7\n"
+"            a= 4 r=a 1 a= 1 r=a 9\n"
+"          endif\n"
+"        elsel\n"
+"          a=r 3 d=r 6 a<d ifnotl\n"
+"            a-=d r=a 3 c=a a=r 2 a>>=c r=a 10\n"
+"            a= 1 c=r 6 a<<=c a-- d=a a=r 10 a&=d a++ r=a 8\n"
+"            a=b c=r 7 a-=c c=a\n"
+"            do\n"
+"              a=*c *b=a out b++ c++\n"
+"              a=r 8 a-- r=a 8\n"
+"            a> 0 while\n"
+"            a= 1 r=a 1 r=a 9\n"
+"          endif\n"
+"        endif\n"
+"      endif\n"
+"    endif\n"
+"    a=r 9\n"
+"  a> 0 while\n"
+"  halt\n"
+"end\n";
+std::string zpaqhs_config(int pm) {
+  return "comp 0 0 0 "+itos(pm)+" 0\n"+ZPAQHS_CUERPO;
+}
+static std::string zpaqhs_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqhs_config(13);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqhs_bytecode() {
+  static const std::string b=zpaqhs_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -19723,13 +19839,15 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_fl2 = strncmp(method_, "zpaqflzma2:", 11)==0;   /// ZPAQFLZMA2, idem
   const bool es_sn  = strncmp(method_, "zpaqsnappy:", 11)==0;   /// ZPAQSNAPPY, pm=16
   const bool es_lzv = strncmp(method_, "zpaqlzav:", 9)==0;      /// ZPAQLZAV, pm = bloque
-  if (es_lzma || es_fl2 || es_sn || es_lzv || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_dfl = strncmp(method_, "zpaqdeflate:", 12)==0;  /// ZPAQDEFLATE
+  const bool es_hs  = strncmp(method_, "zpaqhs:", 7)==0;        /// ZPAQHS, pm = W
+  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+((es_lzma || es_lzv) ? 9 : (es_fl2 || es_sn) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && (pm<16 || pm>24)) || ((es_lzma || es_fl2) && (pm<17 || pm>31))
-        || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)))
+    if (sscanf(method_+(es_hs ? 7 : es_dfl ? 12 : (es_lzma || es_lzv) ? 9 : (es_fl2 || es_sn) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && (pm<16 || pm>24)) || ((es_lzma || es_fl2 || es_dfl) && (pm<17 || pm>31))
+        || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
     for (int i=0; i<20; ++i) {
@@ -19738,7 +19856,8 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sha1bin[i]=(char)v;
     }
     const std::string cfg=es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
-                         : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm) : zpaqlz5_config(pm);
+                         : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
+                         : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm) : zpaqlz5_config(pm);
     int args[9]={0};
     Compressor co;
     co.setOutput(out);
@@ -56702,10 +56821,10 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 9)");
 		scrivi_riga(" ", "  brotli: Google (0=fast, 11=default, 11=max)");
 		scrivi_riga(" ", "  snappy: ZPAQSNAPPY, Google (very fast, like lz4); opens in any zpaq");
-		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
+		scrivi_riga(" ", "  deflate: ZPAQDEFLATE, libdeflate (0=stored, 6=default, 12=best); opens in any zpaq");
 		scrivi_riga(" ", "  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq");
 		scrivi_riga(" ", "  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq");
-		scrivi_riga(" ", "  hs: atomicobject heatshrink (0..2: 2KB/8KB/32KB window; tiny, embedded-grade)");
+		scrivi_riga(" ", "  hs: ZPAQHS, heatshrink (0..2: 2KB/8KB/16KB window; tiny); opens in any zpaq");
 		scrivi_riga(" ", "  lzfse: Apple LZFSE (0=default; high ratio on text/structured data)");
 		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
 		scrivi_riga(" ", "  lzh: richgel999 LZHAM (1..4: fastest..uber; LZMA-class, very slow)");
@@ -59885,7 +60004,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 	/// caso CLAAS de 46 GB, asi que se hace aparte y con su propia tanda de
 	/// pruebas, no de refilon. Ver el issue #1 (kaitz).
 	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
-	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav")
+	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav"
+	     || g_ma_algorithm=="deflate" || g_ma_algorithm=="hs")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
@@ -59900,7 +60020,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 		/// experimental.
 		const char* zname= (g_ma_algorithm=="lzma") ? "ZPAQLZMA" : (g_ma_algorithm=="lz") ? "ZPAQLZIP"
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
-		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV"
+		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
+		                 : (g_ma_algorithm=="hs") ? "ZPAQHS"
 		                 : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
@@ -65829,6 +65950,8 @@ ThreadReturn decompressThread(void *arg)
 			int64_t fl2p_orig= 0;
 			int64_t snp_orig= 0;
 			int64_t lzv_orig= 0;
+			int64_t dfl_orig= 0;
+			int64_t hsp_orig= 0;
 			int64_t liz_orig= 0;
 			int64_t bz2_orig= 0;
 			int64_t bz3_orig= 0;
@@ -65888,6 +66011,18 @@ ThreadReturn decompressThread(void *arg)
 					}
 					/// ZPAQLZ5: los bloques -ma:lz5 nuevos llevan su decodificador y la
 					/// etiqueta "zpaqstd-ma2:" (ver la rama de escritura).
+					auto mhs2 = cs.find("zpaqstd-ma2:hs:");
+					if (mhs2 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + mhs2 + 15, "%d:%" SCNd64, &lvl, &hsp_orig);
+					}
+					auto mdfl2 = cs.find("zpaqstd-ma2:deflate:");
+					if (mdfl2 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + mdfl2 + 20, "%d:%" SCNd64, &lvl, &dfl_orig);
+					}
 					auto mlzav2 = cs.find("zpaqstd-ma2:lzav:");
 					if (mlzav2 != string::npos)
 					{
@@ -66117,6 +66252,53 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lz5_orig;
+			}
+			// ZPAQHS: igual; nativo es hs_decompress_wrapper sobre el flujo.
+			else if (hsp_orig > 0 && (int64_t)out.size() == hsp_orig)
+			{
+				output_size = hsp_orig;
+			}
+			else if (hsp_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(hsp_orig);
+				size_t produced = 0;
+				if (hs_decompress_wrapper((const uint8_t *)out.data(), out.size(), (uint8_t *)&decomp2[0],
+				                          (size_t)hsp_orig, &produced) != 0 || (int64_t)produced != hsp_orig)
+					error("31319 hs decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = hsp_orig;
+			}
+			// ZPAQDEFLATE: igual; nativo es libdeflate sobre lo que sigue a los 4 bytes.
+			else if (dfl_orig > 0 && (int64_t)out.size() == dfl_orig)
+			{
+				output_size = dfl_orig;
+			}
+			else if (dfl_orig > 0)
+			{
+				if (out.size() < 5)
+					error("31319 deflate decompression failed");
+				const unsigned char* src = (const unsigned char *)out.data();
+				uint64_t hsz = 0;
+				for (int i = 0; i < 4; i++)
+					hsz |= (uint64_t)src[i] << (8 * i);
+				if ((int64_t)hsz != dfl_orig)
+					error("31319 deflate decompression failed");
+				string decomp2;
+				decomp2.resize(dfl_orig);
+				struct libdeflate_decompressor* lddcmp2 = libdeflate_alloc_decompressor();
+				if (!lddcmp2)
+					error("31319 deflate decompression failed");
+				size_t dstLen = 0;
+				libdeflate_result ldr2 = libdeflate_deflate_decompress(lddcmp2, (const void *)(src + 4), out.size() - 4,
+				                                                        (void *)&decomp2[0], (size_t)dfl_orig, &dstLen);
+				libdeflate_free_decompressor(lddcmp2);
+				if (ldr2 != LIBDEFLATE_SUCCESS || (int64_t)dstLen != dfl_orig)
+					error("31319 deflate decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = dfl_orig;
 			}
 			// ZPAQLZAV: igual; nativo es lzav_decompress sobre lo que sigue a los 4 bytes.
 			else if (lzv_orig > 0 && (int64_t)out.size() == lzv_orig)
@@ -112177,12 +112359,27 @@ int Jidac::add()
 								if (ldbuf)
 								{
 									size_t ldsz=libdeflate_deflate_compress(ldcmp,(const void*)sb.data(),(size_t)orig_size,ldbuf,dstCap);
-									if (ldsz>0&&(int64_t)ldsz<orig_size-16)
+									/// ZPAQDEFLATE: tamano original (4 bytes) + el deflate crudo, con
+									/// su decodificador ZPAQL; pm para la salida entera y el comprimido.
+									int64_t total=(int64_t)ldsz+4;
+									int k=17;
+									while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
+									if (ldsz>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
 									{
+										libzpaq::SHA1 sh1;
+										sh1.write((const char*)sb.data(), orig_size);
+										const char* r1=sh1.result();
+										char hx[41];
+										for (int q=0; q<20; ++q)
+											snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+										char hd[4];
+										for (int q=0; q<4; q++)
+											hd[q]=(char)((uint64_t)orig_size>>(8*q));
 										sb.reset();
+										sb.write(hd,4);
 										sb.write(ldbuf,(int)ldsz);
-										m="04,0";
-										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+										m="zpaqdeflate:"+itos(k)+":"+itos(orig_size)+":"+hx;
+										ma_comment="zpaqstd-ma2:deflate:"+itos(g_ma_level)+":"+itos(orig_size);
 									}
 									delete[] ldbuf;
 								}
@@ -112315,12 +112512,21 @@ int Jidac::add()
 							{
 								size_t lzsz=0;
 								int lzrc=hs_compress_wrapper((const uint8_t*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
-								if (lzrc==0&&lzsz>0&&(int64_t)lzsz<orig_size-16)
+								/// ZPAQHS: el flujo de hs_wrapper tal cual, con su decodificador
+								/// ZPAQL; pm = la ventana W, que viaja en el primer byte.
+								const int hsw= (lzsz>0) ? (lzbuf[0]&15) : 0;
+								if (lzrc==0&&lzsz>0&&(int64_t)lzsz<orig_size-16&&hsw>=4&&hsw<=15)
 								{
+									libzpaq::SHA1 sh1;
+									sh1.write((const char*)sb.data(), orig_size);
+									const char* r1=sh1.result();
+									char hx[41];
+									for (int q=0; q<20; ++q)
+										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
 									sb.reset();
 									sb.write((const char*)lzbuf,(int)lzsz);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+									m="zpaqhs:"+itos(hsw)+":"+itos(orig_size)+":"+hx;
+									ma_comment="zpaqstd-ma2:hs:"+itos(g_ma_level)+":"+itos(orig_size);
 								}
 								delete[] lzbuf;
 							}
