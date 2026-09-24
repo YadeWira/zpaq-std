@@ -60,8 +60,15 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define ZPAQFULL ///NOSFTPSTART
 ///NOSFTPEND
 
-#define ZPAQ_VERSION "65.2k"
-#define ZPAQ_DATE "(2026-09-20)"
+/// -m6: LZ4 blocks that ANY zpaq (7.15 too) extracts, see LZ4_PCOMP.
+/// Comment out the next line to build without -m6 (-m6 is then -m5 again)
+#define ZPAQLZ4
+/// -m7: LZAV blocks that ANY zpaq (7.15 too) extracts, see LZAV_PCOMP.
+/// Comment out the next line to build without -m7 (-m7 is then -m5 again)
+#define ZPAQLZAV
+
+#define ZPAQ_VERSION "65.3y"
+#define ZPAQ_DATE "(2026-09-24)"
 
 
 /*
@@ -78,6 +85,7 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security:-open-software
 #endif
 #ifdef OPEN ///NOSFTPSTART
 	#undef ZPAQFULL
+	#undef ZPAQMOUNT /// open: no FUSE, no WinFsp
 #endif ///NOSFTPEND
 
 ///	optional align for malloc (sparc64,HPPA) via -DALIGNMALLOC
@@ -239,6 +247,17 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security:-open-software
     #undef SFTP
 #endif ///NOSFTPEND
 #endif
+
+/// no -m6 on the old compilers (gcc 3.4 of ESXi): no push_macro, no
+/// thread-safe static initialization.
+/// NAS is ANCIENT too, but it is built with modern (cross) compilers: there
+/// -m6/-m7 stay, and they are exactly what a small NAS wants (little CPU to
+/// compress, a native decoder instead of the ZPAQL interpreter to extract,
+/// the JIT being x86 only)
+#if (defined(ANCIENT) && !defined(NAS)) || defined(ESX)
+#undef ZPAQLZ4
+#undef ZPAQLZAV
+#endif // corresponds to #if (#if (defined(ANCIENT) && !defined(NAS)) || defined(ESX))
 
 
 #define DATE_1980 1980*10000000000LL+1*100000000LL+1*1000000
@@ -1170,6 +1189,7 @@ otherwise to promote the sale, use or other dealings in this Software without pr
 authorization of the copyright holder.
 
 
+///NOSFTPSTART
 25 [LGPL]                       https://github.com/libfuse/libfuse
  /// LICENSE_START.25
  /// LICENSE_END.25
@@ -1188,7 +1208,7 @@ Public License, version 2 ("GPL"). The full text of this license can
 be found in the GPL2.txt file.
 
 
-26 [GPLv3]                      https://github.com/codewithnick/ascii-art
+26 [GPLv3 + FLOSS exception]   WinFsp Copyright (C) Bill Zissimopoulos https://github.com/winfsp/winfsp
  /// LICENSE_START.26
  /// LICENSE_END.26
  
@@ -1221,6 +1241,34 @@ that such software is covered by the GPLv3.
 
 Commercial licensing options are also available: Please contact
 Bill Zissimopoulos <billziss at navimatics.com>.
+
+
+///NOSFTPEND
+27 [MIT License]                LZAV Copyright (c) 2023-2026 Aleksey Vaneev https://github.com/avaneev/lzav
+ /// LICENSE_START.27
+ /// LICENSE_END.27
+
+MIT License
+
+Copyright (c) 2023-2026 Aleksey Vaneev
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 
@@ -1487,8 +1535,10 @@ DEFINEs at compile-time: IT IS UP TO YOU NOT TO MIX LOGICAL INCOMPATIBLE DEFINIT
 
 -DNOLM								// Turn off the lm library (experimental)
 
--DZPAQMOUNT							// Mount archive on Windows and Linux. See later for how to compile
+///NOSFTPSTART
+-DZPAQMOUNT							// Mount archive on Windows, Linux, FreeBSD, OpenBSD and macOS. See later for how to compile
 
+///NOSFTPEND
 HIDDEN GEMS
 If the (non Windows) executable is named "dir" act (just about)... like Windows' dir
 Beware of collisions with other software "dir"
@@ -1519,6 +1569,15 @@ THE JIT (just-in-time)
 zpaqfranz translate (by default) ZPAQL opcodes into "real" Intel (amd64 or x86+SSE2) machine code.
 On other systems a -DNOJIT (ARM/Apple CPUs for example) will enforce software interpretation.
 I write it BIG, #1 FAQ with newer Macintosh (M1/M2) is forgetting -DNOJIT
+
+W^X systems (OpenBSD): memory that is writable AND executable at the same
+time is refused there, which is what the JIT used to ask for, so it turned
+itself off and everything ran interpreted. Since 65.3o it asks in two steps
+instead, writable first and executable afterwards (mprotect), which OpenBSD
+does allow, so the JIT works there too: on OpenBSD 7.9 extracting a -m5
+archive went from 93 to 56 seconds, a -m1 one from 3 seconds to less than
+one. Nothing to do by hand and nothing changes on the other systems: the
+usual single-step request is tried first, and this is the fallback.
 
   _   _  ___  _   _   ___ _   _ _____ _____ _           __          ____  _   _  ___      _ ___ _____ 
  | \ | |/ _ \| \ | | |_ _| \ | |_   _| ____| |      ____\ \        |  _ \| \ | |/ _ \    | |_ _|_   _|
@@ -1598,6 +1657,7 @@ especially with multipart files.
 test_????.zpaq   is BAD
 
 
+///NOSFTPSTART
 Building with Mount Support (ZPAQMOUNT)
 This project can optionally be compiled with support for mounting archives as a virtual filesystem. 
 This requires an extra library depending on your operating system.
@@ -1614,11 +1674,204 @@ Fedora/RHEL/CentOS: dnf install fuse3-devel
 Arch Linux:         pacman -S fuse3
 openSUSE:           zypper install fuse3-devel
 
-Once FUSE is installed, add the -DZPAQMOUNT flag to your build command to produce an executable with mount support:
+Once FUSE is installed, add the -DZPAQMOUNT flag to your build command, AND the
+include/library flags of libfuse3, to produce an executable with mount support:
 
 bash
-g++ -DZPAQMOUNT [...other build flags...] 
+g++ -O3 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread $(pkg-config fuse3 --cflags --libs)
+
+Let pkg-config fill those in: it is the one portable way of spelling them, and
+on a typical debian/Ubuntu it expands to about -I/usr/include/fuse3 -lfuse3.
+The -lfuse3 is not optional: leave it out and the compile goes fine, then the
+link ends in a wall of undefined references to fuse_main_real, fuse_new,
+fuse_mount and the rest of the library.
+Note that -static and libfuse3 do not get along: the executable links
+libfuse3.so and looks for it at run time.
 /// LICENSE_END.25
+
+FreeBSD (and the other BSDs, except OpenBSD which has a section of its own)
+The same idea as Linux, with three differences that are worth knowing before
+the first attempt, because each one of them stops the build (or the mount).
+
+Prerequisites
+
+pkg install fusefs-libs3     the FUSE 3 library AND its headers
+pkg install pkgconf          only if you want to use pkg-config, see below
+kldload fusefs               the kernel module, or nothing will ever mount
+echo 'fusefs_load="YES"' >> /boot/loader.conf    to get it at every boot
+
+Careful: fusefs-libs, WITHOUT the 3, is FUSE 2 and is NOT enough. Having it
+installed as well does no harm.
+
+Once FUSE is installed
+
+clang++ -O3 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread $(pkg-config fuse3 --cflags --libs)
+
+which is exactly the same as writing, by hand,
+
+clang++ -O3 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread -I/usr/local/include/fuse3 -L/usr/local/lib -lfuse3
+
+The -I is NOT optional, and not just to shorten the #include: the base clang
+of FreeBSD does not look into /usr/local/include at all, so without it the
+fuse header is not found, full stop.
+And no -static here, unlike the plain (non-mount) FreeBSD build: the
+executable links libfuse3.so.4 and finds it at run time.
+
+Unmounting
+fusefs-libs3 does NOT install fusermount3, that is a Linux thing. On FreeBSD
+one unmounts with Ctrl+C on the foreground process, or with
+
+umount /the/mountpoint
+
+from another terminal. There is no umount -l (lazy) either, it is a Linux
+extension: the BSDs have umount -f to force it.
+Ctrl+C, a SIGTERM and an umount from another terminal all end with zpaqfranz
+quitting by itself and nothing left mounted. A kill -9 is the exception, as
+everywhere with a kernel FUSE: the mountpoint stays there answering "Device
+not configured" until somebody runs umount on it.
+
+Speed
+FreeBSD asks for 128 KB per read, whatever st_blksize the mount declares
+(measured on 14.2), and that is a good size: nothing to tune. macOS is the
+one that needs a hand there, see MOUNT_BLKSIZE in the source.
+
+Tested on FreeBSD 14.2-RELEASE amd64, clang 18.1.6, fusefs-libs3 3.18.1:
+build with no warnings (-Wall), the tree of every version identical to what
+x extracts (plain, multipart and -key archives), writes refused, and a
+337 MB file read through the mount in 2.0 s with one decompression per
+block, the minimum possible (x extracts the same archive in 0.6 s).
+
+OpenBSD
+The odd one out, and for once the surprise is a good one: there is nothing
+to install. OpenBSD carries FUSE in the base system. It is a FUSE 2.6
+though, and there is no libfuse3 anywhere, ports included: the source
+notices where it is (ZPAQMOUNT_FUSE2, on __OpenBSD__) and builds against
+that API by itself.
+
+clang++ -O3 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread -lfuse
+
+-lfuse is the library of the base system, /usr/lib/libfuse.so: no -I, no
+pkg-config, nothing to add.
+
+The banner says JIT, and it did not use to. OpenBSD refuses memory that is
+writable and executable at once, so the JIT gave up and everything ran on
+the interpreter; from 65.3o the memory is asked writable and turned
+executable afterwards (mprotect), which is allowed, even from a partition
+that is not mounted wxallowed. What it is worth, on the 7.9 test machine:
+reading a 248 MB file through the mount went from 12 seconds to 1, x on the
+same archive from 7 to 2, and extracting a -m5 archive from 93 seconds to
+56. See THE JIT further up.
+
+Mounting needs root. OpenBSD has no user mounts any more: there is not even
+a kern.usermount left to turn on.
+
+Ctrl+C, and what it took to make it work. The file system loop sits in a
+read of /dev/fuse which a signal does not interrupt: SIGINT and SIGTERM
+arrive, nothing happens, and the process stays in "fusedr" (ps STAT/WCHAN)
+with the mountpoint still there. Touching the mountpoint to give the loop
+something to do does not help either. What does end it, and cleanly, is the
+unmount: so on OpenBSD those signals run umount on the mountpoint, and the
+loop comes to its end by itself (mount_signal_umount in the source).
+Ctrl+C, kill -TERM and kill -HUP then end with a clean exit and nothing
+left mounted, as everywhere else. A kill -9, as everywhere else, leaves the
+mountpoint behind: umount /the/mountpoint clears it.
+
+A read is exactly as big as the program asked for: 8 requests of 1 MB for a
+dd bs=1m, 2048 of 4 KB for a dd bs=4k, with no cache and no read-ahead in
+between. Nothing to tune here (no MOUNT_BLKSIZE as on macOS).
+
+Tested on OpenBSD 7.9 amd64, clang 19.1.7, the libfuse of the base system:
+build with no warnings, the tree of every version identical to what x
+extracts (plain, multipart and -key archives), writes refused, and both
+ways of unmounting clean. With the JIT on, an archive written and read back
+with -m1, -m2, -m3, -m4 and -m5 gives the same sha256 as the original, and
+the same as the interpreter produces.
+
+macOS
+There are two FUSE 3 for the Mac, and the source works with both of them.
+Both put their headers in /usr/local/include/fuse3 and their libfuse3.dylib
+in /usr/local/lib, one on top of the other: better to install just one
+(to have both, see "FUSE-T and macFUSE together" below).
+
+FUSE-T      https://www.fuse-t.org  (github.com/macos-fuse-t/fuse-t)
+            NO kernel extension: the library starts a helper (go-nfsv4) and
+            the Mac sees the archive as a local NFS share. Nothing to allow
+            in the settings, no reboot, Intel and Apple Silicon alike.
+            The .pkg from the github releases, or
+            brew tap macos-fuse-t/homebrew-cask && brew install fuse-t
+macFUSE     https://macfuse.github.io
+            a kernel extension, which has to be allowed by hand, followed by
+            a reboot; on Apple Silicon also "Reduced Security" from
+            recoveryOS. The .dmg from the site, or brew install --cask macfuse
+            Allowing it (macOS 12): after the install, System Preferences,
+            Security & Privacy, tab GENERAL (not Privacy), click the lock,
+            then "Allow" next to 'System software from developer "Benjamin
+            Fleischer" was blocked from loading', then restart. macOS 13+:
+            System Settings, Privacy & Security. No GUI at hand (ssh): boot
+            in recovery, Terminal, spctl kext-consent add 3T5GSNBU6W (the
+            Team ID of macFUSE), restart.
+
+Once FUSE is installed
+
+clang++ -O3 -std=c++11 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread -I/usr/local/include/fuse3 -L/usr/local/lib -Wl,-rpath,/usr/local/lib -lfuse3
+
+or $(pkg-config fuse3 --cflags --libs) in place of the last four, if there
+is a pkg-config (brew install pkgconf). Apple Silicon: add -DNOJIT.
+
+-std=c++11 is NOT optional: Apple clang still compiles C++98 by default, and
+this source does not build as C++98 (with or without the mount).
+-Wl,-rpath is for FUSE-T, whose libfuse3.4.dylib is @rpath/libfuse3.4.dylib:
+without it the build goes fine, then the executable does not start.
+FUSE-T 1.2.7 makes the linker say "dylib was built for newer macOS version
+(13.0) than being linked (12.0)": on macOS 12.7 it works all the same.
+
+macFUSE has "Darwin extensions", on by default, that change the prototypes
+of the callbacks (struct fuse_darwin_attr instead of struct stat): the source
+turns them off (FUSE_DARWIN_ENABLE_EXTENSIONS 0) and uses the plain libfuse
+API, the same one of Linux, FreeBSD, WinFsp and FUSE-T.
+
+No mountpoint on the command line (or a "*", as on Windows): zpaqfranz makes
+one and, once the file system answers, opens the Finder on it, the same way
+the Windows mount takes the first free drive letter and opens an Explorer
+window. It goes in /Volumes, where a Mac keeps its volumes, when there is the
+right to create it there (root), otherwise in the temporary folder of the
+user; either way it is removed when the mount ends, whatever ends it.
+A path given by hand, instead, has to exist and stay: it is not touched.
+
+The Finder shows the volume with the name of the archive (-fuseopt volname=X
+to choose another one). Unmount with Ctrl+C, with umount /the/mountpoint or
+with diskutil unmount /the/mountpoint. With FUSE-T not even a kill -9 leaves a
+dead mount behind: the helper notices and unmounts by itself. With macFUSE
+it does, as on Linux: "Device not configured" until umount /the/mountpoint.
+No birth time ("Created" in the Finder), same as the BSDs.
+
+macFUSE prints, at every mount,
+fuse: forking a threaded process is unsafe, the child may crash or deadlock
+It is macFUSE talking about itself: its fuse_main() starts the threads of
+the loop FIRST, then mounts from one of them by forking its mount_macfuse
+helper. zpaqfranz has no thread of its own at that point. Harmless.
+
+macFUSE reads a file in chunks as big as the st_blksize the filesystem
+declares for it: 4 KB, the old value, meant a 673 MB file read in 12 s
+instead of 1.2 s. On macOS the mount declares 1 MB. FUSE-T does not care.
+
+FUSE-T and macFUSE together
+Whoever was installed last owns /usr/local. FUSE-T keeps a full copy of
+itself in /Library/Application Support/fuse-t, so it can be used from there:
+
+clang++ -O3 -std=c++11 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread -I"/Library/Application Support/fuse-t/include" -L"/Library/Application Support/fuse-t/lib" -Wl,-rpath,"/Library/Application Support/fuse-t/lib" -lfuse3
+
+Note the -I: the folder ABOVE fuse3, so that <fuse3/fuse.h> is found there
+before /usr/local/include/fuse3 (which would be the macFUSE one).
+
+Tested on macOS 12.7.2 Intel, Apple clang 14.0.0, FUSE-T 1.2.7 and
+macFUSE 5.4.0: build with no warnings, the tree of every version identical
+to what x extracts (plain, multipart and -key archives), writes refused
+(macFUSE; on FUSE-T a touch says it worked and changes nothing), Ctrl+C,
+SIGTERM, umount and diskutil unmount all quitting by themselves with
+nothing left mounted, and a 673 MB file read through the mount in 1.1 s
+with macFUSE and 2.5 s with FUSE-T, one decompression per block, the
+minimum possible (x extracts the same archive in 2.2 s).
 
 /// LICENSE_START.26
 Windows
@@ -1635,6 +1888,7 @@ Add the following to your compiler flags (adjust the path if you installed WinFs
 
 Note: Without the -DZPAQMOUNT flag, the project builds normally, just without mount support.
 /// LICENSE_END.26
+///NOSFTPEND
 
 #ifdef ZPAQFULL ///NOSFTPSTART
 SFTP AND LIBCURL
@@ -1724,12 +1978,27 @@ g++ -O3 -Dunix zpaqfranz.cpp  -pthread -o zpaqfranz -static-libstdc++ -static-li
 FreeBSD (11.3) clang 6.0.0
 clang++ -O3 -Dunix zpaqfranz.cpp  -pthread -o zpaqfranz -static
 
+///NOSFTPSTART
+FreeBSD (14.2) clang 18.1.6, WITH the mount command (-DZPAQMOUNT)
+pkg install fusefs-libs3 pkgconf     (then kldload fusefs, once, to mount)
+clang++ -O3 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread $(pkg-config fuse3 --cflags --libs)
+No -static in this one: it links libfuse3.so.4. Details, and why the -I of
+pkg-config is not optional on FreeBSD, in "Building with Mount Support
+(ZPAQMOUNT)" further up
+
+OpenBSD 7.9 clang++ 19.1.7, WITH the mount command (-DZPAQMOUNT)
+Nothing to install: FUSE (a 2.6) is in the base system
+clang++ -O3 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread -lfuse
+Details in "Building with Mount Support (ZPAQMOUNT)" further up
+
+///NOSFTPEND
 OpenBSD 6.6 clang++ 8.0.1
 OpenBSD 7.1 clang++ 13.0.0
 WARNING: with very old g++ compiler try -DANCIENT
 ****
 Please note: you can get memory error, without -DNOJIT, on "strange" (non FreeBSD) machines
 because mmap does not like PROT_EXEC. On newer zpaqfranz use -nojit switch
+(from 65.3o a W^X system, OpenBSD for one, is handled by itself: see THE JIT)
 ****
 clang++ -Dunix -O3 zpaqfranz.cpp -o zpaqfranz -pthread -static
 
@@ -1797,6 +2066,14 @@ Apple, by default, does NOT like "long long", at all.
 As I have explained several times, I had to make compromises, such as the C++17 warnings.
 g++ -Dunix -O3 zpaqfranz.cpp -o zpaqfranz -pthread -std=c++11 -Wall -Wpedantic
 
+///NOSFTPSTART
+MacOS 12.7 clang 14.0.0, INTEL, WITH the mount command (-DZPAQMOUNT)
+FUSE-T (no kernel extension) or macFUSE installed, then
+clang++ -O3 -std=c++11 -Dunix -DZPAQMOUNT zpaqfranz.cpp -o zpaqfranz -pthread -I/usr/local/include/fuse3 -L/usr/local/lib -Wl,-rpath,/usr/local/lib -lfuse3
+Apple Silicon: add -DNOJIT. Details in "Building with Mount Support
+(ZPAQMOUNT)" further up
+
+///NOSFTPEND
 Mac PowerPC with gcc4.x
 Look at -DBIG (for BIG ENDIAN) and -DANCIENT (old-compiler)
 g++ -O3 -DBIG -DANCIENT -Dunix -DNOJIT zpaqfranz.cpp -o zpaqfranz -pthread
@@ -2086,6 +2363,9 @@ g++ -g -Wall -Wextra -Wpedantic -fsanitize=address,undefined -O3 zpaqfranz.cpp -
 	#include <string>
 	#include <sys/ioctl.h>
 	#include <sys/mman.h>
+	#include <sys/wait.h>
+	#include <errno.h>
+	#include <stdlib.h>
 
 	#include <pwd.h>
 	#include <grp.h>
@@ -2164,10 +2444,9520 @@ g++ -g -Wall -Wextra -Wpedantic -fsanitize=address,undefined -O3 zpaqfranz.cpp -
 #endif // corresponds to #ifdef (#ifdef unix)
 
 ////////////////////////////////////////////////////////////////////////////
+#if defined(_WIN32) || defined(ZPAQLZ4)
+/// LICENSE_START.22
+/*
+	LZ4 v1.10.0 by Yann Collet (BSD-2), lz4 + lz4hc: the ONLY LZ4 of zpaqfranz.
+	Used by -m6 (ZPAQLZ4, see LZ4_PCOMP) and, on Windows, by the file lists
+	kept in the NTFS alternate data streams (fill_ads, decompress_print),
+	which had a stripped LZ4 1.9 of their own until 65.3v: same format,
+	what 1.9 wrote 1.10 reads.
+	Every LZ4 name is ZLZ4, and all of it lives in namespace zlz4 (its enums
+	and tables have generic names, notLimited, byPtr, inc32table...). The
+	generic macros (KB, MB, MIN...) are saved before and given back after
+	(push_macro/pop_macro), so the rest of the source sees what it saw.
+	Generated from the LZ4 sources by make_zlz4.py: do not edit by hand
+*/
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+/* ---- LZ4 1.10.0 for -m6, generated by make_zlz4.py: do not edit by hand ---- */
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <limits.h>
+#define ZLZ4_STATIC_LINKING_ONLY
+#define ZLZ4_HC_STATIC_LINKING_ONLY
+#pragma push_macro("ADDPOS4")
+#undef ADDPOS4
+#pragma push_macro("ADDPOS8")
+#undef ADDPOS8
+#pragma push_macro("ALLOC")
+#undef ALLOC
+#pragma push_macro("ALLOC_AND_ZERO")
+#undef ALLOC_AND_ZERO
+#pragma push_macro("DEBUGLOG")
+#undef DEBUGLOG
+#pragma push_macro("DELTANEXTU16")
+#undef DELTANEXTU16
+#pragma push_macro("FASTLOOP_SAFE_DISTANCE")
+#undef FASTLOOP_SAFE_DISTANCE
+#pragma push_macro("FREEMEM")
+#undef FREEMEM
+#pragma push_macro("GB")
+#undef GB
+#pragma push_macro("HASH_FUNCTION")
+#undef HASH_FUNCTION
+#pragma push_macro("HASH_UNIT")
+#undef HASH_UNIT
+#pragma push_macro("KB")
+#undef KB
+#pragma push_macro("LASTLITERALS")
+#undef LASTLITERALS
+#pragma push_macro("MATCH_SAFEGUARD_DISTANCE")
+#undef MATCH_SAFEGUARD_DISTANCE
+#pragma push_macro("MAX")
+#undef MAX
+#pragma push_macro("MB")
+#undef MB
+#pragma push_macro("MEM_INIT")
+#undef MEM_INIT
+#pragma push_macro("MFLIMIT")
+#undef MFLIMIT
+#pragma push_macro("MIN")
+#undef MIN
+#pragma push_macro("MINMATCH")
+#undef MINMATCH
+#pragma push_macro("ML_BITS")
+#undef ML_BITS
+#pragma push_macro("ML_MASK")
+#undef ML_MASK
+#pragma push_macro("OPTIMAL_ML")
+#undef OPTIMAL_ML
+#pragma push_macro("RUN_BITS")
+#undef RUN_BITS
+#pragma push_macro("RUN_MASK")
+#undef RUN_MASK
+#pragma push_macro("STEPSIZE")
+#undef STEPSIZE
+#pragma push_macro("TRAILING_LITERALS")
+#undef TRAILING_LITERALS
+#pragma push_macro("UPDATABLE")
+#undef UPDATABLE
+#pragma push_macro("WILDCOPYLENGTH")
+#undef WILDCOPYLENGTH
+#pragma push_macro("anchor")
+#undef anchor
+#pragma push_macro("assert")
+#undef assert
+#pragma push_macro("expect")
+#undef expect
+#pragma push_macro("ip")
+#undef ip
+#pragma push_macro("likely")
+#undef likely
+#pragma push_macro("op")
+#undef op
+#pragma push_macro("unlikely")
+#undef unlikely
+namespace zlz4 {
+/* ======== lz4.h (ZLZ4 v1.10.0, BSD-2, renamed ZLZ4->ZZLZ4) ======== */
+/*
+ *  ZLZ4 - Fast LZ compression algorithm
+ *  Header File
+ *  Copyright (C) 2011-2023, Yann Collet.
+
+   BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+
+       * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following disclaimer
+   in the documentation and/or other materials provided with the
+   distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   You can contact the author at :
+    - ZLZ4 homepage : http://www.lz4.org
+    - ZLZ4 source repository : https://github.com/lz4/lz4
+*/
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
+#ifndef ZLZ4_H_2983827168210
+#define ZLZ4_H_2983827168210
+
+/* --- Dependency --- */
+#include <stddef.h>   /* size_t */
+
+
+/**
+  Introduction
+
+  ZLZ4 is lossless compression algorithm, providing compression speed >500 MB/s per core,
+  scalable with multi-cores CPU. It features an extremely fast decoder, with speed in
+  multiple GB/s per core, typically reaching RAM speed limits on multi-core systems.
+
+  The ZLZ4 compression library provides in-memory compression and decompression functions.
+  It gives full buffer control to user.
+  Compression can be done in:
+    - a single step (described as Simple Functions)
+    - a single step, reusing a context (described in Advanced Functions)
+    - unbounded multiple steps (described as Streaming compression)
+
+  lz4.h generates and decodes ZLZ4-compressed blocks (doc/lz4_Block_format.md).
+  Decompressing such a compressed block requires additional metadata.
+  Exact metadata depends on exact decompression function.
+  For the typical case of ZLZ4_decompress_safe(),
+  metadata includes block's compressed size, and maximum bound of decompressed size.
+  Each application is free to encode and pass such metadata in whichever way it wants.
+
+  lz4.h only handle blocks, it can not generate Frames.
+
+  Blocks are different from Frames (doc/lz4_Frame_format.md).
+  Frames bundle both blocks and metadata in a specified manner.
+  Embedding metadata is required for compressed data to be self-contained and portable.
+  Frame format is delivered through a companion API, declared in lz4frame.h.
+  The `lz4` CLI can only manage frames.
+*/
+
+/*^***************************************************************
+*  Export parameters
+*****************************************************************/
+/*
+*  ZLZ4_DLL_EXPORT :
+*  Enable exporting of functions when building a Windows DLL
+*  ZLZ4LIB_VISIBILITY :
+*  Control library symbols visibility.
+*/
+#ifndef ZLZ4LIB_VISIBILITY
+#  if defined(__GNUC__) && (__GNUC__ >= 4)
+#    define ZLZ4LIB_VISIBILITY __attribute__ ((visibility ("default")))
+#  else
+#    define ZLZ4LIB_VISIBILITY
+#  endif
+#endif
+#if defined(ZLZ4_DLL_EXPORT) && (ZLZ4_DLL_EXPORT==1)
+#  define ZLZ4LIB_API __declspec(dllexport) ZLZ4LIB_VISIBILITY
+#elif defined(ZLZ4_DLL_IMPORT) && (ZLZ4_DLL_IMPORT==1)
+#  define ZLZ4LIB_API __declspec(dllimport) ZLZ4LIB_VISIBILITY /* It isn't required but allows to generate better code, saving a function pointer load from the IAT and an indirect jump.*/
+#else
+#  define ZLZ4LIB_API ZLZ4LIB_VISIBILITY
+#endif
+
+/*! ZLZ4_FREESTANDING :
+ *  When this macro is set to 1, it enables "freestanding mode" that is
+ *  suitable for typical freestanding environment which doesn't support
+ *  standard C library.
+ *
+ *  - ZLZ4_FREESTANDING is a compile-time switch.
+ *  - It requires the following macros to be defined:
+ *    ZLZ4_memcpy, ZLZ4_memmove, ZLZ4_memset.
+ *  - It only enables ZLZ4/HC functions which don't use heap.
+ *    All ZLZ4F_* functions are not supported.
+ *  - See tests/freestanding.c to check its basic setup.
+ */
+#if defined(ZLZ4_FREESTANDING) && (ZLZ4_FREESTANDING == 1)
+#  define ZLZ4_HEAPMODE 0
+#  define ZLZ4HC_HEAPMODE 0
+#  define ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION 1
+#  if !defined(ZLZ4_memcpy)
+#    error "ZLZ4_FREESTANDING requires macro 'ZLZ4_memcpy'."
+#  endif
+#  if !defined(ZLZ4_memset)
+#    error "ZLZ4_FREESTANDING requires macro 'ZLZ4_memset'."
+#  endif
+#  if !defined(ZLZ4_memmove)
+#    error "ZLZ4_FREESTANDING requires macro 'ZLZ4_memmove'."
+#  endif
+#elif ! defined(ZLZ4_FREESTANDING)
+#  define ZLZ4_FREESTANDING 0
+#endif
+
+
+/*------   Version   ------*/
+#define ZLZ4_VERSION_MAJOR    1    /* for breaking interface changes  */
+#define ZLZ4_VERSION_MINOR   10    /* for new (non-breaking) interface capabilities */
+#define ZLZ4_VERSION_RELEASE  0    /* for tweaks, bug-fixes, or development */
+
+#define ZLZ4_VERSION_NUMBER (ZLZ4_VERSION_MAJOR *100*100 + ZLZ4_VERSION_MINOR *100 + ZLZ4_VERSION_RELEASE)
+
+#define ZLZ4_LIB_VERSION ZLZ4_VERSION_MAJOR.ZLZ4_VERSION_MINOR.ZLZ4_VERSION_RELEASE
+#define ZLZ4_QUOTE(str) #str
+#define ZLZ4_EXPAND_AND_QUOTE(str) ZLZ4_QUOTE(str)
+#define ZLZ4_VERSION_STRING ZLZ4_EXPAND_AND_QUOTE(ZLZ4_LIB_VERSION)  /* requires v1.7.3+ */
+
+ZLZ4LIB_API int ZLZ4_versionNumber (void);  /**< library version number; useful to check dll version; requires v1.3.0+ */
+ZLZ4LIB_API const char* ZLZ4_versionString (void);   /**< library version string; useful to check dll version; requires v1.7.5+ */
+
+
+/*-************************************
+*  Tuning memory usage
+**************************************/
+/*!
+ * ZLZ4_MEMORY_USAGE :
+ * Can be selected at compile time, by setting ZLZ4_MEMORY_USAGE.
+ * Memory usage formula : N->2^N Bytes (examples : 10 -> 1KB; 12 -> 4KB ; 16 -> 64KB; 20 -> 1MB)
+ * Increasing memory usage improves compression ratio, generally at the cost of speed.
+ * Reduced memory usage may improve speed at the cost of ratio, thanks to better cache locality.
+ * Default value is 14, for 16KB, which nicely fits into most L1 caches.
+ */
+#ifndef ZLZ4_MEMORY_USAGE
+# define ZLZ4_MEMORY_USAGE ZLZ4_MEMORY_USAGE_DEFAULT
+#endif
+
+/* These are absolute limits, they should not be changed by users */
+#define ZLZ4_MEMORY_USAGE_MIN 10
+#define ZLZ4_MEMORY_USAGE_DEFAULT 14
+#define ZLZ4_MEMORY_USAGE_MAX 20
+
+#if (ZLZ4_MEMORY_USAGE < ZLZ4_MEMORY_USAGE_MIN)
+#  error "ZLZ4_MEMORY_USAGE is too small !"
+#endif
+
+#if (ZLZ4_MEMORY_USAGE > ZLZ4_MEMORY_USAGE_MAX)
+#  error "ZLZ4_MEMORY_USAGE is too large !"
+#endif
+
+/*-************************************
+*  Simple Functions
+**************************************/
+/*! ZLZ4_compress_default() :
+ *  Compresses 'srcSize' bytes from buffer 'src'
+ *  into already allocated 'dst' buffer of size 'dstCapacity'.
+ *  Compression is guaranteed to succeed if 'dstCapacity' >= ZLZ4_compressBound(srcSize).
+ *  It also runs faster, so it's a recommended setting.
+ *  If the function cannot compress 'src' into a more limited 'dst' budget,
+ *  compression stops *immediately*, and the function result is zero.
+ *  In which case, 'dst' content is undefined (invalid).
+ *      srcSize : max supported value is ZLZ4_MAX_INPUT_SIZE.
+ *      dstCapacity : size of buffer 'dst' (which must be already allocated)
+ *     @return  : the number of bytes written into buffer 'dst' (necessarily <= dstCapacity)
+ *                or 0 if compression fails
+ * Note : This function is protected against buffer overflow scenarios (never writes outside 'dst' buffer, nor read outside 'source' buffer).
+ */
+ZLZ4LIB_API int ZLZ4_compress_default(const char* src, char* dst, int srcSize, int dstCapacity);
+
+/*! ZLZ4_decompress_safe() :
+ * @compressedSize : is the exact complete size of the compressed block.
+ * @dstCapacity : is the size of destination buffer (which must be already allocated),
+ *                presumed an upper bound of decompressed size.
+ * @return : the number of bytes decompressed into destination buffer (necessarily <= dstCapacity)
+ *           If destination buffer is not large enough, decoding will stop and output an error code (negative value).
+ *           If the source stream is detected malformed, the function will stop decoding and return a negative result.
+ * Note 1 : This function is protected against malicious data packets :
+ *          it will never writes outside 'dst' buffer, nor read outside 'source' buffer,
+ *          even if the compressed block is maliciously modified to order the decoder to do these actions.
+ *          In such case, the decoder stops immediately, and considers the compressed block malformed.
+ * Note 2 : compressedSize and dstCapacity must be provided to the function, the compressed block does not contain them.
+ *          The implementation is free to send / store / derive this information in whichever way is most beneficial.
+ *          If there is a need for a different format which bundles together both compressed data and its metadata, consider looking at lz4frame.h instead.
+ */
+ZLZ4LIB_API int ZLZ4_decompress_safe (const char* src, char* dst, int compressedSize, int dstCapacity);
+
+
+/*-************************************
+*  Advanced Functions
+**************************************/
+#define ZLZ4_MAX_INPUT_SIZE        0x7E000000   /* 2 113 929 216 bytes */
+#define ZLZ4_COMPRESSBOUND(isize)  ((unsigned)(isize) > (unsigned)ZLZ4_MAX_INPUT_SIZE ? 0 : (isize) + ((isize)/255) + 16)
+
+/*! ZLZ4_compressBound() :
+    Provides the maximum size that ZLZ4 compression may output in a "worst case" scenario (input data not compressible)
+    This function is primarily useful for memory allocation purposes (destination buffer size).
+    Macro ZLZ4_COMPRESSBOUND() is also provided for compilation-time evaluation (stack memory allocation for example).
+    Note that ZLZ4_compress_default() compresses faster when dstCapacity is >= ZLZ4_compressBound(srcSize)
+        inputSize  : max supported value is ZLZ4_MAX_INPUT_SIZE
+        return : maximum output size in a "worst case" scenario
+              or 0, if input size is incorrect (too large or negative)
+*/
+ZLZ4LIB_API int ZLZ4_compressBound(int inputSize);
+
+/*! ZLZ4_compress_fast() :
+    Same as ZLZ4_compress_default(), but allows selection of "acceleration" factor.
+    The larger the acceleration value, the faster the algorithm, but also the lesser the compression.
+    It's a trade-off. It can be fine tuned, with each successive value providing roughly +~3% to speed.
+    An acceleration value of "1" is the same as regular ZLZ4_compress_default()
+    Values <= 0 will be replaced by ZLZ4_ACCELERATION_DEFAULT (currently == 1, see lz4.c).
+    Values > ZLZ4_ACCELERATION_MAX will be replaced by ZLZ4_ACCELERATION_MAX (currently == 65537, see lz4.c).
+*/
+ZLZ4LIB_API int ZLZ4_compress_fast (const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
+
+
+/*! ZLZ4_compress_fast_extState() :
+ *  Same as ZLZ4_compress_fast(), using an externally allocated memory space for its state.
+ *  Use ZLZ4_sizeofState() to know how much memory must be allocated,
+ *  and allocate it on 8-bytes boundaries (using `malloc()` typically).
+ *  Then, provide this buffer as `void* state` to compression function.
+ */
+ZLZ4LIB_API int ZLZ4_sizeofState(void);
+ZLZ4LIB_API int ZLZ4_compress_fast_extState (void* state, const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
+
+/*! ZLZ4_compress_destSize() :
+ *  Reverse the logic : compresses as much data as possible from 'src' buffer
+ *  into already allocated buffer 'dst', of size >= 'dstCapacity'.
+ *  This function either compresses the entire 'src' content into 'dst' if it's large enough,
+ *  or fill 'dst' buffer completely with as much data as possible from 'src'.
+ *  note: acceleration parameter is fixed to "default".
+ *
+ * *srcSizePtr : in+out parameter. Initially contains size of input.
+ *               Will be modified to indicate how many bytes where read from 'src' to fill 'dst'.
+ *               New value is necessarily <= input value.
+ * @return : Nb bytes written into 'dst' (necessarily <= dstCapacity)
+ *           or 0 if compression fails.
+ *
+ * Note : from v1.8.2 to v1.9.1, this function had a bug (fixed in v1.9.2+):
+ *        the produced compressed content could, in specific circumstances,
+ *        require to be decompressed into a destination buffer larger
+ *        by at least 1 byte than the content to decompress.
+ *        If an application uses `ZLZ4_compress_destSize()`,
+ *        it's highly recommended to update liblz4 to v1.9.2 or better.
+ *        If this can't be done or ensured,
+ *        the receiving decompression function should provide
+ *        a dstCapacity which is > decompressedSize, by at least 1 byte.
+ *        See https://github.com/lz4/lz4/issues/859 for details
+ */
+ZLZ4LIB_API int ZLZ4_compress_destSize(const char* src, char* dst, int* srcSizePtr, int targetDstSize);
+
+/*! ZLZ4_decompress_safe_partial() :
+ *  Decompress an ZLZ4 compressed block, of size 'srcSize' at position 'src',
+ *  into destination buffer 'dst' of size 'dstCapacity'.
+ *  Up to 'targetOutputSize' bytes will be decoded.
+ *  The function stops decoding on reaching this objective.
+ *  This can be useful to boost performance
+ *  whenever only the beginning of a block is required.
+ *
+ * @return : the number of bytes decoded in `dst` (necessarily <= targetOutputSize)
+ *           If source stream is detected malformed, function returns a negative result.
+ *
+ *  Note 1 : @return can be < targetOutputSize, if compressed block contains less data.
+ *
+ *  Note 2 : targetOutputSize must be <= dstCapacity
+ *
+ *  Note 3 : this function effectively stops decoding on reaching targetOutputSize,
+ *           so dstCapacity is kind of redundant.
+ *           This is because in older versions of this function,
+ *           decoding operation would still write complete sequences.
+ *           Therefore, there was no guarantee that it would stop writing at exactly targetOutputSize,
+ *           it could write more bytes, though only up to dstCapacity.
+ *           Some "margin" used to be required for this operation to work properly.
+ *           Thankfully, this is no longer necessary.
+ *           The function nonetheless keeps the same signature, in an effort to preserve API compatibility.
+ *
+ *  Note 4 : If srcSize is the exact size of the block,
+ *           then targetOutputSize can be any value,
+ *           including larger than the block's decompressed size.
+ *           The function will, at most, generate block's decompressed size.
+ *
+ *  Note 5 : If srcSize is _larger_ than block's compressed size,
+ *           then targetOutputSize **MUST** be <= block's decompressed size.
+ *           Otherwise, *silent corruption will occur*.
+ */
+ZLZ4LIB_API int ZLZ4_decompress_safe_partial (const char* src, char* dst, int srcSize, int targetOutputSize, int dstCapacity);
+
+
+/*-*********************************************
+*  Streaming Compression Functions
+***********************************************/
+typedef union ZLZ4_stream_u ZLZ4_stream_t;  /* incomplete type (defined later) */
+
+/*!
+ Note about RC_INVOKED
+
+ - RC_INVOKED is predefined symbol of rc.exe (the resource compiler which is part of MSVC/Visual Studio).
+   https://docs.microsoft.com/en-us/windows/win32/menurc/predefined-macros
+
+ - Since rc.exe is a legacy compiler, it truncates long symbol (> 30 chars)
+   and reports warning "RC4011: identifier truncated".
+
+ - To eliminate the warning, we surround long preprocessor symbol with
+   "#if !defined(RC_INVOKED) ... #endif" block that means
+   "skip this block when rc.exe is trying to read it".
+*/
+#if !defined(RC_INVOKED) /* https://docs.microsoft.com/en-us/windows/win32/menurc/predefined-macros */
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+ZLZ4LIB_API ZLZ4_stream_t* ZLZ4_createStream(void);
+ZLZ4LIB_API int           ZLZ4_freeStream (ZLZ4_stream_t* streamPtr);
+#endif /* !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION) */
+#endif
+
+/*! ZLZ4_resetStream_fast() : v1.9.0+
+ *  Use this to prepare an ZLZ4_stream_t for a new chain of dependent blocks
+ *  (e.g., ZLZ4_compress_fast_continue()).
+ *
+ *  An ZLZ4_stream_t must be initialized once before usage.
+ *  This is automatically done when created by ZLZ4_createStream().
+ *  However, should the ZLZ4_stream_t be simply declared on stack (for example),
+ *  it's necessary to initialize it first, using ZLZ4_initStream().
+ *
+ *  After init, start any new stream with ZLZ4_resetStream_fast().
+ *  A same ZLZ4_stream_t can be re-used multiple times consecutively
+ *  and compress multiple streams,
+ *  provided that it starts each new stream with ZLZ4_resetStream_fast().
+ *
+ *  ZLZ4_resetStream_fast() is much faster than ZLZ4_initStream(),
+ *  but is not compatible with memory regions containing garbage data.
+ *
+ *  Note: it's only useful to call ZLZ4_resetStream_fast()
+ *        in the context of streaming compression.
+ *        The *extState* functions perform their own resets.
+ *        Invoking ZLZ4_resetStream_fast() before is redundant, and even counterproductive.
+ */
+ZLZ4LIB_API void ZLZ4_resetStream_fast (ZLZ4_stream_t* streamPtr);
+
+/*! ZLZ4_loadDict() :
+ *  Use this function to reference a static dictionary into ZLZ4_stream_t.
+ *  The dictionary must remain available during compression.
+ *  ZLZ4_loadDict() triggers a reset, so any previous data will be forgotten.
+ *  The same dictionary will have to be loaded on decompression side for successful decoding.
+ *  Dictionary are useful for better compression of small data (KB range).
+ *  While ZLZ4 itself accepts any input as dictionary, dictionary efficiency is also a topic.
+ *  When in doubt, employ the Zstandard's Dictionary Builder.
+ *  Loading a size of 0 is allowed, and is the same as reset.
+ * @return : loaded dictionary size, in bytes (note: only the last 64 KB are loaded)
+ */
+ZLZ4LIB_API int ZLZ4_loadDict (ZLZ4_stream_t* streamPtr, const char* dictionary, int dictSize);
+
+/*! ZLZ4_loadDictSlow() : v1.10.0+
+ *  Same as ZLZ4_loadDict(),
+ *  but uses a bit more cpu to reference the dictionary content more thoroughly.
+ *  This is expected to slightly improve compression ratio.
+ *  The extra-cpu cost is likely worth it if the dictionary is re-used across multiple sessions.
+ * @return : loaded dictionary size, in bytes (note: only the last 64 KB are loaded)
+ */
+ZLZ4LIB_API int ZLZ4_loadDictSlow(ZLZ4_stream_t* streamPtr, const char* dictionary, int dictSize);
+
+/*! ZLZ4_attach_dictionary() : stable since v1.10.0
+ *
+ *  This allows efficient re-use of a static dictionary multiple times.
+ *
+ *  Rather than re-loading the dictionary buffer into a working context before
+ *  each compression, or copying a pre-loaded dictionary's ZLZ4_stream_t into a
+ *  working ZLZ4_stream_t, this function introduces a no-copy setup mechanism,
+ *  in which the working stream references @dictionaryStream in-place.
+ *
+ *  Several assumptions are made about the state of @dictionaryStream.
+ *  Currently, only states which have been prepared by ZLZ4_loadDict() or
+ *  ZLZ4_loadDictSlow() should be expected to work.
+ *
+ *  Alternatively, the provided @dictionaryStream may be NULL,
+ *  in which case any existing dictionary stream is unset.
+ *
+ *  If a dictionary is provided, it replaces any pre-existing stream history.
+ *  The dictionary contents are the only history that can be referenced and
+ *  logically immediately precede the data compressed in the first subsequent
+ *  compression call.
+ *
+ *  The dictionary will only remain attached to the working stream through the
+ *  first compression call, at the end of which it is cleared.
+ * @dictionaryStream stream (and source buffer) must remain in-place / accessible / unchanged
+ *  through the completion of the compression session.
+ *
+ *  Note: there is no equivalent ZLZ4_attach_*() method on the decompression side
+ *  because there is no initialization cost, hence no need to share the cost across multiple sessions.
+ *  To decompress ZLZ4 blocks using dictionary, attached or not,
+ *  just employ the regular ZLZ4_setStreamDecode() for streaming,
+ *  or the stateless ZLZ4_decompress_safe_usingDict() for one-shot decompression.
+ */
+ZLZ4LIB_API void
+ZLZ4_attach_dictionary(ZLZ4_stream_t* workingStream,
+                const ZLZ4_stream_t* dictionaryStream);
+
+/*! ZLZ4_compress_fast_continue() :
+ *  Compress 'src' content using data from previously compressed blocks, for better compression ratio.
+ * 'dst' buffer must be already allocated.
+ *  If dstCapacity >= ZLZ4_compressBound(srcSize), compression is guaranteed to succeed, and runs faster.
+ *
+ * @return : size of compressed block
+ *           or 0 if there is an error (typically, cannot fit into 'dst').
+ *
+ *  Note 1 : Each invocation to ZLZ4_compress_fast_continue() generates a new block.
+ *           Each block has precise boundaries.
+ *           Each block must be decompressed separately, calling ZLZ4_decompress_*() with relevant metadata.
+ *           It's not possible to append blocks together and expect a single invocation of ZLZ4_decompress_*() to decompress them together.
+ *
+ *  Note 2 : The previous 64KB of source data is __assumed__ to remain present, unmodified, at same address in memory !
+ *
+ *  Note 3 : When input is structured as a double-buffer, each buffer can have any size, including < 64 KB.
+ *           Make sure that buffers are separated, by at least one byte.
+ *           This construction ensures that each block only depends on previous block.
+ *
+ *  Note 4 : If input buffer is a ring-buffer, it can have any size, including < 64 KB.
+ *
+ *  Note 5 : After an error, the stream status is undefined (invalid), it can only be reset or freed.
+ */
+ZLZ4LIB_API int ZLZ4_compress_fast_continue (ZLZ4_stream_t* streamPtr, const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
+
+/*! ZLZ4_saveDict() :
+ *  If last 64KB data cannot be guaranteed to remain available at its current memory location,
+ *  save it into a safer place (char* safeBuffer).
+ *  This is schematically equivalent to a memcpy() followed by ZLZ4_loadDict(),
+ *  but is much faster, because ZLZ4_saveDict() doesn't need to rebuild tables.
+ * @return : saved dictionary size in bytes (necessarily <= maxDictSize), or 0 if error.
+ */
+ZLZ4LIB_API int ZLZ4_saveDict (ZLZ4_stream_t* streamPtr, char* safeBuffer, int maxDictSize);
+
+
+/*-**********************************************
+*  Streaming Decompression Functions
+*  Bufferless synchronous API
+************************************************/
+typedef union ZLZ4_streamDecode_u ZLZ4_streamDecode_t;   /* tracking context */
+
+/*! ZLZ4_createStreamDecode() and ZLZ4_freeStreamDecode() :
+ *  creation / destruction of streaming decompression tracking context.
+ *  A tracking context can be re-used multiple times.
+ */
+#if !defined(RC_INVOKED) /* https://docs.microsoft.com/en-us/windows/win32/menurc/predefined-macros */
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+ZLZ4LIB_API ZLZ4_streamDecode_t* ZLZ4_createStreamDecode(void);
+ZLZ4LIB_API int                 ZLZ4_freeStreamDecode (ZLZ4_streamDecode_t* ZLZ4_stream);
+#endif /* !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION) */
+#endif
+
+/*! ZLZ4_setStreamDecode() :
+ *  An ZLZ4_streamDecode_t context can be allocated once and re-used multiple times.
+ *  Use this function to start decompression of a new stream of blocks.
+ *  A dictionary can optionally be set. Use NULL or size 0 for a reset order.
+ *  Dictionary is presumed stable : it must remain accessible and unmodified during next decompression.
+ * @return : 1 if OK, 0 if error
+ */
+ZLZ4LIB_API int ZLZ4_setStreamDecode (ZLZ4_streamDecode_t* ZLZ4_streamDecode, const char* dictionary, int dictSize);
+
+/*! ZLZ4_decoderRingBufferSize() : v1.8.2+
+ *  Note : in a ring buffer scenario (optional),
+ *  blocks are presumed decompressed next to each other
+ *  up to the moment there is not enough remaining space for next block (remainingSize < maxBlockSize),
+ *  at which stage it resumes from beginning of ring buffer.
+ *  When setting such a ring buffer for streaming decompression,
+ *  provides the minimum size of this ring buffer
+ *  to be compatible with any source respecting maxBlockSize condition.
+ * @return : minimum ring buffer size,
+ *           or 0 if there is an error (invalid maxBlockSize).
+ */
+ZLZ4LIB_API int ZLZ4_decoderRingBufferSize(int maxBlockSize);
+#define ZLZ4_DECODER_RING_BUFFER_SIZE(maxBlockSize) (65536 + 14 + (maxBlockSize))  /* for static allocation; maxBlockSize presumed valid */
+
+/*! ZLZ4_decompress_safe_continue() :
+ *  This decoding function allows decompression of consecutive blocks in "streaming" mode.
+ *  The difference with the usual independent blocks is that
+ *  new blocks are allowed to find references into former blocks.
+ *  A block is an unsplittable entity, and must be presented entirely to the decompression function.
+ *  ZLZ4_decompress_safe_continue() only accepts one block at a time.
+ *  It's modeled after `ZLZ4_decompress_safe()` and behaves similarly.
+ *
+ * @ZLZ4_streamDecode : decompression state, tracking the position in memory of past data
+ * @compressedSize : exact complete size of one compressed block.
+ * @dstCapacity : size of destination buffer (which must be already allocated),
+ *                must be an upper bound of decompressed size.
+ * @return : number of bytes decompressed into destination buffer (necessarily <= dstCapacity)
+ *           If destination buffer is not large enough, decoding will stop and output an error code (negative value).
+ *           If the source stream is detected malformed, the function will stop decoding and return a negative result.
+ *
+ *  The last 64KB of previously decoded data *must* remain available and unmodified
+ *  at the memory position where they were previously decoded.
+ *  If less than 64KB of data has been decoded, all the data must be present.
+ *
+ *  Special : if decompression side sets a ring buffer, it must respect one of the following conditions :
+ *  - Decompression buffer size is _at least_ ZLZ4_decoderRingBufferSize(maxBlockSize).
+ *    maxBlockSize is the maximum size of any single block. It can have any value > 16 bytes.
+ *    In which case, encoding and decoding buffers do not need to be synchronized.
+ *    Actually, data can be produced by any source compliant with ZLZ4 format specification, and respecting maxBlockSize.
+ *  - Synchronized mode :
+ *    Decompression buffer size is _exactly_ the same as compression buffer size,
+ *    and follows exactly same update rule (block boundaries at same positions),
+ *    and decoding function is provided with exact decompressed size of each block (exception for last block of the stream),
+ *    _then_ decoding & encoding ring buffer can have any size, including small ones ( < 64 KB).
+ *  - Decompression buffer is larger than encoding buffer, by a minimum of maxBlockSize more bytes.
+ *    In which case, encoding and decoding buffers do not need to be synchronized,
+ *    and encoding ring buffer can have any size, including small ones ( < 64 KB).
+ *
+ *  Whenever these conditions are not possible,
+ *  save the last 64KB of decoded data into a safe buffer where it can't be modified during decompression,
+ *  then indicate where this data is saved using ZLZ4_setStreamDecode(), before decompressing next block.
+*/
+ZLZ4LIB_API int
+ZLZ4_decompress_safe_continue (ZLZ4_streamDecode_t* ZLZ4_streamDecode,
+                        const char* src, char* dst,
+                        int srcSize, int dstCapacity);
+
+
+/*! ZLZ4_decompress_safe_usingDict() :
+ *  Works the same as
+ *  a combination of ZLZ4_setStreamDecode() followed by ZLZ4_decompress_safe_continue()
+ *  However, it's stateless: it doesn't need any ZLZ4_streamDecode_t state.
+ *  Dictionary is presumed stable : it must remain accessible and unmodified during decompression.
+ *  Performance tip : Decompression speed can be substantially increased
+ *                    when dst == dictStart + dictSize.
+ */
+ZLZ4LIB_API int
+ZLZ4_decompress_safe_usingDict(const char* src, char* dst,
+                              int srcSize, int dstCapacity,
+                              const char* dictStart, int dictSize);
+
+/*! ZLZ4_decompress_safe_partial_usingDict() :
+ *  Behaves the same as ZLZ4_decompress_safe_partial()
+ *  with the added ability to specify a memory segment for past data.
+ *  Performance tip : Decompression speed can be substantially increased
+ *                    when dst == dictStart + dictSize.
+ */
+ZLZ4LIB_API int
+ZLZ4_decompress_safe_partial_usingDict(const char* src, char* dst,
+                                      int compressedSize,
+                                      int targetOutputSize, int maxOutputSize,
+                                      const char* dictStart, int dictSize);
+
+#endif /* ZLZ4_H_2983827168210 */
+
+
+/*^*************************************
+ * !!!!!!   STATIC LINKING ONLY   !!!!!!
+ ***************************************/
+
+/*-****************************************************************************
+ * Experimental section
+ *
+ * Symbols declared in this section must be considered unstable. Their
+ * signatures or semantics may change, or they may be removed altogether in the
+ * future. They are therefore only safe to depend on when the caller is
+ * statically linked against the library.
+ *
+ * To protect against unsafe usage, not only are the declarations guarded,
+ * the definitions are hidden by default
+ * when building ZLZ4 as a shared/dynamic library.
+ *
+ * In order to access these declarations,
+ * define ZLZ4_STATIC_LINKING_ONLY in your application
+ * before including ZLZ4's headers.
+ *
+ * In order to make their implementations accessible dynamically, you must
+ * define ZLZ4_PUBLISH_STATIC_FUNCTIONS when building the ZLZ4 library.
+ ******************************************************************************/
+
+#ifdef ZLZ4_STATIC_LINKING_ONLY
+
+#ifndef ZLZ4_STATIC_3504398509
+#define ZLZ4_STATIC_3504398509
+
+#ifdef ZLZ4_PUBLISH_STATIC_FUNCTIONS
+# define ZLZ4LIB_STATIC_API ZLZ4LIB_API
+#else
+# define ZLZ4LIB_STATIC_API
+#endif
+
+
+/*! ZLZ4_compress_fast_extState_fastReset() :
+ *  A variant of ZLZ4_compress_fast_extState().
+ *
+ *  Using this variant avoids an expensive initialization step.
+ *  It is only safe to call if the state buffer is known to be correctly initialized already
+ *  (see above comment on ZLZ4_resetStream_fast() for a definition of "correctly initialized").
+ *  From a high level, the difference is that
+ *  this function initializes the provided state with a call to something like ZLZ4_resetStream_fast()
+ *  while ZLZ4_compress_fast_extState() starts with a call to ZLZ4_resetStream().
+ */
+ZLZ4LIB_STATIC_API int ZLZ4_compress_fast_extState_fastReset (void* state, const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
+
+/*! ZLZ4_compress_destSize_extState() : introduced in v1.10.0
+ *  Same as ZLZ4_compress_destSize(), but using an externally allocated state.
+ *  Also: exposes @acceleration
+ */
+int ZLZ4_compress_destSize_extState(void* state, const char* src, char* dst, int* srcSizePtr, int targetDstSize, int acceleration);
+
+/*! In-place compression and decompression
+ *
+ * It's possible to have input and output sharing the same buffer,
+ * for highly constrained memory environments.
+ * In both cases, it requires input to lay at the end of the buffer,
+ * and decompression to start at beginning of the buffer.
+ * Buffer size must feature some margin, hence be larger than final size.
+ *
+ * |<------------------------buffer--------------------------------->|
+ *                             |<-----------compressed data--------->|
+ * |<-----------decompressed size------------------>|
+ *                                                  |<----margin---->|
+ *
+ * This technique is more useful for decompression,
+ * since decompressed size is typically larger,
+ * and margin is short.
+ *
+ * In-place decompression will work inside any buffer
+ * which size is >= ZLZ4_DECOMPRESS_INPLACE_BUFFER_SIZE(decompressedSize).
+ * This presumes that decompressedSize > compressedSize.
+ * Otherwise, it means compression actually expanded data,
+ * and it would be more efficient to store such data with a flag indicating it's not compressed.
+ * This can happen when data is not compressible (already compressed, or encrypted).
+ *
+ * For in-place compression, margin is larger, as it must be able to cope with both
+ * history preservation, requiring input data to remain unmodified up to ZLZ4_DISTANCE_MAX,
+ * and data expansion, which can happen when input is not compressible.
+ * As a consequence, buffer size requirements are much higher,
+ * and memory savings offered by in-place compression are more limited.
+ *
+ * There are ways to limit this cost for compression :
+ * - Reduce history size, by modifying ZLZ4_DISTANCE_MAX.
+ *   Note that it is a compile-time constant, so all compressions will apply this limit.
+ *   Lower values will reduce compression ratio, except when input_size < ZLZ4_DISTANCE_MAX,
+ *   so it's a reasonable trick when inputs are known to be small.
+ * - Require the compressor to deliver a "maximum compressed size".
+ *   This is the `dstCapacity` parameter in `ZLZ4_compress*()`.
+ *   When this size is < ZLZ4_COMPRESSBOUND(inputSize), then compression can fail,
+ *   in which case, the return code will be 0 (zero).
+ *   The caller must be ready for these cases to happen,
+ *   and typically design a backup scheme to send data uncompressed.
+ * The combination of both techniques can significantly reduce
+ * the amount of margin required for in-place compression.
+ *
+ * In-place compression can work in any buffer
+ * which size is >= (maxCompressedSize)
+ * with maxCompressedSize == ZLZ4_COMPRESSBOUND(srcSize) for guaranteed compression success.
+ * ZLZ4_COMPRESS_INPLACE_BUFFER_SIZE() depends on both maxCompressedSize and ZLZ4_DISTANCE_MAX,
+ * so it's possible to reduce memory requirements by playing with them.
+ */
+
+#define ZLZ4_DECOMPRESS_INPLACE_MARGIN(compressedSize)          (((compressedSize) >> 8) + 32)
+#define ZLZ4_DECOMPRESS_INPLACE_BUFFER_SIZE(decompressedSize)   ((decompressedSize) + ZLZ4_DECOMPRESS_INPLACE_MARGIN(decompressedSize))  /**< note: presumes that compressedSize < decompressedSize. note2: margin is overestimated a bit, since it could use compressedSize instead */
+
+#ifndef ZLZ4_DISTANCE_MAX   /* history window size; can be user-defined at compile time */
+#  define ZLZ4_DISTANCE_MAX 65535   /* set to maximum value by default */
+#endif
+
+#define ZLZ4_COMPRESS_INPLACE_MARGIN                           (ZLZ4_DISTANCE_MAX + 32)   /* ZLZ4_DISTANCE_MAX can be safely replaced by srcSize when it's smaller */
+#define ZLZ4_COMPRESS_INPLACE_BUFFER_SIZE(maxCompressedSize)   ((maxCompressedSize) + ZLZ4_COMPRESS_INPLACE_MARGIN)  /**< maxCompressedSize is generally ZLZ4_COMPRESSBOUND(inputSize), but can be set to any lower value, with the risk that compression can fail (return code 0(zero)) */
+
+#endif   /* ZLZ4_STATIC_3504398509 */
+#endif   /* ZLZ4_STATIC_LINKING_ONLY */
+
+
+
+#ifndef ZLZ4_H_98237428734687
+#define ZLZ4_H_98237428734687
+
+/*-************************************************************
+ *  Private Definitions
+ **************************************************************
+ * Do not use these definitions directly.
+ * They are only exposed to allow static allocation of `ZLZ4_stream_t` and `ZLZ4_streamDecode_t`.
+ * Accessing members will expose user code to API and/or ABI break in future versions of the library.
+ **************************************************************/
+#define ZLZ4_HASHLOG   (ZLZ4_MEMORY_USAGE-2)
+#define ZLZ4_HASHTABLESIZE (1 << ZLZ4_MEMORY_USAGE)
+#define ZLZ4_HASH_SIZE_U32 (1 << ZLZ4_HASHLOG)       /* required as macro for static allocation */
+
+#if defined(__cplusplus) || (defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */)
+# include <stdint.h>
+  typedef  int8_t  ZLZ4_i8;
+  typedef uint8_t  ZLZ4_byte;
+  typedef uint16_t ZLZ4_u16;
+  typedef uint32_t ZLZ4_u32;
+#else
+  typedef   signed char  ZLZ4_i8;
+  typedef unsigned char  ZLZ4_byte;
+  typedef unsigned short ZLZ4_u16;
+  typedef unsigned int   ZLZ4_u32;
+#endif
+
+/*! ZLZ4_stream_t :
+ *  Never ever use below internal definitions directly !
+ *  These definitions are not API/ABI safe, and may change in future versions.
+ *  If you need static allocation, declare or allocate an ZLZ4_stream_t object.
+**/
+
+typedef struct ZLZ4_stream_t_internal ZLZ4_stream_t_internal;
+struct ZLZ4_stream_t_internal {
+    ZLZ4_u32 hashTable[ZLZ4_HASH_SIZE_U32];
+    const ZLZ4_byte* dictionary;
+    const ZLZ4_stream_t_internal* dictCtx;
+    ZLZ4_u32 currentOffset;
+    ZLZ4_u32 tableType;
+    ZLZ4_u32 dictSize;
+    /* Implicit padding to ensure structure is aligned */
+};
+
+#define ZLZ4_STREAM_MINSIZE  ((1UL << (ZLZ4_MEMORY_USAGE)) + 32)  /* static size, for inter-version compatibility */
+union ZLZ4_stream_u {
+    char minStateSize[ZLZ4_STREAM_MINSIZE];
+    ZLZ4_stream_t_internal internal_donotuse;
+}; /* previously typedef'd to ZLZ4_stream_t */
+
+
+/*! ZLZ4_initStream() : v1.9.0+
+ *  An ZLZ4_stream_t structure must be initialized at least once.
+ *  This is automatically done when invoking ZLZ4_createStream(),
+ *  but it's not when the structure is simply declared on stack (for example).
+ *
+ *  Use ZLZ4_initStream() to properly initialize a newly declared ZLZ4_stream_t.
+ *  It can also initialize any arbitrary buffer of sufficient size,
+ *  and will @return a pointer of proper type upon initialization.
+ *
+ *  Note : initialization fails if size and alignment conditions are not respected.
+ *         In which case, the function will @return NULL.
+ *  Note2: An ZLZ4_stream_t structure guarantees correct alignment and size.
+ *  Note3: Before v1.9.0, use ZLZ4_resetStream() instead
+**/
+ZLZ4LIB_API ZLZ4_stream_t* ZLZ4_initStream (void* stateBuffer, size_t size);
+
+
+/*! ZLZ4_streamDecode_t :
+ *  Never ever use below internal definitions directly !
+ *  These definitions are not API/ABI safe, and may change in future versions.
+ *  If you need static allocation, declare or allocate an ZLZ4_streamDecode_t object.
+**/
+typedef struct {
+    const ZLZ4_byte* externalDict;
+    const ZLZ4_byte* prefixEnd;
+    size_t extDictSize;
+    size_t prefixSize;
+} ZLZ4_streamDecode_t_internal;
+
+#define ZLZ4_STREAMDECODE_MINSIZE 32
+union ZLZ4_streamDecode_u {
+    char minStateSize[ZLZ4_STREAMDECODE_MINSIZE];
+    ZLZ4_streamDecode_t_internal internal_donotuse;
+} ;   /* previously typedef'd to ZLZ4_streamDecode_t */
+
+
+
+/*-************************************
+*  Obsolete Functions
+**************************************/
+
+/*! Deprecation warnings
+ *
+ *  Deprecated functions make the compiler generate a warning when invoked.
+ *  This is meant to invite users to update their source code.
+ *  Should deprecation warnings be a problem, it is generally possible to disable them,
+ *  typically with -Wno-deprecated-declarations for gcc
+ *  or _CRT_SECURE_NO_WARNINGS in Visual.
+ *
+ *  Another method is to define ZLZ4_DISABLE_DEPRECATE_WARNINGS
+ *  before including the header file.
+ */
+#ifdef ZLZ4_DISABLE_DEPRECATE_WARNINGS
+#  define ZLZ4_DEPRECATED(message)   /* disable deprecation warnings */
+#else
+#  if defined (__cplusplus) && (__cplusplus >= 201402) /* C++14 or greater */
+#    define ZLZ4_DEPRECATED(message) [[deprecated(message)]]
+#  elif defined(_MSC_VER)
+#    define ZLZ4_DEPRECATED(message) __declspec(deprecated(message))
+#  elif defined(__clang__) || (defined(__GNUC__) && (__GNUC__ * 10 + __GNUC_MINOR__ >= 45))
+#    define ZLZ4_DEPRECATED(message) __attribute__((deprecated(message)))
+#  elif defined(__GNUC__) && (__GNUC__ * 10 + __GNUC_MINOR__ >= 31)
+#    define ZLZ4_DEPRECATED(message) __attribute__((deprecated))
+#  else
+#    pragma message("WARNING: ZLZ4_DEPRECATED needs custom implementation for this compiler")
+#    define ZLZ4_DEPRECATED(message)   /* disabled */
+#  endif
+#endif /* ZLZ4_DISABLE_DEPRECATE_WARNINGS */
+
+/*! Obsolete compression functions (since v1.7.3) */
+ZLZ4_DEPRECATED("use ZLZ4_compress_default() instead")       ZLZ4LIB_API int ZLZ4_compress               (const char* src, char* dest, int srcSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_default() instead")       ZLZ4LIB_API int ZLZ4_compress_limitedOutput (const char* src, char* dest, int srcSize, int maxOutputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_fast_extState() instead") ZLZ4LIB_API int ZLZ4_compress_withState               (void* state, const char* source, char* dest, int inputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_fast_extState() instead") ZLZ4LIB_API int ZLZ4_compress_limitedOutput_withState (void* state, const char* source, char* dest, int inputSize, int maxOutputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_fast_continue() instead") ZLZ4LIB_API int ZLZ4_compress_continue                (ZLZ4_stream_t* ZLZ4_streamPtr, const char* source, char* dest, int inputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_fast_continue() instead") ZLZ4LIB_API int ZLZ4_compress_limitedOutput_continue  (ZLZ4_stream_t* ZLZ4_streamPtr, const char* source, char* dest, int inputSize, int maxOutputSize);
+
+/*! Obsolete decompression functions (since v1.8.0) */
+ZLZ4_DEPRECATED("use ZLZ4_decompress_fast() instead") ZLZ4LIB_API int ZLZ4_uncompress (const char* source, char* dest, int outputSize);
+ZLZ4_DEPRECATED("use ZLZ4_decompress_safe() instead") ZLZ4LIB_API int ZLZ4_uncompress_unknownOutputSize (const char* source, char* dest, int isize, int maxOutputSize);
+
+/* Obsolete streaming functions (since v1.7.0)
+ * degraded functionality; do not use!
+ *
+ * In order to perform streaming compression, these functions depended on data
+ * that is no longer tracked in the state. They have been preserved as well as
+ * possible: using them will still produce a correct output. However, they don't
+ * actually retain any history between compression calls. The compression ratio
+ * achieved will therefore be no better than compressing each chunk
+ * independently.
+ */
+ZLZ4_DEPRECATED("Use ZLZ4_createStream() instead") ZLZ4LIB_API void* ZLZ4_create (char* inputBuffer);
+ZLZ4_DEPRECATED("Use ZLZ4_createStream() instead") ZLZ4LIB_API int   ZLZ4_sizeofStreamState(void);
+ZLZ4_DEPRECATED("Use ZLZ4_resetStream() instead")  ZLZ4LIB_API int   ZLZ4_resetStreamState(void* state, char* inputBuffer);
+ZLZ4_DEPRECATED("Use ZLZ4_saveDict() instead")     ZLZ4LIB_API char* ZLZ4_slideInputBuffer (void* state);
+
+/*! Obsolete streaming decoding functions (since v1.7.0) */
+ZLZ4_DEPRECATED("use ZLZ4_decompress_safe_usingDict() instead") ZLZ4LIB_API int ZLZ4_decompress_safe_withPrefix64k (const char* src, char* dst, int compressedSize, int maxDstSize);
+ZLZ4_DEPRECATED("use ZLZ4_decompress_fast_usingDict() instead") ZLZ4LIB_API int ZLZ4_decompress_fast_withPrefix64k (const char* src, char* dst, int originalSize);
+
+/*! Obsolete ZLZ4_decompress_fast variants (since v1.9.0) :
+ *  These functions used to be faster than ZLZ4_decompress_safe(),
+ *  but this is no longer the case. They are now slower.
+ *  This is because ZLZ4_decompress_fast() doesn't know the input size,
+ *  and therefore must progress more cautiously into the input buffer to not read beyond the end of block.
+ *  On top of that `ZLZ4_decompress_fast()` is not protected vs malformed or malicious inputs, making it a security liability.
+ *  As a consequence, ZLZ4_decompress_fast() is strongly discouraged, and deprecated.
+ *
+ *  The last remaining ZLZ4_decompress_fast() specificity is that
+ *  it can decompress a block without knowing its compressed size.
+ *  Such functionality can be achieved in a more secure manner
+ *  by employing ZLZ4_decompress_safe_partial().
+ *
+ *  Parameters:
+ *  originalSize : is the uncompressed size to regenerate.
+ *                 `dst` must be already allocated, its size must be >= 'originalSize' bytes.
+ * @return : number of bytes read from source buffer (== compressed size).
+ *           The function expects to finish at block's end exactly.
+ *           If the source stream is detected malformed, the function stops decoding and returns a negative result.
+ *  note : ZLZ4_decompress_fast*() requires originalSize. Thanks to this information, it never writes past the output buffer.
+ *         However, since it doesn't know its 'src' size, it may read an unknown amount of input, past input buffer bounds.
+ *         Also, since match offsets are not validated, match reads from 'src' may underflow too.
+ *         These issues never happen if input (compressed) data is correct.
+ *         But they may happen if input data is invalid (error or intentional tampering).
+ *         As a consequence, use these functions in trusted environments with trusted data **only**.
+ */
+ZLZ4_DEPRECATED("This function is deprecated and unsafe. Consider using ZLZ4_decompress_safe_partial() instead")
+ZLZ4LIB_API int ZLZ4_decompress_fast (const char* src, char* dst, int originalSize);
+ZLZ4_DEPRECATED("This function is deprecated and unsafe. Consider migrating towards ZLZ4_decompress_safe_continue() instead. "
+               "Note that the contract will change (requires block's compressed size, instead of decompressed size)")
+ZLZ4LIB_API int ZLZ4_decompress_fast_continue (ZLZ4_streamDecode_t* ZLZ4_streamDecode, const char* src, char* dst, int originalSize);
+ZLZ4_DEPRECATED("This function is deprecated and unsafe. Consider using ZLZ4_decompress_safe_partial_usingDict() instead")
+ZLZ4LIB_API int ZLZ4_decompress_fast_usingDict (const char* src, char* dst, int originalSize, const char* dictStart, int dictSize);
+
+/*! ZLZ4_resetStream() :
+ *  An ZLZ4_stream_t structure must be initialized at least once.
+ *  This is done with ZLZ4_initStream(), or ZLZ4_resetStream().
+ *  Consider switching to ZLZ4_initStream(),
+ *  invoking ZLZ4_resetStream() will trigger deprecation warnings in the future.
+ */
+ZLZ4LIB_API void ZLZ4_resetStream (ZLZ4_stream_t* streamPtr);
+
+
+#endif /* ZLZ4_H_98237428734687 */
+
+
+#if defined (__cplusplus)
+}
+#endif
+
+/* ======== lz4.c (ZLZ4 v1.10.0, BSD-2, renamed ZLZ4->ZZLZ4) ======== */
+/*
+   ZLZ4 - Fast LZ compression algorithm
+   Copyright (C) 2011-2023, Yann Collet.
+
+   BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+
+       * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following disclaimer
+   in the documentation and/or other materials provided with the
+   distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   You can contact the author at :
+    - ZLZ4 homepage : http://www.lz4.org
+    - ZLZ4 source repository : https://github.com/lz4/lz4
+*/
+
+/*-************************************
+*  Tuning parameters
+**************************************/
+/*
+ * ZLZ4_HEAPMODE :
+ * Select how stateless compression functions like `ZLZ4_compress_default()`
+ * allocate memory for their hash table,
+ * in memory stack (0:default, fastest), or in memory heap (1:requires malloc()).
+ */
+#ifndef ZLZ4_HEAPMODE
+#  define ZLZ4_HEAPMODE 0
+#endif
+
+/*
+ * ZLZ4_ACCELERATION_DEFAULT :
+ * Select "acceleration" for ZLZ4_compress_fast() when parameter value <= 0
+ */
+#define ZLZ4_ACCELERATION_DEFAULT 1
+/*
+ * ZLZ4_ACCELERATION_MAX :
+ * Any "acceleration" value higher than this threshold
+ * get treated as ZLZ4_ACCELERATION_MAX instead (fix #876)
+ */
+#define ZLZ4_ACCELERATION_MAX 65537
+
+
+/*-************************************
+*  CPU Feature Detection
+**************************************/
+/* ZLZ4_FORCE_MEMORY_ACCESS
+ * By default, access to unaligned memory is controlled by `memcpy()`, which is safe and portable.
+ * Unfortunately, on some target/compiler combinations, the generated assembly is sub-optimal.
+ * The below switch allow to select different access method for improved performance.
+ * Method 0 (default) : use `memcpy()`. Safe and portable.
+ * Method 1 : `__packed` statement. It depends on compiler extension (ie, not portable).
+ *            This method is safe if your compiler supports it, and *generally* as fast or faster than `memcpy`.
+ * Method 2 : direct access. This method is portable but violate C standard.
+ *            It can generate buggy code on targets which assembly generation depends on alignment.
+ *            But in some circumstances, it's the only known way to get the most performance (ie GCC + ARMv6)
+ * See https://fastcompression.blogspot.fr/2015/08/accessing-unaligned-memory.html for details.
+ * Prefer these methods in priority order (0 > 1 > 2)
+ */
+#ifndef ZLZ4_FORCE_MEMORY_ACCESS   /* can be defined externally */
+#  if defined(__GNUC__) && \
+  ( defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) \
+  || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__) || defined(__ARM_ARCH_6T2__) )
+#    define ZLZ4_FORCE_MEMORY_ACCESS 2
+#  elif (defined(__INTEL_COMPILER) && !defined(_WIN32)) || defined(__GNUC__) || defined(_MSC_VER)
+#    define ZLZ4_FORCE_MEMORY_ACCESS 1
+#  endif
+#endif
+
+/*
+ * ZLZ4_FORCE_SW_BITCOUNT
+ * Define this parameter if your target system or compiler does not support hardware bit count
+ */
+#if defined(_MSC_VER) && defined(_WIN32_WCE)   /* Visual Studio for WinCE doesn't support Hardware bit count */
+#  undef  ZLZ4_FORCE_SW_BITCOUNT  /* avoid double def */
+#  define ZLZ4_FORCE_SW_BITCOUNT
+#endif
+
+
+
+/*-************************************
+*  Dependency
+**************************************/
+/*
+ * ZLZ4_SRC_INCLUDED:
+ * Amalgamation flag, whether lz4.c is included
+ */
+#ifndef ZLZ4_SRC_INCLUDED
+#  define ZLZ4_SRC_INCLUDED 1
+#endif
+
+#ifndef ZLZ4_DISABLE_DEPRECATE_WARNINGS
+#  define ZLZ4_DISABLE_DEPRECATE_WARNINGS /* due to ZLZ4_decompress_safe_withPrefix64k */
+#endif
+
+#ifndef ZLZ4_STATIC_LINKING_ONLY
+#  define ZLZ4_STATIC_LINKING_ONLY
+#endif
+// (zpaqfranz) removed, already here: #include "lz4.h"
+/* see also "memory routines" below */
+
+
+/*-************************************
+*  Compiler Options
+**************************************/
+#if defined(_MSC_VER) && (_MSC_VER >= 1400)  /* Visual Studio 2005+ */
+#  include <intrin.h>               /* only present in VS2005+ */
+#  pragma warning(disable : 4127)   /* disable: C4127: conditional expression is constant */
+#  pragma warning(disable : 6237)   /* disable: C6237: conditional expression is always 0 */
+#  pragma warning(disable : 6239)   /* disable: C6239: (<non-zero constant> && <expression>) always evaluates to the result of <expression> */
+#  pragma warning(disable : 6240)   /* disable: C6240: (<expression> && <non-zero constant>) always evaluates to the result of <expression> */
+#  pragma warning(disable : 6326)   /* disable: C6326: Potential comparison of a constant with another constant */
+#endif  /* _MSC_VER */
+
+#ifndef ZLZ4_FORCE_INLINE
+#  if defined (_MSC_VER) && !defined (__clang__)    /* MSVC */
+#    define ZLZ4_FORCE_INLINE static __forceinline
+#  else
+#    if defined (__cplusplus) || defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L   /* C99 */
+#      if defined (__GNUC__) || defined (__clang__)
+#        define ZLZ4_FORCE_INLINE static inline __attribute__((always_inline))
+#      else
+#        define ZLZ4_FORCE_INLINE static inline
+#      endif
+#    else
+#      define ZLZ4_FORCE_INLINE static
+#    endif /* __STDC_VERSION__ */
+#  endif  /* _MSC_VER */
+#endif /* ZLZ4_FORCE_INLINE */
+
+/* ZLZ4_FORCE_O2 and ZLZ4_FORCE_INLINE
+ * gcc on ppc64le generates an unrolled SIMDized loop for ZLZ4_wildCopy8,
+ * together with a simple 8-byte copy loop as a fall-back path.
+ * However, this optimization hurts the decompression speed by >30%,
+ * because the execution does not go to the optimized loop
+ * for typical compressible data, and all of the preamble checks
+ * before going to the fall-back path become useless overhead.
+ * This optimization happens only with the -O3 flag, and -O2 generates
+ * a simple 8-byte copy loop.
+ * With gcc on ppc64le, all of the ZLZ4_decompress_* and ZLZ4_wildCopy8
+ * functions are annotated with __attribute__((optimize("O2"))),
+ * and also ZLZ4_wildCopy8 is forcibly inlined, so that the O2 attribute
+ * of ZLZ4_wildCopy8 does not affect the compression speed.
+ */
+#if defined(__PPC64__) && defined(__LITTLE_ENDIAN__) && defined(__GNUC__) && !defined(__clang__)
+#  define ZLZ4_FORCE_O2  __attribute__((optimize("O2")))
+#  undef ZLZ4_FORCE_INLINE
+#  define ZLZ4_FORCE_INLINE  static __inline __attribute__((optimize("O2"),always_inline))
+#else
+#  define ZLZ4_FORCE_O2
+#endif
+
+#if (defined(__GNUC__) && (__GNUC__ >= 3)) || (defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 800)) || defined(__clang__)
+#  define expect(expr,value)    (__builtin_expect ((expr),(value)) )
+#else
+#  define expect(expr,value)    (expr)
+#endif
+
+#ifndef likely
+#define likely(expr)     expect((expr) != 0, 1)
+#endif
+#ifndef unlikely
+#define unlikely(expr)   expect((expr) != 0, 0)
+#endif
+
+/* Should the alignment test prove unreliable, for some reason,
+ * it can be disabled by setting ZLZ4_ALIGN_TEST to 0 */
+#ifndef ZLZ4_ALIGN_TEST  /* can be externally provided */
+# define ZLZ4_ALIGN_TEST 1
+#endif
+
+
+/*-************************************
+*  Memory routines
+**************************************/
+
+/*! ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION :
+ *  Disable relatively high-level ZLZ4/HC functions that use dynamic memory
+ *  allocation functions (malloc(), calloc(), free()).
+ *
+ *  Note that this is a compile-time switch. And since it disables
+ *  public/stable ZLZ4 v1 API functions, we don't recommend using this
+ *  symbol to generate a library for distribution.
+ *
+ *  The following public functions are removed when this symbol is defined.
+ *  - lz4   : ZLZ4_createStream, ZLZ4_freeStream,
+ *            ZLZ4_createStreamDecode, ZLZ4_freeStreamDecode, ZLZ4_create (deprecated)
+ *  - lz4hc : ZLZ4_createStreamHC, ZLZ4_freeStreamHC,
+ *            ZLZ4_createHC (deprecated), ZLZ4_freeHC  (deprecated)
+ *  - lz4frame, lz4file : All ZLZ4F_* functions
+ */
+#if defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+#  define ALLOC(s)          lz4_error_memory_allocation_is_disabled
+#  define ALLOC_AND_ZERO(s) lz4_error_memory_allocation_is_disabled
+#  define FREEMEM(p)        lz4_error_memory_allocation_is_disabled
+#elif defined(ZLZ4_USER_MEMORY_FUNCTIONS)
+/* memory management functions can be customized by user project.
+ * Below functions must exist somewhere in the Project
+ * and be available at link time */
+void* ZLZ4_malloc(size_t s);
+void* ZLZ4_calloc(size_t n, size_t s);
+void  ZLZ4_free(void* p);
+# define ALLOC(s)          ZLZ4_malloc(s)
+# define ALLOC_AND_ZERO(s) ZLZ4_calloc(1,s)
+# define FREEMEM(p)        ZLZ4_free(p)
+#else
+# include <stdlib.h>   /* malloc, calloc, free */
+# define ALLOC(s)          malloc(s)
+# define ALLOC_AND_ZERO(s) calloc(1,s)
+# define FREEMEM(p)        free(p)
+#endif
+
+#if ! ZLZ4_FREESTANDING
+#  include <string.h>   /* memset, memcpy */
+#endif
+#if !defined(ZLZ4_memset)
+#  define ZLZ4_memset(p,v,s) memset((p),(v),(s))
+#endif
+#define MEM_INIT(p,v,s)   ZLZ4_memset((p),(v),(s))
+
+
+/*-************************************
+*  Common Constants
+**************************************/
+#define MINMATCH 4
+
+#define WILDCOPYLENGTH 8
+#define LASTLITERALS   5   /* see ../doc/lz4_Block_format.md#parsing-restrictions */
+#define MFLIMIT       12   /* see ../doc/lz4_Block_format.md#parsing-restrictions */
+#define MATCH_SAFEGUARD_DISTANCE  ((2*WILDCOPYLENGTH) - MINMATCH)   /* ensure it's possible to write 2 x wildcopyLength without overflowing output buffer */
+#define FASTLOOP_SAFE_DISTANCE 64
+static const int ZLZ4_minLength = (MFLIMIT+1);
+
+#define KB *(1 <<10)
+#define MB *(1 <<20)
+#define GB *(1U<<30)
+
+#define ZLZ4_DISTANCE_ABSOLUTE_MAX 65535
+#if (ZLZ4_DISTANCE_MAX > ZLZ4_DISTANCE_ABSOLUTE_MAX)   /* max supported by ZLZ4 format */
+#  error "ZLZ4_DISTANCE_MAX is too big : must be <= 65535"
+#endif
+
+#define ML_BITS  4
+#define ML_MASK  ((1U<<ML_BITS)-1)
+#define RUN_BITS (8-ML_BITS)
+#define RUN_MASK ((1U<<RUN_BITS)-1)
+
+
+/*-************************************
+*  Error detection
+**************************************/
+#if defined(ZLZ4_DEBUG) && (ZLZ4_DEBUG>=1)
+#  include <assert.h>
+#else
+#  ifndef assert
+#    define assert(condition) ((void)0)
+#  endif
+#endif
+
+#define ZLZ4_STATIC_ASSERT(c)   { enum { ZLZ4_static_assert = 1/(int)(!!(c)) }; }   /* use after variable declarations */
+
+#if defined(ZLZ4_DEBUG) && (ZLZ4_DEBUG>=2)
+#  include <stdio.h>
+   static int g_debuglog_enable = 1;
+#  define DEBUGLOG(l, ...) {                          \
+        if ((g_debuglog_enable) && (l<=ZLZ4_DEBUG)) {  \
+            fprintf(stderr, __FILE__  " %i: ", __LINE__); \
+            fprintf(stderr, __VA_ARGS__);             \
+            fprintf(stderr, " \n");                   \
+    }   }
+#else
+#  define DEBUGLOG(l, ...) {}    /* disabled */
+#endif
+
+static int ZLZ4_isAligned(const void* ptr, size_t alignment)
+{
+    return ((size_t)ptr & (alignment -1)) == 0;
+}
+
+
+/*-************************************
+*  Types
+**************************************/
+#include <limits.h>
+#if defined(__cplusplus) || (defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */)
+# include <stdint.h>
+  typedef  uint8_t BYTE;
+  typedef uint16_t U16;
+  typedef uint32_t U32;
+  typedef  int32_t S32;
+  typedef uint64_t U64;
+  typedef uintptr_t uptrval;
+#else
+# if UINT_MAX != 4294967295UL
+#   error "ZLZ4 code (when not C++ or C99) assumes that sizeof(int) == 4"
+# endif
+  typedef unsigned char       BYTE;
+  typedef unsigned short      U16;
+  typedef unsigned int        U32;
+  typedef   signed int        S32;
+  typedef unsigned long long  U64;
+  typedef size_t              uptrval;   /* generally true, except OpenVMS-64 */
+#endif
+
+#if defined(__x86_64__)
+  typedef U64    reg_t;   /* 64-bits in x32 mode */
+#else
+  typedef size_t reg_t;   /* 32-bits in x32 mode */
+#endif
+
+typedef enum {
+    notLimited = 0,
+    limitedOutput = 1,
+    fillOutput = 2
+} limitedOutput_directive;
+
+
+/*-************************************
+*  Reading and writing into memory
+**************************************/
+
+/**
+ * ZLZ4 relies on memcpy with a constant size being inlined. In freestanding
+ * environments, the compiler can't assume the implementation of memcpy() is
+ * standard compliant, so it can't apply its specialized memcpy() inlining
+ * logic. When possible, use __builtin_memcpy() to tell the compiler to analyze
+ * memcpy() as if it were standard compliant, so it can inline it in freestanding
+ * environments. This is needed when decompressing the Linux Kernel, for example.
+ */
+#if !defined(ZLZ4_memcpy)
+#  if defined(__GNUC__) && (__GNUC__ >= 4)
+#    define ZLZ4_memcpy(dst, src, size) __builtin_memcpy(dst, src, size)
+#  else
+#    define ZLZ4_memcpy(dst, src, size) memcpy(dst, src, size)
+#  endif
+#endif
+
+#if !defined(ZLZ4_memmove)
+#  if defined(__GNUC__) && (__GNUC__ >= 4)
+#    define ZLZ4_memmove __builtin_memmove
+#  else
+#    define ZLZ4_memmove memmove
+#  endif
+#endif
+
+static unsigned ZLZ4_isLittleEndian(void)
+{
+    const union { U32 u; BYTE c[4]; } one = { 1 };   /* don't use static : performance detrimental */
+    return one.c[0];
+}
+
+#if defined(__GNUC__) || defined(__INTEL_COMPILER)
+#define ZLZ4_PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
+#elif defined(_MSC_VER)
+#define ZLZ4_PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop))
+#endif
+
+#if defined(ZLZ4_FORCE_MEMORY_ACCESS) && (ZLZ4_FORCE_MEMORY_ACCESS==2)
+/* lie to the compiler about data alignment; use with caution */
+
+static U16 ZLZ4_read16(const void* memPtr) { return *(const U16*) memPtr; }
+static U32 ZLZ4_read32(const void* memPtr) { return *(const U32*) memPtr; }
+static reg_t ZLZ4_read_ARCH(const void* memPtr) { return *(const reg_t*) memPtr; }
+
+static void ZLZ4_write16(void* memPtr, U16 value) { *(U16*)memPtr = value; }
+static void ZLZ4_write32(void* memPtr, U32 value) { *(U32*)memPtr = value; }
+
+#elif defined(ZLZ4_FORCE_MEMORY_ACCESS) && (ZLZ4_FORCE_MEMORY_ACCESS==1)
+
+/* __pack instructions are safer, but compiler specific, hence potentially problematic for some compilers */
+/* currently only defined for gcc and icc */
+ZLZ4_PACK(typedef struct { U16 u16; }) ZLZ4_unalign16;
+ZLZ4_PACK(typedef struct { U32 u32; }) ZLZ4_unalign32;
+ZLZ4_PACK(typedef struct { reg_t uArch; }) ZLZ4_unalignST;
+
+static U16 ZLZ4_read16(const void* ptr) { return ((const ZLZ4_unalign16*)ptr)->u16; }
+static U32 ZLZ4_read32(const void* ptr) { return ((const ZLZ4_unalign32*)ptr)->u32; }
+static reg_t ZLZ4_read_ARCH(const void* ptr) { return ((const ZLZ4_unalignST*)ptr)->uArch; }
+
+static void ZLZ4_write16(void* memPtr, U16 value) { ((ZLZ4_unalign16*)memPtr)->u16 = value; }
+static void ZLZ4_write32(void* memPtr, U32 value) { ((ZLZ4_unalign32*)memPtr)->u32 = value; }
+
+#else  /* safe and portable access using memcpy() */
+
+static U16 ZLZ4_read16(const void* memPtr)
+{
+    U16 val; ZLZ4_memcpy(&val, memPtr, sizeof(val)); return val;
+}
+
+static U32 ZLZ4_read32(const void* memPtr)
+{
+    U32 val; ZLZ4_memcpy(&val, memPtr, sizeof(val)); return val;
+}
+
+static reg_t ZLZ4_read_ARCH(const void* memPtr)
+{
+    reg_t val; ZLZ4_memcpy(&val, memPtr, sizeof(val)); return val;
+}
+
+static void ZLZ4_write16(void* memPtr, U16 value)
+{
+    ZLZ4_memcpy(memPtr, &value, sizeof(value));
+}
+
+static void ZLZ4_write32(void* memPtr, U32 value)
+{
+    ZLZ4_memcpy(memPtr, &value, sizeof(value));
+}
+
+#endif /* ZLZ4_FORCE_MEMORY_ACCESS */
+
+
+static U16 ZLZ4_readLE16(const void* memPtr)
+{
+    if (ZLZ4_isLittleEndian()) {
+        return ZLZ4_read16(memPtr);
+    } else {
+        const BYTE* p = (const BYTE*)memPtr;
+        return (U16)((U16)p[0] | (p[1]<<8));
+    }
+}
+
+#ifdef ZLZ4_STATIC_LINKING_ONLY_ENDIANNESS_INDEPENDENT_OUTPUT
+static U32 ZLZ4_readLE32(const void* memPtr)
+{
+    if (ZLZ4_isLittleEndian()) {
+        return ZLZ4_read32(memPtr);
+    } else {
+        const BYTE* p = (const BYTE*)memPtr;
+        return (U32)p[0] | (p[1]<<8) | (p[2]<<16) | (p[3]<<24);
+    }
+}
+#endif
+
+static void ZLZ4_writeLE16(void* memPtr, U16 value)
+{
+    if (ZLZ4_isLittleEndian()) {
+        ZLZ4_write16(memPtr, value);
+    } else {
+        BYTE* p = (BYTE*)memPtr;
+        p[0] = (BYTE) value;
+        p[1] = (BYTE)(value>>8);
+    }
+}
+
+/* customized variant of memcpy, which can overwrite up to 8 bytes beyond dstEnd */
+ZLZ4_FORCE_INLINE
+void ZLZ4_wildCopy8(void* dstPtr, const void* srcPtr, void* dstEnd)
+{
+    BYTE* d = (BYTE*)dstPtr;
+    const BYTE* s = (const BYTE*)srcPtr;
+    BYTE* const e = (BYTE*)dstEnd;
+
+    do { ZLZ4_memcpy(d,s,8); d+=8; s+=8; } while (d<e);
+}
+
+static const unsigned inc32table[8] = {0, 1, 2,  1,  0,  4, 4, 4};
+static const int      dec64table[8] = {0, 0, 0, -1, -4,  1, 2, 3};
+
+
+#ifndef ZLZ4_FAST_DEC_LOOP
+#  if defined __i386__ || defined _M_IX86 || defined __x86_64__ || defined _M_X64
+#    define ZLZ4_FAST_DEC_LOOP 1
+#  elif defined(__aarch64__) && defined(__APPLE__)
+#    define ZLZ4_FAST_DEC_LOOP 1
+#  elif defined(__aarch64__) && !defined(__clang__)
+     /* On non-Apple aarch64, we disable this optimization for clang because
+      * on certain mobile chipsets, performance is reduced with clang. For
+      * more information refer to https://github.com/lz4/lz4/pull/707 */
+#    define ZLZ4_FAST_DEC_LOOP 1
+#  else
+#    define ZLZ4_FAST_DEC_LOOP 0
+#  endif
+#endif
+
+#if ZLZ4_FAST_DEC_LOOP
+
+ZLZ4_FORCE_INLINE void
+ZLZ4_memcpy_using_offset_base(BYTE* dstPtr, const BYTE* srcPtr, BYTE* dstEnd, const size_t offset)
+{
+    assert(srcPtr + offset == dstPtr);
+    if (offset < 8) {
+        ZLZ4_write32(dstPtr, 0);   /* silence an msan warning when offset==0 */
+        dstPtr[0] = srcPtr[0];
+        dstPtr[1] = srcPtr[1];
+        dstPtr[2] = srcPtr[2];
+        dstPtr[3] = srcPtr[3];
+        srcPtr += inc32table[offset];
+        ZLZ4_memcpy(dstPtr+4, srcPtr, 4);
+        srcPtr -= dec64table[offset];
+        dstPtr += 8;
+    } else {
+        ZLZ4_memcpy(dstPtr, srcPtr, 8);
+        dstPtr += 8;
+        srcPtr += 8;
+    }
+
+    ZLZ4_wildCopy8(dstPtr, srcPtr, dstEnd);
+}
+
+/* customized variant of memcpy, which can overwrite up to 32 bytes beyond dstEnd
+ * this version copies two times 16 bytes (instead of one time 32 bytes)
+ * because it must be compatible with offsets >= 16. */
+ZLZ4_FORCE_INLINE void
+ZLZ4_wildCopy32(void* dstPtr, const void* srcPtr, void* dstEnd)
+{
+    BYTE* d = (BYTE*)dstPtr;
+    const BYTE* s = (const BYTE*)srcPtr;
+    BYTE* const e = (BYTE*)dstEnd;
+
+    do { ZLZ4_memcpy(d,s,16); ZLZ4_memcpy(d+16,s+16,16); d+=32; s+=32; } while (d<e);
+}
+
+/* ZLZ4_memcpy_using_offset()  presumes :
+ * - dstEnd >= dstPtr + MINMATCH
+ * - there is at least 12 bytes available to write after dstEnd */
+ZLZ4_FORCE_INLINE void
+ZLZ4_memcpy_using_offset(BYTE* dstPtr, const BYTE* srcPtr, BYTE* dstEnd, const size_t offset)
+{
+    BYTE v[8];
+
+    assert(dstEnd >= dstPtr + MINMATCH);
+
+    switch(offset) {
+    case 1:
+        MEM_INIT(v, *srcPtr, 8);
+        break;
+    case 2:
+        ZLZ4_memcpy(v, srcPtr, 2);
+        ZLZ4_memcpy(&v[2], srcPtr, 2);
+#if defined(_MSC_VER) && (_MSC_VER <= 1937) /* MSVC 2022 ver 17.7 or earlier */
+#  pragma warning(push)
+#  pragma warning(disable : 6385) /* warning C6385: Reading invalid data from 'v'. */
+#endif
+        ZLZ4_memcpy(&v[4], v, 4);
+#if defined(_MSC_VER) && (_MSC_VER <= 1937) /* MSVC 2022 ver 17.7 or earlier */
+#  pragma warning(pop)
+#endif
+        break;
+    case 4:
+        ZLZ4_memcpy(v, srcPtr, 4);
+        ZLZ4_memcpy(&v[4], srcPtr, 4);
+        break;
+    default:
+        ZLZ4_memcpy_using_offset_base(dstPtr, srcPtr, dstEnd, offset);
+        return;
+    }
+
+    ZLZ4_memcpy(dstPtr, v, 8);
+    dstPtr += 8;
+    while (dstPtr < dstEnd) {
+        ZLZ4_memcpy(dstPtr, v, 8);
+        dstPtr += 8;
+    }
+}
+#endif
+
+
+/*-************************************
+*  Common functions
+**************************************/
+static unsigned ZLZ4_NbCommonBytes (reg_t val)
+{
+    assert(val != 0);
+    if (ZLZ4_isLittleEndian()) {
+        if (sizeof(val) == 8) {
+#       if defined(_MSC_VER) && (_MSC_VER >= 1800) && (defined(_M_AMD64) && !defined(_M_ARM64EC)) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+/*-*************************************************************************************************
+* ARM64EC is a Microsoft-designed ARM64 ABI compatible with AMD64 applications on ARM64 Windows 11.
+* The ARM64EC ABI does not support AVX/AVX2/AVX512 instructions, nor their relevant intrinsics
+* including _tzcnt_u64. Therefore, we need to neuter the _tzcnt_u64 code path for ARM64EC.
+****************************************************************************************************/
+#         if defined(__clang__) && (__clang_major__ < 10)
+            /* Avoid undefined clang-cl intrinsics issue.
+             * See https://github.com/lz4/lz4/pull/1017 for details. */
+            return (unsigned)__builtin_ia32_tzcnt_u64(val) >> 3;
+#         else
+            /* x64 CPUS without BMI support interpret `TZCNT` as `REP BSF` */
+            return (unsigned)_tzcnt_u64(val) >> 3;
+#         endif
+#       elif defined(_MSC_VER) && defined(_WIN64) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+            unsigned long r = 0;
+            _BitScanForward64(&r, (U64)val);
+            return (unsigned)r >> 3;
+#       elif (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
+                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
+                                        !defined(ZLZ4_FORCE_SW_BITCOUNT)
+            return (unsigned)__builtin_ctzll((U64)val) >> 3;
+#       else
+            const U64 m = 0x0101010101010101ULL;
+            val ^= val - 1;
+            return (unsigned)(((U64)((val & (m - 1)) * m)) >> 56);
+#       endif
+        } else /* 32 bits */ {
+#       if defined(_MSC_VER) && (_MSC_VER >= 1400) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+            unsigned long r;
+            _BitScanForward(&r, (U32)val);
+            return (unsigned)r >> 3;
+#       elif (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
+                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
+                        !defined(__TINYC__) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+            return (unsigned)__builtin_ctz((U32)val) >> 3;
+#       else
+            const U32 m = 0x01010101;
+            return (unsigned)((((val - 1) ^ val) & (m - 1)) * m) >> 24;
+#       endif
+        }
+    } else   /* Big Endian CPU */ {
+        if (sizeof(val)==8) {
+#       if (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
+                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
+                        !defined(__TINYC__) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+            return (unsigned)__builtin_clzll((U64)val) >> 3;
+#       else
+#if 1
+            /* this method is probably faster,
+             * but adds a 128 bytes lookup table */
+            static const unsigned char ctz7_tab[128] = {
+                7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
+            };
+            U64 const mask = 0x0101010101010101ULL;
+            U64 const t = (((val >> 8) - mask) | val) & mask;
+            return ctz7_tab[(t * 0x0080402010080402ULL) >> 57];
+#else
+            /* this method doesn't consume memory space like the previous one,
+             * but it contains several branches,
+             * that may end up slowing execution */
+            static const U32 by32 = sizeof(val)*4;  /* 32 on 64 bits (goal), 16 on 32 bits.
+            Just to avoid some static analyzer complaining about shift by 32 on 32-bits target.
+            Note that this code path is never triggered in 32-bits mode. */
+            unsigned r;
+            if (!(val>>by32)) { r=4; } else { r=0; val>>=by32; }
+            if (!(val>>16)) { r+=2; val>>=8; } else { val>>=24; }
+            r += (!val);
+            return r;
+#endif
+#       endif
+        } else /* 32 bits */ {
+#       if (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
+                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
+                                        !defined(ZLZ4_FORCE_SW_BITCOUNT)
+            return (unsigned)__builtin_clz((U32)val) >> 3;
+#       else
+            val >>= 8;
+            val = ((((val + 0x00FFFF00) | 0x00FFFFFF) + val) |
+              (val + 0x00FF0000)) >> 24;
+            return (unsigned)val ^ 3;
+#       endif
+        }
+    }
+}
+
+
+#define STEPSIZE sizeof(reg_t)
+ZLZ4_FORCE_INLINE
+unsigned ZLZ4_count(const BYTE* pIn, const BYTE* pMatch, const BYTE* pInLimit)
+{
+    const BYTE* const pStart = pIn;
+
+    if (likely(pIn < pInLimit-(STEPSIZE-1))) {
+        reg_t const diff = ZLZ4_read_ARCH(pMatch) ^ ZLZ4_read_ARCH(pIn);
+        if (!diff) {
+            pIn+=STEPSIZE; pMatch+=STEPSIZE;
+        } else {
+            return ZLZ4_NbCommonBytes(diff);
+    }   }
+
+    while (likely(pIn < pInLimit-(STEPSIZE-1))) {
+        reg_t const diff = ZLZ4_read_ARCH(pMatch) ^ ZLZ4_read_ARCH(pIn);
+        if (!diff) { pIn+=STEPSIZE; pMatch+=STEPSIZE; continue; }
+        pIn += ZLZ4_NbCommonBytes(diff);
+        return (unsigned)(pIn - pStart);
+    }
+
+    if ((STEPSIZE==8) && (pIn<(pInLimit-3)) && (ZLZ4_read32(pMatch) == ZLZ4_read32(pIn))) { pIn+=4; pMatch+=4; }
+    if ((pIn<(pInLimit-1)) && (ZLZ4_read16(pMatch) == ZLZ4_read16(pIn))) { pIn+=2; pMatch+=2; }
+    if ((pIn<pInLimit) && (*pMatch == *pIn)) pIn++;
+    return (unsigned)(pIn - pStart);
+}
+
+
+#ifndef ZLZ4_COMMONDEFS_ONLY
+/*-************************************
+*  Local Constants
+**************************************/
+static const int ZLZ4_64Klimit = ((64 KB) + (MFLIMIT-1));
+static const U32 ZLZ4_skipTrigger = 6;  /* Increase this value ==> compression run slower on incompressible data */
+
+
+/*-************************************
+*  Local Structures and types
+**************************************/
+typedef enum { clearedTable = 0, byPtr, byU32, byU16 } tableType_t;
+
+/**
+ * This enum distinguishes several different modes of accessing previous
+ * content in the stream.
+ *
+ * - noDict        : There is no preceding content.
+ * - withPrefix64k : Table entries up to ctx->dictSize before the current blob
+ *                   blob being compressed are valid and refer to the preceding
+ *                   content (of length ctx->dictSize), which is available
+ *                   contiguously preceding in memory the content currently
+ *                   being compressed.
+ * - usingExtDict  : Like withPrefix64k, but the preceding content is somewhere
+ *                   else in memory, starting at ctx->dictionary with length
+ *                   ctx->dictSize.
+ * - usingDictCtx  : Everything concerning the preceding content is
+ *                   in a separate context, pointed to by ctx->dictCtx.
+ *                   ctx->dictionary, ctx->dictSize, and table entries
+ *                   in the current context that refer to positions
+ *                   preceding the beginning of the current compression are
+ *                   ignored. Instead, ctx->dictCtx->dictionary and ctx->dictCtx
+ *                   ->dictSize describe the location and size of the preceding
+ *                   content, and matches are found by looking in the ctx
+ *                   ->dictCtx->hashTable.
+ */
+typedef enum { noDict = 0, withPrefix64k, usingExtDict, usingDictCtx } dict_directive;
+typedef enum { noDictIssue = 0, dictSmall } dictIssue_directive;
+
+
+/*-************************************
+*  Local Utils
+**************************************/
+int ZLZ4_versionNumber (void) { return ZLZ4_VERSION_NUMBER; }
+const char* ZLZ4_versionString(void) { return ZLZ4_VERSION_STRING; }
+int ZLZ4_compressBound(int isize)  { return ZLZ4_COMPRESSBOUND(isize); }
+int ZLZ4_sizeofState(void) { return sizeof(ZLZ4_stream_t); }
+
+
+/*-****************************************
+*  Internal Definitions, used only in Tests
+*******************************************/
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
+int ZLZ4_compress_forceExtDict (ZLZ4_stream_t* ZLZ4_dict, const char* source, char* dest, int srcSize);
+
+int ZLZ4_decompress_safe_forceExtDict(const char* source, char* dest,
+                                     int compressedSize, int maxOutputSize,
+                                     const void* dictStart, size_t dictSize);
+int ZLZ4_decompress_safe_partial_forceExtDict(const char* source, char* dest,
+                                     int compressedSize, int targetOutputSize, int dstCapacity,
+                                     const void* dictStart, size_t dictSize);
+#if defined (__cplusplus)
+}
+#endif
+
+/*-******************************
+*  Compression functions
+********************************/
+ZLZ4_FORCE_INLINE U32 ZLZ4_hash4(U32 sequence, tableType_t const tableType)
+{
+    if (tableType == byU16)
+        return ((sequence * 2654435761U) >> ((MINMATCH*8)-(ZLZ4_HASHLOG+1)));
+    else
+        return ((sequence * 2654435761U) >> ((MINMATCH*8)-ZLZ4_HASHLOG));
+}
+
+ZLZ4_FORCE_INLINE U32 ZLZ4_hash5(U64 sequence, tableType_t const tableType)
+{
+    const U32 hashLog = (tableType == byU16) ? ZLZ4_HASHLOG+1 : ZLZ4_HASHLOG;
+    if (ZLZ4_isLittleEndian()) {
+        const U64 prime5bytes = 889523592379ULL;
+        return (U32)(((sequence << 24) * prime5bytes) >> (64 - hashLog));
+    } else {
+        const U64 prime8bytes = 11400714785074694791ULL;
+        return (U32)(((sequence >> 24) * prime8bytes) >> (64 - hashLog));
+    }
+}
+
+ZLZ4_FORCE_INLINE U32 ZLZ4_hashPosition(const void* const p, tableType_t const tableType)
+{
+    if ((sizeof(reg_t)==8) && (tableType != byU16)) return ZLZ4_hash5(ZLZ4_read_ARCH(p), tableType);
+
+#ifdef ZLZ4_STATIC_LINKING_ONLY_ENDIANNESS_INDEPENDENT_OUTPUT
+    return ZLZ4_hash4(ZLZ4_readLE32(p), tableType);
+#else
+    return ZLZ4_hash4(ZLZ4_read32(p), tableType);
+#endif
+}
+
+ZLZ4_FORCE_INLINE void ZLZ4_clearHash(U32 h, void* tableBase, tableType_t const tableType)
+{
+    switch (tableType)
+    {
+    default: /* fallthrough */
+    case clearedTable: { /* illegal! */ assert(0); return; }
+    case byPtr: { const BYTE** hashTable = (const BYTE**)tableBase; hashTable[h] = NULL; return; }
+    case byU32: { U32* hashTable = (U32*) tableBase; hashTable[h] = 0; return; }
+    case byU16: { U16* hashTable = (U16*) tableBase; hashTable[h] = 0; return; }
+    }
+}
+
+ZLZ4_FORCE_INLINE void ZLZ4_putIndexOnHash(U32 idx, U32 h, void* tableBase, tableType_t const tableType)
+{
+    switch (tableType)
+    {
+    default: /* fallthrough */
+    case clearedTable: /* fallthrough */
+    case byPtr: { /* illegal! */ assert(0); return; }
+    case byU32: { U32* hashTable = (U32*) tableBase; hashTable[h] = idx; return; }
+    case byU16: { U16* hashTable = (U16*) tableBase; assert(idx < 65536); hashTable[h] = (U16)idx; return; }
+    }
+}
+
+/* ZLZ4_putPosition*() : only used in byPtr mode */
+ZLZ4_FORCE_INLINE void ZLZ4_putPositionOnHash(const BYTE* p, U32 h,
+                                  void* tableBase, tableType_t const tableType)
+{
+    const BYTE** const hashTable = (const BYTE**)tableBase;
+    assert(tableType == byPtr); (void)tableType;
+    hashTable[h] = p;
+}
+
+ZLZ4_FORCE_INLINE void ZLZ4_putPosition(const BYTE* p, void* tableBase, tableType_t tableType)
+{
+    U32 const h = ZLZ4_hashPosition(p, tableType);
+    ZLZ4_putPositionOnHash(p, h, tableBase, tableType);
+}
+
+/* ZLZ4_getIndexOnHash() :
+ * Index of match position registered in hash table.
+ * hash position must be calculated by using base+index, or dictBase+index.
+ * Assumption 1 : only valid if tableType == byU32 or byU16.
+ * Assumption 2 : h is presumed valid (within limits of hash table)
+ */
+ZLZ4_FORCE_INLINE U32 ZLZ4_getIndexOnHash(U32 h, const void* tableBase, tableType_t tableType)
+{
+    ZLZ4_STATIC_ASSERT(ZLZ4_MEMORY_USAGE > 2);
+    if (tableType == byU32) {
+        const U32* const hashTable = (const U32*) tableBase;
+        assert(h < (1U << (ZLZ4_MEMORY_USAGE-2)));
+        return hashTable[h];
+    }
+    if (tableType == byU16) {
+        const U16* const hashTable = (const U16*) tableBase;
+        assert(h < (1U << (ZLZ4_MEMORY_USAGE-1)));
+        return hashTable[h];
+    }
+    assert(0); return 0;  /* forbidden case */
+}
+
+static const BYTE* ZLZ4_getPositionOnHash(U32 h, const void* tableBase, tableType_t tableType)
+{
+    assert(tableType == byPtr); (void)tableType;
+    { const BYTE* const* hashTable = (const BYTE* const*) tableBase; return hashTable[h]; }
+}
+
+ZLZ4_FORCE_INLINE const BYTE*
+ZLZ4_getPosition(const BYTE* p,
+                const void* tableBase, tableType_t tableType)
+{
+    U32 const h = ZLZ4_hashPosition(p, tableType);
+    return ZLZ4_getPositionOnHash(h, tableBase, tableType);
+}
+
+ZLZ4_FORCE_INLINE void
+ZLZ4_prepareTable(ZLZ4_stream_t_internal* const cctx,
+           const int inputSize,
+           const tableType_t tableType) {
+    /* If the table hasn't been used, it's guaranteed to be zeroed out, and is
+     * therefore safe to use no matter what mode we're in. Otherwise, we figure
+     * out if it's safe to leave as is or whether it needs to be reset.
+     */
+    if ((tableType_t)cctx->tableType != clearedTable) {
+        assert(inputSize >= 0);
+        if ((tableType_t)cctx->tableType != tableType
+          || ((tableType == byU16) && cctx->currentOffset + (unsigned)inputSize >= 0xFFFFU)
+          || ((tableType == byU32) && cctx->currentOffset > 1 GB)
+          || tableType == byPtr
+          || inputSize >= 4 KB)
+        {
+            DEBUGLOG(4, "ZLZ4_prepareTable: Resetting table in %p", cctx);
+            MEM_INIT(cctx->hashTable, 0, ZLZ4_HASHTABLESIZE);
+            cctx->currentOffset = 0;
+            cctx->tableType = (U32)clearedTable;
+        } else {
+            DEBUGLOG(4, "ZLZ4_prepareTable: Re-use hash table (no reset)");
+        }
+    }
+
+    /* Adding a gap, so all previous entries are > ZLZ4_DISTANCE_MAX back,
+     * is faster than compressing without a gap.
+     * However, compressing with currentOffset == 0 is faster still,
+     * so we preserve that case.
+     */
+    if (cctx->currentOffset != 0 && tableType == byU32) {
+        DEBUGLOG(5, "ZLZ4_prepareTable: adding 64KB to currentOffset");
+        cctx->currentOffset += 64 KB;
+    }
+
+    /* Finally, clear history */
+    cctx->dictCtx = NULL;
+    cctx->dictionary = NULL;
+    cctx->dictSize = 0;
+}
+
+/** ZLZ4_compress_generic_validated() :
+ *  inlined, to ensure branches are decided at compilation time.
+ *  The following conditions are presumed already validated:
+ *  - source != NULL
+ *  - inputSize > 0
+ */
+ZLZ4_FORCE_INLINE int ZLZ4_compress_generic_validated(
+                 ZLZ4_stream_t_internal* const cctx,
+                 const char* const source,
+                 char* const dest,
+                 const int inputSize,
+                 int*  inputConsumed, /* only written when outputDirective == fillOutput */
+                 const int maxOutputSize,
+                 const limitedOutput_directive outputDirective,
+                 const tableType_t tableType,
+                 const dict_directive dictDirective,
+                 const dictIssue_directive dictIssue,
+                 const int acceleration)
+{
+    int result;
+    const BYTE* ip = (const BYTE*)source;
+
+    U32 const startIndex = cctx->currentOffset;
+    const BYTE* base = (const BYTE*)source - startIndex;
+    const BYTE* lowLimit;
+
+    const ZLZ4_stream_t_internal* dictCtx = (const ZLZ4_stream_t_internal*) cctx->dictCtx;
+    const BYTE* const dictionary =
+        dictDirective == usingDictCtx ? dictCtx->dictionary : cctx->dictionary;
+    const U32 dictSize =
+        dictDirective == usingDictCtx ? dictCtx->dictSize : cctx->dictSize;
+    const U32 dictDelta =
+        (dictDirective == usingDictCtx) ? startIndex - dictCtx->currentOffset : 0;   /* make indexes in dictCtx comparable with indexes in current context */
+
+    int const maybe_extMem = (dictDirective == usingExtDict) || (dictDirective == usingDictCtx);
+    U32 const prefixIdxLimit = startIndex - dictSize;   /* used when dictDirective == dictSmall */
+    const BYTE* const dictEnd = dictionary ? dictionary + dictSize : dictionary;
+    const BYTE* anchor = (const BYTE*) source;
+    const BYTE* const iend = ip + inputSize;
+    const BYTE* const mflimitPlusOne = iend - MFLIMIT + 1;
+    const BYTE* const matchlimit = iend - LASTLITERALS;
+
+    /* the dictCtx currentOffset is indexed on the start of the dictionary,
+     * while a dictionary in the current context precedes the currentOffset */
+    const BYTE* dictBase = (dictionary == NULL) ? NULL :
+                           (dictDirective == usingDictCtx) ?
+                            dictionary + dictSize - dictCtx->currentOffset :
+                            dictionary + dictSize - startIndex;
+
+    BYTE* op = (BYTE*) dest;
+    BYTE* const olimit = op + maxOutputSize;
+
+    U32 offset = 0;
+    U32 forwardH;
+
+    DEBUGLOG(5, "ZLZ4_compress_generic_validated: srcSize=%i, tableType=%u", inputSize, tableType);
+    assert(ip != NULL);
+    if (tableType == byU16) assert(inputSize<ZLZ4_64Klimit);  /* Size too large (not within 64K limit) */
+    if (tableType == byPtr) assert(dictDirective==noDict);   /* only supported use case with byPtr */
+    /* If init conditions are not met, we don't have to mark stream
+     * as having dirty context, since no action was taken yet */
+    if (outputDirective == fillOutput && maxOutputSize < 1) { return 0; } /* Impossible to store anything */
+    assert(acceleration >= 1);
+
+    lowLimit = (const BYTE*)source - (dictDirective == withPrefix64k ? dictSize : 0);
+
+    /* Update context state */
+    if (dictDirective == usingDictCtx) {
+        /* Subsequent linked blocks can't use the dictionary. */
+        /* Instead, they use the block we just compressed. */
+        cctx->dictCtx = NULL;
+        cctx->dictSize = (U32)inputSize;
+    } else {
+        cctx->dictSize += (U32)inputSize;
+    }
+    cctx->currentOffset += (U32)inputSize;
+    cctx->tableType = (U32)tableType;
+
+    if (inputSize<ZLZ4_minLength) goto _last_literals;        /* Input too small, no compression (all literals) */
+
+    /* First Byte */
+    {   U32 const h = ZLZ4_hashPosition(ip, tableType);
+        if (tableType == byPtr) {
+            ZLZ4_putPositionOnHash(ip, h, cctx->hashTable, byPtr);
+        } else {
+            ZLZ4_putIndexOnHash(startIndex, h, cctx->hashTable, tableType);
+    }   }
+    ip++; forwardH = ZLZ4_hashPosition(ip, tableType);
+
+    /* Main Loop */
+    for ( ; ; ) {
+        const BYTE* match;
+        BYTE* token;
+        const BYTE* filledIp;
+
+        /* Find a match */
+        if (tableType == byPtr) {
+            const BYTE* forwardIp = ip;
+            int step = 1;
+            int searchMatchNb = acceleration << ZLZ4_skipTrigger;
+            do {
+                U32 const h = forwardH;
+                ip = forwardIp;
+                forwardIp += step;
+                step = (searchMatchNb++ >> ZLZ4_skipTrigger);
+
+                if (unlikely(forwardIp > mflimitPlusOne)) goto _last_literals;
+                assert(ip < mflimitPlusOne);
+
+                match = ZLZ4_getPositionOnHash(h, cctx->hashTable, tableType);
+                forwardH = ZLZ4_hashPosition(forwardIp, tableType);
+                ZLZ4_putPositionOnHash(ip, h, cctx->hashTable, tableType);
+
+            } while ( (match+ZLZ4_DISTANCE_MAX < ip)
+                   || (ZLZ4_read32(match) != ZLZ4_read32(ip)) );
+
+        } else {   /* byU32, byU16 */
+
+            const BYTE* forwardIp = ip;
+            int step = 1;
+            int searchMatchNb = acceleration << ZLZ4_skipTrigger;
+            do {
+                U32 const h = forwardH;
+                U32 const current = (U32)(forwardIp - base);
+                U32 matchIndex = ZLZ4_getIndexOnHash(h, cctx->hashTable, tableType);
+                assert(matchIndex <= current);
+                assert(forwardIp - base < (ptrdiff_t)(2 GB - 1));
+                ip = forwardIp;
+                forwardIp += step;
+                step = (searchMatchNb++ >> ZLZ4_skipTrigger);
+
+                if (unlikely(forwardIp > mflimitPlusOne)) goto _last_literals;
+                assert(ip < mflimitPlusOne);
+
+                if (dictDirective == usingDictCtx) {
+                    if (matchIndex < startIndex) {
+                        /* there was no match, try the dictionary */
+                        assert(tableType == byU32);
+                        matchIndex = ZLZ4_getIndexOnHash(h, dictCtx->hashTable, byU32);
+                        match = dictBase + matchIndex;
+                        matchIndex += dictDelta;   /* make dictCtx index comparable with current context */
+                        lowLimit = dictionary;
+                    } else {
+                        match = base + matchIndex;
+                        lowLimit = (const BYTE*)source;
+                    }
+                } else if (dictDirective == usingExtDict) {
+                    if (matchIndex < startIndex) {
+                        DEBUGLOG(7, "extDict candidate: matchIndex=%5u  <  startIndex=%5u", matchIndex, startIndex);
+                        assert(startIndex - matchIndex >= MINMATCH);
+                        assert(dictBase);
+                        match = dictBase + matchIndex;
+                        lowLimit = dictionary;
+                    } else {
+                        match = base + matchIndex;
+                        lowLimit = (const BYTE*)source;
+                    }
+                } else {   /* single continuous memory segment */
+                    match = base + matchIndex;
+                }
+                forwardH = ZLZ4_hashPosition(forwardIp, tableType);
+                ZLZ4_putIndexOnHash(current, h, cctx->hashTable, tableType);
+
+                DEBUGLOG(7, "candidate at pos=%u  (offset=%u \n", matchIndex, current - matchIndex);
+                if ((dictIssue == dictSmall) && (matchIndex < prefixIdxLimit)) { continue; }    /* match outside of valid area */
+                assert(matchIndex < current);
+                if ( ((tableType != byU16) || (ZLZ4_DISTANCE_MAX < ZLZ4_DISTANCE_ABSOLUTE_MAX))
+                  && (matchIndex+ZLZ4_DISTANCE_MAX < current)) {
+                    continue;
+                } /* too far */
+                assert((current - matchIndex) <= ZLZ4_DISTANCE_MAX);  /* match now expected within distance */
+
+                if (ZLZ4_read32(match) == ZLZ4_read32(ip)) {
+                    if (maybe_extMem) offset = current - matchIndex;
+                    break;   /* match found */
+                }
+
+            } while(1);
+        }
+
+        /* Catch up */
+        filledIp = ip;
+        assert(ip > anchor); /* this is always true as ip has been advanced before entering the main loop */
+        if ((match > lowLimit) && unlikely(ip[-1] == match[-1])) {
+            do { ip--; match--; } while (((ip > anchor) & (match > lowLimit)) && (unlikely(ip[-1] == match[-1])));
+        }
+
+        /* Encode Literals */
+        {   unsigned const litLength = (unsigned)(ip - anchor);
+            token = op++;
+            if ((outputDirective == limitedOutput) &&  /* Check output buffer overflow */
+                (unlikely(op + litLength + (2 + 1 + LASTLITERALS) + (litLength/255) > olimit)) ) {
+                return 0;   /* cannot compress within `dst` budget. Stored indexes in hash table are nonetheless fine */
+            }
+            if ((outputDirective == fillOutput) &&
+                (unlikely(op + (litLength+240)/255 /* litlen */ + litLength /* literals */ + 2 /* offset */ + 1 /* token */ + MFLIMIT - MINMATCH /* min last literals so last match is <= end - MFLIMIT */ > olimit))) {
+                op--;
+                goto _last_literals;
+            }
+            if (litLength >= RUN_MASK) {
+                unsigned len = litLength - RUN_MASK;
+                *token = (RUN_MASK<<ML_BITS);
+                for(; len >= 255 ; len-=255) *op++ = 255;
+                *op++ = (BYTE)len;
+            }
+            else *token = (BYTE)(litLength<<ML_BITS);
+
+            /* Copy Literals */
+            ZLZ4_wildCopy8(op, anchor, op+litLength);
+            op+=litLength;
+            DEBUGLOG(6, "seq.start:%i, literals=%u, match.start:%i",
+                        (int)(anchor-(const BYTE*)source), litLength, (int)(ip-(const BYTE*)source));
+        }
+
+_next_match:
+        /* at this stage, the following variables must be correctly set :
+         * - ip : at start of LZ operation
+         * - match : at start of previous pattern occurrence; can be within current prefix, or within extDict
+         * - offset : if maybe_ext_memSegment==1 (constant)
+         * - lowLimit : must be == dictionary to mean "match is within extDict"; must be == source otherwise
+         * - token and *token : position to write 4-bits for match length; higher 4-bits for literal length supposed already written
+         */
+
+        if ((outputDirective == fillOutput) &&
+            (op + 2 /* offset */ + 1 /* token */ + MFLIMIT - MINMATCH /* min last literals so last match is <= end - MFLIMIT */ > olimit)) {
+            /* the match was too close to the end, rewind and go to last literals */
+            op = token;
+            goto _last_literals;
+        }
+
+        /* Encode Offset */
+        if (maybe_extMem) {   /* static test */
+            DEBUGLOG(6, "             with offset=%u  (ext if > %i)", offset, (int)(ip - (const BYTE*)source));
+            assert(offset <= ZLZ4_DISTANCE_MAX && offset > 0);
+            ZLZ4_writeLE16(op, (U16)offset); op+=2;
+        } else  {
+            DEBUGLOG(6, "             with offset=%u  (same segment)", (U32)(ip - match));
+            assert(ip-match <= ZLZ4_DISTANCE_MAX);
+            ZLZ4_writeLE16(op, (U16)(ip - match)); op+=2;
+        }
+
+        /* Encode MatchLength */
+        {   unsigned matchCode;
+
+            if ( (dictDirective==usingExtDict || dictDirective==usingDictCtx)
+              && (lowLimit==dictionary) /* match within extDict */ ) {
+                const BYTE* limit = ip + (dictEnd-match);
+                assert(dictEnd > match);
+                if (limit > matchlimit) limit = matchlimit;
+                matchCode = ZLZ4_count(ip+MINMATCH, match+MINMATCH, limit);
+                ip += (size_t)matchCode + MINMATCH;
+                if (ip==limit) {
+                    unsigned const more = ZLZ4_count(limit, (const BYTE*)source, matchlimit);
+                    matchCode += more;
+                    ip += more;
+                }
+                DEBUGLOG(6, "             with matchLength=%u starting in extDict", matchCode+MINMATCH);
+            } else {
+                matchCode = ZLZ4_count(ip+MINMATCH, match+MINMATCH, matchlimit);
+                ip += (size_t)matchCode + MINMATCH;
+                DEBUGLOG(6, "             with matchLength=%u", matchCode+MINMATCH);
+            }
+
+            if ((outputDirective) &&    /* Check output buffer overflow */
+                (unlikely(op + (1 + LASTLITERALS) + (matchCode+240)/255 > olimit)) ) {
+                if (outputDirective == fillOutput) {
+                    /* Match description too long : reduce it */
+                    U32 newMatchCode = 15 /* in token */ - 1 /* to avoid needing a zero byte */ + ((U32)(olimit - op) - 1 - LASTLITERALS) * 255;
+                    ip -= matchCode - newMatchCode;
+                    assert(newMatchCode < matchCode);
+                    matchCode = newMatchCode;
+                    if (unlikely(ip <= filledIp)) {
+                        /* We have already filled up to filledIp so if ip ends up less than filledIp
+                         * we have positions in the hash table beyond the current position. This is
+                         * a problem if we reuse the hash table. So we have to remove these positions
+                         * from the hash table.
+                         */
+                        const BYTE* ptr;
+                        DEBUGLOG(5, "Clearing %u positions", (U32)(filledIp - ip));
+                        for (ptr = ip; ptr <= filledIp; ++ptr) {
+                            U32 const h = ZLZ4_hashPosition(ptr, tableType);
+                            ZLZ4_clearHash(h, cctx->hashTable, tableType);
+                        }
+                    }
+                } else {
+                    assert(outputDirective == limitedOutput);
+                    return 0;   /* cannot compress within `dst` budget. Stored indexes in hash table are nonetheless fine */
+                }
+            }
+            if (matchCode >= ML_MASK) {
+                *token += ML_MASK;
+                matchCode -= ML_MASK;
+                ZLZ4_write32(op, 0xFFFFFFFF);
+                while (matchCode >= 4*255) {
+                    op+=4;
+                    ZLZ4_write32(op, 0xFFFFFFFF);
+                    matchCode -= 4*255;
+                }
+                op += matchCode / 255;
+                *op++ = (BYTE)(matchCode % 255);
+            } else
+                *token += (BYTE)(matchCode);
+        }
+        /* Ensure we have enough space for the last literals. */
+        assert(!(outputDirective == fillOutput && op + 1 + LASTLITERALS > olimit));
+
+        anchor = ip;
+
+        /* Test end of chunk */
+        if (ip >= mflimitPlusOne) break;
+
+        /* Fill table */
+        {   U32 const h = ZLZ4_hashPosition(ip-2, tableType);
+            if (tableType == byPtr) {
+                ZLZ4_putPositionOnHash(ip-2, h, cctx->hashTable, byPtr);
+            } else {
+                U32 const idx = (U32)((ip-2) - base);
+                ZLZ4_putIndexOnHash(idx, h, cctx->hashTable, tableType);
+        }   }
+
+        /* Test next position */
+        if (tableType == byPtr) {
+
+            match = ZLZ4_getPosition(ip, cctx->hashTable, tableType);
+            ZLZ4_putPosition(ip, cctx->hashTable, tableType);
+            if ( (match+ZLZ4_DISTANCE_MAX >= ip)
+              && (ZLZ4_read32(match) == ZLZ4_read32(ip)) )
+            { token=op++; *token=0; goto _next_match; }
+
+        } else {   /* byU32, byU16 */
+
+            U32 const h = ZLZ4_hashPosition(ip, tableType);
+            U32 const current = (U32)(ip-base);
+            U32 matchIndex = ZLZ4_getIndexOnHash(h, cctx->hashTable, tableType);
+            assert(matchIndex < current);
+            if (dictDirective == usingDictCtx) {
+                if (matchIndex < startIndex) {
+                    /* there was no match, try the dictionary */
+                    assert(tableType == byU32);
+                    matchIndex = ZLZ4_getIndexOnHash(h, dictCtx->hashTable, byU32);
+                    match = dictBase + matchIndex;
+                    lowLimit = dictionary;   /* required for match length counter */
+                    matchIndex += dictDelta;
+                } else {
+                    match = base + matchIndex;
+                    lowLimit = (const BYTE*)source;  /* required for match length counter */
+                }
+            } else if (dictDirective==usingExtDict) {
+                if (matchIndex < startIndex) {
+                    assert(dictBase);
+                    match = dictBase + matchIndex;
+                    lowLimit = dictionary;   /* required for match length counter */
+                } else {
+                    match = base + matchIndex;
+                    lowLimit = (const BYTE*)source;   /* required for match length counter */
+                }
+            } else {   /* single memory segment */
+                match = base + matchIndex;
+            }
+            ZLZ4_putIndexOnHash(current, h, cctx->hashTable, tableType);
+            assert(matchIndex < current);
+            if ( ((dictIssue==dictSmall) ? (matchIndex >= prefixIdxLimit) : 1)
+              && (((tableType==byU16) && (ZLZ4_DISTANCE_MAX == ZLZ4_DISTANCE_ABSOLUTE_MAX)) ? 1 : (matchIndex+ZLZ4_DISTANCE_MAX >= current))
+              && (ZLZ4_read32(match) == ZLZ4_read32(ip)) ) {
+                token=op++;
+                *token=0;
+                if (maybe_extMem) offset = current - matchIndex;
+                DEBUGLOG(6, "seq.start:%i, literals=%u, match.start:%i",
+                            (int)(anchor-(const BYTE*)source), 0, (int)(ip-(const BYTE*)source));
+                goto _next_match;
+            }
+        }
+
+        /* Prepare next loop */
+        forwardH = ZLZ4_hashPosition(++ip, tableType);
+
+    }
+
+_last_literals:
+    /* Encode Last Literals */
+    {   size_t lastRun = (size_t)(iend - anchor);
+        if ( (outputDirective) &&  /* Check output buffer overflow */
+            (op + lastRun + 1 + ((lastRun+255-RUN_MASK)/255) > olimit)) {
+            if (outputDirective == fillOutput) {
+                /* adapt lastRun to fill 'dst' */
+                assert(olimit >= op);
+                lastRun  = (size_t)(olimit-op) - 1/*token*/;
+                lastRun -= (lastRun + 256 - RUN_MASK) / 256;  /*additional length tokens*/
+            } else {
+                assert(outputDirective == limitedOutput);
+                return 0;   /* cannot compress within `dst` budget. Stored indexes in hash table are nonetheless fine */
+            }
+        }
+        DEBUGLOG(6, "Final literal run : %i literals", (int)lastRun);
+        if (lastRun >= RUN_MASK) {
+            size_t accumulator = lastRun - RUN_MASK;
+            *op++ = RUN_MASK << ML_BITS;
+            for(; accumulator >= 255 ; accumulator-=255) *op++ = 255;
+            *op++ = (BYTE) accumulator;
+        } else {
+            *op++ = (BYTE)(lastRun<<ML_BITS);
+        }
+        ZLZ4_memcpy(op, anchor, lastRun);
+        ip = anchor + lastRun;
+        op += lastRun;
+    }
+
+    if (outputDirective == fillOutput) {
+        *inputConsumed = (int) (((const char*)ip)-source);
+    }
+    result = (int)(((char*)op) - dest);
+    assert(result > 0);
+    DEBUGLOG(5, "ZLZ4_compress_generic: compressed %i bytes into %i bytes", inputSize, result);
+    return result;
+}
+
+/** ZLZ4_compress_generic() :
+ *  inlined, to ensure branches are decided at compilation time;
+ *  takes care of src == (NULL, 0)
+ *  and forward the rest to ZLZ4_compress_generic_validated */
+ZLZ4_FORCE_INLINE int ZLZ4_compress_generic(
+                 ZLZ4_stream_t_internal* const cctx,
+                 const char* const src,
+                 char* const dst,
+                 const int srcSize,
+                 int *inputConsumed, /* only written when outputDirective == fillOutput */
+                 const int dstCapacity,
+                 const limitedOutput_directive outputDirective,
+                 const tableType_t tableType,
+                 const dict_directive dictDirective,
+                 const dictIssue_directive dictIssue,
+                 const int acceleration)
+{
+    DEBUGLOG(5, "ZLZ4_compress_generic: srcSize=%i, dstCapacity=%i",
+                srcSize, dstCapacity);
+
+    if ((U32)srcSize > (U32)ZLZ4_MAX_INPUT_SIZE) { return 0; }  /* Unsupported srcSize, too large (or negative) */
+    if (srcSize == 0) {   /* src == NULL supported if srcSize == 0 */
+        if (outputDirective != notLimited && dstCapacity <= 0) return 0;  /* no output, can't write anything */
+        DEBUGLOG(5, "Generating an empty block");
+        assert(outputDirective == notLimited || dstCapacity >= 1);
+        assert(dst != NULL);
+        dst[0] = 0;
+        if (outputDirective == fillOutput) {
+            assert (inputConsumed != NULL);
+            *inputConsumed = 0;
+        }
+        return 1;
+    }
+    assert(src != NULL);
+
+    return ZLZ4_compress_generic_validated(cctx, src, dst, srcSize,
+                inputConsumed, /* only written into if outputDirective == fillOutput */
+                dstCapacity, outputDirective,
+                tableType, dictDirective, dictIssue, acceleration);
+}
+
+
+int ZLZ4_compress_fast_extState(void* state, const char* source, char* dest, int inputSize, int maxOutputSize, int acceleration)
+{
+    ZLZ4_stream_t_internal* const ctx = & ZLZ4_initStream(state, sizeof(ZLZ4_stream_t)) -> internal_donotuse;
+    assert(ctx != NULL);
+    if (acceleration < 1) acceleration = ZLZ4_ACCELERATION_DEFAULT;
+    if (acceleration > ZLZ4_ACCELERATION_MAX) acceleration = ZLZ4_ACCELERATION_MAX;
+    if (maxOutputSize >= ZLZ4_compressBound(inputSize)) {
+        if (inputSize < ZLZ4_64Klimit) {
+            return ZLZ4_compress_generic(ctx, source, dest, inputSize, NULL, 0, notLimited, byU16, noDict, noDictIssue, acceleration);
+        } else {
+            const tableType_t tableType = ((sizeof(void*)==4) && ((uptrval)source > ZLZ4_DISTANCE_MAX)) ? byPtr : byU32;
+            return ZLZ4_compress_generic(ctx, source, dest, inputSize, NULL, 0, notLimited, tableType, noDict, noDictIssue, acceleration);
+        }
+    } else {
+        if (inputSize < ZLZ4_64Klimit) {
+            return ZLZ4_compress_generic(ctx, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, byU16, noDict, noDictIssue, acceleration);
+        } else {
+            const tableType_t tableType = ((sizeof(void*)==4) && ((uptrval)source > ZLZ4_DISTANCE_MAX)) ? byPtr : byU32;
+            return ZLZ4_compress_generic(ctx, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, noDict, noDictIssue, acceleration);
+        }
+    }
+}
+
+/**
+ * ZLZ4_compress_fast_extState_fastReset() :
+ * A variant of ZLZ4_compress_fast_extState().
+ *
+ * Using this variant avoids an expensive initialization step. It is only safe
+ * to call if the state buffer is known to be correctly initialized already
+ * (see comment in lz4.h on ZLZ4_resetStream_fast() for a definition of
+ * "correctly initialized").
+ */
+int ZLZ4_compress_fast_extState_fastReset(void* state, const char* src, char* dst, int srcSize, int dstCapacity, int acceleration)
+{
+    ZLZ4_stream_t_internal* const ctx = &((ZLZ4_stream_t*)state)->internal_donotuse;
+    if (acceleration < 1) acceleration = ZLZ4_ACCELERATION_DEFAULT;
+    if (acceleration > ZLZ4_ACCELERATION_MAX) acceleration = ZLZ4_ACCELERATION_MAX;
+    assert(ctx != NULL);
+
+    if (dstCapacity >= ZLZ4_compressBound(srcSize)) {
+        if (srcSize < ZLZ4_64Klimit) {
+            const tableType_t tableType = byU16;
+            ZLZ4_prepareTable(ctx, srcSize, tableType);
+            if (ctx->currentOffset) {
+                return ZLZ4_compress_generic(ctx, src, dst, srcSize, NULL, 0, notLimited, tableType, noDict, dictSmall, acceleration);
+            } else {
+                return ZLZ4_compress_generic(ctx, src, dst, srcSize, NULL, 0, notLimited, tableType, noDict, noDictIssue, acceleration);
+            }
+        } else {
+            const tableType_t tableType = ((sizeof(void*)==4) && ((uptrval)src > ZLZ4_DISTANCE_MAX)) ? byPtr : byU32;
+            ZLZ4_prepareTable(ctx, srcSize, tableType);
+            return ZLZ4_compress_generic(ctx, src, dst, srcSize, NULL, 0, notLimited, tableType, noDict, noDictIssue, acceleration);
+        }
+    } else {
+        if (srcSize < ZLZ4_64Klimit) {
+            const tableType_t tableType = byU16;
+            ZLZ4_prepareTable(ctx, srcSize, tableType);
+            if (ctx->currentOffset) {
+                return ZLZ4_compress_generic(ctx, src, dst, srcSize, NULL, dstCapacity, limitedOutput, tableType, noDict, dictSmall, acceleration);
+            } else {
+                return ZLZ4_compress_generic(ctx, src, dst, srcSize, NULL, dstCapacity, limitedOutput, tableType, noDict, noDictIssue, acceleration);
+            }
+        } else {
+            const tableType_t tableType = ((sizeof(void*)==4) && ((uptrval)src > ZLZ4_DISTANCE_MAX)) ? byPtr : byU32;
+            ZLZ4_prepareTable(ctx, srcSize, tableType);
+            return ZLZ4_compress_generic(ctx, src, dst, srcSize, NULL, dstCapacity, limitedOutput, tableType, noDict, noDictIssue, acceleration);
+        }
+    }
+}
+
+
+int ZLZ4_compress_fast(const char* src, char* dest, int srcSize, int dstCapacity, int acceleration)
+{
+    int result;
+#if (ZLZ4_HEAPMODE)
+    ZLZ4_stream_t* const ctxPtr = (ZLZ4_stream_t*)ALLOC(sizeof(ZLZ4_stream_t));   /* malloc-calloc always properly aligned */
+    if (ctxPtr == NULL) return 0;
+#else
+    ZLZ4_stream_t ctx;
+    ZLZ4_stream_t* const ctxPtr = &ctx;
+#endif
+    result = ZLZ4_compress_fast_extState(ctxPtr, src, dest, srcSize, dstCapacity, acceleration);
+
+#if (ZLZ4_HEAPMODE)
+    FREEMEM(ctxPtr);
+#endif
+    return result;
+}
+
+
+int ZLZ4_compress_default(const char* src, char* dst, int srcSize, int dstCapacity)
+{
+    return ZLZ4_compress_fast(src, dst, srcSize, dstCapacity, 1);
+}
+
+
+/* Note!: This function leaves the stream in an unclean/broken state!
+ * It is not safe to subsequently use the same state with a _fastReset() or
+ * _continue() call without resetting it. */
+static int ZLZ4_compress_destSize_extState_internal(ZLZ4_stream_t* state, const char* src, char* dst, int* srcSizePtr, int targetDstSize, int acceleration)
+{
+    void* const s = ZLZ4_initStream(state, sizeof (*state));
+    assert(s != NULL); (void)s;
+
+    if (targetDstSize >= ZLZ4_compressBound(*srcSizePtr)) {  /* compression success is guaranteed */
+        return ZLZ4_compress_fast_extState(state, src, dst, *srcSizePtr, targetDstSize, acceleration);
+    } else {
+        if (*srcSizePtr < ZLZ4_64Klimit) {
+            return ZLZ4_compress_generic(&state->internal_donotuse, src, dst, *srcSizePtr, srcSizePtr, targetDstSize, fillOutput, byU16, noDict, noDictIssue, acceleration);
+        } else {
+            tableType_t const addrMode = ((sizeof(void*)==4) && ((uptrval)src > ZLZ4_DISTANCE_MAX)) ? byPtr : byU32;
+            return ZLZ4_compress_generic(&state->internal_donotuse, src, dst, *srcSizePtr, srcSizePtr, targetDstSize, fillOutput, addrMode, noDict, noDictIssue, acceleration);
+    }   }
+}
+
+int ZLZ4_compress_destSize_extState(void* state, const char* src, char* dst, int* srcSizePtr, int targetDstSize, int acceleration)
+{
+    int const r = ZLZ4_compress_destSize_extState_internal((ZLZ4_stream_t*)state, src, dst, srcSizePtr, targetDstSize, acceleration);
+    /* clean the state on exit */
+    ZLZ4_initStream(state, sizeof (ZLZ4_stream_t));
+    return r;
+}
+
+
+int ZLZ4_compress_destSize(const char* src, char* dst, int* srcSizePtr, int targetDstSize)
+{
+#if (ZLZ4_HEAPMODE)
+    ZLZ4_stream_t* const ctx = (ZLZ4_stream_t*)ALLOC(sizeof(ZLZ4_stream_t));   /* malloc-calloc always properly aligned */
+    if (ctx == NULL) return 0;
+#else
+    ZLZ4_stream_t ctxBody;
+    ZLZ4_stream_t* const ctx = &ctxBody;
+#endif
+
+    int result = ZLZ4_compress_destSize_extState_internal(ctx, src, dst, srcSizePtr, targetDstSize, 1);
+
+#if (ZLZ4_HEAPMODE)
+    FREEMEM(ctx);
+#endif
+    return result;
+}
+
+
+
+/*-******************************
+*  Streaming functions
+********************************/
+
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+ZLZ4_stream_t* ZLZ4_createStream(void)
+{
+    ZLZ4_stream_t* const lz4s = (ZLZ4_stream_t*)ALLOC(sizeof(ZLZ4_stream_t));
+    ZLZ4_STATIC_ASSERT(sizeof(ZLZ4_stream_t) >= sizeof(ZLZ4_stream_t_internal));
+    DEBUGLOG(4, "ZLZ4_createStream %p", lz4s);
+    if (lz4s == NULL) return NULL;
+    ZLZ4_initStream(lz4s, sizeof(*lz4s));
+    return lz4s;
+}
+#endif
+
+static size_t ZLZ4_stream_t_alignment(void)
+{
+#if ZLZ4_ALIGN_TEST
+    typedef struct { char c; ZLZ4_stream_t t; } t_a;
+    return sizeof(t_a) - sizeof(ZLZ4_stream_t);
+#else
+    return 1;  /* effectively disabled */
+#endif
+}
+
+ZLZ4_stream_t* ZLZ4_initStream (void* buffer, size_t size)
+{
+    DEBUGLOG(5, "ZLZ4_initStream");
+    if (buffer == NULL) { return NULL; }
+    if (size < sizeof(ZLZ4_stream_t)) { return NULL; }
+    if (!ZLZ4_isAligned(buffer, ZLZ4_stream_t_alignment())) return NULL;
+    MEM_INIT(buffer, 0, sizeof(ZLZ4_stream_t_internal));
+    return (ZLZ4_stream_t*)buffer;
+}
+
+/* resetStream is now deprecated,
+ * prefer initStream() which is more general */
+void ZLZ4_resetStream (ZLZ4_stream_t* ZLZ4_stream)
+{
+    DEBUGLOG(5, "ZLZ4_resetStream (ctx:%p)", ZLZ4_stream);
+    MEM_INIT(ZLZ4_stream, 0, sizeof(ZLZ4_stream_t_internal));
+}
+
+void ZLZ4_resetStream_fast(ZLZ4_stream_t* ctx) {
+    ZLZ4_prepareTable(&(ctx->internal_donotuse), 0, byU32);
+}
+
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+int ZLZ4_freeStream (ZLZ4_stream_t* ZLZ4_stream)
+{
+    if (!ZLZ4_stream) return 0;   /* support free on NULL */
+    DEBUGLOG(5, "ZLZ4_freeStream %p", ZLZ4_stream);
+    FREEMEM(ZLZ4_stream);
+    return (0);
+}
+#endif
+
+
+typedef enum { _ld_fast, _ld_slow } LoadDict_mode_e;
+#define HASH_UNIT sizeof(reg_t)
+int ZLZ4_loadDict_internal(ZLZ4_stream_t* ZLZ4_dict,
+                    const char* dictionary, int dictSize,
+                    LoadDict_mode_e _ld)
+{
+    ZLZ4_stream_t_internal* const dict = &ZLZ4_dict->internal_donotuse;
+    const tableType_t tableType = byU32;
+    const BYTE* p = (const BYTE*)dictionary;
+    const BYTE* const dictEnd = p + dictSize;
+    U32 idx32;
+
+    DEBUGLOG(4, "ZLZ4_loadDict (%i bytes from %p into %p)", dictSize, dictionary, ZLZ4_dict);
+
+    /* It's necessary to reset the context,
+     * and not just continue it with prepareTable()
+     * to avoid any risk of generating overflowing matchIndex
+     * when compressing using this dictionary */
+    ZLZ4_resetStream(ZLZ4_dict);
+
+    /* We always increment the offset by 64 KB, since, if the dict is longer,
+     * we truncate it to the last 64k, and if it's shorter, we still want to
+     * advance by a whole window length so we can provide the guarantee that
+     * there are only valid offsets in the window, which allows an optimization
+     * in ZLZ4_compress_fast_continue() where it uses noDictIssue even when the
+     * dictionary isn't a full 64k. */
+    dict->currentOffset += 64 KB;
+
+    if (dictSize < (int)HASH_UNIT) {
+        return 0;
+    }
+
+    if ((dictEnd - p) > 64 KB) p = dictEnd - 64 KB;
+    dict->dictionary = p;
+    dict->dictSize = (U32)(dictEnd - p);
+    dict->tableType = (U32)tableType;
+    idx32 = dict->currentOffset - dict->dictSize;
+
+    while (p <= dictEnd-HASH_UNIT) {
+        U32 const h = ZLZ4_hashPosition(p, tableType);
+        /* Note: overwriting => favors positions end of dictionary */
+        ZLZ4_putIndexOnHash(idx32, h, dict->hashTable, tableType);
+        p+=3; idx32+=3;
+    }
+
+    if (_ld == _ld_slow) {
+        /* Fill hash table with additional references, to improve compression capability */
+        p = dict->dictionary;
+        idx32 = dict->currentOffset - dict->dictSize;
+        while (p <= dictEnd-HASH_UNIT) {
+            U32 const h = ZLZ4_hashPosition(p, tableType);
+            U32 const limit = dict->currentOffset - 64 KB;
+            if (ZLZ4_getIndexOnHash(h, dict->hashTable, tableType) <= limit) {
+                /* Note: not overwriting => favors positions beginning of dictionary */
+                ZLZ4_putIndexOnHash(idx32, h, dict->hashTable, tableType);
+            }
+            p++; idx32++;
+        }
+    }
+
+    return (int)dict->dictSize;
+}
+
+int ZLZ4_loadDict(ZLZ4_stream_t* ZLZ4_dict, const char* dictionary, int dictSize)
+{
+    return ZLZ4_loadDict_internal(ZLZ4_dict, dictionary, dictSize, _ld_fast);
+}
+
+int ZLZ4_loadDictSlow(ZLZ4_stream_t* ZLZ4_dict, const char* dictionary, int dictSize)
+{
+    return ZLZ4_loadDict_internal(ZLZ4_dict, dictionary, dictSize, _ld_slow);
+}
+
+void ZLZ4_attach_dictionary(ZLZ4_stream_t* workingStream, const ZLZ4_stream_t* dictionaryStream)
+{
+    const ZLZ4_stream_t_internal* dictCtx = (dictionaryStream == NULL) ? NULL :
+        &(dictionaryStream->internal_donotuse);
+
+    DEBUGLOG(4, "ZLZ4_attach_dictionary (%p, %p, size %u)",
+             workingStream, dictionaryStream,
+             dictCtx != NULL ? dictCtx->dictSize : 0);
+
+    if (dictCtx != NULL) {
+        /* If the current offset is zero, we will never look in the
+         * external dictionary context, since there is no value a table
+         * entry can take that indicate a miss. In that case, we need
+         * to bump the offset to something non-zero.
+         */
+        if (workingStream->internal_donotuse.currentOffset == 0) {
+            workingStream->internal_donotuse.currentOffset = 64 KB;
+        }
+
+        /* Don't actually attach an empty dictionary.
+         */
+        if (dictCtx->dictSize == 0) {
+            dictCtx = NULL;
+        }
+    }
+    workingStream->internal_donotuse.dictCtx = dictCtx;
+}
+
+
+static void ZLZ4_renormDictT(ZLZ4_stream_t_internal* ZLZ4_dict, int nextSize)
+{
+    assert(nextSize >= 0);
+    if (ZLZ4_dict->currentOffset + (unsigned)nextSize > 0x80000000) {   /* potential ptrdiff_t overflow (32-bits mode) */
+        /* rescale hash table */
+        U32 const delta = ZLZ4_dict->currentOffset - 64 KB;
+        const BYTE* dictEnd = ZLZ4_dict->dictionary + ZLZ4_dict->dictSize;
+        int i;
+        DEBUGLOG(4, "ZLZ4_renormDictT");
+        for (i=0; i<ZLZ4_HASH_SIZE_U32; i++) {
+            if (ZLZ4_dict->hashTable[i] < delta) ZLZ4_dict->hashTable[i]=0;
+            else ZLZ4_dict->hashTable[i] -= delta;
+        }
+        ZLZ4_dict->currentOffset = 64 KB;
+        if (ZLZ4_dict->dictSize > 64 KB) ZLZ4_dict->dictSize = 64 KB;
+        ZLZ4_dict->dictionary = dictEnd - ZLZ4_dict->dictSize;
+    }
+}
+
+
+int ZLZ4_compress_fast_continue (ZLZ4_stream_t* ZLZ4_stream,
+                                const char* source, char* dest,
+                                int inputSize, int maxOutputSize,
+                                int acceleration)
+{
+    const tableType_t tableType = byU32;
+    ZLZ4_stream_t_internal* const streamPtr = &ZLZ4_stream->internal_donotuse;
+    const char* dictEnd = streamPtr->dictSize ? (const char*)streamPtr->dictionary + streamPtr->dictSize : NULL;
+
+    DEBUGLOG(5, "ZLZ4_compress_fast_continue (inputSize=%i, dictSize=%u)", inputSize, streamPtr->dictSize);
+
+    ZLZ4_renormDictT(streamPtr, inputSize);   /* fix index overflow */
+    if (acceleration < 1) acceleration = ZLZ4_ACCELERATION_DEFAULT;
+    if (acceleration > ZLZ4_ACCELERATION_MAX) acceleration = ZLZ4_ACCELERATION_MAX;
+
+    /* invalidate tiny dictionaries */
+    if ( (streamPtr->dictSize < 4)     /* tiny dictionary : not enough for a hash */
+      && (dictEnd != source)           /* prefix mode */
+      && (inputSize > 0)               /* tolerance : don't lose history, in case next invocation would use prefix mode */
+      && (streamPtr->dictCtx == NULL)  /* usingDictCtx */
+      ) {
+        DEBUGLOG(5, "ZLZ4_compress_fast_continue: dictSize(%u) at addr:%p is too small", streamPtr->dictSize, streamPtr->dictionary);
+        /* remove dictionary existence from history, to employ faster prefix mode */
+        streamPtr->dictSize = 0;
+        streamPtr->dictionary = (const BYTE*)source;
+        dictEnd = source;
+    }
+
+    /* Check overlapping input/dictionary space */
+    {   const char* const sourceEnd = source + inputSize;
+        if ((sourceEnd > (const char*)streamPtr->dictionary) && (sourceEnd < dictEnd)) {
+            streamPtr->dictSize = (U32)(dictEnd - sourceEnd);
+            if (streamPtr->dictSize > 64 KB) streamPtr->dictSize = 64 KB;
+            if (streamPtr->dictSize < 4) streamPtr->dictSize = 0;
+            streamPtr->dictionary = (const BYTE*)dictEnd - streamPtr->dictSize;
+        }
+    }
+
+    /* prefix mode : source data follows dictionary */
+    if (dictEnd == source) {
+        if ((streamPtr->dictSize < 64 KB) && (streamPtr->dictSize < streamPtr->currentOffset))
+            return ZLZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, withPrefix64k, dictSmall, acceleration);
+        else
+            return ZLZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, withPrefix64k, noDictIssue, acceleration);
+    }
+
+    /* external dictionary mode */
+    {   int result;
+        if (streamPtr->dictCtx) {
+            /* We depend here on the fact that dictCtx'es (produced by
+             * ZLZ4_loadDict) guarantee that their tables contain no references
+             * to offsets between dictCtx->currentOffset - 64 KB and
+             * dictCtx->currentOffset - dictCtx->dictSize. This makes it safe
+             * to use noDictIssue even when the dict isn't a full 64 KB.
+             */
+            if (inputSize > 4 KB) {
+                /* For compressing large blobs, it is faster to pay the setup
+                 * cost to copy the dictionary's tables into the active context,
+                 * so that the compression loop is only looking into one table.
+                 */
+                ZLZ4_memcpy(streamPtr, streamPtr->dictCtx, sizeof(*streamPtr));
+                result = ZLZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingExtDict, noDictIssue, acceleration);
+            } else {
+                result = ZLZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingDictCtx, noDictIssue, acceleration);
+            }
+        } else {  /* small data <= 4 KB */
+            if ((streamPtr->dictSize < 64 KB) && (streamPtr->dictSize < streamPtr->currentOffset)) {
+                result = ZLZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingExtDict, dictSmall, acceleration);
+            } else {
+                result = ZLZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingExtDict, noDictIssue, acceleration);
+            }
+        }
+        streamPtr->dictionary = (const BYTE*)source;
+        streamPtr->dictSize = (U32)inputSize;
+        return result;
+    }
+}
+
+
+/* Hidden debug function, to force-test external dictionary mode */
+int ZLZ4_compress_forceExtDict (ZLZ4_stream_t* ZLZ4_dict, const char* source, char* dest, int srcSize)
+{
+    ZLZ4_stream_t_internal* const streamPtr = &ZLZ4_dict->internal_donotuse;
+    int result;
+
+    ZLZ4_renormDictT(streamPtr, srcSize);
+
+    if ((streamPtr->dictSize < 64 KB) && (streamPtr->dictSize < streamPtr->currentOffset)) {
+        result = ZLZ4_compress_generic(streamPtr, source, dest, srcSize, NULL, 0, notLimited, byU32, usingExtDict, dictSmall, 1);
+    } else {
+        result = ZLZ4_compress_generic(streamPtr, source, dest, srcSize, NULL, 0, notLimited, byU32, usingExtDict, noDictIssue, 1);
+    }
+
+    streamPtr->dictionary = (const BYTE*)source;
+    streamPtr->dictSize = (U32)srcSize;
+
+    return result;
+}
+
+
+/*! ZLZ4_saveDict() :
+ *  If previously compressed data block is not guaranteed to remain available at its memory location,
+ *  save it into a safer place (char* safeBuffer).
+ *  Note : no need to call ZLZ4_loadDict() afterwards, dictionary is immediately usable,
+ *         one can therefore call ZLZ4_compress_fast_continue() right after.
+ * @return : saved dictionary size in bytes (necessarily <= dictSize), or 0 if error.
+ */
+int ZLZ4_saveDict (ZLZ4_stream_t* ZLZ4_dict, char* safeBuffer, int dictSize)
+{
+    ZLZ4_stream_t_internal* const dict = &ZLZ4_dict->internal_donotuse;
+
+    DEBUGLOG(5, "ZLZ4_saveDict : dictSize=%i, safeBuffer=%p", dictSize, safeBuffer);
+
+    if ((U32)dictSize > 64 KB) { dictSize = 64 KB; } /* useless to define a dictionary > 64 KB */
+    if ((U32)dictSize > dict->dictSize) { dictSize = (int)dict->dictSize; }
+
+    if (safeBuffer == NULL) assert(dictSize == 0);
+    if (dictSize > 0) {
+        const BYTE* const previousDictEnd = dict->dictionary + dict->dictSize;
+        assert(dict->dictionary);
+        ZLZ4_memmove(safeBuffer, previousDictEnd - dictSize, (size_t)dictSize);
+    }
+
+    dict->dictionary = (const BYTE*)safeBuffer;
+    dict->dictSize = (U32)dictSize;
+
+    return dictSize;
+}
+
+
+
+/*-*******************************
+ *  Decompression functions
+ ********************************/
+
+typedef enum { decode_full_block = 0, partial_decode = 1 } earlyEnd_directive;
+
+#undef MIN
+#define MIN(a,b)    ( (a) < (b) ? (a) : (b) )
+
+
+/* variant for decompress_unsafe()
+ * does not know end of input
+ * presumes input is well formed
+ * note : will consume at least one byte */
+static size_t read_long_length_no_check(const BYTE** pp)
+{
+    size_t b, l = 0;
+    do { b = **pp; (*pp)++; l += b; } while (b==255);
+    DEBUGLOG(6, "read_long_length_no_check: +length=%zu using %zu input bytes", l, l/255 + 1)
+    return l;
+}
+
+/* core decoder variant for ZLZ4_decompress_fast*()
+ * for legacy support only : these entry points are deprecated.
+ * - Presumes input is correctly formed (no defense vs malformed inputs)
+ * - Does not know input size (presume input buffer is "large enough")
+ * - Decompress a full block (only)
+ * @return : nb of bytes read from input.
+ * Note : this variant is not optimized for speed, just for maintenance.
+ *        the goal is to remove support of decompress_fast*() variants by v2.0
+**/
+ZLZ4_FORCE_INLINE int
+ZLZ4_decompress_unsafe_generic(
+                 const BYTE* const istart,
+                 BYTE* const ostart,
+                 int decompressedSize,
+
+                 size_t prefixSize,
+                 const BYTE* const dictStart,  /* only if dict==usingExtDict */
+                 const size_t dictSize         /* note: =0 if dictStart==NULL */
+                 )
+{
+    const BYTE* ip = istart;
+    BYTE* op = (BYTE*)ostart;
+    BYTE* const oend = ostart + decompressedSize;
+    const BYTE* const prefixStart = ostart - prefixSize;
+
+    DEBUGLOG(5, "ZLZ4_decompress_unsafe_generic");
+    if (dictStart == NULL) assert(dictSize == 0);
+
+    while (1) {
+        /* start new sequence */
+        unsigned token = *ip++;
+
+        /* literals */
+        {   size_t ll = token >> ML_BITS;
+            if (ll==15) {
+                /* long literal length */
+                ll += read_long_length_no_check(&ip);
+            }
+            if ((size_t)(oend-op) < ll) return -1; /* output buffer overflow */
+            ZLZ4_memmove(op, ip, ll); /* support in-place decompression */
+            op += ll;
+            ip += ll;
+            if ((size_t)(oend-op) < MFLIMIT) {
+                if (op==oend) break;  /* end of block */
+                DEBUGLOG(5, "invalid: literals end at distance %zi from end of block", oend-op);
+                /* incorrect end of block :
+                 * last match must start at least MFLIMIT==12 bytes before end of output block */
+                return -1;
+        }   }
+
+        /* match */
+        {   size_t ml = token & 15;
+            size_t const offset = ZLZ4_readLE16(ip);
+            ip+=2;
+
+            if (ml==15) {
+                /* long literal length */
+                ml += read_long_length_no_check(&ip);
+            }
+            ml += MINMATCH;
+
+            if ((size_t)(oend-op) < ml) return -1; /* output buffer overflow */
+
+            {   const BYTE* match = op - offset;
+
+                /* out of range */
+                if (offset > (size_t)(op - prefixStart) + dictSize) {
+                    DEBUGLOG(6, "offset out of range");
+                    return -1;
+                }
+
+                /* check special case : extDict */
+                if (offset > (size_t)(op - prefixStart)) {
+                    /* extDict scenario */
+                    const BYTE* const dictEnd = dictStart + dictSize;
+                    const BYTE* extMatch = dictEnd - (offset - (size_t)(op-prefixStart));
+                    size_t const extml = (size_t)(dictEnd - extMatch);
+                    if (extml > ml) {
+                        /* match entirely within extDict */
+                        ZLZ4_memmove(op, extMatch, ml);
+                        op += ml;
+                        ml = 0;
+                    } else {
+                        /* match split between extDict & prefix */
+                        ZLZ4_memmove(op, extMatch, extml);
+                        op += extml;
+                        ml -= extml;
+                    }
+                    match = prefixStart;
+                }
+
+                /* match copy - slow variant, supporting overlap copy */
+                {   size_t u;
+                    for (u=0; u<ml; u++) {
+                        op[u] = match[u];
+            }   }   }
+            op += ml;
+            if ((size_t)(oend-op) < LASTLITERALS) {
+                DEBUGLOG(5, "invalid: match ends at distance %zi from end of block", oend-op);
+                /* incorrect end of block :
+                 * last match must stop at least LASTLITERALS==5 bytes before end of output block */
+                return -1;
+            }
+        } /* match */
+    } /* main loop */
+    return (int)(ip - istart);
+}
+
+
+/* Read the variable-length literal or match length.
+ *
+ * @ip : input pointer
+ * @ilimit : position after which if length is not decoded, the input is necessarily corrupted.
+ * @initial_check - check ip >= ipmax before start of loop.  Returns initial_error if so.
+ * @error (output) - error code.  Must be set to 0 before call.
+**/
+typedef size_t Rvl_t;
+static const Rvl_t rvl_error = (Rvl_t)(-1);
+ZLZ4_FORCE_INLINE Rvl_t
+read_variable_length(const BYTE** ip, const BYTE* ilimit,
+                     int initial_check)
+{
+    Rvl_t s, length = 0;
+    assert(ip != NULL);
+    assert(*ip !=  NULL);
+    assert(ilimit != NULL);
+    if (initial_check && unlikely((*ip) >= ilimit)) {    /* read limit reached */
+        return rvl_error;
+    }
+    s = **ip;
+    (*ip)++;
+    length += s;
+    if (unlikely((*ip) > ilimit)) {    /* read limit reached */
+        return rvl_error;
+    }
+    /* accumulator overflow detection (32-bit mode only) */
+    if ((sizeof(length) < 8) && unlikely(length > ((Rvl_t)(-1)/2)) ) {
+        return rvl_error;
+    }
+    if (likely(s != 255)) return length;
+    do {
+        s = **ip;
+        (*ip)++;
+        length += s;
+        if (unlikely((*ip) > ilimit)) {    /* read limit reached */
+            return rvl_error;
+        }
+        /* accumulator overflow detection (32-bit mode only) */
+        if ((sizeof(length) < 8) && unlikely(length > ((Rvl_t)(-1)/2)) ) {
+            return rvl_error;
+        }
+    } while (s == 255);
+
+    return length;
+}
+
+/*! ZLZ4_decompress_generic() :
+ *  This generic decompression function covers all use cases.
+ *  It shall be instantiated several times, using different sets of directives.
+ *  Note that it is important for performance that this function really get inlined,
+ *  in order to remove useless branches during compilation optimization.
+ */
+ZLZ4_FORCE_INLINE int
+ZLZ4_decompress_generic(
+                 const char* const src,
+                 char* const dst,
+                 int srcSize,
+                 int outputSize,         /* If endOnInput==endOnInputSize, this value is `dstCapacity` */
+
+                 earlyEnd_directive partialDecoding,  /* full, partial */
+                 dict_directive dict,                 /* noDict, withPrefix64k, usingExtDict */
+                 const BYTE* const lowPrefix,  /* always <= dst, == dst when no prefix */
+                 const BYTE* const dictStart,  /* only if dict==usingExtDict */
+                 const size_t dictSize         /* note : = 0 if noDict */
+                 )
+{
+    if ((src == NULL) || (outputSize < 0)) { return -1; }
+
+    {   const BYTE* ip = (const BYTE*) src;
+        const BYTE* const iend = ip + srcSize;
+
+        BYTE* op = (BYTE*) dst;
+        BYTE* const oend = op + outputSize;
+        BYTE* cpy;
+
+        const BYTE* const dictEnd = (dictStart == NULL) ? NULL : dictStart + dictSize;
+
+        const int checkOffset = (dictSize < (int)(64 KB));
+
+
+        /* Set up the "end" pointers for the shortcut. */
+        const BYTE* const shortiend = iend - 14 /*maxLL*/ - 2 /*offset*/;
+        const BYTE* const shortoend = oend - 14 /*maxLL*/ - 18 /*maxML*/;
+
+        const BYTE* match;
+        size_t offset;
+        unsigned token;
+        size_t length;
+
+
+        DEBUGLOG(5, "ZLZ4_decompress_generic (srcSize:%i, dstSize:%i)", srcSize, outputSize);
+
+        /* Special cases */
+        assert(lowPrefix <= op);
+        if (unlikely(outputSize==0)) {
+            /* Empty output buffer */
+            if (partialDecoding) return 0;
+            return ((srcSize==1) && (*ip==0)) ? 0 : -1;
+        }
+        if (unlikely(srcSize==0)) { return -1; }
+
+    /* ZLZ4_FAST_DEC_LOOP:
+     * designed for modern OoO performance cpus,
+     * where copying reliably 32-bytes is preferable to an unpredictable branch.
+     * note : fast loop may show a regression for some client arm chips. */
+#if ZLZ4_FAST_DEC_LOOP
+        if ((oend - op) < FASTLOOP_SAFE_DISTANCE) {
+            DEBUGLOG(6, "move to safe decode loop");
+            goto safe_decode;
+        }
+
+        /* Fast loop : decode sequences as long as output < oend-FASTLOOP_SAFE_DISTANCE */
+        DEBUGLOG(6, "using fast decode loop");
+        while (1) {
+            /* Main fastloop assertion: We can always wildcopy FASTLOOP_SAFE_DISTANCE */
+            assert(oend - op >= FASTLOOP_SAFE_DISTANCE);
+            assert(ip < iend);
+            token = *ip++;
+            length = token >> ML_BITS;  /* literal length */
+            DEBUGLOG(7, "blockPos%6u: litLength token = %u", (unsigned)(op-(BYTE*)dst), (unsigned)length);
+
+            /* decode literal length */
+            if (length == RUN_MASK) {
+                size_t const addl = read_variable_length(&ip, iend-RUN_MASK, 1);
+                if (addl == rvl_error) {
+                    DEBUGLOG(6, "error reading long literal length");
+                    goto _output_error;
+                }
+                length += addl;
+                if (unlikely((uptrval)(op)+length<(uptrval)(op))) { goto _output_error; } /* overflow detection */
+                if (unlikely((uptrval)(ip)+length<(uptrval)(ip))) { goto _output_error; } /* overflow detection */
+
+                /* copy literals */
+                ZLZ4_STATIC_ASSERT(MFLIMIT >= WILDCOPYLENGTH);
+                if ((op+length>oend-32) || (ip+length>iend-32)) { goto safe_literal_copy; }
+                ZLZ4_wildCopy32(op, ip, op+length);
+                ip += length; op += length;
+            } else if (ip <= iend-(16 + 1/*max lit + offset + nextToken*/)) {
+                /* We don't need to check oend, since we check it once for each loop below */
+                DEBUGLOG(7, "copy %u bytes in a 16-bytes stripe", (unsigned)length);
+                /* Literals can only be <= 14, but hope compilers optimize better when copy by a register size */
+                ZLZ4_memcpy(op, ip, 16);
+                ip += length; op += length;
+            } else {
+                goto safe_literal_copy;
+            }
+
+            /* get offset */
+            offset = ZLZ4_readLE16(ip); ip+=2;
+            DEBUGLOG(6, "blockPos%6u: offset = %u", (unsigned)(op-(BYTE*)dst), (unsigned)offset);
+            match = op - offset;
+            assert(match <= op);  /* overflow check */
+
+            /* get matchlength */
+            length = token & ML_MASK;
+            DEBUGLOG(7, "  match length token = %u (len==%u)", (unsigned)length, (unsigned)length+MINMATCH);
+
+            if (length == ML_MASK) {
+                size_t const addl = read_variable_length(&ip, iend - LASTLITERALS + 1, 0);
+                if (addl == rvl_error) {
+                    DEBUGLOG(5, "error reading long match length");
+                    goto _output_error;
+                }
+                length += addl;
+                length += MINMATCH;
+                DEBUGLOG(7, "  long match length == %u", (unsigned)length);
+                if (unlikely((uptrval)(op)+length<(uptrval)op)) { goto _output_error; } /* overflow detection */
+                if (op + length >= oend - FASTLOOP_SAFE_DISTANCE) {
+                    goto safe_match_copy;
+                }
+            } else {
+                length += MINMATCH;
+                if (op + length >= oend - FASTLOOP_SAFE_DISTANCE) {
+                    DEBUGLOG(7, "moving to safe_match_copy (ml==%u)", (unsigned)length);
+                    goto safe_match_copy;
+                }
+
+                /* Fastpath check: skip ZLZ4_wildCopy32 when true */
+                if ((dict == withPrefix64k) || (match >= lowPrefix)) {
+                    if (offset >= 8) {
+                        assert(match >= lowPrefix);
+                        assert(match <= op);
+                        assert(op + 18 <= oend);
+
+                        ZLZ4_memcpy(op, match, 8);
+                        ZLZ4_memcpy(op+8, match+8, 8);
+                        ZLZ4_memcpy(op+16, match+16, 2);
+                        op += length;
+                        continue;
+            }   }   }
+
+            if ( checkOffset && (unlikely(match + dictSize < lowPrefix)) ) {
+                DEBUGLOG(5, "Error : pos=%zi, offset=%zi => outside buffers", op-lowPrefix, op-match);
+                goto _output_error;
+            }
+            /* match starting within external dictionary */
+            if ((dict==usingExtDict) && (match < lowPrefix)) {
+                assert(dictEnd != NULL);
+                if (unlikely(op+length > oend-LASTLITERALS)) {
+                    if (partialDecoding) {
+                        DEBUGLOG(7, "partialDecoding: dictionary match, close to dstEnd");
+                        length = MIN(length, (size_t)(oend-op));
+                    } else {
+                        DEBUGLOG(6, "end-of-block condition violated")
+                        goto _output_error;
+                }   }
+
+                if (length <= (size_t)(lowPrefix-match)) {
+                    /* match fits entirely within external dictionary : just copy */
+                    ZLZ4_memmove(op, dictEnd - (lowPrefix-match), length);
+                    op += length;
+                } else {
+                    /* match stretches into both external dictionary and current block */
+                    size_t const copySize = (size_t)(lowPrefix - match);
+                    size_t const restSize = length - copySize;
+                    ZLZ4_memcpy(op, dictEnd - copySize, copySize);
+                    op += copySize;
+                    if (restSize > (size_t)(op - lowPrefix)) {  /* overlap copy */
+                        BYTE* const endOfMatch = op + restSize;
+                        const BYTE* copyFrom = lowPrefix;
+                        while (op < endOfMatch) { *op++ = *copyFrom++; }
+                    } else {
+                        ZLZ4_memcpy(op, lowPrefix, restSize);
+                        op += restSize;
+                }   }
+                continue;
+            }
+
+            /* copy match within block */
+            cpy = op + length;
+
+            assert((op <= oend) && (oend-op >= 32));
+            if (unlikely(offset<16)) {
+                ZLZ4_memcpy_using_offset(op, match, cpy, offset);
+            } else {
+                ZLZ4_wildCopy32(op, match, cpy);
+            }
+
+            op = cpy;   /* wildcopy correction */
+        }
+    safe_decode:
+#endif
+
+        /* Main Loop : decode remaining sequences where output < FASTLOOP_SAFE_DISTANCE */
+        DEBUGLOG(6, "using safe decode loop");
+        while (1) {
+            assert(ip < iend);
+            token = *ip++;
+            length = token >> ML_BITS;  /* literal length */
+            DEBUGLOG(7, "blockPos%6u: litLength token = %u", (unsigned)(op-(BYTE*)dst), (unsigned)length);
+
+            /* A two-stage shortcut for the most common case:
+             * 1) If the literal length is 0..14, and there is enough space,
+             * enter the shortcut and copy 16 bytes on behalf of the literals
+             * (in the fast mode, only 8 bytes can be safely copied this way).
+             * 2) Further if the match length is 4..18, copy 18 bytes in a similar
+             * manner; but we ensure that there's enough space in the output for
+             * those 18 bytes earlier, upon entering the shortcut (in other words,
+             * there is a combined check for both stages).
+             */
+            if ( (length != RUN_MASK)
+                /* strictly "less than" on input, to re-enter the loop with at least one byte */
+              && likely((ip < shortiend) & (op <= shortoend)) ) {
+                /* Copy the literals */
+                ZLZ4_memcpy(op, ip, 16);
+                op += length; ip += length;
+
+                /* The second stage: prepare for match copying, decode full info.
+                 * If it doesn't work out, the info won't be wasted. */
+                length = token & ML_MASK; /* match length */
+                DEBUGLOG(7, "blockPos%6u: matchLength token = %u (len=%u)", (unsigned)(op-(BYTE*)dst), (unsigned)length, (unsigned)length + 4);
+                offset = ZLZ4_readLE16(ip); ip += 2;
+                match = op - offset;
+                assert(match <= op); /* check overflow */
+
+                /* Do not deal with overlapping matches. */
+                if ( (length != ML_MASK)
+                  && (offset >= 8)
+                  && (dict==withPrefix64k || match >= lowPrefix) ) {
+                    /* Copy the match. */
+                    ZLZ4_memcpy(op + 0, match + 0, 8);
+                    ZLZ4_memcpy(op + 8, match + 8, 8);
+                    ZLZ4_memcpy(op +16, match +16, 2);
+                    op += length + MINMATCH;
+                    /* Both stages worked, load the next token. */
+                    continue;
+                }
+
+                /* The second stage didn't work out, but the info is ready.
+                 * Propel it right to the point of match copying. */
+                goto _copy_match;
+            }
+
+            /* decode literal length */
+            if (length == RUN_MASK) {
+                size_t const addl = read_variable_length(&ip, iend-RUN_MASK, 1);
+                if (addl == rvl_error) { goto _output_error; }
+                length += addl;
+                if (unlikely((uptrval)(op)+length<(uptrval)(op))) { goto _output_error; } /* overflow detection */
+                if (unlikely((uptrval)(ip)+length<(uptrval)(ip))) { goto _output_error; } /* overflow detection */
+            }
+
+#if ZLZ4_FAST_DEC_LOOP
+        safe_literal_copy:
+#endif
+            /* copy literals */
+            cpy = op+length;
+
+            ZLZ4_STATIC_ASSERT(MFLIMIT >= WILDCOPYLENGTH);
+            if ((cpy>oend-MFLIMIT) || (ip+length>iend-(2+1+LASTLITERALS))) {
+                /* We've either hit the input parsing restriction or the output parsing restriction.
+                 * In the normal scenario, decoding a full block, it must be the last sequence,
+                 * otherwise it's an error (invalid input or dimensions).
+                 * In partialDecoding scenario, it's necessary to ensure there is no buffer overflow.
+                 */
+                if (partialDecoding) {
+                    /* Since we are partial decoding we may be in this block because of the output parsing
+                     * restriction, which is not valid since the output buffer is allowed to be undersized.
+                     */
+                    DEBUGLOG(7, "partialDecoding: copying literals, close to input or output end")
+                    DEBUGLOG(7, "partialDecoding: literal length = %u", (unsigned)length);
+                    DEBUGLOG(7, "partialDecoding: remaining space in dstBuffer : %i", (int)(oend - op));
+                    DEBUGLOG(7, "partialDecoding: remaining space in srcBuffer : %i", (int)(iend - ip));
+                    /* Finishing in the middle of a literals segment,
+                     * due to lack of input.
+                     */
+                    if (ip+length > iend) {
+                        length = (size_t)(iend-ip);
+                        cpy = op + length;
+                    }
+                    /* Finishing in the middle of a literals segment,
+                     * due to lack of output space.
+                     */
+                    if (cpy > oend) {
+                        cpy = oend;
+                        assert(op<=oend);
+                        length = (size_t)(oend-op);
+                    }
+                } else {
+                     /* We must be on the last sequence (or invalid) because of the parsing limitations
+                      * so check that we exactly consume the input and don't overrun the output buffer.
+                      */
+                    if ((ip+length != iend) || (cpy > oend)) {
+                        DEBUGLOG(5, "should have been last run of literals")
+                        DEBUGLOG(5, "ip(%p) + length(%i) = %p != iend (%p)", ip, (int)length, ip+length, iend);
+                        DEBUGLOG(5, "or cpy(%p) > (oend-MFLIMIT)(%p)", cpy, oend-MFLIMIT);
+                        DEBUGLOG(5, "after writing %u bytes / %i bytes available", (unsigned)(op-(BYTE*)dst), outputSize);
+                        goto _output_error;
+                    }
+                }
+                ZLZ4_memmove(op, ip, length);  /* supports overlapping memory regions, for in-place decompression scenarios */
+                ip += length;
+                op += length;
+                /* Necessarily EOF when !partialDecoding.
+                 * When partialDecoding, it is EOF if we've either
+                 * filled the output buffer or
+                 * can't proceed with reading an offset for following match.
+                 */
+                if (!partialDecoding || (cpy == oend) || (ip >= (iend-2))) {
+                    break;
+                }
+            } else {
+                ZLZ4_wildCopy8(op, ip, cpy);   /* can overwrite up to 8 bytes beyond cpy */
+                ip += length; op = cpy;
+            }
+
+            /* get offset */
+            offset = ZLZ4_readLE16(ip); ip+=2;
+            match = op - offset;
+
+            /* get matchlength */
+            length = token & ML_MASK;
+            DEBUGLOG(7, "blockPos%6u: matchLength token = %u", (unsigned)(op-(BYTE*)dst), (unsigned)length);
+
+    _copy_match:
+            if (length == ML_MASK) {
+                size_t const addl = read_variable_length(&ip, iend - LASTLITERALS + 1, 0);
+                if (addl == rvl_error) { goto _output_error; }
+                length += addl;
+                if (unlikely((uptrval)(op)+length<(uptrval)op)) goto _output_error;   /* overflow detection */
+            }
+            length += MINMATCH;
+
+#if ZLZ4_FAST_DEC_LOOP
+        safe_match_copy:
+#endif
+            if ((checkOffset) && (unlikely(match + dictSize < lowPrefix))) goto _output_error;   /* Error : offset outside buffers */
+            /* match starting within external dictionary */
+            if ((dict==usingExtDict) && (match < lowPrefix)) {
+                assert(dictEnd != NULL);
+                if (unlikely(op+length > oend-LASTLITERALS)) {
+                    if (partialDecoding) length = MIN(length, (size_t)(oend-op));
+                    else goto _output_error;   /* doesn't respect parsing restriction */
+                }
+
+                if (length <= (size_t)(lowPrefix-match)) {
+                    /* match fits entirely within external dictionary : just copy */
+                    ZLZ4_memmove(op, dictEnd - (lowPrefix-match), length);
+                    op += length;
+                } else {
+                    /* match stretches into both external dictionary and current block */
+                    size_t const copySize = (size_t)(lowPrefix - match);
+                    size_t const restSize = length - copySize;
+                    ZLZ4_memcpy(op, dictEnd - copySize, copySize);
+                    op += copySize;
+                    if (restSize > (size_t)(op - lowPrefix)) {  /* overlap copy */
+                        BYTE* const endOfMatch = op + restSize;
+                        const BYTE* copyFrom = lowPrefix;
+                        while (op < endOfMatch) *op++ = *copyFrom++;
+                    } else {
+                        ZLZ4_memcpy(op, lowPrefix, restSize);
+                        op += restSize;
+                }   }
+                continue;
+            }
+            assert(match >= lowPrefix);
+
+            /* copy match within block */
+            cpy = op + length;
+
+            /* partialDecoding : may end anywhere within the block */
+            assert(op<=oend);
+            if (partialDecoding && (cpy > oend-MATCH_SAFEGUARD_DISTANCE)) {
+                size_t const mlen = MIN(length, (size_t)(oend-op));
+                const BYTE* const matchEnd = match + mlen;
+                BYTE* const copyEnd = op + mlen;
+                if (matchEnd > op) {   /* overlap copy */
+                    while (op < copyEnd) { *op++ = *match++; }
+                } else {
+                    ZLZ4_memcpy(op, match, mlen);
+                }
+                op = copyEnd;
+                if (op == oend) { break; }
+                continue;
+            }
+
+            if (unlikely(offset<8)) {
+                ZLZ4_write32(op, 0);   /* silence msan warning when offset==0 */
+                op[0] = match[0];
+                op[1] = match[1];
+                op[2] = match[2];
+                op[3] = match[3];
+                match += inc32table[offset];
+                ZLZ4_memcpy(op+4, match, 4);
+                match -= dec64table[offset];
+            } else {
+                ZLZ4_memcpy(op, match, 8);
+                match += 8;
+            }
+            op += 8;
+
+            if (unlikely(cpy > oend-MATCH_SAFEGUARD_DISTANCE)) {
+                BYTE* const oCopyLimit = oend - (WILDCOPYLENGTH-1);
+                if (cpy > oend-LASTLITERALS) { goto _output_error; } /* Error : last LASTLITERALS bytes must be literals (uncompressed) */
+                if (op < oCopyLimit) {
+                    ZLZ4_wildCopy8(op, match, oCopyLimit);
+                    match += oCopyLimit - op;
+                    op = oCopyLimit;
+                }
+                while (op < cpy) { *op++ = *match++; }
+            } else {
+                ZLZ4_memcpy(op, match, 8);
+                if (length > 16) { ZLZ4_wildCopy8(op+8, match+8, cpy); }
+            }
+            op = cpy;   /* wildcopy correction */
+        }
+
+        /* end of decoding */
+        DEBUGLOG(5, "decoded %i bytes", (int) (((char*)op)-dst));
+        return (int) (((char*)op)-dst);     /* Nb of output bytes decoded */
+
+        /* Overflow error detected */
+    _output_error:
+        return (int) (-(((const char*)ip)-src))-1;
+    }
+}
+
+
+/*===== Instantiate the API decoding functions. =====*/
+
+ZLZ4_FORCE_O2
+int ZLZ4_decompress_safe(const char* source, char* dest, int compressedSize, int maxDecompressedSize)
+{
+    return ZLZ4_decompress_generic(source, dest, compressedSize, maxDecompressedSize,
+                                  decode_full_block, noDict,
+                                  (BYTE*)dest, NULL, 0);
+}
+
+ZLZ4_FORCE_O2
+int ZLZ4_decompress_safe_partial(const char* src, char* dst, int compressedSize, int targetOutputSize, int dstCapacity)
+{
+    dstCapacity = MIN(targetOutputSize, dstCapacity);
+    return ZLZ4_decompress_generic(src, dst, compressedSize, dstCapacity,
+                                  partial_decode,
+                                  noDict, (BYTE*)dst, NULL, 0);
+}
+
+ZLZ4_FORCE_O2
+int ZLZ4_decompress_fast(const char* source, char* dest, int originalSize)
+{
+    DEBUGLOG(5, "ZLZ4_decompress_fast");
+    return ZLZ4_decompress_unsafe_generic(
+                (const BYTE*)source, (BYTE*)dest, originalSize,
+                0, NULL, 0);
+}
+
+/*===== Instantiate a few more decoding cases, used more than once. =====*/
+
+ZLZ4_FORCE_O2 /* Exported, an obsolete API function. */
+int ZLZ4_decompress_safe_withPrefix64k(const char* source, char* dest, int compressedSize, int maxOutputSize)
+{
+    return ZLZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
+                                  decode_full_block, withPrefix64k,
+                                  (BYTE*)dest - 64 KB, NULL, 0);
+}
+
+ZLZ4_FORCE_O2
+static int ZLZ4_decompress_safe_partial_withPrefix64k(const char* source, char* dest, int compressedSize, int targetOutputSize, int dstCapacity)
+{
+    dstCapacity = MIN(targetOutputSize, dstCapacity);
+    return ZLZ4_decompress_generic(source, dest, compressedSize, dstCapacity,
+                                  partial_decode, withPrefix64k,
+                                  (BYTE*)dest - 64 KB, NULL, 0);
+}
+
+/* Another obsolete API function, paired with the previous one. */
+int ZLZ4_decompress_fast_withPrefix64k(const char* source, char* dest, int originalSize)
+{
+    return ZLZ4_decompress_unsafe_generic(
+                (const BYTE*)source, (BYTE*)dest, originalSize,
+                64 KB, NULL, 0);
+}
+
+ZLZ4_FORCE_O2
+static int ZLZ4_decompress_safe_withSmallPrefix(const char* source, char* dest, int compressedSize, int maxOutputSize,
+                                               size_t prefixSize)
+{
+    return ZLZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
+                                  decode_full_block, noDict,
+                                  (BYTE*)dest-prefixSize, NULL, 0);
+}
+
+ZLZ4_FORCE_O2
+static int ZLZ4_decompress_safe_partial_withSmallPrefix(const char* source, char* dest, int compressedSize, int targetOutputSize, int dstCapacity,
+                                               size_t prefixSize)
+{
+    dstCapacity = MIN(targetOutputSize, dstCapacity);
+    return ZLZ4_decompress_generic(source, dest, compressedSize, dstCapacity,
+                                  partial_decode, noDict,
+                                  (BYTE*)dest-prefixSize, NULL, 0);
+}
+
+ZLZ4_FORCE_O2
+int ZLZ4_decompress_safe_forceExtDict(const char* source, char* dest,
+                                     int compressedSize, int maxOutputSize,
+                                     const void* dictStart, size_t dictSize)
+{
+    DEBUGLOG(5, "ZLZ4_decompress_safe_forceExtDict");
+    return ZLZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
+                                  decode_full_block, usingExtDict,
+                                  (BYTE*)dest, (const BYTE*)dictStart, dictSize);
+}
+
+ZLZ4_FORCE_O2
+int ZLZ4_decompress_safe_partial_forceExtDict(const char* source, char* dest,
+                                     int compressedSize, int targetOutputSize, int dstCapacity,
+                                     const void* dictStart, size_t dictSize)
+{
+    dstCapacity = MIN(targetOutputSize, dstCapacity);
+    return ZLZ4_decompress_generic(source, dest, compressedSize, dstCapacity,
+                                  partial_decode, usingExtDict,
+                                  (BYTE*)dest, (const BYTE*)dictStart, dictSize);
+}
+
+ZLZ4_FORCE_O2
+static int ZLZ4_decompress_fast_extDict(const char* source, char* dest, int originalSize,
+                                       const void* dictStart, size_t dictSize)
+{
+    return ZLZ4_decompress_unsafe_generic(
+                (const BYTE*)source, (BYTE*)dest, originalSize,
+                0, (const BYTE*)dictStart, dictSize);
+}
+
+/* The "double dictionary" mode, for use with e.g. ring buffers: the first part
+ * of the dictionary is passed as prefix, and the second via dictStart + dictSize.
+ * These routines are used only once, in ZLZ4_decompress_*_continue().
+ */
+ZLZ4_FORCE_INLINE
+int ZLZ4_decompress_safe_doubleDict(const char* source, char* dest, int compressedSize, int maxOutputSize,
+                                   size_t prefixSize, const void* dictStart, size_t dictSize)
+{
+    return ZLZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
+                                  decode_full_block, usingExtDict,
+                                  (BYTE*)dest-prefixSize, (const BYTE*)dictStart, dictSize);
+}
+
+/*===== streaming decompression functions =====*/
+
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+ZLZ4_streamDecode_t* ZLZ4_createStreamDecode(void)
+{
+    ZLZ4_STATIC_ASSERT(sizeof(ZLZ4_streamDecode_t) >= sizeof(ZLZ4_streamDecode_t_internal));
+    return (ZLZ4_streamDecode_t*) ALLOC_AND_ZERO(sizeof(ZLZ4_streamDecode_t));
+}
+
+int ZLZ4_freeStreamDecode (ZLZ4_streamDecode_t* ZLZ4_stream)
+{
+    if (ZLZ4_stream == NULL) { return 0; }  /* support free on NULL */
+    FREEMEM(ZLZ4_stream);
+    return 0;
+}
+#endif
+
+/*! ZLZ4_setStreamDecode() :
+ *  Use this function to instruct where to find the dictionary.
+ *  This function is not necessary if previous data is still available where it was decoded.
+ *  Loading a size of 0 is allowed (same effect as no dictionary).
+ * @return : 1 if OK, 0 if error
+ */
+int ZLZ4_setStreamDecode (ZLZ4_streamDecode_t* ZLZ4_streamDecode, const char* dictionary, int dictSize)
+{
+    ZLZ4_streamDecode_t_internal* lz4sd = &ZLZ4_streamDecode->internal_donotuse;
+    lz4sd->prefixSize = (size_t)dictSize;
+    if (dictSize) {
+        assert(dictionary != NULL);
+        lz4sd->prefixEnd = (const BYTE*) dictionary + dictSize;
+    } else {
+        lz4sd->prefixEnd = (const BYTE*) dictionary;
+    }
+    lz4sd->externalDict = NULL;
+    lz4sd->extDictSize  = 0;
+    return 1;
+}
+
+/*! ZLZ4_decoderRingBufferSize() :
+ *  when setting a ring buffer for streaming decompression (optional scenario),
+ *  provides the minimum size of this ring buffer
+ *  to be compatible with any source respecting maxBlockSize condition.
+ *  Note : in a ring buffer scenario,
+ *  blocks are presumed decompressed next to each other.
+ *  When not enough space remains for next block (remainingSize < maxBlockSize),
+ *  decoding resumes from beginning of ring buffer.
+ * @return : minimum ring buffer size,
+ *           or 0 if there is an error (invalid maxBlockSize).
+ */
+int ZLZ4_decoderRingBufferSize(int maxBlockSize)
+{
+    if (maxBlockSize < 0) return 0;
+    if (maxBlockSize > ZLZ4_MAX_INPUT_SIZE) return 0;
+    if (maxBlockSize < 16) maxBlockSize = 16;
+    return ZLZ4_DECODER_RING_BUFFER_SIZE(maxBlockSize);
+}
+
+/*
+*_continue() :
+    These decoding functions allow decompression of multiple blocks in "streaming" mode.
+    Previously decoded blocks must still be available at the memory position where they were decoded.
+    If it's not possible, save the relevant part of decoded data into a safe buffer,
+    and indicate where it stands using ZLZ4_setStreamDecode()
+*/
+ZLZ4_FORCE_O2
+int ZLZ4_decompress_safe_continue (ZLZ4_streamDecode_t* ZLZ4_streamDecode, const char* source, char* dest, int compressedSize, int maxOutputSize)
+{
+    ZLZ4_streamDecode_t_internal* lz4sd = &ZLZ4_streamDecode->internal_donotuse;
+    int result;
+
+    if (lz4sd->prefixSize == 0) {
+        /* The first call, no dictionary yet. */
+        assert(lz4sd->extDictSize == 0);
+        result = ZLZ4_decompress_safe(source, dest, compressedSize, maxOutputSize);
+        if (result <= 0) return result;
+        lz4sd->prefixSize = (size_t)result;
+        lz4sd->prefixEnd = (BYTE*)dest + result;
+    } else if (lz4sd->prefixEnd == (BYTE*)dest) {
+        /* They're rolling the current segment. */
+        if (lz4sd->prefixSize >= 64 KB - 1)
+            result = ZLZ4_decompress_safe_withPrefix64k(source, dest, compressedSize, maxOutputSize);
+        else if (lz4sd->extDictSize == 0)
+            result = ZLZ4_decompress_safe_withSmallPrefix(source, dest, compressedSize, maxOutputSize,
+                                                         lz4sd->prefixSize);
+        else
+            result = ZLZ4_decompress_safe_doubleDict(source, dest, compressedSize, maxOutputSize,
+                                                    lz4sd->prefixSize, lz4sd->externalDict, lz4sd->extDictSize);
+        if (result <= 0) return result;
+        lz4sd->prefixSize += (size_t)result;
+        lz4sd->prefixEnd  += result;
+    } else {
+        /* The buffer wraps around, or they're switching to another buffer. */
+        lz4sd->extDictSize = lz4sd->prefixSize;
+        lz4sd->externalDict = lz4sd->prefixEnd - lz4sd->extDictSize;
+        result = ZLZ4_decompress_safe_forceExtDict(source, dest, compressedSize, maxOutputSize,
+                                                  lz4sd->externalDict, lz4sd->extDictSize);
+        if (result <= 0) return result;
+        lz4sd->prefixSize = (size_t)result;
+        lz4sd->prefixEnd  = (BYTE*)dest + result;
+    }
+
+    return result;
+}
+
+ZLZ4_FORCE_O2 int
+ZLZ4_decompress_fast_continue (ZLZ4_streamDecode_t* ZLZ4_streamDecode,
+                        const char* source, char* dest, int originalSize)
+{
+    ZLZ4_streamDecode_t_internal* const lz4sd =
+        (assert(ZLZ4_streamDecode!=NULL), &ZLZ4_streamDecode->internal_donotuse);
+    int result;
+
+    DEBUGLOG(5, "ZLZ4_decompress_fast_continue (toDecodeSize=%i)", originalSize);
+    assert(originalSize >= 0);
+
+    if (lz4sd->prefixSize == 0) {
+        DEBUGLOG(5, "first invocation : no prefix nor extDict");
+        assert(lz4sd->extDictSize == 0);
+        result = ZLZ4_decompress_fast(source, dest, originalSize);
+        if (result <= 0) return result;
+        lz4sd->prefixSize = (size_t)originalSize;
+        lz4sd->prefixEnd = (BYTE*)dest + originalSize;
+    } else if (lz4sd->prefixEnd == (BYTE*)dest) {
+        DEBUGLOG(5, "continue using existing prefix");
+        result = ZLZ4_decompress_unsafe_generic(
+                        (const BYTE*)source, (BYTE*)dest, originalSize,
+                        lz4sd->prefixSize,
+                        lz4sd->externalDict, lz4sd->extDictSize);
+        if (result <= 0) return result;
+        lz4sd->prefixSize += (size_t)originalSize;
+        lz4sd->prefixEnd  += originalSize;
+    } else {
+        DEBUGLOG(5, "prefix becomes extDict");
+        lz4sd->extDictSize = lz4sd->prefixSize;
+        lz4sd->externalDict = lz4sd->prefixEnd - lz4sd->extDictSize;
+        result = ZLZ4_decompress_fast_extDict(source, dest, originalSize,
+                                             lz4sd->externalDict, lz4sd->extDictSize);
+        if (result <= 0) return result;
+        lz4sd->prefixSize = (size_t)originalSize;
+        lz4sd->prefixEnd  = (BYTE*)dest + originalSize;
+    }
+
+    return result;
+}
+
+
+/*
+Advanced decoding functions :
+*_usingDict() :
+    These decoding functions work the same as "_continue" ones,
+    the dictionary must be explicitly provided within parameters
+*/
+
+int ZLZ4_decompress_safe_usingDict(const char* source, char* dest, int compressedSize, int maxOutputSize, const char* dictStart, int dictSize)
+{
+    if (dictSize==0)
+        return ZLZ4_decompress_safe(source, dest, compressedSize, maxOutputSize);
+    if (dictStart+dictSize == dest) {
+        if (dictSize >= 64 KB - 1) {
+            return ZLZ4_decompress_safe_withPrefix64k(source, dest, compressedSize, maxOutputSize);
+        }
+        assert(dictSize >= 0);
+        return ZLZ4_decompress_safe_withSmallPrefix(source, dest, compressedSize, maxOutputSize, (size_t)dictSize);
+    }
+    assert(dictSize >= 0);
+    return ZLZ4_decompress_safe_forceExtDict(source, dest, compressedSize, maxOutputSize, dictStart, (size_t)dictSize);
+}
+
+int ZLZ4_decompress_safe_partial_usingDict(const char* source, char* dest, int compressedSize, int targetOutputSize, int dstCapacity, const char* dictStart, int dictSize)
+{
+    if (dictSize==0)
+        return ZLZ4_decompress_safe_partial(source, dest, compressedSize, targetOutputSize, dstCapacity);
+    if (dictStart+dictSize == dest) {
+        if (dictSize >= 64 KB - 1) {
+            return ZLZ4_decompress_safe_partial_withPrefix64k(source, dest, compressedSize, targetOutputSize, dstCapacity);
+        }
+        assert(dictSize >= 0);
+        return ZLZ4_decompress_safe_partial_withSmallPrefix(source, dest, compressedSize, targetOutputSize, dstCapacity, (size_t)dictSize);
+    }
+    assert(dictSize >= 0);
+    return ZLZ4_decompress_safe_partial_forceExtDict(source, dest, compressedSize, targetOutputSize, dstCapacity, dictStart, (size_t)dictSize);
+}
+
+int ZLZ4_decompress_fast_usingDict(const char* source, char* dest, int originalSize, const char* dictStart, int dictSize)
+{
+    if (dictSize==0 || dictStart+dictSize == dest)
+        return ZLZ4_decompress_unsafe_generic(
+                        (const BYTE*)source, (BYTE*)dest, originalSize,
+                        (size_t)dictSize, NULL, 0);
+    assert(dictSize >= 0);
+    return ZLZ4_decompress_fast_extDict(source, dest, originalSize, dictStart, (size_t)dictSize);
+}
+
+
+/*=*************************************************
+*  Obsolete Functions
+***************************************************/
+/* obsolete compression functions */
+int ZLZ4_compress_limitedOutput(const char* source, char* dest, int inputSize, int maxOutputSize)
+{
+    return ZLZ4_compress_default(source, dest, inputSize, maxOutputSize);
+}
+int ZLZ4_compress(const char* src, char* dest, int srcSize)
+{
+    return ZLZ4_compress_default(src, dest, srcSize, ZLZ4_compressBound(srcSize));
+}
+int ZLZ4_compress_limitedOutput_withState (void* state, const char* src, char* dst, int srcSize, int dstSize)
+{
+    return ZLZ4_compress_fast_extState(state, src, dst, srcSize, dstSize, 1);
+}
+int ZLZ4_compress_withState (void* state, const char* src, char* dst, int srcSize)
+{
+    return ZLZ4_compress_fast_extState(state, src, dst, srcSize, ZLZ4_compressBound(srcSize), 1);
+}
+int ZLZ4_compress_limitedOutput_continue (ZLZ4_stream_t* ZLZ4_stream, const char* src, char* dst, int srcSize, int dstCapacity)
+{
+    return ZLZ4_compress_fast_continue(ZLZ4_stream, src, dst, srcSize, dstCapacity, 1);
+}
+int ZLZ4_compress_continue (ZLZ4_stream_t* ZLZ4_stream, const char* source, char* dest, int inputSize)
+{
+    return ZLZ4_compress_fast_continue(ZLZ4_stream, source, dest, inputSize, ZLZ4_compressBound(inputSize), 1);
+}
+
+/*
+These decompression functions are deprecated and should no longer be used.
+They are only provided here for compatibility with older user programs.
+- ZLZ4_uncompress is totally equivalent to ZLZ4_decompress_fast
+- ZLZ4_uncompress_unknownOutputSize is totally equivalent to ZLZ4_decompress_safe
+*/
+int ZLZ4_uncompress (const char* source, char* dest, int outputSize)
+{
+    return ZLZ4_decompress_fast(source, dest, outputSize);
+}
+int ZLZ4_uncompress_unknownOutputSize (const char* source, char* dest, int isize, int maxOutputSize)
+{
+    return ZLZ4_decompress_safe(source, dest, isize, maxOutputSize);
+}
+
+/* Obsolete Streaming functions */
+
+int ZLZ4_sizeofStreamState(void) { return sizeof(ZLZ4_stream_t); }
+
+int ZLZ4_resetStreamState(void* state, char* inputBuffer)
+{
+    (void)inputBuffer;
+    ZLZ4_resetStream((ZLZ4_stream_t*)state);
+    return 0;
+}
+
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+void* ZLZ4_create (char* inputBuffer)
+{
+    (void)inputBuffer;
+    return ZLZ4_createStream();
+}
+#endif
+
+char* ZLZ4_slideInputBuffer (void* state)
+{
+    /* avoid const char * -> char * conversion warning */
+    return (char *)(uptrval)((ZLZ4_stream_t*)state)->internal_donotuse.dictionary;
+}
+
+#endif   /* ZLZ4_COMMONDEFS_ONLY */
+
+/* ======== lz4hc.h (ZLZ4 v1.10.0, BSD-2, renamed ZLZ4->ZZLZ4) ======== */
+/*
+   ZLZ4 HC - High Compression Mode of ZLZ4
+   Header File
+   Copyright (C) 2011-2020, Yann Collet.
+   BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are
+   met:
+
+       * Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+       * Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following disclaimer
+   in the documentation and/or other materials provided with the
+   distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+   LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   You can contact the author at :
+   - ZLZ4 source repository : https://github.com/lz4/lz4
+   - ZLZ4 public forum : https://groups.google.com/forum/#!forum/lz4c
+*/
+#ifndef ZLZ4_HC_H_19834876238432
+#define ZLZ4_HC_H_19834876238432
+
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
+/* --- Dependency --- */
+/* note : lz4hc requires lz4.h/lz4.c for compilation */
+// (zpaqfranz) removed, already here: #include "lz4.h"   /* stddef, ZLZ4LIB_API, ZLZ4_DEPRECATED */
+
+
+/* --- Useful constants --- */
+#define ZLZ4HC_CLEVEL_MIN         2
+#define ZLZ4HC_CLEVEL_DEFAULT     9
+#define ZLZ4HC_CLEVEL_OPT_MIN    10
+#define ZLZ4HC_CLEVEL_MAX        12
+
+
+/*-************************************
+ *  Block Compression
+ **************************************/
+/*! ZLZ4_compress_HC() :
+ *  Compress data from `src` into `dst`, using the powerful but slower "HC" algorithm.
+ * `dst` must be already allocated.
+ *  Compression is guaranteed to succeed if `dstCapacity >= ZLZ4_compressBound(srcSize)` (see "lz4.h")
+ *  Max supported `srcSize` value is ZLZ4_MAX_INPUT_SIZE (see "lz4.h")
+ * `compressionLevel` : any value between 1 and ZLZ4HC_CLEVEL_MAX will work.
+ *                      Values > ZLZ4HC_CLEVEL_MAX behave the same as ZLZ4HC_CLEVEL_MAX.
+ * @return : the number of bytes written into 'dst'
+ *           or 0 if compression fails.
+ */
+ZLZ4LIB_API int ZLZ4_compress_HC (const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel);
+
+
+/* Note :
+ *   Decompression functions are provided within "lz4.h" (BSD license)
+ */
+
+
+/*! ZLZ4_compress_HC_extStateHC() :
+ *  Same as ZLZ4_compress_HC(), but using an externally allocated memory segment for `state`.
+ * `state` size is provided by ZLZ4_sizeofStateHC().
+ *  Memory segment must be aligned on 8-bytes boundaries (which a normal malloc() should do properly).
+ */
+ZLZ4LIB_API int ZLZ4_sizeofStateHC(void);
+ZLZ4LIB_API int ZLZ4_compress_HC_extStateHC(void* stateHC, const char* src, char* dst, int srcSize, int maxDstSize, int compressionLevel);
+
+
+/*! ZLZ4_compress_HC_destSize() : v1.9.0+
+ *  Will compress as much data as possible from `src`
+ *  to fit into `targetDstSize` budget.
+ *  Result is provided in 2 parts :
+ * @return : the number of bytes written into 'dst' (necessarily <= targetDstSize)
+ *           or 0 if compression fails.
+ * `srcSizePtr` : on success, *srcSizePtr is updated to indicate how much bytes were read from `src`
+ */
+ZLZ4LIB_API int ZLZ4_compress_HC_destSize(void* stateHC,
+                                  const char* src, char* dst,
+                                        int* srcSizePtr, int targetDstSize,
+                                        int compressionLevel);
+
+
+/*-************************************
+ *  Streaming Compression
+ *  Bufferless synchronous API
+ **************************************/
+ typedef union ZLZ4_streamHC_u ZLZ4_streamHC_t;   /* incomplete type (defined later) */
+
+/*! ZLZ4_createStreamHC() and ZLZ4_freeStreamHC() :
+ *  These functions create and release memory for ZLZ4 HC streaming state.
+ *  Newly created states are automatically initialized.
+ *  A same state can be used multiple times consecutively,
+ *  starting with ZLZ4_resetStreamHC_fast() to start a new stream of blocks.
+ */
+ZLZ4LIB_API ZLZ4_streamHC_t* ZLZ4_createStreamHC(void);
+ZLZ4LIB_API int             ZLZ4_freeStreamHC (ZLZ4_streamHC_t* streamHCPtr);
+
+/*
+  These functions compress data in successive blocks of any size,
+  using previous blocks as dictionary, to improve compression ratio.
+  One key assumption is that previous blocks (up to 64 KB) remain read-accessible while compressing next blocks.
+  There is an exception for ring buffers, which can be smaller than 64 KB.
+  Ring-buffer scenario is automatically detected and handled within ZLZ4_compress_HC_continue().
+
+  Before starting compression, state must be allocated and properly initialized.
+  ZLZ4_createStreamHC() does both, though compression level is set to ZLZ4HC_CLEVEL_DEFAULT.
+
+  Selecting the compression level can be done with ZLZ4_resetStreamHC_fast() (starts a new stream)
+  or ZLZ4_setCompressionLevel() (anytime, between blocks in the same stream) (experimental).
+  ZLZ4_resetStreamHC_fast() only works on states which have been properly initialized at least once,
+  which is automatically the case when state is created using ZLZ4_createStreamHC().
+
+  After reset, a first "fictional block" can be designated as initial dictionary,
+  using ZLZ4_loadDictHC() (Optional).
+  Note: In order for ZLZ4_loadDictHC() to create the correct data structure,
+  it is essential to set the compression level _before_ loading the dictionary.
+
+  Invoke ZLZ4_compress_HC_continue() to compress each successive block.
+  The number of blocks is unlimited.
+  Previous input blocks, including initial dictionary when present,
+  must remain accessible and unmodified during compression.
+
+  It's allowed to update compression level anytime between blocks,
+  using ZLZ4_setCompressionLevel() (experimental).
+
+ @dst buffer should be sized to handle worst case scenarios
+  (see ZLZ4_compressBound(), it ensures compression success).
+  In case of failure, the API does not guarantee recovery,
+  so the state _must_ be reset.
+  To ensure compression success
+  whenever @dst buffer size cannot be made >= ZLZ4_compressBound(),
+  consider using ZLZ4_compress_HC_continue_destSize().
+
+  Whenever previous input blocks can't be preserved unmodified in-place during compression of next blocks,
+  it's possible to copy the last blocks into a more stable memory space, using ZLZ4_saveDictHC().
+  Return value of ZLZ4_saveDictHC() is the size of dictionary effectively saved into 'safeBuffer' (<= 64 KB)
+
+  After completing a streaming compression,
+  it's possible to start a new stream of blocks, using the same ZLZ4_streamHC_t state,
+  just by resetting it, using ZLZ4_resetStreamHC_fast().
+*/
+
+ZLZ4LIB_API void ZLZ4_resetStreamHC_fast(ZLZ4_streamHC_t* streamHCPtr, int compressionLevel);   /* v1.9.0+ */
+ZLZ4LIB_API int  ZLZ4_loadDictHC (ZLZ4_streamHC_t* streamHCPtr, const char* dictionary, int dictSize);
+
+ZLZ4LIB_API int ZLZ4_compress_HC_continue (ZLZ4_streamHC_t* streamHCPtr,
+                                   const char* src, char* dst,
+                                         int srcSize, int maxDstSize);
+
+/*! ZLZ4_compress_HC_continue_destSize() : v1.9.0+
+ *  Similar to ZLZ4_compress_HC_continue(),
+ *  but will read as much data as possible from `src`
+ *  to fit into `targetDstSize` budget.
+ *  Result is provided into 2 parts :
+ * @return : the number of bytes written into 'dst' (necessarily <= targetDstSize)
+ *           or 0 if compression fails.
+ * `srcSizePtr` : on success, *srcSizePtr will be updated to indicate how much bytes were read from `src`.
+ *           Note that this function may not consume the entire input.
+ */
+ZLZ4LIB_API int ZLZ4_compress_HC_continue_destSize(ZLZ4_streamHC_t* ZLZ4_streamHCPtr,
+                                           const char* src, char* dst,
+                                                 int* srcSizePtr, int targetDstSize);
+
+ZLZ4LIB_API int ZLZ4_saveDictHC (ZLZ4_streamHC_t* streamHCPtr, char* safeBuffer, int maxDictSize);
+
+
+/*! ZLZ4_attach_HC_dictionary() : stable since v1.10.0
+ *  This API allows for the efficient re-use of a static dictionary many times.
+ *
+ *  Rather than re-loading the dictionary buffer into a working context before
+ *  each compression, or copying a pre-loaded dictionary's ZLZ4_streamHC_t into a
+ *  working ZLZ4_streamHC_t, this function introduces a no-copy setup mechanism,
+ *  in which the working stream references the dictionary stream in-place.
+ *
+ *  Several assumptions are made about the state of the dictionary stream.
+ *  Currently, only streams which have been prepared by ZLZ4_loadDictHC() should
+ *  be expected to work.
+ *
+ *  Alternatively, the provided dictionary stream pointer may be NULL, in which
+ *  case any existing dictionary stream is unset.
+ *
+ *  A dictionary should only be attached to a stream without any history (i.e.,
+ *  a stream that has just been reset).
+ *
+ *  The dictionary will remain attached to the working stream only for the
+ *  current stream session. Calls to ZLZ4_resetStreamHC(_fast) will remove the
+ *  dictionary context association from the working stream. The dictionary
+ *  stream (and source buffer) must remain in-place / accessible / unchanged
+ *  through the lifetime of the stream session.
+ */
+ZLZ4LIB_API void
+ZLZ4_attach_HC_dictionary(ZLZ4_streamHC_t* working_stream,
+                   const ZLZ4_streamHC_t* dictionary_stream);
+
+
+/*^**********************************************
+ * !!!!!!   STATIC LINKING ONLY   !!!!!!
+ ***********************************************/
+
+/*-******************************************************************
+ * PRIVATE DEFINITIONS :
+ * Do not use these definitions directly.
+ * They are merely exposed to allow static allocation of `ZLZ4_streamHC_t`.
+ * Declare an `ZLZ4_streamHC_t` directly, rather than any type below.
+ * Even then, only do so in the context of static linking, as definitions may change between versions.
+ ********************************************************************/
+
+#define ZLZ4HC_DICTIONARY_LOGSIZE 16
+#define ZLZ4HC_MAXD (1<<ZLZ4HC_DICTIONARY_LOGSIZE)
+#define ZLZ4HC_MAXD_MASK (ZLZ4HC_MAXD - 1)
+
+#define ZLZ4HC_HASH_LOG 15
+#define ZLZ4HC_HASHTABLESIZE (1 << ZLZ4HC_HASH_LOG)
+#define ZLZ4HC_HASH_MASK (ZLZ4HC_HASHTABLESIZE - 1)
+
+
+/* Never ever use these definitions directly !
+ * Declare or allocate an ZLZ4_streamHC_t instead.
+**/
+typedef struct ZLZ4HC_CCtx_internal ZLZ4HC_CCtx_internal;
+struct ZLZ4HC_CCtx_internal
+{
+    ZLZ4_u32 hashTable[ZLZ4HC_HASHTABLESIZE];
+    ZLZ4_u16 chainTable[ZLZ4HC_MAXD];
+    const ZLZ4_byte* end;     /* next block here to continue on current prefix */
+    const ZLZ4_byte* prefixStart;  /* Indexes relative to this position */
+    const ZLZ4_byte* dictStart; /* alternate reference for extDict */
+    ZLZ4_u32 dictLimit;       /* below that point, need extDict */
+    ZLZ4_u32 lowLimit;        /* below that point, no more history */
+    ZLZ4_u32 nextToUpdate;    /* index from which to continue dictionary update */
+    short   compressionLevel;
+    ZLZ4_i8  favorDecSpeed;   /* favor decompression speed if this flag set,
+                                otherwise, favor compression ratio */
+    ZLZ4_i8  dirty;           /* stream has to be fully reset if this flag is set */
+    const ZLZ4HC_CCtx_internal* dictCtx;
+};
+
+#define ZLZ4_STREAMHC_MINSIZE  262200  /* static size, for inter-version compatibility */
+union ZLZ4_streamHC_u {
+    char minStateSize[ZLZ4_STREAMHC_MINSIZE];
+    ZLZ4HC_CCtx_internal internal_donotuse;
+}; /* previously typedef'd to ZLZ4_streamHC_t */
+
+/* ZLZ4_streamHC_t :
+ * This structure allows static allocation of ZLZ4 HC streaming state.
+ * This can be used to allocate statically on stack, or as part of a larger structure.
+ *
+ * Such state **must** be initialized using ZLZ4_initStreamHC() before first use.
+ *
+ * Note that invoking ZLZ4_initStreamHC() is not required when
+ * the state was created using ZLZ4_createStreamHC() (which is recommended).
+ * Using the normal builder, a newly created state is automatically initialized.
+ *
+ * Static allocation shall only be used in combination with static linking.
+ */
+
+/* ZLZ4_initStreamHC() : v1.9.0+
+ * Required before first use of a statically allocated ZLZ4_streamHC_t.
+ * Before v1.9.0 : use ZLZ4_resetStreamHC() instead
+ */
+ZLZ4LIB_API ZLZ4_streamHC_t* ZLZ4_initStreamHC(void* buffer, size_t size);
+
+
+/*-************************************
+*  Deprecated Functions
+**************************************/
+/* see lz4.h ZLZ4_DISABLE_DEPRECATE_WARNINGS to turn off deprecation warnings */
+
+/* deprecated compression functions */
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC() instead") ZLZ4LIB_API int ZLZ4_compressHC               (const char* source, char* dest, int inputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC() instead") ZLZ4LIB_API int ZLZ4_compressHC_limitedOutput (const char* source, char* dest, int inputSize, int maxOutputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC() instead") ZLZ4LIB_API int ZLZ4_compressHC2              (const char* source, char* dest, int inputSize, int compressionLevel);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC() instead") ZLZ4LIB_API int ZLZ4_compressHC2_limitedOutput(const char* source, char* dest, int inputSize, int maxOutputSize, int compressionLevel);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_extStateHC() instead") ZLZ4LIB_API int ZLZ4_compressHC_withStateHC               (void* state, const char* source, char* dest, int inputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_extStateHC() instead") ZLZ4LIB_API int ZLZ4_compressHC_limitedOutput_withStateHC (void* state, const char* source, char* dest, int inputSize, int maxOutputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_extStateHC() instead") ZLZ4LIB_API int ZLZ4_compressHC2_withStateHC              (void* state, const char* source, char* dest, int inputSize, int compressionLevel);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_extStateHC() instead") ZLZ4LIB_API int ZLZ4_compressHC2_limitedOutput_withStateHC(void* state, const char* source, char* dest, int inputSize, int maxOutputSize, int compressionLevel);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_continue() instead") ZLZ4LIB_API int ZLZ4_compressHC_continue               (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, const char* source, char* dest, int inputSize);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_continue() instead") ZLZ4LIB_API int ZLZ4_compressHC_limitedOutput_continue (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, const char* source, char* dest, int inputSize, int maxOutputSize);
+
+/* Obsolete streaming functions; degraded functionality; do not use!
+ *
+ * In order to perform streaming compression, these functions depended on data
+ * that is no longer tracked in the state. They have been preserved as well as
+ * possible: using them will still produce a correct output. However, use of
+ * ZLZ4_slideInputBufferHC() will truncate the history of the stream, rather
+ * than preserve a window-sized chunk of history.
+ */
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+ZLZ4_DEPRECATED("use ZLZ4_createStreamHC() instead") ZLZ4LIB_API void* ZLZ4_createHC (const char* inputBuffer);
+ZLZ4_DEPRECATED("use ZLZ4_freeStreamHC() instead") ZLZ4LIB_API   int   ZLZ4_freeHC (void* ZLZ4HC_Data);
+#endif
+ZLZ4_DEPRECATED("use ZLZ4_saveDictHC() instead") ZLZ4LIB_API     char* ZLZ4_slideInputBufferHC (void* ZLZ4HC_Data);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_continue() instead") ZLZ4LIB_API int ZLZ4_compressHC2_continue               (void* ZLZ4HC_Data, const char* source, char* dest, int inputSize, int compressionLevel);
+ZLZ4_DEPRECATED("use ZLZ4_compress_HC_continue() instead") ZLZ4LIB_API int ZLZ4_compressHC2_limitedOutput_continue (void* ZLZ4HC_Data, const char* source, char* dest, int inputSize, int maxOutputSize, int compressionLevel);
+ZLZ4_DEPRECATED("use ZLZ4_createStreamHC() instead") ZLZ4LIB_API int   ZLZ4_sizeofStreamStateHC(void);
+ZLZ4_DEPRECATED("use ZLZ4_initStreamHC() instead") ZLZ4LIB_API  int   ZLZ4_resetStreamStateHC(void* state, char* inputBuffer);
+
+
+/* ZLZ4_resetStreamHC() is now replaced by ZLZ4_initStreamHC().
+ * The intention is to emphasize the difference with ZLZ4_resetStreamHC_fast(),
+ * which is now the recommended function to start a new stream of blocks,
+ * but cannot be used to initialize a memory segment containing arbitrary garbage data.
+ *
+ * It is recommended to switch to ZLZ4_initStreamHC().
+ * ZLZ4_resetStreamHC() will generate deprecation warnings in a future version.
+ */
+ZLZ4LIB_API void ZLZ4_resetStreamHC (ZLZ4_streamHC_t* streamHCPtr, int compressionLevel);
+
+
+#if defined (__cplusplus)
+}
+#endif
+
+#endif /* ZLZ4_HC_H_19834876238432 */
+
+
+/*-**************************************************
+ * !!!!!     STATIC LINKING ONLY     !!!!!
+ * Following definitions are considered experimental.
+ * They should not be linked from DLL,
+ * as there is no guarantee of API stability yet.
+ * Prototypes will be promoted to "stable" status
+ * after successful usage in real-life scenarios.
+ ***************************************************/
+#ifdef ZLZ4_HC_STATIC_LINKING_ONLY   /* protection macro */
+#ifndef ZLZ4_HC_SLO_098092834
+#define ZLZ4_HC_SLO_098092834
+
+#define ZLZ4_STATIC_LINKING_ONLY   /* ZLZ4LIB_STATIC_API */
+// (zpaqfranz) removed, already here: #include "lz4.h"
+
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
+/*! ZLZ4_setCompressionLevel() : v1.8.0+ (experimental)
+ *  It's possible to change compression level
+ *  between successive invocations of ZLZ4_compress_HC_continue*()
+ *  for dynamic adaptation.
+ */
+ZLZ4LIB_STATIC_API void ZLZ4_setCompressionLevel(
+    ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int compressionLevel);
+
+/*! ZLZ4_favorDecompressionSpeed() : v1.8.2+ (experimental)
+ *  Opt. Parser will favor decompression speed over compression ratio.
+ *  Only applicable to levels >= ZLZ4HC_CLEVEL_OPT_MIN.
+ */
+ZLZ4LIB_STATIC_API void ZLZ4_favorDecompressionSpeed(
+    ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int favor);
+
+/*! ZLZ4_resetStreamHC_fast() : v1.9.0+
+ *  When an ZLZ4_streamHC_t is known to be in a internally coherent state,
+ *  it can often be prepared for a new compression with almost no work, only
+ *  sometimes falling back to the full, expensive reset that is always required
+ *  when the stream is in an indeterminate state (i.e., the reset performed by
+ *  ZLZ4_resetStreamHC()).
+ *
+ *  ZLZ4_streamHCs are guaranteed to be in a valid state when:
+ *  - returned from ZLZ4_createStreamHC()
+ *  - reset by ZLZ4_resetStreamHC()
+ *  - memset(stream, 0, sizeof(ZLZ4_streamHC_t))
+ *  - the stream was in a valid state and was reset by ZLZ4_resetStreamHC_fast()
+ *  - the stream was in a valid state and was then used in any compression call
+ *    that returned success
+ *  - the stream was in an indeterminate state and was used in a compression
+ *    call that fully reset the state (ZLZ4_compress_HC_extStateHC()) and that
+ *    returned success
+ *
+ *  Note:
+ *  A stream that was last used in a compression call that returned an error
+ *  may be passed to this function. However, it will be fully reset, which will
+ *  clear any existing history and settings from the context.
+ */
+ZLZ4LIB_STATIC_API void ZLZ4_resetStreamHC_fast(
+    ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int compressionLevel);
+
+/*! ZLZ4_compress_HC_extStateHC_fastReset() :
+ *  A variant of ZLZ4_compress_HC_extStateHC().
+ *
+ *  Using this variant avoids an expensive initialization step. It is only safe
+ *  to call if the state buffer is known to be correctly initialized already
+ *  (see above comment on ZLZ4_resetStreamHC_fast() for a definition of
+ *  "correctly initialized"). From a high level, the difference is that this
+ *  function initializes the provided state with a call to
+ *  ZLZ4_resetStreamHC_fast() while ZLZ4_compress_HC_extStateHC() starts with a
+ *  call to ZLZ4_resetStreamHC().
+ */
+ZLZ4LIB_STATIC_API int ZLZ4_compress_HC_extStateHC_fastReset (
+    void* state,
+    const char* src, char* dst,
+    int srcSize, int dstCapacity,
+    int compressionLevel);
+
+#if defined (__cplusplus)
+}
+#endif
+
+#endif   /* ZLZ4_HC_SLO_098092834 */
+#endif   /* ZLZ4_HC_STATIC_LINKING_ONLY */
+
+/* ======== lz4hc.c (ZLZ4 v1.10.0, BSD-2, renamed ZLZ4->ZZLZ4) ======== */
+/*
+    ZLZ4 HC - High Compression Mode of ZLZ4
+    Copyright (C) 2011-2020, Yann Collet.
+
+    BSD 2-Clause License (http://www.opensource.org/licenses/bsd-license.php)
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are
+    met:
+
+    * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+    copyright notice, this list of conditions and the following disclaimer
+    in the documentation and/or other materials provided with the
+    distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+    You can contact the author at :
+       - ZLZ4 source repository : https://github.com/lz4/lz4
+       - ZLZ4 public forum : https://groups.google.com/forum/#!forum/lz4c
+*/
+/* note : lz4hc is not an independent module, it requires lz4.h/lz4.c for proper compilation */
+
+
+/* *************************************
+*  Tuning Parameter
+***************************************/
+
+/*! HEAPMODE :
+ *  Select how stateless HC compression functions like `ZLZ4_compress_HC()`
+ *  allocate memory for their workspace:
+ *  in stack (0:fastest), or in heap (1:default, requires malloc()).
+ *  Since workspace is rather large, heap mode is recommended.
+**/
+#ifndef ZLZ4HC_HEAPMODE
+#  define ZLZ4HC_HEAPMODE 1
+#endif
+
+
+/*===    Dependency    ===*/
+#define ZLZ4_HC_STATIC_LINKING_ONLY
+// (zpaqfranz) removed, already here: #include "lz4hc.h"
+#include <limits.h>
+
+
+/*===   Shared lz4.c code   ===*/
+#ifndef ZLZ4_SRC_INCLUDED
+# if defined(__GNUC__)
+#  pragma GCC diagnostic ignored "-Wunused-function"
+# endif
+# if defined (__clang__)
+#  pragma clang diagnostic ignored "-Wunused-function"
+# endif
+# define ZLZ4_COMMONDEFS_ONLY
+// (zpaqfranz) removed, already here: # include "lz4.c"   /* ZLZ4_count, constants, mem */
+#endif
+
+
+/*===   Enums   ===*/
+typedef enum { noDictCtx, usingDictCtxHc } dictCtx_directive;
+
+
+/*===   Constants   ===*/
+#define OPTIMAL_ML (int)((ML_MASK-1)+MINMATCH)
+#define ZLZ4_OPT_NUM   (1<<12)
+
+
+/*===   Macros   ===*/
+#define MIN(a,b)   ( (a) < (b) ? (a) : (b) )
+#define MAX(a,b)   ( (a) > (b) ? (a) : (b) )
+
+
+/*===   Levels definition   ===*/
+typedef enum { lz4mid, lz4hc, lz4opt } lz4hc_strat_e;
+typedef struct {
+    lz4hc_strat_e strat;
+    int nbSearches;
+    U32 targetLength;
+} cParams_t;
+static const cParams_t k_clTable[ZLZ4HC_CLEVEL_MAX+1] = {
+    { lz4mid,    2, 16 },  /* 0, unused */
+    { lz4mid,    2, 16 },  /* 1, unused */
+    { lz4mid,    2, 16 },  /* 2 */
+    { lz4hc,     4, 16 },  /* 3 */
+    { lz4hc,     8, 16 },  /* 4 */
+    { lz4hc,    16, 16 },  /* 5 */
+    { lz4hc,    32, 16 },  /* 6 */
+    { lz4hc,    64, 16 },  /* 7 */
+    { lz4hc,   128, 16 },  /* 8 */
+    { lz4hc,   256, 16 },  /* 9 */
+    { lz4opt,   96, 64 },  /*10==ZLZ4HC_CLEVEL_OPT_MIN*/
+    { lz4opt,  512,128 },  /*11 */
+    { lz4opt,16384,ZLZ4_OPT_NUM },  /* 12==ZLZ4HC_CLEVEL_MAX */
+};
+
+static cParams_t ZLZ4HC_getCLevelParams(int cLevel)
+{
+    /* note : clevel convention is a bit different from lz4frame,
+     * possibly something worth revisiting for consistency */
+    if (cLevel < 1)
+        cLevel = ZLZ4HC_CLEVEL_DEFAULT;
+    cLevel = MIN(ZLZ4HC_CLEVEL_MAX, cLevel);
+    return k_clTable[cLevel];
+}
+
+
+/*===   Hashing   ===*/
+#define ZLZ4HC_HASHSIZE 4
+#define HASH_FUNCTION(i)      (((i) * 2654435761U) >> ((MINMATCH*8)-ZLZ4HC_HASH_LOG))
+static U32 ZLZ4HC_hashPtr(const void* ptr) { return HASH_FUNCTION(ZLZ4_read32(ptr)); }
+
+#if defined(ZLZ4_FORCE_MEMORY_ACCESS) && (ZLZ4_FORCE_MEMORY_ACCESS==2)
+/* lie to the compiler about data alignment; use with caution */
+static U64 ZLZ4_read64(const void* memPtr) { return *(const U64*) memPtr; }
+
+#elif defined(ZLZ4_FORCE_MEMORY_ACCESS) && (ZLZ4_FORCE_MEMORY_ACCESS==1)
+/* __pack instructions are safer, but compiler specific */
+ZLZ4_PACK(typedef struct { U64 u64; }) ZLZ4_unalign64;
+static U64 ZLZ4_read64(const void* ptr) { return ((const ZLZ4_unalign64*)ptr)->u64; }
+
+#else  /* safe and portable access using memcpy() */
+static U64 ZLZ4_read64(const void* memPtr)
+{
+    U64 val; ZLZ4_memcpy(&val, memPtr, sizeof(val)); return val;
+}
+
+#endif /* ZLZ4_FORCE_MEMORY_ACCESS */
+
+#define ZLZ4MID_HASHSIZE 8
+#define ZLZ4MID_HASHLOG (ZLZ4HC_HASH_LOG-1)
+#define ZLZ4MID_HASHTABLESIZE (1 << ZLZ4MID_HASHLOG)
+
+static U32 ZLZ4MID_hash4(U32 v) { return (v * 2654435761U) >> (32-ZLZ4MID_HASHLOG); }
+static U32 ZLZ4MID_hash4Ptr(const void* ptr) { return ZLZ4MID_hash4(ZLZ4_read32(ptr)); }
+/* note: hash7 hashes the lower 56-bits.
+ * It presumes input was read using little endian.*/
+static U32 ZLZ4MID_hash7(U64 v) { return (U32)(((v  << (64-56)) * 58295818150454627ULL) >> (64-ZLZ4MID_HASHLOG)) ; }
+static U64 ZLZ4_readLE64(const void* memPtr);
+static U32 ZLZ4MID_hash8Ptr(const void* ptr) { return ZLZ4MID_hash7(ZLZ4_readLE64(ptr)); }
+
+static U64 ZLZ4_readLE64(const void* memPtr)
+{
+    if (ZLZ4_isLittleEndian()) {
+        return ZLZ4_read64(memPtr);
+    } else {
+        const BYTE* p = (const BYTE*)memPtr;
+        /* note: relies on the compiler to simplify this expression */
+        return (U64)p[0] | ((U64)p[1]<<8) | ((U64)p[2]<<16) | ((U64)p[3]<<24)
+            | ((U64)p[4]<<32) | ((U64)p[5]<<40) | ((U64)p[6]<<48) | ((U64)p[7]<<56);
+    }
+}
+
+
+/*===   Count match length   ===*/
+ZLZ4_FORCE_INLINE
+unsigned ZLZ4HC_NbCommonBytes32(U32 val)
+{
+    assert(val != 0);
+    if (ZLZ4_isLittleEndian()) {
+#     if defined(_MSC_VER) && (_MSC_VER >= 1400) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+        unsigned long r;
+        _BitScanReverse(&r, val);
+        return (unsigned)((31 - r) >> 3);
+#     elif (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
+                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
+                                        !defined(ZLZ4_FORCE_SW_BITCOUNT)
+        return (unsigned)__builtin_clz(val) >> 3;
+#     else
+        val >>= 8;
+        val = ((((val + 0x00FFFF00) | 0x00FFFFFF) + val) |
+              (val + 0x00FF0000)) >> 24;
+        return (unsigned)val ^ 3;
+#     endif
+    } else {
+#     if defined(_MSC_VER) && (_MSC_VER >= 1400) && !defined(ZLZ4_FORCE_SW_BITCOUNT)
+        unsigned long r;
+        _BitScanForward(&r, val);
+        return (unsigned)(r >> 3);
+#     elif (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
+                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
+                                        !defined(ZLZ4_FORCE_SW_BITCOUNT)
+        return (unsigned)__builtin_ctz(val) >> 3;
+#     else
+        const U32 m = 0x01010101;
+        return (unsigned)((((val - 1) ^ val) & (m - 1)) * m) >> 24;
+#     endif
+    }
+}
+
+/** ZLZ4HC_countBack() :
+ * @return : negative value, nb of common bytes before ip/match */
+ZLZ4_FORCE_INLINE
+int ZLZ4HC_countBack(const BYTE* const ip, const BYTE* const match,
+                    const BYTE* const iMin, const BYTE* const mMin)
+{
+    int back = 0;
+    int const min = (int)MAX(iMin - ip, mMin - match);
+    assert(min <= 0);
+    assert(ip >= iMin); assert((size_t)(ip-iMin) < (1U<<31));
+    assert(match >= mMin); assert((size_t)(match - mMin) < (1U<<31));
+
+    while ((back - min) > 3) {
+        U32 const v = ZLZ4_read32(ip + back - 4) ^ ZLZ4_read32(match + back - 4);
+        if (v) {
+            return (back - (int)ZLZ4HC_NbCommonBytes32(v));
+        } else back -= 4; /* 4-byte step */
+    }
+    /* check remainder if any */
+    while ( (back > min)
+         && (ip[back-1] == match[back-1]) )
+            back--;
+    return back;
+}
+
+/*===   Chain table updates   ===*/
+#define DELTANEXTU16(table, pos) table[(U16)(pos)]   /* faster */
+/* Make fields passed to, and updated by ZLZ4HC_encodeSequence explicit */
+#define UPDATABLE(ip, op, anchor) &ip, &op, &anchor
+
+
+/**************************************
+*  Init
+**************************************/
+static void ZLZ4HC_clearTables (ZLZ4HC_CCtx_internal* hc4)
+{
+    MEM_INIT(hc4->hashTable, 0, sizeof(hc4->hashTable));
+    MEM_INIT(hc4->chainTable, 0xFF, sizeof(hc4->chainTable));
+}
+
+static void ZLZ4HC_init_internal (ZLZ4HC_CCtx_internal* hc4, const BYTE* start)
+{
+    size_t const bufferSize = (size_t)(hc4->end - hc4->prefixStart);
+    size_t newStartingOffset = bufferSize + hc4->dictLimit;
+    DEBUGLOG(5, "ZLZ4HC_init_internal");
+    assert(newStartingOffset >= bufferSize);  /* check overflow */
+    if (newStartingOffset > 1 GB) {
+        ZLZ4HC_clearTables(hc4);
+        newStartingOffset = 0;
+    }
+    newStartingOffset += 64 KB;
+    hc4->nextToUpdate = (U32)newStartingOffset;
+    hc4->prefixStart = start;
+    hc4->end = start;
+    hc4->dictStart = start;
+    hc4->dictLimit = (U32)newStartingOffset;
+    hc4->lowLimit = (U32)newStartingOffset;
+}
+
+
+/**************************************
+*  Encode
+**************************************/
+/* ZLZ4HC_encodeSequence() :
+ * @return : 0 if ok,
+ *           1 if buffer issue detected */
+ZLZ4_FORCE_INLINE int ZLZ4HC_encodeSequence (
+    const BYTE** _ip,
+    BYTE** _op,
+    const BYTE** _anchor,
+    int matchLength,
+    int offset,
+    limitedOutput_directive limit,
+    BYTE* oend)
+{
+#define ip      (*_ip)
+#define op      (*_op)
+#define anchor  (*_anchor)
+
+    size_t length;
+    BYTE* const token = op++;
+
+#if defined(ZLZ4_DEBUG) && (ZLZ4_DEBUG >= 6)
+    static const BYTE* start = NULL;
+    static U32 totalCost = 0;
+    U32 const pos = (start==NULL) ? 0 : (U32)(anchor - start);
+    U32 const ll = (U32)(ip - anchor);
+    U32 const llAdd = (ll>=15) ? ((ll-15) / 255) + 1 : 0;
+    U32 const mlAdd = (matchLength>=19) ? ((matchLength-19) / 255) + 1 : 0;
+    U32 const cost = 1 + llAdd + ll + 2 + mlAdd;
+    if (start==NULL) start = anchor;  /* only works for single segment */
+    /* g_debuglog_enable = (pos >= 2228) & (pos <= 2262); */
+    DEBUGLOG(6, "pos:%7u -- literals:%4u, match:%4i, offset:%5i, cost:%4u + %5u",
+                pos,
+                (U32)(ip - anchor), matchLength, offset,
+                cost, totalCost);
+    totalCost += cost;
+#endif
+
+    /* Encode Literal length */
+    length = (size_t)(ip - anchor);
+    ZLZ4_STATIC_ASSERT(notLimited == 0);
+    /* Check output limit */
+    if (limit && ((op + (length / 255) + length + (2 + 1 + LASTLITERALS)) > oend)) {
+        DEBUGLOG(6, "Not enough room to write %i literals (%i bytes remaining)",
+                (int)length, (int)(oend - op));
+        return 1;
+    }
+    if (length >= RUN_MASK) {
+        size_t len = length - RUN_MASK;
+        *token = (RUN_MASK << ML_BITS);
+        for(; len >= 255 ; len -= 255) *op++ = 255;
+        *op++ = (BYTE)len;
+    } else {
+        *token = (BYTE)(length << ML_BITS);
+    }
+
+    /* Copy Literals */
+    ZLZ4_wildCopy8(op, anchor, op + length);
+    op += length;
+
+    /* Encode Offset */
+    assert(offset <= ZLZ4_DISTANCE_MAX );
+    assert(offset > 0);
+    ZLZ4_writeLE16(op, (U16)(offset)); op += 2;
+
+    /* Encode MatchLength */
+    assert(matchLength >= MINMATCH);
+    length = (size_t)matchLength - MINMATCH;
+    if (limit && (op + (length / 255) + (1 + LASTLITERALS) > oend)) {
+        DEBUGLOG(6, "Not enough room to write match length");
+        return 1;   /* Check output limit */
+    }
+    if (length >= ML_MASK) {
+        *token += ML_MASK;
+        length -= ML_MASK;
+        for(; length >= 510 ; length -= 510) { *op++ = 255; *op++ = 255; }
+        if (length >= 255) { length -= 255; *op++ = 255; }
+        *op++ = (BYTE)length;
+    } else {
+        *token += (BYTE)(length);
+    }
+
+    /* Prepare next loop */
+    ip += matchLength;
+    anchor = ip;
+
+    return 0;
+
+#undef ip
+#undef op
+#undef anchor
+}
+
+
+typedef struct {
+    int off;
+    int len;
+    int back;  /* negative value */
+} ZLZ4HC_match_t;
+
+ZLZ4HC_match_t ZLZ4HC_searchExtDict(const BYTE* ip, U32 ipIndex,
+        const BYTE* const iLowLimit, const BYTE* const iHighLimit,
+        const ZLZ4HC_CCtx_internal* dictCtx, U32 gDictEndIndex,
+        int currentBestML, int nbAttempts)
+{
+    size_t const lDictEndIndex = (size_t)(dictCtx->end - dictCtx->prefixStart) + dictCtx->dictLimit;
+    U32 lDictMatchIndex = dictCtx->hashTable[ZLZ4HC_hashPtr(ip)];
+    U32 matchIndex = lDictMatchIndex + gDictEndIndex - (U32)lDictEndIndex;
+    int offset = 0, sBack = 0;
+    assert(lDictEndIndex <= 1 GB);
+    if (lDictMatchIndex>0)
+        DEBUGLOG(7, "lDictEndIndex = %zu, lDictMatchIndex = %u", lDictEndIndex, lDictMatchIndex);
+    while (ipIndex - matchIndex <= ZLZ4_DISTANCE_MAX && nbAttempts--) {
+        const BYTE* const matchPtr = dictCtx->prefixStart - dictCtx->dictLimit + lDictMatchIndex;
+
+        if (ZLZ4_read32(matchPtr) == ZLZ4_read32(ip)) {
+            int mlt;
+            int back = 0;
+            const BYTE* vLimit = ip + (lDictEndIndex - lDictMatchIndex);
+            if (vLimit > iHighLimit) vLimit = iHighLimit;
+            mlt = (int)ZLZ4_count(ip+MINMATCH, matchPtr+MINMATCH, vLimit) + MINMATCH;
+            back = (ip > iLowLimit) ? ZLZ4HC_countBack(ip, matchPtr, iLowLimit, dictCtx->prefixStart) : 0;
+            mlt -= back;
+            if (mlt > currentBestML) {
+                currentBestML = mlt;
+                offset = (int)(ipIndex - matchIndex);
+                sBack = back;
+                DEBUGLOG(7, "found match of length %i within extDictCtx", currentBestML);
+        }   }
+
+        {   U32 const nextOffset = DELTANEXTU16(dictCtx->chainTable, lDictMatchIndex);
+            lDictMatchIndex -= nextOffset;
+            matchIndex -= nextOffset;
+    }   }
+
+    {   ZLZ4HC_match_t md;
+        md.len = currentBestML;
+        md.off = offset;
+        md.back = sBack;
+        return md;
+    }
+}
+
+typedef ZLZ4HC_match_t (*ZLZ4MID_searchIntoDict_f)(const BYTE* ip, U32 ipIndex,
+        const BYTE* const iHighLimit,
+        const ZLZ4HC_CCtx_internal* dictCtx, U32 gDictEndIndex);
+
+static ZLZ4HC_match_t ZLZ4MID_searchHCDict(const BYTE* ip, U32 ipIndex,
+        const BYTE* const iHighLimit,
+        const ZLZ4HC_CCtx_internal* dictCtx, U32 gDictEndIndex)
+{
+    return ZLZ4HC_searchExtDict(ip,ipIndex,
+                            ip, iHighLimit,
+                            dictCtx, gDictEndIndex,
+                            MINMATCH-1, 2);
+}
+
+static ZLZ4HC_match_t ZLZ4MID_searchExtDict(const BYTE* ip, U32 ipIndex,
+        const BYTE* const iHighLimit,
+        const ZLZ4HC_CCtx_internal* dictCtx, U32 gDictEndIndex)
+{
+    size_t const lDictEndIndex = (size_t)(dictCtx->end - dictCtx->prefixStart) + dictCtx->dictLimit;
+    const U32* const hash4Table = dictCtx->hashTable;
+    const U32* const hash8Table = hash4Table + ZLZ4MID_HASHTABLESIZE;
+    DEBUGLOG(7, "ZLZ4MID_searchExtDict (ipIdx=%u)", ipIndex);
+
+    /* search long match first */
+    {   U32 l8DictMatchIndex = hash8Table[ZLZ4MID_hash8Ptr(ip)];
+        U32 m8Index = l8DictMatchIndex + gDictEndIndex - (U32)lDictEndIndex;
+        assert(lDictEndIndex <= 1 GB);
+        if (ipIndex - m8Index <= ZLZ4_DISTANCE_MAX) {
+            const BYTE* const matchPtr = dictCtx->prefixStart - dictCtx->dictLimit + l8DictMatchIndex;
+            const size_t safeLen = MIN(lDictEndIndex - l8DictMatchIndex, (size_t)(iHighLimit - ip));
+            int mlt = (int)ZLZ4_count(ip, matchPtr, ip + safeLen);
+            if (mlt >= MINMATCH) {
+                ZLZ4HC_match_t md;
+                DEBUGLOG(7, "Found long ExtDict match of len=%u", mlt);
+                md.len = mlt;
+                md.off = (int)(ipIndex - m8Index);
+                md.back = 0;
+                return md;
+            }
+        }
+    }
+
+    /* search for short match second */
+    {   U32 l4DictMatchIndex = hash4Table[ZLZ4MID_hash4Ptr(ip)];
+        U32 m4Index = l4DictMatchIndex + gDictEndIndex - (U32)lDictEndIndex;
+        if (ipIndex - m4Index <= ZLZ4_DISTANCE_MAX) {
+            const BYTE* const matchPtr = dictCtx->prefixStart - dictCtx->dictLimit + l4DictMatchIndex;
+            const size_t safeLen = MIN(lDictEndIndex - l4DictMatchIndex, (size_t)(iHighLimit - ip));
+            int mlt = (int)ZLZ4_count(ip, matchPtr, ip + safeLen);
+            if (mlt >= MINMATCH) {
+                ZLZ4HC_match_t md;
+                DEBUGLOG(7, "Found short ExtDict match of len=%u", mlt);
+                md.len = mlt;
+                md.off = (int)(ipIndex - m4Index);
+                md.back = 0;
+                return md;
+            }
+        }
+    }
+
+    /* nothing found */
+    {   ZLZ4HC_match_t const md = {0, 0, 0 };
+        return md;
+    }
+}
+
+/**************************************
+*  Mid Compression (level 2)
+**************************************/
+
+ZLZ4_FORCE_INLINE void
+ZLZ4MID_addPosition(U32* hTable, U32 hValue, U32 index)
+{
+    hTable[hValue] = index;
+}
+
+#define ADDPOS8(_p, _idx) ZLZ4MID_addPosition(hash8Table, ZLZ4MID_hash8Ptr(_p), _idx)
+#define ADDPOS4(_p, _idx) ZLZ4MID_addPosition(hash4Table, ZLZ4MID_hash4Ptr(_p), _idx)
+
+/* Fill hash tables with references into dictionary.
+ * The resulting table is only exploitable by ZLZ4MID (level 2) */
+static void
+ZLZ4MID_fillHTable (ZLZ4HC_CCtx_internal* cctx, const void* dict, size_t size)
+{
+    U32* const hash4Table = cctx->hashTable;
+    U32* const hash8Table = hash4Table + ZLZ4MID_HASHTABLESIZE;
+    const BYTE* const prefixPtr = (const BYTE*)dict;
+    U32 const prefixIdx = cctx->dictLimit;
+    U32 const target = prefixIdx + (U32)size - ZLZ4MID_HASHSIZE;
+    U32 idx = cctx->nextToUpdate;
+    assert(dict == cctx->prefixStart);
+    DEBUGLOG(4, "ZLZ4MID_fillHTable (size:%zu)", size);
+    if (size <= ZLZ4MID_HASHSIZE)
+        return;
+
+    for (; idx < target; idx += 3) {
+        ADDPOS4(prefixPtr+idx-prefixIdx, idx);
+        ADDPOS8(prefixPtr+idx+1-prefixIdx, idx+1);
+    }
+
+    idx = (size > 32 KB + ZLZ4MID_HASHSIZE) ? target - 32 KB : cctx->nextToUpdate;
+    for (; idx < target; idx += 1) {
+        ADDPOS8(prefixPtr+idx-prefixIdx, idx);
+    }
+
+    cctx->nextToUpdate = target;
+}
+
+static ZLZ4MID_searchIntoDict_f select_searchDict_function(const ZLZ4HC_CCtx_internal* dictCtx)
+{
+    if (dictCtx == NULL) return NULL;
+    if (ZLZ4HC_getCLevelParams(dictCtx->compressionLevel).strat == lz4mid)
+        return ZLZ4MID_searchExtDict;
+    return ZLZ4MID_searchHCDict;
+}
+
+static int ZLZ4MID_compress (
+    ZLZ4HC_CCtx_internal* const ctx,
+    const char* const src,
+    char* const dst,
+    int* srcSizePtr,
+    int const maxOutputSize,
+    const limitedOutput_directive limit,
+    const dictCtx_directive dict
+    )
+{
+    U32* const hash4Table = ctx->hashTable;
+    U32* const hash8Table = hash4Table + ZLZ4MID_HASHTABLESIZE;
+    const BYTE* ip = (const BYTE*)src;
+    const BYTE* anchor = ip;
+    const BYTE* const iend = ip + *srcSizePtr;
+    const BYTE* const mflimit = iend - MFLIMIT;
+    const BYTE* const matchlimit = (iend - LASTLITERALS);
+    const BYTE* const ilimit = (iend - ZLZ4MID_HASHSIZE);
+    BYTE* op = (BYTE*)dst;
+    BYTE* oend = op + maxOutputSize;
+
+    const BYTE* const prefixPtr = ctx->prefixStart;
+    const U32 prefixIdx = ctx->dictLimit;
+    const U32 ilimitIdx = (U32)(ilimit - prefixPtr) + prefixIdx;
+    const BYTE* const dictStart = ctx->dictStart;
+    const U32 dictIdx = ctx->lowLimit;
+    const U32 gDictEndIndex = ctx->lowLimit;
+    const ZLZ4MID_searchIntoDict_f searchIntoDict = (dict == usingDictCtxHc) ? select_searchDict_function(ctx->dictCtx) : NULL;
+    unsigned matchLength;
+    unsigned matchDistance;
+
+    /* input sanitization */
+    DEBUGLOG(5, "ZLZ4MID_compress (%i bytes)", *srcSizePtr);
+    if (dict == usingDictCtxHc) DEBUGLOG(5, "usingDictCtxHc");
+    assert(*srcSizePtr >= 0);
+    if (*srcSizePtr) assert(src != NULL);
+    if (maxOutputSize) assert(dst != NULL);
+    if (*srcSizePtr < 0) return 0;  /* invalid */
+    if (maxOutputSize < 0) return 0; /* invalid */
+    if (*srcSizePtr > ZLZ4_MAX_INPUT_SIZE) {
+        /* forbidden: no input is allowed to be that large */
+        return 0;
+    }
+    if (limit == fillOutput) oend -= LASTLITERALS;  /* Hack for support ZLZ4 format restriction */
+    if (*srcSizePtr < ZLZ4_minLength)
+        goto _lz4mid_last_literals;  /* Input too small, no compression (all literals) */
+
+    /* main loop */
+    while (ip <= mflimit) {
+        const U32 ipIndex = (U32)(ip - prefixPtr) + prefixIdx;
+        /* search long match */
+        {   U32 const h8 = ZLZ4MID_hash8Ptr(ip);
+            U32 const pos8 = hash8Table[h8];
+            assert(h8 < ZLZ4MID_HASHTABLESIZE);
+            assert(pos8 < ipIndex);
+            ZLZ4MID_addPosition(hash8Table, h8, ipIndex);
+            if (ipIndex - pos8 <= ZLZ4_DISTANCE_MAX) {
+                /* match candidate found */
+                if (pos8 >= prefixIdx) {
+                    const BYTE* const matchPtr = prefixPtr + pos8 - prefixIdx;
+                    assert(matchPtr < ip);
+                    matchLength = ZLZ4_count(ip, matchPtr, matchlimit);
+                    if (matchLength >= MINMATCH) {
+                        DEBUGLOG(7, "found long match at pos %u (len=%u)", pos8, matchLength);
+                        matchDistance = ipIndex - pos8;
+                        goto _lz4mid_encode_sequence;
+                    }
+                } else {
+                    if (pos8 >= dictIdx) {
+                        /* extDict match candidate */
+                        const BYTE* const matchPtr = dictStart + (pos8 - dictIdx);
+                        const size_t safeLen = MIN(prefixIdx - pos8, (size_t)(matchlimit - ip));
+                        matchLength = ZLZ4_count(ip, matchPtr, ip + safeLen);
+                        if (matchLength >= MINMATCH) {
+                            DEBUGLOG(7, "found long match at ExtDict pos %u (len=%u)", pos8, matchLength);
+                            matchDistance = ipIndex - pos8;
+                            goto _lz4mid_encode_sequence;
+                        }
+                    }
+                }
+        }   }
+        /* search short match */
+        {   U32 const h4 = ZLZ4MID_hash4Ptr(ip);
+            U32 const pos4 = hash4Table[h4];
+            assert(h4 < ZLZ4MID_HASHTABLESIZE);
+            assert(pos4 < ipIndex);
+            ZLZ4MID_addPosition(hash4Table, h4, ipIndex);
+            if (ipIndex - pos4 <= ZLZ4_DISTANCE_MAX) {
+                /* match candidate found */
+                if (pos4 >= prefixIdx) {
+                /* only search within prefix */
+                    const BYTE* const matchPtr = prefixPtr + (pos4 - prefixIdx);
+                    assert(matchPtr < ip);
+                    assert(matchPtr >= prefixPtr);
+                    matchLength = ZLZ4_count(ip, matchPtr, matchlimit);
+                    if (matchLength >= MINMATCH) {
+                        /* short match found, let's just check ip+1 for longer */
+                        U32 const h8 = ZLZ4MID_hash8Ptr(ip+1);
+                        U32 const pos8 = hash8Table[h8];
+                        U32 const m2Distance = ipIndex + 1 - pos8;
+                        matchDistance = ipIndex - pos4;
+                        if ( m2Distance <= ZLZ4_DISTANCE_MAX
+                        && pos8 >= prefixIdx /* only search within prefix */
+                        && likely(ip < mflimit)
+                        ) {
+                            const BYTE* const m2Ptr = prefixPtr + (pos8 - prefixIdx);
+                            unsigned ml2 = ZLZ4_count(ip+1, m2Ptr, matchlimit);
+                            if (ml2 > matchLength) {
+                                ZLZ4MID_addPosition(hash8Table, h8, ipIndex+1);
+                                ip++;
+                                matchLength = ml2;
+                                matchDistance = m2Distance;
+                        }   }
+                        goto _lz4mid_encode_sequence;
+                    }
+                } else {
+                    if (pos4 >= dictIdx) {
+                        /* extDict match candidate */
+                        const BYTE* const matchPtr = dictStart + (pos4 - dictIdx);
+                        const size_t safeLen = MIN(prefixIdx - pos4, (size_t)(matchlimit - ip));
+                        matchLength = ZLZ4_count(ip, matchPtr, ip + safeLen);
+                        if (matchLength >= MINMATCH) {
+                            DEBUGLOG(7, "found match at ExtDict pos %u (len=%u)", pos4, matchLength);
+                            matchDistance = ipIndex - pos4;
+                            goto _lz4mid_encode_sequence;
+                        }
+                    }
+                }
+        }   }
+        /* no match found in prefix */
+        if ( (dict == usingDictCtxHc)
+          && (ipIndex - gDictEndIndex < ZLZ4_DISTANCE_MAX - 8) ) {
+            /* search a match into external dictionary */
+            ZLZ4HC_match_t dMatch = searchIntoDict(ip, ipIndex,
+                    matchlimit,
+                    ctx->dictCtx, gDictEndIndex);
+            if (dMatch.len >= MINMATCH) {
+                DEBUGLOG(7, "found Dictionary match (offset=%i)", dMatch.off);
+                assert(dMatch.back == 0);
+                matchLength = (unsigned)dMatch.len;
+                matchDistance = (unsigned)dMatch.off;
+                goto _lz4mid_encode_sequence;
+            }
+        }
+        /* no match found */
+        ip += 1 + ((ip-anchor) >> 9);  /* skip faster over incompressible data */
+        continue;
+
+_lz4mid_encode_sequence:
+        /* catch back */
+        while (((ip > anchor) & ((U32)(ip-prefixPtr) > matchDistance)) && (unlikely(ip[-1] == ip[-(int)matchDistance-1]))) {
+            ip--;  matchLength++;
+        };
+
+        /* fill table with beginning of match */
+        ADDPOS8(ip+1, ipIndex+1);
+        ADDPOS8(ip+2, ipIndex+2);
+        ADDPOS4(ip+1, ipIndex+1);
+
+        /* encode */
+        {   BYTE* const saved_op = op;
+            /* ZLZ4HC_encodeSequence always updates @op; on success, it updates @ip and @anchor */
+            if (ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                    (int)matchLength, (int)matchDistance,
+                    limit, oend) ) {
+                op = saved_op;  /* restore @op value before failed ZLZ4HC_encodeSequence */
+                goto _lz4mid_dest_overflow;
+            }
+        }
+
+        /* fill table with end of match */
+        {   U32 endMatchIdx = (U32)(ip-prefixPtr) + prefixIdx;
+            U32 pos_m2 = endMatchIdx - 2;
+            if (pos_m2 < ilimitIdx) {
+                if (likely(ip - prefixPtr > 5)) {
+                    ADDPOS8(ip-5, endMatchIdx - 5);
+                }
+                ADDPOS8(ip-3, endMatchIdx - 3);
+                ADDPOS8(ip-2, endMatchIdx - 2);
+                ADDPOS4(ip-2, endMatchIdx - 2);
+                ADDPOS4(ip-1, endMatchIdx - 1);
+            }
+        }
+    }
+
+_lz4mid_last_literals:
+    /* Encode Last Literals */
+    {   size_t lastRunSize = (size_t)(iend - anchor);  /* literals */
+        size_t llAdd = (lastRunSize + 255 - RUN_MASK) / 255;
+        size_t const totalSize = 1 + llAdd + lastRunSize;
+        if (limit == fillOutput) oend += LASTLITERALS;  /* restore correct value */
+        if (limit && (op + totalSize > oend)) {
+            if (limit == limitedOutput) return 0;  /* not enough space in @dst */
+            /* adapt lastRunSize to fill 'dest' */
+            lastRunSize  = (size_t)(oend - op) - 1 /*token*/;
+            llAdd = (lastRunSize + 256 - RUN_MASK) / 256;
+            lastRunSize -= llAdd;
+        }
+        DEBUGLOG(6, "Final literal run : %i literals", (int)lastRunSize);
+        ip = anchor + lastRunSize;  /* can be != iend if limit==fillOutput */
+
+        if (lastRunSize >= RUN_MASK) {
+            size_t accumulator = lastRunSize - RUN_MASK;
+            *op++ = (RUN_MASK << ML_BITS);
+            for(; accumulator >= 255 ; accumulator -= 255)
+                *op++ = 255;
+            *op++ = (BYTE) accumulator;
+        } else {
+            *op++ = (BYTE)(lastRunSize << ML_BITS);
+        }
+        assert(lastRunSize <= (size_t)(oend - op));
+        ZLZ4_memcpy(op, anchor, lastRunSize);
+        op += lastRunSize;
+    }
+
+    /* End */
+    DEBUGLOG(5, "compressed %i bytes into %i bytes", *srcSizePtr, (int)((char*)op - dst));
+    assert(ip >= (const BYTE*)src);
+    assert(ip <= iend);
+    *srcSizePtr = (int)(ip - (const BYTE*)src);
+    assert((char*)op >= dst);
+    assert(op <= oend);
+    assert((char*)op - dst < INT_MAX);
+    return (int)((char*)op - dst);
+
+_lz4mid_dest_overflow:
+    if (limit == fillOutput) {
+        /* Assumption : @ip, @anchor, @optr and @matchLength must be set correctly */
+        size_t const ll = (size_t)(ip - anchor);
+        size_t const ll_addbytes = (ll + 240) / 255;
+        size_t const ll_totalCost = 1 + ll_addbytes + ll;
+        BYTE* const maxLitPos = oend - 3; /* 2 for offset, 1 for token */
+        DEBUGLOG(6, "Last sequence is overflowing : %u literals, %u remaining space",
+                (unsigned)ll, (unsigned)(oend-op));
+        if (op + ll_totalCost <= maxLitPos) {
+            /* ll validated; now adjust match length */
+            size_t const bytesLeftForMl = (size_t)(maxLitPos - (op+ll_totalCost));
+            size_t const maxMlSize = MINMATCH + (ML_MASK-1) + (bytesLeftForMl * 255);
+            assert(maxMlSize < INT_MAX);
+            if ((size_t)matchLength > maxMlSize) matchLength= (unsigned)maxMlSize;
+            if ((oend + LASTLITERALS) - (op + ll_totalCost + 2) - 1 + matchLength >= MFLIMIT) {
+            DEBUGLOG(6, "Let's encode a last sequence (ll=%u, ml=%u)", (unsigned)ll, matchLength);
+                ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                        (int)matchLength, (int)matchDistance,
+                        notLimited, oend);
+        }   }
+        DEBUGLOG(6, "Let's finish with a run of literals (%u bytes left)", (unsigned)(oend-op));
+        goto _lz4mid_last_literals;
+    }
+    /* compression failed */
+    return 0;
+}
+
+
+/**************************************
+*  HC Compression - Search
+**************************************/
+
+/* Update chains up to ip (excluded) */
+ZLZ4_FORCE_INLINE void ZLZ4HC_Insert (ZLZ4HC_CCtx_internal* hc4, const BYTE* ip)
+{
+    U16* const chainTable = hc4->chainTable;
+    U32* const hashTable  = hc4->hashTable;
+    const BYTE* const prefixPtr = hc4->prefixStart;
+    U32 const prefixIdx = hc4->dictLimit;
+    U32 const target = (U32)(ip - prefixPtr) + prefixIdx;
+    U32 idx = hc4->nextToUpdate;
+    assert(ip >= prefixPtr);
+    assert(target >= prefixIdx);
+
+    while (idx < target) {
+        U32 const h = ZLZ4HC_hashPtr(prefixPtr+idx-prefixIdx);
+        size_t delta = idx - hashTable[h];
+        if (delta>ZLZ4_DISTANCE_MAX) delta = ZLZ4_DISTANCE_MAX;
+        DELTANEXTU16(chainTable, idx) = (U16)delta;
+        hashTable[h] = idx;
+        idx++;
+    }
+
+    hc4->nextToUpdate = target;
+}
+
+#if defined(_MSC_VER)
+#  define ZLZ4HC_rotl32(x,r) _rotl(x,r)
+#else
+#  define ZLZ4HC_rotl32(x,r) ((x << r) | (x >> (32 - r)))
+#endif
+
+
+static U32 ZLZ4HC_rotatePattern(size_t const rotate, U32 const pattern)
+{
+    size_t const bitsToRotate = (rotate & (sizeof(pattern) - 1)) << 3;
+    if (bitsToRotate == 0) return pattern;
+    return ZLZ4HC_rotl32(pattern, (int)bitsToRotate);
+}
+
+/* ZLZ4HC_countPattern() :
+ * pattern32 must be a sample of repetitive pattern of length 1, 2 or 4 (but not 3!) */
+static unsigned
+ZLZ4HC_countPattern(const BYTE* ip, const BYTE* const iEnd, U32 const pattern32)
+{
+    const BYTE* const iStart = ip;
+    reg_t const pattern = (sizeof(pattern)==8) ?
+        (reg_t)pattern32 + (((reg_t)pattern32) << (sizeof(pattern)*4)) : pattern32;
+
+    while (likely(ip < iEnd-(sizeof(pattern)-1))) {
+        reg_t const diff = ZLZ4_read_ARCH(ip) ^ pattern;
+        if (!diff) { ip+=sizeof(pattern); continue; }
+        ip += ZLZ4_NbCommonBytes(diff);
+        return (unsigned)(ip - iStart);
+    }
+
+    if (ZLZ4_isLittleEndian()) {
+        reg_t patternByte = pattern;
+        while ((ip<iEnd) && (*ip == (BYTE)patternByte)) {
+            ip++; patternByte >>= 8;
+        }
+    } else {  /* big endian */
+        U32 bitOffset = (sizeof(pattern)*8) - 8;
+        while (ip < iEnd) {
+            BYTE const byte = (BYTE)(pattern >> bitOffset);
+            if (*ip != byte) break;
+            ip ++; bitOffset -= 8;
+    }   }
+
+    return (unsigned)(ip - iStart);
+}
+
+/* ZLZ4HC_reverseCountPattern() :
+ * pattern must be a sample of repetitive pattern of length 1, 2 or 4 (but not 3!)
+ * read using natural platform endianness */
+static unsigned
+ZLZ4HC_reverseCountPattern(const BYTE* ip, const BYTE* const iLow, U32 pattern)
+{
+    const BYTE* const iStart = ip;
+
+    while (likely(ip >= iLow+4)) {
+        if (ZLZ4_read32(ip-4) != pattern) break;
+        ip -= 4;
+    }
+    {   const BYTE* bytePtr = (const BYTE*)(&pattern) + 3; /* works for any endianness */
+        while (likely(ip>iLow)) {
+            if (ip[-1] != *bytePtr) break;
+            ip--; bytePtr--;
+    }   }
+    return (unsigned)(iStart - ip);
+}
+
+/* ZLZ4HC_protectDictEnd() :
+ * Checks if the match is in the last 3 bytes of the dictionary, so reading the
+ * 4 byte MINMATCH would overflow.
+ * @returns true if the match index is okay.
+ */
+static int ZLZ4HC_protectDictEnd(U32 const dictLimit, U32 const matchIndex)
+{
+    return ((U32)((dictLimit - 1) - matchIndex) >= 3);
+}
+
+typedef enum { rep_untested, rep_not, rep_confirmed } repeat_state_e;
+typedef enum { favorCompressionRatio=0, favorDecompressionSpeed } HCfavor_e;
+
+
+ZLZ4_FORCE_INLINE ZLZ4HC_match_t
+ZLZ4HC_InsertAndGetWiderMatch (
+        ZLZ4HC_CCtx_internal* const hc4,
+        const BYTE* const ip,
+        const BYTE* const iLowLimit, const BYTE* const iHighLimit,
+        int longest,
+        const int maxNbAttempts,
+        const int patternAnalysis, const int chainSwap,
+        const dictCtx_directive dict,
+        const HCfavor_e favorDecSpeed)
+{
+    U16* const chainTable = hc4->chainTable;
+    U32* const hashTable = hc4->hashTable;
+    const ZLZ4HC_CCtx_internal* const dictCtx = hc4->dictCtx;
+    const BYTE* const prefixPtr = hc4->prefixStart;
+    const U32 prefixIdx = hc4->dictLimit;
+    const U32 ipIndex = (U32)(ip - prefixPtr) + prefixIdx;
+    const int withinStartDistance = (hc4->lowLimit + (ZLZ4_DISTANCE_MAX + 1) > ipIndex);
+    const U32 lowestMatchIndex = (withinStartDistance) ? hc4->lowLimit : ipIndex - ZLZ4_DISTANCE_MAX;
+    const BYTE* const dictStart = hc4->dictStart;
+    const U32 dictIdx = hc4->lowLimit;
+    const BYTE* const dictEnd = dictStart + prefixIdx - dictIdx;
+    int const lookBackLength = (int)(ip-iLowLimit);
+    int nbAttempts = maxNbAttempts;
+    U32 matchChainPos = 0;
+    U32 const pattern = ZLZ4_read32(ip);
+    U32 matchIndex;
+    repeat_state_e repeat = rep_untested;
+    size_t srcPatternLength = 0;
+    int offset = 0, sBack = 0;
+
+    DEBUGLOG(7, "ZLZ4HC_InsertAndGetWiderMatch");
+    /* First Match */
+    ZLZ4HC_Insert(hc4, ip);  /* insert all prior positions up to ip (excluded) */
+    matchIndex = hashTable[ZLZ4HC_hashPtr(ip)];
+    DEBUGLOG(7, "First candidate match for pos %u found at index %u / %u (lowestMatchIndex)",
+                ipIndex, matchIndex, lowestMatchIndex);
+
+    while ((matchIndex>=lowestMatchIndex) && (nbAttempts>0)) {
+        int matchLength=0;
+        nbAttempts--;
+        assert(matchIndex < ipIndex);
+        if (favorDecSpeed && (ipIndex - matchIndex < 8)) {
+            /* do nothing:
+             * favorDecSpeed intentionally skips matches with offset < 8 */
+        } else if (matchIndex >= prefixIdx) {   /* within current Prefix */
+            const BYTE* const matchPtr = prefixPtr + (matchIndex - prefixIdx);
+            assert(matchPtr < ip);
+            assert(longest >= 1);
+            if (ZLZ4_read16(iLowLimit + longest - 1) == ZLZ4_read16(matchPtr - lookBackLength + longest - 1)) {
+                if (ZLZ4_read32(matchPtr) == pattern) {
+                    int const back = lookBackLength ? ZLZ4HC_countBack(ip, matchPtr, iLowLimit, prefixPtr) : 0;
+                    matchLength = MINMATCH + (int)ZLZ4_count(ip+MINMATCH, matchPtr+MINMATCH, iHighLimit);
+                    matchLength -= back;
+                    if (matchLength > longest) {
+                        longest = matchLength;
+                        offset = (int)(ipIndex - matchIndex);
+                        sBack = back;
+                        DEBUGLOG(7, "Found match of len=%i within prefix, offset=%i, back=%i", longest, offset, -back);
+            }   }   }
+        } else {   /* lowestMatchIndex <= matchIndex < dictLimit : within Ext Dict */
+            const BYTE* const matchPtr = dictStart + (matchIndex - dictIdx);
+            assert(matchIndex >= dictIdx);
+            if ( likely(matchIndex <= prefixIdx - 4)
+              && (ZLZ4_read32(matchPtr) == pattern) ) {
+                int back = 0;
+                const BYTE* vLimit = ip + (prefixIdx - matchIndex);
+                if (vLimit > iHighLimit) vLimit = iHighLimit;
+                matchLength = (int)ZLZ4_count(ip+MINMATCH, matchPtr+MINMATCH, vLimit) + MINMATCH;
+                if ((ip+matchLength == vLimit) && (vLimit < iHighLimit))
+                    matchLength += ZLZ4_count(ip+matchLength, prefixPtr, iHighLimit);
+                back = lookBackLength ? ZLZ4HC_countBack(ip, matchPtr, iLowLimit, dictStart) : 0;
+                matchLength -= back;
+                if (matchLength > longest) {
+                    longest = matchLength;
+                    offset = (int)(ipIndex - matchIndex);
+                    sBack = back;
+                    DEBUGLOG(7, "Found match of len=%i within dict, offset=%i, back=%i", longest, offset, -back);
+        }   }   }
+
+        if (chainSwap && matchLength==longest) {   /* better match => select a better chain */
+            assert(lookBackLength==0);   /* search forward only */
+            if (matchIndex + (U32)longest <= ipIndex) {
+                int const kTrigger = 4;
+                U32 distanceToNextMatch = 1;
+                int const end = longest - MINMATCH + 1;
+                int step = 1;
+                int accel = 1 << kTrigger;
+                int pos;
+                for (pos = 0; pos < end; pos += step) {
+                    U32 const candidateDist = DELTANEXTU16(chainTable, matchIndex + (U32)pos);
+                    step = (accel++ >> kTrigger);
+                    if (candidateDist > distanceToNextMatch) {
+                        distanceToNextMatch = candidateDist;
+                        matchChainPos = (U32)pos;
+                        accel = 1 << kTrigger;
+                }   }
+                if (distanceToNextMatch > 1) {
+                    if (distanceToNextMatch > matchIndex) break;   /* avoid overflow */
+                    matchIndex -= distanceToNextMatch;
+                    continue;
+        }   }   }
+
+        {   U32 const distNextMatch = DELTANEXTU16(chainTable, matchIndex);
+            if (patternAnalysis && distNextMatch==1 && matchChainPos==0) {
+                U32 const matchCandidateIdx = matchIndex-1;
+                /* may be a repeated pattern */
+                if (repeat == rep_untested) {
+                    if ( ((pattern & 0xFFFF) == (pattern >> 16))
+                      &  ((pattern & 0xFF)   == (pattern >> 24)) ) {
+                        DEBUGLOG(7, "Repeat pattern detected, char %02X", pattern >> 24);
+                        repeat = rep_confirmed;
+                        srcPatternLength = ZLZ4HC_countPattern(ip+sizeof(pattern), iHighLimit, pattern) + sizeof(pattern);
+                    } else {
+                        repeat = rep_not;
+                }   }
+                if ( (repeat == rep_confirmed) && (matchCandidateIdx >= lowestMatchIndex)
+                  && ZLZ4HC_protectDictEnd(prefixIdx, matchCandidateIdx) ) {
+                    const int extDict = matchCandidateIdx < prefixIdx;
+                    const BYTE* const matchPtr = extDict ? dictStart + (matchCandidateIdx - dictIdx) : prefixPtr + (matchCandidateIdx - prefixIdx);
+                    if (ZLZ4_read32(matchPtr) == pattern) {  /* good candidate */
+                        const BYTE* const iLimit = extDict ? dictEnd : iHighLimit;
+                        size_t forwardPatternLength = ZLZ4HC_countPattern(matchPtr+sizeof(pattern), iLimit, pattern) + sizeof(pattern);
+                        if (extDict && matchPtr + forwardPatternLength == iLimit) {
+                            U32 const rotatedPattern = ZLZ4HC_rotatePattern(forwardPatternLength, pattern);
+                            forwardPatternLength += ZLZ4HC_countPattern(prefixPtr, iHighLimit, rotatedPattern);
+                        }
+                        {   const BYTE* const lowestMatchPtr = extDict ? dictStart : prefixPtr;
+                            size_t backLength = ZLZ4HC_reverseCountPattern(matchPtr, lowestMatchPtr, pattern);
+                            size_t currentSegmentLength;
+                            if (!extDict
+                              && matchPtr - backLength == prefixPtr
+                              && dictIdx < prefixIdx) {
+                                U32 const rotatedPattern = ZLZ4HC_rotatePattern((U32)(-(int)backLength), pattern);
+                                backLength += ZLZ4HC_reverseCountPattern(dictEnd, dictStart, rotatedPattern);
+                            }
+                            /* Limit backLength not go further than lowestMatchIndex */
+                            backLength = matchCandidateIdx - MAX(matchCandidateIdx - (U32)backLength, lowestMatchIndex);
+                            assert(matchCandidateIdx - backLength >= lowestMatchIndex);
+                            currentSegmentLength = backLength + forwardPatternLength;
+                            /* Adjust to end of pattern if the source pattern fits, otherwise the beginning of the pattern */
+                            if ( (currentSegmentLength >= srcPatternLength)   /* current pattern segment large enough to contain full srcPatternLength */
+                              && (forwardPatternLength <= srcPatternLength) ) { /* haven't reached this position yet */
+                                U32 const newMatchIndex = matchCandidateIdx + (U32)forwardPatternLength - (U32)srcPatternLength;  /* best position, full pattern, might be followed by more match */
+                                if (ZLZ4HC_protectDictEnd(prefixIdx, newMatchIndex))
+                                    matchIndex = newMatchIndex;
+                                else {
+                                    /* Can only happen if started in the prefix */
+                                    assert(newMatchIndex >= prefixIdx - 3 && newMatchIndex < prefixIdx && !extDict);
+                                    matchIndex = prefixIdx;
+                                }
+                            } else {
+                                U32 const newMatchIndex = matchCandidateIdx - (U32)backLength;   /* farthest position in current segment, will find a match of length currentSegmentLength + maybe some back */
+                                if (!ZLZ4HC_protectDictEnd(prefixIdx, newMatchIndex)) {
+                                    assert(newMatchIndex >= prefixIdx - 3 && newMatchIndex < prefixIdx && !extDict);
+                                    matchIndex = prefixIdx;
+                                } else {
+                                    matchIndex = newMatchIndex;
+                                    if (lookBackLength==0) {  /* no back possible */
+                                        size_t const maxML = MIN(currentSegmentLength, srcPatternLength);
+                                        if ((size_t)longest < maxML) {
+                                            assert(prefixPtr - prefixIdx + matchIndex != ip);
+                                            if ((size_t)(ip - prefixPtr) + prefixIdx - matchIndex > ZLZ4_DISTANCE_MAX) break;
+                                            assert(maxML < 2 GB);
+                                            longest = (int)maxML;
+                                            offset = (int)(ipIndex - matchIndex);
+                                            assert(sBack == 0);
+                                            DEBUGLOG(7, "Found repeat pattern match of len=%i, offset=%i", longest, offset);
+                                        }
+                                        {   U32 const distToNextPattern = DELTANEXTU16(chainTable, matchIndex);
+                                            if (distToNextPattern > matchIndex) break;  /* avoid overflow */
+                                            matchIndex -= distToNextPattern;
+                        }   }   }   }   }
+                        continue;
+                }   }
+        }   }   /* PA optimization */
+
+        /* follow current chain */
+        matchIndex -= DELTANEXTU16(chainTable, matchIndex + matchChainPos);
+
+    }  /* while ((matchIndex>=lowestMatchIndex) && (nbAttempts)) */
+
+    if ( dict == usingDictCtxHc
+      && nbAttempts > 0
+      && withinStartDistance) {
+        size_t const dictEndOffset = (size_t)(dictCtx->end - dictCtx->prefixStart) + dictCtx->dictLimit;
+        U32 dictMatchIndex = dictCtx->hashTable[ZLZ4HC_hashPtr(ip)];
+        assert(dictEndOffset <= 1 GB);
+        matchIndex = dictMatchIndex + lowestMatchIndex - (U32)dictEndOffset;
+        if (dictMatchIndex>0) DEBUGLOG(7, "dictEndOffset = %zu, dictMatchIndex = %u => relative matchIndex = %i", dictEndOffset, dictMatchIndex, (int)dictMatchIndex - (int)dictEndOffset);
+        while (ipIndex - matchIndex <= ZLZ4_DISTANCE_MAX && nbAttempts--) {
+            const BYTE* const matchPtr = dictCtx->prefixStart - dictCtx->dictLimit + dictMatchIndex;
+
+            if (ZLZ4_read32(matchPtr) == pattern) {
+                int mlt;
+                int back = 0;
+                const BYTE* vLimit = ip + (dictEndOffset - dictMatchIndex);
+                if (vLimit > iHighLimit) vLimit = iHighLimit;
+                mlt = (int)ZLZ4_count(ip+MINMATCH, matchPtr+MINMATCH, vLimit) + MINMATCH;
+                back = lookBackLength ? ZLZ4HC_countBack(ip, matchPtr, iLowLimit, dictCtx->prefixStart) : 0;
+                mlt -= back;
+                if (mlt > longest) {
+                    longest = mlt;
+                    offset = (int)(ipIndex - matchIndex);
+                    sBack = back;
+                    DEBUGLOG(7, "found match of length %i within extDictCtx", longest);
+            }   }
+
+            {   U32 const nextOffset = DELTANEXTU16(dictCtx->chainTable, dictMatchIndex);
+                dictMatchIndex -= nextOffset;
+                matchIndex -= nextOffset;
+    }   }   }
+
+    {   ZLZ4HC_match_t md;
+        assert(longest >= 0);
+        md.len = longest;
+        md.off = offset;
+        md.back = sBack;
+        return md;
+    }
+}
+
+ZLZ4_FORCE_INLINE ZLZ4HC_match_t
+ZLZ4HC_InsertAndFindBestMatch(ZLZ4HC_CCtx_internal* const hc4,   /* Index table will be updated */
+                       const BYTE* const ip, const BYTE* const iLimit,
+                       const int maxNbAttempts,
+                       const int patternAnalysis,
+                       const dictCtx_directive dict)
+{
+    DEBUGLOG(7, "ZLZ4HC_InsertAndFindBestMatch");
+    /* note : ZLZ4HC_InsertAndGetWiderMatch() is able to modify the starting position of a match (*startpos),
+     * but this won't be the case here, as we define iLowLimit==ip,
+     * so ZLZ4HC_InsertAndGetWiderMatch() won't be allowed to search past ip */
+    return ZLZ4HC_InsertAndGetWiderMatch(hc4, ip, ip, iLimit, MINMATCH-1, maxNbAttempts, patternAnalysis, 0 /*chainSwap*/, dict, favorCompressionRatio);
+}
+
+
+ZLZ4_FORCE_INLINE int ZLZ4HC_compress_hashChain (
+    ZLZ4HC_CCtx_internal* const ctx,
+    const char* const source,
+    char* const dest,
+    int* srcSizePtr,
+    int const maxOutputSize,
+    int maxNbAttempts,
+    const limitedOutput_directive limit,
+    const dictCtx_directive dict
+    )
+{
+    const int inputSize = *srcSizePtr;
+    const int patternAnalysis = (maxNbAttempts > 128);   /* levels 9+ */
+
+    const BYTE* ip = (const BYTE*) source;
+    const BYTE* anchor = ip;
+    const BYTE* const iend = ip + inputSize;
+    const BYTE* const mflimit = iend - MFLIMIT;
+    const BYTE* const matchlimit = (iend - LASTLITERALS);
+
+    BYTE* optr = (BYTE*) dest;
+    BYTE* op = (BYTE*) dest;
+    BYTE* oend = op + maxOutputSize;
+
+    const BYTE* start0;
+    const BYTE* start2 = NULL;
+    const BYTE* start3 = NULL;
+    ZLZ4HC_match_t m0, m1, m2, m3;
+    const ZLZ4HC_match_t nomatch = {0, 0, 0};
+
+    /* init */
+    DEBUGLOG(5, "ZLZ4HC_compress_hashChain (dict?=>%i)", dict);
+    *srcSizePtr = 0;
+    if (limit == fillOutput) oend -= LASTLITERALS;                  /* Hack for support ZLZ4 format restriction */
+    if (inputSize < ZLZ4_minLength) goto _last_literals;             /* Input too small, no compression (all literals) */
+
+    /* Main Loop */
+    while (ip <= mflimit) {
+        m1 = ZLZ4HC_InsertAndFindBestMatch(ctx, ip, matchlimit, maxNbAttempts, patternAnalysis, dict);
+        if (m1.len<MINMATCH) { ip++; continue; }
+
+        /* saved, in case we would skip too much */
+        start0 = ip; m0 = m1;
+
+_Search2:
+        DEBUGLOG(7, "_Search2 (currently found match of size %i)", m1.len);
+        if (ip+m1.len <= mflimit) {
+            start2 = ip + m1.len - 2;
+            m2 = ZLZ4HC_InsertAndGetWiderMatch(ctx,
+                            start2, ip + 0, matchlimit, m1.len,
+                            maxNbAttempts, patternAnalysis, 0, dict, favorCompressionRatio);
+            start2 += m2.back;
+        } else {
+            m2 = nomatch;  /* do not search further */
+        }
+
+        if (m2.len <= m1.len) { /* No better match => encode ML1 immediately */
+            optr = op;
+            if (ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                    m1.len, m1.off,
+                    limit, oend) )
+                goto _dest_overflow;
+            continue;
+        }
+
+        if (start0 < ip) {   /* first match was skipped at least once */
+            if (start2 < ip + m0.len) {  /* squeezing ML1 between ML0(original ML1) and ML2 */
+                ip = start0; m1 = m0;  /* restore initial Match1 */
+        }   }
+
+        /* Here, start0==ip */
+        if ((start2 - ip) < 3) {  /* First Match too small : removed */
+            ip = start2;
+            m1 = m2;
+            goto _Search2;
+        }
+
+_Search3:
+        if ((start2 - ip) < OPTIMAL_ML) {
+            int correction;
+            int new_ml = m1.len;
+            if (new_ml > OPTIMAL_ML) new_ml = OPTIMAL_ML;
+            if (ip+new_ml > start2 + m2.len - MINMATCH)
+                new_ml = (int)(start2 - ip) + m2.len - MINMATCH;
+            correction = new_ml - (int)(start2 - ip);
+            if (correction > 0) {
+                start2 += correction;
+                m2.len -= correction;
+            }
+        }
+
+        if (start2 + m2.len <= mflimit) {
+            start3 = start2 + m2.len - 3;
+            m3 = ZLZ4HC_InsertAndGetWiderMatch(ctx,
+                            start3, start2, matchlimit, m2.len,
+                            maxNbAttempts, patternAnalysis, 0, dict, favorCompressionRatio);
+            start3 += m3.back;
+        } else {
+            m3 = nomatch;  /* do not search further */
+        }
+
+        if (m3.len <= m2.len) {  /* No better match => encode ML1 and ML2 */
+            /* ip & ref are known; Now for ml */
+            if (start2 < ip+m1.len) m1.len = (int)(start2 - ip);
+            /* Now, encode 2 sequences */
+            optr = op;
+            if (ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                    m1.len, m1.off,
+                    limit, oend) )
+                goto _dest_overflow;
+            ip = start2;
+            optr = op;
+            if (ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                    m2.len, m2.off,
+                    limit, oend) ) {
+                m1 = m2;
+                goto _dest_overflow;
+            }
+            continue;
+        }
+
+        if (start3 < ip+m1.len+3) {  /* Not enough space for match 2 : remove it */
+            if (start3 >= (ip+m1.len)) {  /* can write Seq1 immediately ==> Seq2 is removed, so Seq3 becomes Seq1 */
+                if (start2 < ip+m1.len) {
+                    int correction = (int)(ip+m1.len - start2);
+                    start2 += correction;
+                    m2.len -= correction;
+                    if (m2.len < MINMATCH) {
+                        start2 = start3;
+                        m2 = m3;
+                    }
+                }
+
+                optr = op;
+                if (ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                        m1.len, m1.off,
+                        limit, oend) )
+                    goto _dest_overflow;
+                ip  = start3;
+                m1 = m3;
+
+                start0 = start2;
+                m0 = m2;
+                goto _Search2;
+            }
+
+            start2 = start3;
+            m2 = m3;
+            goto _Search3;
+        }
+
+        /*
+        * OK, now we have 3 ascending matches;
+        * let's write the first one ML1.
+        * ip & ref are known; Now decide ml.
+        */
+        if (start2 < ip+m1.len) {
+            if ((start2 - ip) < OPTIMAL_ML) {
+                int correction;
+                if (m1.len > OPTIMAL_ML) m1.len = OPTIMAL_ML;
+                if (ip + m1.len > start2 + m2.len - MINMATCH)
+                    m1.len = (int)(start2 - ip) + m2.len - MINMATCH;
+                correction = m1.len - (int)(start2 - ip);
+                if (correction > 0) {
+                    start2 += correction;
+                    m2.len -= correction;
+                }
+            } else {
+                m1.len = (int)(start2 - ip);
+            }
+        }
+        optr = op;
+        if ( ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor),
+                m1.len, m1.off,
+                limit, oend) )
+            goto _dest_overflow;
+
+        /* ML2 becomes ML1 */
+        ip = start2; m1 = m2;
+
+        /* ML3 becomes ML2 */
+        start2 = start3; m2 = m3;
+
+        /* let's find a new ML3 */
+        goto _Search3;
+    }
+
+_last_literals:
+    /* Encode Last Literals */
+    {   size_t lastRunSize = (size_t)(iend - anchor);  /* literals */
+        size_t llAdd = (lastRunSize + 255 - RUN_MASK) / 255;
+        size_t const totalSize = 1 + llAdd + lastRunSize;
+        if (limit == fillOutput) oend += LASTLITERALS;  /* restore correct value */
+        if (limit && (op + totalSize > oend)) {
+            if (limit == limitedOutput) return 0;
+            /* adapt lastRunSize to fill 'dest' */
+            lastRunSize  = (size_t)(oend - op) - 1 /*token*/;
+            llAdd = (lastRunSize + 256 - RUN_MASK) / 256;
+            lastRunSize -= llAdd;
+        }
+        DEBUGLOG(6, "Final literal run : %i literals", (int)lastRunSize);
+        ip = anchor + lastRunSize;  /* can be != iend if limit==fillOutput */
+
+        if (lastRunSize >= RUN_MASK) {
+            size_t accumulator = lastRunSize - RUN_MASK;
+            *op++ = (RUN_MASK << ML_BITS);
+            for(; accumulator >= 255 ; accumulator -= 255) *op++ = 255;
+            *op++ = (BYTE) accumulator;
+        } else {
+            *op++ = (BYTE)(lastRunSize << ML_BITS);
+        }
+        ZLZ4_memcpy(op, anchor, lastRunSize);
+        op += lastRunSize;
+    }
+
+    /* End */
+    *srcSizePtr = (int) (((const char*)ip) - source);
+    return (int) (((char*)op)-dest);
+
+_dest_overflow:
+    if (limit == fillOutput) {
+        /* Assumption : @ip, @anchor, @optr and @m1 must be set correctly */
+        size_t const ll = (size_t)(ip - anchor);
+        size_t const ll_addbytes = (ll + 240) / 255;
+        size_t const ll_totalCost = 1 + ll_addbytes + ll;
+        BYTE* const maxLitPos = oend - 3; /* 2 for offset, 1 for token */
+        DEBUGLOG(6, "Last sequence overflowing");
+        op = optr;  /* restore correct out pointer */
+        if (op + ll_totalCost <= maxLitPos) {
+            /* ll validated; now adjust match length */
+            size_t const bytesLeftForMl = (size_t)(maxLitPos - (op+ll_totalCost));
+            size_t const maxMlSize = MINMATCH + (ML_MASK-1) + (bytesLeftForMl * 255);
+            assert(maxMlSize < INT_MAX); assert(m1.len >= 0);
+            if ((size_t)m1.len > maxMlSize) m1.len = (int)maxMlSize;
+            if ((oend + LASTLITERALS) - (op + ll_totalCost + 2) - 1 + m1.len >= MFLIMIT) {
+                ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor), m1.len, m1.off, notLimited, oend);
+        }   }
+        goto _last_literals;
+    }
+    /* compression failed */
+    return 0;
+}
+
+
+static int ZLZ4HC_compress_optimal( ZLZ4HC_CCtx_internal* ctx,
+    const char* const source, char* dst,
+    int* srcSizePtr, int dstCapacity,
+    int const nbSearches, size_t sufficient_len,
+    const limitedOutput_directive limit, int const fullUpdate,
+    const dictCtx_directive dict,
+    const HCfavor_e favorDecSpeed);
+
+ZLZ4_FORCE_INLINE int
+ZLZ4HC_compress_generic_internal (
+            ZLZ4HC_CCtx_internal* const ctx,
+            const char* const src,
+            char* const dst,
+            int* const srcSizePtr,
+            int const dstCapacity,
+            int cLevel,
+            const limitedOutput_directive limit,
+            const dictCtx_directive dict
+            )
+{
+    DEBUGLOG(5, "ZLZ4HC_compress_generic_internal(src=%p, srcSize=%d)",
+                src, *srcSizePtr);
+
+    if (limit == fillOutput && dstCapacity < 1) return 0;   /* Impossible to store anything */
+    if ((U32)*srcSizePtr > (U32)ZLZ4_MAX_INPUT_SIZE) return 0;  /* Unsupported input size (too large or negative) */
+
+    ctx->end += *srcSizePtr;
+    {   cParams_t const cParam = ZLZ4HC_getCLevelParams(cLevel);
+        HCfavor_e const favor = ctx->favorDecSpeed ? favorDecompressionSpeed : favorCompressionRatio;
+        int result;
+
+        if (cParam.strat == lz4mid) {
+            result = ZLZ4MID_compress(ctx,
+                                src, dst, srcSizePtr, dstCapacity,
+                                limit, dict);
+        } else if (cParam.strat == lz4hc) {
+            result = ZLZ4HC_compress_hashChain(ctx,
+                                src, dst, srcSizePtr, dstCapacity,
+                                cParam.nbSearches, limit, dict);
+        } else {
+            assert(cParam.strat == lz4opt);
+            result = ZLZ4HC_compress_optimal(ctx,
+                                src, dst, srcSizePtr, dstCapacity,
+                                cParam.nbSearches, cParam.targetLength, limit,
+                                cLevel >= ZLZ4HC_CLEVEL_MAX,   /* ultra mode */
+                                dict, favor);
+        }
+        if (result <= 0) ctx->dirty = 1;
+        return result;
+    }
+}
+
+static void ZLZ4HC_setExternalDict(ZLZ4HC_CCtx_internal* ctxPtr, const BYTE* newBlock);
+
+static int
+ZLZ4HC_compress_generic_noDictCtx (
+        ZLZ4HC_CCtx_internal* const ctx,
+        const char* const src,
+        char* const dst,
+        int* const srcSizePtr,
+        int const dstCapacity,
+        int cLevel,
+        limitedOutput_directive limit
+        )
+{
+    assert(ctx->dictCtx == NULL);
+    return ZLZ4HC_compress_generic_internal(ctx, src, dst, srcSizePtr, dstCapacity, cLevel, limit, noDictCtx);
+}
+
+static int isStateCompatible(const ZLZ4HC_CCtx_internal* ctx1, const ZLZ4HC_CCtx_internal* ctx2)
+{
+    int const isMid1 = ZLZ4HC_getCLevelParams(ctx1->compressionLevel).strat == lz4mid;
+    int const isMid2 = ZLZ4HC_getCLevelParams(ctx2->compressionLevel).strat == lz4mid;
+    return !(isMid1 ^ isMid2);
+}
+
+static int
+ZLZ4HC_compress_generic_dictCtx (
+        ZLZ4HC_CCtx_internal* const ctx,
+        const char* const src,
+        char* const dst,
+        int* const srcSizePtr,
+        int const dstCapacity,
+        int cLevel,
+        limitedOutput_directive limit
+        )
+{
+    const size_t position = (size_t)(ctx->end - ctx->prefixStart) + (ctx->dictLimit - ctx->lowLimit);
+    assert(ctx->dictCtx != NULL);
+    if (position >= 64 KB) {
+        ctx->dictCtx = NULL;
+        return ZLZ4HC_compress_generic_noDictCtx(ctx, src, dst, srcSizePtr, dstCapacity, cLevel, limit);
+    } else if (position == 0 && *srcSizePtr > 4 KB && isStateCompatible(ctx, ctx->dictCtx)) {
+        ZLZ4_memcpy(ctx, ctx->dictCtx, sizeof(ZLZ4HC_CCtx_internal));
+        ZLZ4HC_setExternalDict(ctx, (const BYTE *)src);
+        ctx->compressionLevel = (short)cLevel;
+        return ZLZ4HC_compress_generic_noDictCtx(ctx, src, dst, srcSizePtr, dstCapacity, cLevel, limit);
+    } else {
+        return ZLZ4HC_compress_generic_internal(ctx, src, dst, srcSizePtr, dstCapacity, cLevel, limit, usingDictCtxHc);
+    }
+}
+
+static int
+ZLZ4HC_compress_generic (
+        ZLZ4HC_CCtx_internal* const ctx,
+        const char* const src,
+        char* const dst,
+        int* const srcSizePtr,
+        int const dstCapacity,
+        int cLevel,
+        limitedOutput_directive limit
+        )
+{
+    if (ctx->dictCtx == NULL) {
+        return ZLZ4HC_compress_generic_noDictCtx(ctx, src, dst, srcSizePtr, dstCapacity, cLevel, limit);
+    } else {
+        return ZLZ4HC_compress_generic_dictCtx(ctx, src, dst, srcSizePtr, dstCapacity, cLevel, limit);
+    }
+}
+
+
+int ZLZ4_sizeofStateHC(void) { return (int)sizeof(ZLZ4_streamHC_t); }
+
+static size_t ZLZ4_streamHC_t_alignment(void)
+{
+#if ZLZ4_ALIGN_TEST
+    typedef struct { char c; ZLZ4_streamHC_t t; } t_a;
+    return sizeof(t_a) - sizeof(ZLZ4_streamHC_t);
+#else
+    return 1;  /* effectively disabled */
+#endif
+}
+
+/* state is presumed correctly initialized,
+ * in which case its size and alignment have already been validate */
+int ZLZ4_compress_HC_extStateHC_fastReset (void* state, const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel)
+{
+    ZLZ4HC_CCtx_internal* const ctx = &((ZLZ4_streamHC_t*)state)->internal_donotuse;
+    if (!ZLZ4_isAligned(state, ZLZ4_streamHC_t_alignment())) return 0;
+    ZLZ4_resetStreamHC_fast((ZLZ4_streamHC_t*)state, compressionLevel);
+    ZLZ4HC_init_internal (ctx, (const BYTE*)src);
+    if (dstCapacity < ZLZ4_compressBound(srcSize))
+        return ZLZ4HC_compress_generic (ctx, src, dst, &srcSize, dstCapacity, compressionLevel, limitedOutput);
+    else
+        return ZLZ4HC_compress_generic (ctx, src, dst, &srcSize, dstCapacity, compressionLevel, notLimited);
+}
+
+int ZLZ4_compress_HC_extStateHC (void* state, const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel)
+{
+    ZLZ4_streamHC_t* const ctx = ZLZ4_initStreamHC(state, sizeof(*ctx));
+    if (ctx==NULL) return 0;   /* init failure */
+    return ZLZ4_compress_HC_extStateHC_fastReset(state, src, dst, srcSize, dstCapacity, compressionLevel);
+}
+
+int ZLZ4_compress_HC(const char* src, char* dst, int srcSize, int dstCapacity, int compressionLevel)
+{
+    int cSize;
+#if defined(ZLZ4HC_HEAPMODE) && ZLZ4HC_HEAPMODE==1
+    ZLZ4_streamHC_t* const statePtr = (ZLZ4_streamHC_t*)ALLOC(sizeof(ZLZ4_streamHC_t));
+    if (statePtr==NULL) return 0;
+#else
+    ZLZ4_streamHC_t state;
+    ZLZ4_streamHC_t* const statePtr = &state;
+#endif
+    DEBUGLOG(5, "ZLZ4_compress_HC")
+    cSize = ZLZ4_compress_HC_extStateHC(statePtr, src, dst, srcSize, dstCapacity, compressionLevel);
+#if defined(ZLZ4HC_HEAPMODE) && ZLZ4HC_HEAPMODE==1
+    FREEMEM(statePtr);
+#endif
+    return cSize;
+}
+
+/* state is presumed sized correctly (>= sizeof(ZLZ4_streamHC_t)) */
+int ZLZ4_compress_HC_destSize(void* state, const char* source, char* dest, int* sourceSizePtr, int targetDestSize, int cLevel)
+{
+    ZLZ4_streamHC_t* const ctx = ZLZ4_initStreamHC(state, sizeof(*ctx));
+    if (ctx==NULL) return 0;   /* init failure */
+    ZLZ4HC_init_internal(&ctx->internal_donotuse, (const BYTE*) source);
+    ZLZ4_setCompressionLevel(ctx, cLevel);
+    return ZLZ4HC_compress_generic(&ctx->internal_donotuse, source, dest, sourceSizePtr, targetDestSize, cLevel, fillOutput);
+}
+
+
+
+/**************************************
+*  Streaming Functions
+**************************************/
+/* allocation */
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+ZLZ4_streamHC_t* ZLZ4_createStreamHC(void)
+{
+    ZLZ4_streamHC_t* const state =
+        (ZLZ4_streamHC_t*)ALLOC_AND_ZERO(sizeof(ZLZ4_streamHC_t));
+    if (state == NULL) return NULL;
+    ZLZ4_setCompressionLevel(state, ZLZ4HC_CLEVEL_DEFAULT);
+    return state;
+}
+
+int ZLZ4_freeStreamHC (ZLZ4_streamHC_t* ZLZ4_streamHCPtr)
+{
+    DEBUGLOG(4, "ZLZ4_freeStreamHC(%p)", ZLZ4_streamHCPtr);
+    if (!ZLZ4_streamHCPtr) return 0;  /* support free on NULL */
+    FREEMEM(ZLZ4_streamHCPtr);
+    return 0;
+}
+#endif
+
+
+ZLZ4_streamHC_t* ZLZ4_initStreamHC (void* buffer, size_t size)
+{
+    ZLZ4_streamHC_t* const ZLZ4_streamHCPtr = (ZLZ4_streamHC_t*)buffer;
+    DEBUGLOG(4, "ZLZ4_initStreamHC(%p, %u)", buffer, (unsigned)size);
+    /* check conditions */
+    if (buffer == NULL) return NULL;
+    if (size < sizeof(ZLZ4_streamHC_t)) return NULL;
+    if (!ZLZ4_isAligned(buffer, ZLZ4_streamHC_t_alignment())) return NULL;
+    /* init */
+    { ZLZ4HC_CCtx_internal* const hcstate = &(ZLZ4_streamHCPtr->internal_donotuse);
+      MEM_INIT(hcstate, 0, sizeof(*hcstate)); }
+    ZLZ4_setCompressionLevel(ZLZ4_streamHCPtr, ZLZ4HC_CLEVEL_DEFAULT);
+    return ZLZ4_streamHCPtr;
+}
+
+/* just a stub */
+void ZLZ4_resetStreamHC (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int compressionLevel)
+{
+    ZLZ4_initStreamHC(ZLZ4_streamHCPtr, sizeof(*ZLZ4_streamHCPtr));
+    ZLZ4_setCompressionLevel(ZLZ4_streamHCPtr, compressionLevel);
+}
+
+void ZLZ4_resetStreamHC_fast (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int compressionLevel)
+{
+    ZLZ4HC_CCtx_internal* const s = &ZLZ4_streamHCPtr->internal_donotuse;
+    DEBUGLOG(5, "ZLZ4_resetStreamHC_fast(%p, %d)", ZLZ4_streamHCPtr, compressionLevel);
+    if (s->dirty) {
+        ZLZ4_initStreamHC(ZLZ4_streamHCPtr, sizeof(*ZLZ4_streamHCPtr));
+    } else {
+        assert(s->end >= s->prefixStart);
+        s->dictLimit += (U32)(s->end - s->prefixStart);
+        s->prefixStart = NULL;
+        s->end = NULL;
+        s->dictCtx = NULL;
+    }
+    ZLZ4_setCompressionLevel(ZLZ4_streamHCPtr, compressionLevel);
+}
+
+void ZLZ4_setCompressionLevel(ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int compressionLevel)
+{
+    DEBUGLOG(5, "ZLZ4_setCompressionLevel(%p, %d)", ZLZ4_streamHCPtr, compressionLevel);
+    if (compressionLevel < 1) compressionLevel = ZLZ4HC_CLEVEL_DEFAULT;
+    if (compressionLevel > ZLZ4HC_CLEVEL_MAX) compressionLevel = ZLZ4HC_CLEVEL_MAX;
+    ZLZ4_streamHCPtr->internal_donotuse.compressionLevel = (short)compressionLevel;
+}
+
+void ZLZ4_favorDecompressionSpeed(ZLZ4_streamHC_t* ZLZ4_streamHCPtr, int favor)
+{
+    ZLZ4_streamHCPtr->internal_donotuse.favorDecSpeed = (favor!=0);
+}
+
+/* ZLZ4_loadDictHC() :
+ * ZLZ4_streamHCPtr is presumed properly initialized */
+int ZLZ4_loadDictHC (ZLZ4_streamHC_t* ZLZ4_streamHCPtr,
+              const char* dictionary, int dictSize)
+{
+    ZLZ4HC_CCtx_internal* const ctxPtr = &ZLZ4_streamHCPtr->internal_donotuse;
+    cParams_t cp;
+    DEBUGLOG(4, "ZLZ4_loadDictHC(ctx:%p, dict:%p, dictSize:%d, clevel=%d)", ZLZ4_streamHCPtr, dictionary, dictSize, ctxPtr->compressionLevel);
+    assert(dictSize >= 0);
+    assert(ZLZ4_streamHCPtr != NULL);
+    if (dictSize > 64 KB) {
+        dictionary += (size_t)dictSize - 64 KB;
+        dictSize = 64 KB;
+    }
+    /* need a full initialization, there are bad side-effects when using resetFast() */
+    {   int const cLevel = ctxPtr->compressionLevel;
+        ZLZ4_initStreamHC(ZLZ4_streamHCPtr, sizeof(*ZLZ4_streamHCPtr));
+        ZLZ4_setCompressionLevel(ZLZ4_streamHCPtr, cLevel);
+        cp = ZLZ4HC_getCLevelParams(cLevel);
+    }
+    ZLZ4HC_init_internal (ctxPtr, (const BYTE*)dictionary);
+    ctxPtr->end = (const BYTE*)dictionary + dictSize;
+    if (cp.strat == lz4mid) {
+        ZLZ4MID_fillHTable (ctxPtr, dictionary, (size_t)dictSize);
+    } else {
+        if (dictSize >= ZLZ4HC_HASHSIZE) ZLZ4HC_Insert (ctxPtr, ctxPtr->end-3);
+    }
+    return dictSize;
+}
+
+void ZLZ4_attach_HC_dictionary(ZLZ4_streamHC_t *working_stream, const ZLZ4_streamHC_t *dictionary_stream) {
+    working_stream->internal_donotuse.dictCtx = dictionary_stream != NULL ? &(dictionary_stream->internal_donotuse) : NULL;
+}
+
+/* compression */
+
+static void ZLZ4HC_setExternalDict(ZLZ4HC_CCtx_internal* ctxPtr, const BYTE* newBlock)
+{
+    DEBUGLOG(4, "ZLZ4HC_setExternalDict(%p, %p)", ctxPtr, newBlock);
+    if ( (ctxPtr->end >= ctxPtr->prefixStart + 4)
+      && (ZLZ4HC_getCLevelParams(ctxPtr->compressionLevel).strat != lz4mid) ) {
+        ZLZ4HC_Insert (ctxPtr, ctxPtr->end-3);  /* Referencing remaining dictionary content */
+    }
+
+    /* Only one memory segment for extDict, so any previous extDict is lost at this stage */
+    ctxPtr->lowLimit  = ctxPtr->dictLimit;
+    ctxPtr->dictStart  = ctxPtr->prefixStart;
+    ctxPtr->dictLimit += (U32)(ctxPtr->end - ctxPtr->prefixStart);
+    ctxPtr->prefixStart = newBlock;
+    ctxPtr->end  = newBlock;
+    ctxPtr->nextToUpdate = ctxPtr->dictLimit;   /* match referencing will resume from there */
+
+    /* cannot reference an extDict and a dictCtx at the same time */
+    ctxPtr->dictCtx = NULL;
+}
+
+static int
+ZLZ4_compressHC_continue_generic (ZLZ4_streamHC_t* ZLZ4_streamHCPtr,
+                                 const char* src, char* dst,
+                                 int* srcSizePtr, int dstCapacity,
+                                 limitedOutput_directive limit)
+{
+    ZLZ4HC_CCtx_internal* const ctxPtr = &ZLZ4_streamHCPtr->internal_donotuse;
+    DEBUGLOG(5, "ZLZ4_compressHC_continue_generic(ctx=%p, src=%p, srcSize=%d, limit=%d)",
+                ZLZ4_streamHCPtr, src, *srcSizePtr, limit);
+    assert(ctxPtr != NULL);
+    /* auto-init if forgotten */
+    if (ctxPtr->prefixStart == NULL)
+        ZLZ4HC_init_internal (ctxPtr, (const BYTE*) src);
+
+    /* Check overflow */
+    if ((size_t)(ctxPtr->end - ctxPtr->prefixStart) + ctxPtr->dictLimit > 2 GB) {
+        size_t dictSize = (size_t)(ctxPtr->end - ctxPtr->prefixStart);
+        if (dictSize > 64 KB) dictSize = 64 KB;
+        ZLZ4_loadDictHC(ZLZ4_streamHCPtr, (const char*)(ctxPtr->end) - dictSize, (int)dictSize);
+    }
+
+    /* Check if blocks follow each other */
+    if ((const BYTE*)src != ctxPtr->end)
+        ZLZ4HC_setExternalDict(ctxPtr, (const BYTE*)src);
+
+    /* Check overlapping input/dictionary space */
+    {   const BYTE* sourceEnd = (const BYTE*) src + *srcSizePtr;
+        const BYTE* const dictBegin = ctxPtr->dictStart;
+        const BYTE* const dictEnd   = ctxPtr->dictStart + (ctxPtr->dictLimit - ctxPtr->lowLimit);
+        if ((sourceEnd > dictBegin) && ((const BYTE*)src < dictEnd)) {
+            if (sourceEnd > dictEnd) sourceEnd = dictEnd;
+            ctxPtr->lowLimit += (U32)(sourceEnd - ctxPtr->dictStart);
+            ctxPtr->dictStart += (U32)(sourceEnd - ctxPtr->dictStart);
+            /* invalidate dictionary is it's too small */
+            if (ctxPtr->dictLimit - ctxPtr->lowLimit < ZLZ4HC_HASHSIZE) {
+                ctxPtr->lowLimit = ctxPtr->dictLimit;
+                ctxPtr->dictStart = ctxPtr->prefixStart;
+    }   }   }
+
+    return ZLZ4HC_compress_generic (ctxPtr, src, dst, srcSizePtr, dstCapacity, ctxPtr->compressionLevel, limit);
+}
+
+int ZLZ4_compress_HC_continue (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, const char* src, char* dst, int srcSize, int dstCapacity)
+{
+    DEBUGLOG(5, "ZLZ4_compress_HC_continue");
+    if (dstCapacity < ZLZ4_compressBound(srcSize))
+        return ZLZ4_compressHC_continue_generic (ZLZ4_streamHCPtr, src, dst, &srcSize, dstCapacity, limitedOutput);
+    else
+        return ZLZ4_compressHC_continue_generic (ZLZ4_streamHCPtr, src, dst, &srcSize, dstCapacity, notLimited);
+}
+
+int ZLZ4_compress_HC_continue_destSize (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, const char* src, char* dst, int* srcSizePtr, int targetDestSize)
+{
+    return ZLZ4_compressHC_continue_generic(ZLZ4_streamHCPtr, src, dst, srcSizePtr, targetDestSize, fillOutput);
+}
+
+
+/* ZLZ4_saveDictHC :
+ * save history content
+ * into a user-provided buffer
+ * which is then used to continue compression
+ */
+int ZLZ4_saveDictHC (ZLZ4_streamHC_t* ZLZ4_streamHCPtr, char* safeBuffer, int dictSize)
+{
+    ZLZ4HC_CCtx_internal* const streamPtr = &ZLZ4_streamHCPtr->internal_donotuse;
+    int const prefixSize = (int)(streamPtr->end - streamPtr->prefixStart);
+    DEBUGLOG(5, "ZLZ4_saveDictHC(%p, %p, %d)", ZLZ4_streamHCPtr, safeBuffer, dictSize);
+    assert(prefixSize >= 0);
+    if (dictSize > 64 KB) dictSize = 64 KB;
+    if (dictSize < 4) dictSize = 0;
+    if (dictSize > prefixSize) dictSize = prefixSize;
+    if (safeBuffer == NULL) assert(dictSize == 0);
+    if (dictSize > 0)
+        ZLZ4_memmove(safeBuffer, streamPtr->end - dictSize, (size_t)dictSize);
+    {   U32 const endIndex = (U32)(streamPtr->end - streamPtr->prefixStart) + streamPtr->dictLimit;
+        streamPtr->end = (safeBuffer == NULL) ? NULL : (const BYTE*)safeBuffer + dictSize;
+        streamPtr->prefixStart = (const BYTE*)safeBuffer;
+        streamPtr->dictLimit = endIndex - (U32)dictSize;
+        streamPtr->lowLimit = endIndex - (U32)dictSize;
+        streamPtr->dictStart = streamPtr->prefixStart;
+        if (streamPtr->nextToUpdate < streamPtr->dictLimit)
+            streamPtr->nextToUpdate = streamPtr->dictLimit;
+    }
+    return dictSize;
+}
+
+
+/* ================================================
+ *  ZLZ4 Optimal parser (levels [ZLZ4HC_CLEVEL_OPT_MIN - ZLZ4HC_CLEVEL_MAX])
+ * ===============================================*/
+typedef struct {
+    int price;
+    int off;
+    int mlen;
+    int litlen;
+} ZLZ4HC_optimal_t;
+
+/* price in bytes */
+ZLZ4_FORCE_INLINE int ZLZ4HC_literalsPrice(int const litlen)
+{
+    int price = litlen;
+    assert(litlen >= 0);
+    if (litlen >= (int)RUN_MASK)
+        price += 1 + ((litlen-(int)RUN_MASK) / 255);
+    return price;
+}
+
+/* requires mlen >= MINMATCH */
+ZLZ4_FORCE_INLINE int ZLZ4HC_sequencePrice(int litlen, int mlen)
+{
+    int price = 1 + 2 ; /* token + 16-bit offset */
+    assert(litlen >= 0);
+    assert(mlen >= MINMATCH);
+
+    price += ZLZ4HC_literalsPrice(litlen);
+
+    if (mlen >= (int)(ML_MASK+MINMATCH))
+        price += 1 + ((mlen-(int)(ML_MASK+MINMATCH)) / 255);
+
+    return price;
+}
+
+ZLZ4_FORCE_INLINE ZLZ4HC_match_t
+ZLZ4HC_FindLongerMatch(ZLZ4HC_CCtx_internal* const ctx,
+                      const BYTE* ip, const BYTE* const iHighLimit,
+                      int minLen, int nbSearches,
+                      const dictCtx_directive dict,
+                      const HCfavor_e favorDecSpeed)
+{
+    ZLZ4HC_match_t const match0 = { 0 , 0, 0 };
+    /* note : ZLZ4HC_InsertAndGetWiderMatch() is able to modify the starting position of a match (*startpos),
+     * but this won't be the case here, as we define iLowLimit==ip,
+    ** so ZLZ4HC_InsertAndGetWiderMatch() won't be allowed to search past ip */
+    ZLZ4HC_match_t md = ZLZ4HC_InsertAndGetWiderMatch(ctx, ip, ip, iHighLimit, minLen, nbSearches, 1 /*patternAnalysis*/, 1 /*chainSwap*/, dict, favorDecSpeed);
+    assert(md.back == 0);
+    if (md.len <= minLen) return match0;
+    if (favorDecSpeed) {
+        if ((md.len>18) & (md.len<=36)) md.len=18;   /* favor dec.speed (shortcut) */
+    }
+    return md;
+}
+
+
+static int ZLZ4HC_compress_optimal ( ZLZ4HC_CCtx_internal* ctx,
+                                    const char* const source,
+                                    char* dst,
+                                    int* srcSizePtr,
+                                    int dstCapacity,
+                                    int const nbSearches,
+                                    size_t sufficient_len,
+                                    const limitedOutput_directive limit,
+                                    int const fullUpdate,
+                                    const dictCtx_directive dict,
+                                    const HCfavor_e favorDecSpeed)
+{
+    int retval = 0;
+#define TRAILING_LITERALS 3
+#if defined(ZLZ4HC_HEAPMODE) && ZLZ4HC_HEAPMODE==1
+    ZLZ4HC_optimal_t* const opt = (ZLZ4HC_optimal_t*)ALLOC(sizeof(ZLZ4HC_optimal_t) * (ZLZ4_OPT_NUM + TRAILING_LITERALS));
+#else
+    ZLZ4HC_optimal_t opt[ZLZ4_OPT_NUM + TRAILING_LITERALS];   /* ~64 KB, which is a bit large for stack... */
+#endif
+
+    const BYTE* ip = (const BYTE*) source;
+    const BYTE* anchor = ip;
+    const BYTE* const iend = ip + *srcSizePtr;
+    const BYTE* const mflimit = iend - MFLIMIT;
+    const BYTE* const matchlimit = iend - LASTLITERALS;
+    BYTE* op = (BYTE*) dst;
+    BYTE* opSaved = (BYTE*) dst;
+    BYTE* oend = op + dstCapacity;
+    int ovml = MINMATCH;  /* overflow - last sequence */
+    int ovoff = 0;
+
+    /* init */
+#if defined(ZLZ4HC_HEAPMODE) && ZLZ4HC_HEAPMODE==1
+    if (opt == NULL) goto _return_label;
+#endif
+    DEBUGLOG(5, "ZLZ4HC_compress_optimal(dst=%p, dstCapa=%u)", dst, (unsigned)dstCapacity);
+    *srcSizePtr = 0;
+    if (limit == fillOutput) oend -= LASTLITERALS;   /* Hack for support ZLZ4 format restriction */
+    if (sufficient_len >= ZLZ4_OPT_NUM) sufficient_len = ZLZ4_OPT_NUM-1;
+
+    /* Main Loop */
+    while (ip <= mflimit) {
+         int const llen = (int)(ip - anchor);
+         int best_mlen, best_off;
+         int cur, last_match_pos = 0;
+
+         ZLZ4HC_match_t const firstMatch = ZLZ4HC_FindLongerMatch(ctx, ip, matchlimit, MINMATCH-1, nbSearches, dict, favorDecSpeed);
+         if (firstMatch.len==0) { ip++; continue; }
+
+         if ((size_t)firstMatch.len > sufficient_len) {
+             /* good enough solution : immediate encoding */
+             int const firstML = firstMatch.len;
+             opSaved = op;
+             if ( ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor), firstML, firstMatch.off, limit, oend) ) {  /* updates ip, op and anchor */
+                 ovml = firstML;
+                 ovoff = firstMatch.off;
+                 goto _dest_overflow;
+             }
+             continue;
+         }
+
+         /* set prices for first positions (literals) */
+         {   int rPos;
+             for (rPos = 0 ; rPos < MINMATCH ; rPos++) {
+                 int const cost = ZLZ4HC_literalsPrice(llen + rPos);
+                 opt[rPos].mlen = 1;
+                 opt[rPos].off = 0;
+                 opt[rPos].litlen = llen + rPos;
+                 opt[rPos].price = cost;
+                 DEBUGLOG(7, "rPos:%3i => price:%3i (litlen=%i) -- initial setup",
+                             rPos, cost, opt[rPos].litlen);
+         }   }
+         /* set prices using initial match */
+         {   int const matchML = firstMatch.len;   /* necessarily < sufficient_len < ZLZ4_OPT_NUM */
+             int const offset = firstMatch.off;
+             int mlen;
+             assert(matchML < ZLZ4_OPT_NUM);
+             for (mlen = MINMATCH ; mlen <= matchML ; mlen++) {
+                 int const cost = ZLZ4HC_sequencePrice(llen, mlen);
+                 opt[mlen].mlen = mlen;
+                 opt[mlen].off = offset;
+                 opt[mlen].litlen = llen;
+                 opt[mlen].price = cost;
+                 DEBUGLOG(7, "rPos:%3i => price:%3i (matchlen=%i) -- initial setup",
+                             mlen, cost, mlen);
+         }   }
+         last_match_pos = firstMatch.len;
+         {   int addLit;
+             for (addLit = 1; addLit <= TRAILING_LITERALS; addLit ++) {
+                 opt[last_match_pos+addLit].mlen = 1; /* literal */
+                 opt[last_match_pos+addLit].off = 0;
+                 opt[last_match_pos+addLit].litlen = addLit;
+                 opt[last_match_pos+addLit].price = opt[last_match_pos].price + ZLZ4HC_literalsPrice(addLit);
+                 DEBUGLOG(7, "rPos:%3i => price:%3i (litlen=%i) -- initial setup",
+                             last_match_pos+addLit, opt[last_match_pos+addLit].price, addLit);
+         }   }
+
+         /* check further positions */
+         for (cur = 1; cur < last_match_pos; cur++) {
+             const BYTE* const curPtr = ip + cur;
+             ZLZ4HC_match_t newMatch;
+
+             if (curPtr > mflimit) break;
+             DEBUGLOG(7, "rPos:%u[%u] vs [%u]%u",
+                     cur, opt[cur].price, opt[cur+1].price, cur+1);
+             if (fullUpdate) {
+                 /* not useful to search here if next position has same (or lower) cost */
+                 if ( (opt[cur+1].price <= opt[cur].price)
+                   /* in some cases, next position has same cost, but cost rises sharply after, so a small match would still be beneficial */
+                   && (opt[cur+MINMATCH].price < opt[cur].price + 3/*min seq price*/) )
+                     continue;
+             } else {
+                 /* not useful to search here if next position has same (or lower) cost */
+                 if (opt[cur+1].price <= opt[cur].price) continue;
+             }
+
+             DEBUGLOG(7, "search at rPos:%u", cur);
+             if (fullUpdate)
+                 newMatch = ZLZ4HC_FindLongerMatch(ctx, curPtr, matchlimit, MINMATCH-1, nbSearches, dict, favorDecSpeed);
+             else
+                 /* only test matches of minimum length; slightly faster, but misses a few bytes */
+                 newMatch = ZLZ4HC_FindLongerMatch(ctx, curPtr, matchlimit, last_match_pos - cur, nbSearches, dict, favorDecSpeed);
+             if (!newMatch.len) continue;
+
+             if ( ((size_t)newMatch.len > sufficient_len)
+               || (newMatch.len + cur >= ZLZ4_OPT_NUM) ) {
+                 /* immediate encoding */
+                 best_mlen = newMatch.len;
+                 best_off = newMatch.off;
+                 last_match_pos = cur + 1;
+                 goto encode;
+             }
+
+             /* before match : set price with literals at beginning */
+             {   int const baseLitlen = opt[cur].litlen;
+                 int litlen;
+                 for (litlen = 1; litlen < MINMATCH; litlen++) {
+                     int const price = opt[cur].price - ZLZ4HC_literalsPrice(baseLitlen) + ZLZ4HC_literalsPrice(baseLitlen+litlen);
+                     int const pos = cur + litlen;
+                     if (price < opt[pos].price) {
+                         opt[pos].mlen = 1; /* literal */
+                         opt[pos].off = 0;
+                         opt[pos].litlen = baseLitlen+litlen;
+                         opt[pos].price = price;
+                         DEBUGLOG(7, "rPos:%3i => price:%3i (litlen=%i)",
+                                     pos, price, opt[pos].litlen);
+             }   }   }
+
+             /* set prices using match at position = cur */
+             {   int const matchML = newMatch.len;
+                 int ml = MINMATCH;
+
+                 assert(cur + newMatch.len < ZLZ4_OPT_NUM);
+                 for ( ; ml <= matchML ; ml++) {
+                     int const pos = cur + ml;
+                     int const offset = newMatch.off;
+                     int price;
+                     int ll;
+                     DEBUGLOG(7, "testing price rPos %i (last_match_pos=%i)",
+                                 pos, last_match_pos);
+                     if (opt[cur].mlen == 1) {
+                         ll = opt[cur].litlen;
+                         price = ((cur > ll) ? opt[cur - ll].price : 0)
+                               + ZLZ4HC_sequencePrice(ll, ml);
+                     } else {
+                         ll = 0;
+                         price = opt[cur].price + ZLZ4HC_sequencePrice(0, ml);
+                     }
+
+                    assert((U32)favorDecSpeed <= 1);
+                     if (pos > last_match_pos+TRAILING_LITERALS
+                      || price <= opt[pos].price - (int)favorDecSpeed) {
+                         DEBUGLOG(7, "rPos:%3i => price:%3i (matchlen=%i)",
+                                     pos, price, ml);
+                         assert(pos < ZLZ4_OPT_NUM);
+                         if ( (ml == matchML)  /* last pos of last match */
+                           && (last_match_pos < pos) )
+                             last_match_pos = pos;
+                         opt[pos].mlen = ml;
+                         opt[pos].off = offset;
+                         opt[pos].litlen = ll;
+                         opt[pos].price = price;
+             }   }   }
+             /* complete following positions with literals */
+             {   int addLit;
+                 for (addLit = 1; addLit <= TRAILING_LITERALS; addLit ++) {
+                     opt[last_match_pos+addLit].mlen = 1; /* literal */
+                     opt[last_match_pos+addLit].off = 0;
+                     opt[last_match_pos+addLit].litlen = addLit;
+                     opt[last_match_pos+addLit].price = opt[last_match_pos].price + ZLZ4HC_literalsPrice(addLit);
+                     DEBUGLOG(7, "rPos:%3i => price:%3i (litlen=%i)", last_match_pos+addLit, opt[last_match_pos+addLit].price, addLit);
+             }   }
+         }  /* for (cur = 1; cur <= last_match_pos; cur++) */
+
+         assert(last_match_pos < ZLZ4_OPT_NUM + TRAILING_LITERALS);
+         best_mlen = opt[last_match_pos].mlen;
+         best_off = opt[last_match_pos].off;
+         cur = last_match_pos - best_mlen;
+
+encode: /* cur, last_match_pos, best_mlen, best_off must be set */
+         assert(cur < ZLZ4_OPT_NUM);
+         assert(last_match_pos >= 1);  /* == 1 when only one candidate */
+         DEBUGLOG(6, "reverse traversal, looking for shortest path (last_match_pos=%i)", last_match_pos);
+         {   int candidate_pos = cur;
+             int selected_matchLength = best_mlen;
+             int selected_offset = best_off;
+             while (1) {  /* from end to beginning */
+                 int const next_matchLength = opt[candidate_pos].mlen;  /* can be 1, means literal */
+                 int const next_offset = opt[candidate_pos].off;
+                 DEBUGLOG(7, "pos %i: sequence length %i", candidate_pos, selected_matchLength);
+                 opt[candidate_pos].mlen = selected_matchLength;
+                 opt[candidate_pos].off = selected_offset;
+                 selected_matchLength = next_matchLength;
+                 selected_offset = next_offset;
+                 if (next_matchLength > candidate_pos) break; /* last match elected, first match to encode */
+                 assert(next_matchLength > 0);  /* can be 1, means literal */
+                 candidate_pos -= next_matchLength;
+         }   }
+
+         /* encode all recorded sequences in order */
+         {   int rPos = 0;  /* relative position (to ip) */
+             while (rPos < last_match_pos) {
+                 int const ml = opt[rPos].mlen;
+                 int const offset = opt[rPos].off;
+                 if (ml == 1) { ip++; rPos++; continue; }  /* literal; note: can end up with several literals, in which case, skip them */
+                 rPos += ml;
+                 assert(ml >= MINMATCH);
+                 assert((offset >= 1) && (offset <= ZLZ4_DISTANCE_MAX));
+                 opSaved = op;
+                 if ( ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor), ml, offset, limit, oend) ) {  /* updates ip, op and anchor */
+                     ovml = ml;
+                     ovoff = offset;
+                     goto _dest_overflow;
+         }   }   }
+     }  /* while (ip <= mflimit) */
+
+_last_literals:
+     /* Encode Last Literals */
+     {   size_t lastRunSize = (size_t)(iend - anchor);  /* literals */
+         size_t llAdd = (lastRunSize + 255 - RUN_MASK) / 255;
+         size_t const totalSize = 1 + llAdd + lastRunSize;
+         if (limit == fillOutput) oend += LASTLITERALS;  /* restore correct value */
+         if (limit && (op + totalSize > oend)) {
+             if (limit == limitedOutput) { /* Check output limit */
+                retval = 0;
+                goto _return_label;
+             }
+             /* adapt lastRunSize to fill 'dst' */
+             lastRunSize  = (size_t)(oend - op) - 1 /*token*/;
+             llAdd = (lastRunSize + 256 - RUN_MASK) / 256;
+             lastRunSize -= llAdd;
+         }
+         DEBUGLOG(6, "Final literal run : %i literals", (int)lastRunSize);
+         ip = anchor + lastRunSize; /* can be != iend if limit==fillOutput */
+
+         if (lastRunSize >= RUN_MASK) {
+             size_t accumulator = lastRunSize - RUN_MASK;
+             *op++ = (RUN_MASK << ML_BITS);
+             for(; accumulator >= 255 ; accumulator -= 255) *op++ = 255;
+             *op++ = (BYTE) accumulator;
+         } else {
+             *op++ = (BYTE)(lastRunSize << ML_BITS);
+         }
+         ZLZ4_memcpy(op, anchor, lastRunSize);
+         op += lastRunSize;
+     }
+
+     /* End */
+     *srcSizePtr = (int) (((const char*)ip) - source);
+     retval = (int) ((char*)op-dst);
+     goto _return_label;
+
+_dest_overflow:
+if (limit == fillOutput) {
+     /* Assumption : ip, anchor, ovml and ovref must be set correctly */
+     size_t const ll = (size_t)(ip - anchor);
+     size_t const ll_addbytes = (ll + 240) / 255;
+     size_t const ll_totalCost = 1 + ll_addbytes + ll;
+     BYTE* const maxLitPos = oend - 3; /* 2 for offset, 1 for token */
+     DEBUGLOG(6, "Last sequence overflowing (only %i bytes remaining)", (int)(oend-1-opSaved));
+     op = opSaved;  /* restore correct out pointer */
+     if (op + ll_totalCost <= maxLitPos) {
+         /* ll validated; now adjust match length */
+         size_t const bytesLeftForMl = (size_t)(maxLitPos - (op+ll_totalCost));
+         size_t const maxMlSize = MINMATCH + (ML_MASK-1) + (bytesLeftForMl * 255);
+         assert(maxMlSize < INT_MAX); assert(ovml >= 0);
+         if ((size_t)ovml > maxMlSize) ovml = (int)maxMlSize;
+         if ((oend + LASTLITERALS) - (op + ll_totalCost + 2) - 1 + ovml >= MFLIMIT) {
+             DEBUGLOG(6, "Space to end : %i + ml (%i)", (int)((oend + LASTLITERALS) - (op + ll_totalCost + 2) - 1), ovml);
+             DEBUGLOG(6, "Before : ip = %p, anchor = %p", ip, anchor);
+             ZLZ4HC_encodeSequence(UPDATABLE(ip, op, anchor), ovml, ovoff, notLimited, oend);
+             DEBUGLOG(6, "After : ip = %p, anchor = %p", ip, anchor);
+     }   }
+     goto _last_literals;
+}
+_return_label:
+#if defined(ZLZ4HC_HEAPMODE) && ZLZ4HC_HEAPMODE==1
+     if (opt) FREEMEM(opt);
+#endif
+     return retval;
+}
+
+
+/***************************************************
+*  Deprecated Functions
+***************************************************/
+
+/* These functions currently generate deprecation warnings */
+
+/* Wrappers for deprecated compression functions */
+int ZLZ4_compressHC(const char* src, char* dst, int srcSize) { return ZLZ4_compress_HC (src, dst, srcSize, ZLZ4_compressBound(srcSize), 0); }
+int ZLZ4_compressHC_limitedOutput(const char* src, char* dst, int srcSize, int maxDstSize) { return ZLZ4_compress_HC(src, dst, srcSize, maxDstSize, 0); }
+int ZLZ4_compressHC2(const char* src, char* dst, int srcSize, int cLevel) { return ZLZ4_compress_HC (src, dst, srcSize, ZLZ4_compressBound(srcSize), cLevel); }
+int ZLZ4_compressHC2_limitedOutput(const char* src, char* dst, int srcSize, int maxDstSize, int cLevel) { return ZLZ4_compress_HC(src, dst, srcSize, maxDstSize, cLevel); }
+int ZLZ4_compressHC_withStateHC (void* state, const char* src, char* dst, int srcSize) { return ZLZ4_compress_HC_extStateHC (state, src, dst, srcSize, ZLZ4_compressBound(srcSize), 0); }
+int ZLZ4_compressHC_limitedOutput_withStateHC (void* state, const char* src, char* dst, int srcSize, int maxDstSize) { return ZLZ4_compress_HC_extStateHC (state, src, dst, srcSize, maxDstSize, 0); }
+int ZLZ4_compressHC2_withStateHC (void* state, const char* src, char* dst, int srcSize, int cLevel) { return ZLZ4_compress_HC_extStateHC(state, src, dst, srcSize, ZLZ4_compressBound(srcSize), cLevel); }
+int ZLZ4_compressHC2_limitedOutput_withStateHC (void* state, const char* src, char* dst, int srcSize, int maxDstSize, int cLevel) { return ZLZ4_compress_HC_extStateHC(state, src, dst, srcSize, maxDstSize, cLevel); }
+int ZLZ4_compressHC_continue (ZLZ4_streamHC_t* ctx, const char* src, char* dst, int srcSize) { return ZLZ4_compress_HC_continue (ctx, src, dst, srcSize, ZLZ4_compressBound(srcSize)); }
+int ZLZ4_compressHC_limitedOutput_continue (ZLZ4_streamHC_t* ctx, const char* src, char* dst, int srcSize, int maxDstSize) { return ZLZ4_compress_HC_continue (ctx, src, dst, srcSize, maxDstSize); }
+
+
+/* Deprecated streaming functions */
+int ZLZ4_sizeofStreamStateHC(void) { return sizeof(ZLZ4_streamHC_t); }
+
+/* state is presumed correctly sized, aka >= sizeof(ZLZ4_streamHC_t)
+ * @return : 0 on success, !=0 if error */
+int ZLZ4_resetStreamStateHC(void* state, char* inputBuffer)
+{
+    ZLZ4_streamHC_t* const hc4 = ZLZ4_initStreamHC(state, sizeof(*hc4));
+    if (hc4 == NULL) return 1;   /* init failed */
+    ZLZ4HC_init_internal (&hc4->internal_donotuse, (const BYTE*)inputBuffer);
+    return 0;
+}
+
+#if !defined(ZLZ4_STATIC_LINKING_ONLY_DISABLE_MEMORY_ALLOCATION)
+void* ZLZ4_createHC (const char* inputBuffer)
+{
+    ZLZ4_streamHC_t* const hc4 = ZLZ4_createStreamHC();
+    if (hc4 == NULL) return NULL;   /* not enough memory */
+    ZLZ4HC_init_internal (&hc4->internal_donotuse, (const BYTE*)inputBuffer);
+    return hc4;
+}
+
+int ZLZ4_freeHC (void* ZLZ4HC_Data)
+{
+    if (!ZLZ4HC_Data) return 0;  /* support free on NULL */
+    FREEMEM(ZLZ4HC_Data);
+    return 0;
+}
+#endif
+
+int ZLZ4_compressHC2_continue (void* ZLZ4HC_Data, const char* src, char* dst, int srcSize, int cLevel)
+{
+    return ZLZ4HC_compress_generic (&((ZLZ4_streamHC_t*)ZLZ4HC_Data)->internal_donotuse, src, dst, &srcSize, 0, cLevel, notLimited);
+}
+
+int ZLZ4_compressHC2_limitedOutput_continue (void* ZLZ4HC_Data, const char* src, char* dst, int srcSize, int dstCapacity, int cLevel)
+{
+    return ZLZ4HC_compress_generic (&((ZLZ4_streamHC_t*)ZLZ4HC_Data)->internal_donotuse, src, dst, &srcSize, dstCapacity, cLevel, limitedOutput);
+}
+
+char* ZLZ4_slideInputBufferHC(void* ZLZ4HC_Data)
+{
+    ZLZ4HC_CCtx_internal* const s = &((ZLZ4_streamHC_t*)ZLZ4HC_Data)->internal_donotuse;
+    const BYTE* const bufferStart = s->prefixStart - s->dictLimit + s->lowLimit;
+    ZLZ4_resetStreamHC_fast((ZLZ4_streamHC_t*)ZLZ4HC_Data, s->compressionLevel);
+    /* ugly conversion trick, required to evade (const char*) -> (char*) cast-qual warning :( */
+    return (char*)(uptrval)bufferStart;
+}
+
+} // namespace zlz4
+#undef ADDPOS4
+#pragma pop_macro("ADDPOS4")
+#undef ADDPOS8
+#pragma pop_macro("ADDPOS8")
+#undef ALLOC
+#pragma pop_macro("ALLOC")
+#undef ALLOC_AND_ZERO
+#pragma pop_macro("ALLOC_AND_ZERO")
+#undef DEBUGLOG
+#pragma pop_macro("DEBUGLOG")
+#undef DELTANEXTU16
+#pragma pop_macro("DELTANEXTU16")
+#undef FASTLOOP_SAFE_DISTANCE
+#pragma pop_macro("FASTLOOP_SAFE_DISTANCE")
+#undef FREEMEM
+#pragma pop_macro("FREEMEM")
+#undef GB
+#pragma pop_macro("GB")
+#undef HASH_FUNCTION
+#pragma pop_macro("HASH_FUNCTION")
+#undef HASH_UNIT
+#pragma pop_macro("HASH_UNIT")
+#undef KB
+#pragma pop_macro("KB")
+#undef LASTLITERALS
+#pragma pop_macro("LASTLITERALS")
+#undef MATCH_SAFEGUARD_DISTANCE
+#pragma pop_macro("MATCH_SAFEGUARD_DISTANCE")
+#undef MAX
+#pragma pop_macro("MAX")
+#undef MB
+#pragma pop_macro("MB")
+#undef MEM_INIT
+#pragma pop_macro("MEM_INIT")
+#undef MFLIMIT
+#pragma pop_macro("MFLIMIT")
+#undef MIN
+#pragma pop_macro("MIN")
+#undef MINMATCH
+#pragma pop_macro("MINMATCH")
+#undef ML_BITS
+#pragma pop_macro("ML_BITS")
+#undef ML_MASK
+#pragma pop_macro("ML_MASK")
+#undef OPTIMAL_ML
+#pragma pop_macro("OPTIMAL_ML")
+#undef RUN_BITS
+#pragma pop_macro("RUN_BITS")
+#undef RUN_MASK
+#pragma pop_macro("RUN_MASK")
+#undef STEPSIZE
+#pragma pop_macro("STEPSIZE")
+#undef TRAILING_LITERALS
+#pragma pop_macro("TRAILING_LITERALS")
+#undef UPDATABLE
+#pragma pop_macro("UPDATABLE")
+#undef WILDCOPYLENGTH
+#pragma pop_macro("WILDCOPYLENGTH")
+#undef anchor
+#pragma pop_macro("anchor")
+#undef assert
+#pragma pop_macro("assert")
+#undef expect
+#pragma pop_macro("expect")
+#undef ip
+#pragma pop_macro("ip")
+#undef likely
+#pragma pop_macro("likely")
+#undef op
+#pragma pop_macro("op")
+#undef unlikely
+#pragma pop_macro("unlikely")
+/* ---- end of LZ4 1.10.0 ---- */
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+/// LICENSE_END.22
+#endif // corresponds to #if (#if defined(_WIN32) || defined(ZPAQLZ4))
+#ifdef ZPAQLZAV
+/// LICENSE_START.27
+/*
+	LZAV v5.17 by Aleksey Vaneev (MIT), for -m7 (see LZAV_PCOMP): lzav.h as
+	it is, not a single byte changed. In C++ it puts itself in a namespace:
+	LZAV_NS_CUSTOM names it zlzav, and then nothing leaks out (all its
+	macros are LZAV_ something already)
+*/
+#define LZAV_NS_CUSTOM zlzav
+#if defined(__sun)
+/*
+	Solaris defines _LITTLE_ENDIAN (or _BIG_ENDIAN) EMPTY, so the endianness
+	test of lzav.h ("_BYTE_ORDER == _LITTLE_ENDIAN") does not even parse:
+	"operator '==' has no right operand". Out of the way while lzav.h is
+	read (gcc and clang define __BYTE_ORDER__, which lzav.h checks first),
+	given back right after it: lzav.h itself stays untouched
+*/
+#pragma push_macro("_LITTLE_ENDIAN")
+#pragma push_macro("_BIG_ENDIAN")
+#pragma push_macro("_BYTE_ORDER")
+#undef _LITTLE_ENDIAN
+#undef _BIG_ENDIAN
+#undef _BYTE_ORDER
+#endif // corresponds to #if (#if defined(__sun))
+/**
+ * @file lzav.h
+ *
+ * @version 5.17
+ *
+ * @brief Self-contained header file for the "LZAV" in-memory data compression
+ * and decompression algorithms.
+ *
+ * The source code is written in ISO C99 and automatically provides full C++
+ * compatibility when compiled with a C++ compiler.
+ *
+ * The description is available at https://github.com/avaneev/lzav
+ *
+ * Email: aleksey.vaneev@gmail.com or info@voxengo.com
+ *
+ * LICENSE:
+ *
+ * Copyright (c) 2023-2026 Aleksey Vaneev
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
+
+#ifndef LZAV_INCLUDED
+#define LZAV_INCLUDED
+
+#define LZAV_API_VER 0x206 ///< API version; unrelated to the code version.
+#define LZAV_VER_STR "5.17" ///< LZAV source code version string.
+
+/**
+ * @def LZAV_FMT_MIN
+ * @brief Minimum data format ID supported by the decompressor. It can be
+ * defined externally as 3 to reduce the decompressor's code size.
+ */
+
+#if !defined( LZAV_FMT_MIN )
+	#define LZAV_FMT_MIN 2
+#endif // !defined( LZAV_FMT_MIN )
+
+/**
+ * @def LZAV_NS_CUSTOM
+ * @brief If this macro is defined externally, all symbols will be placed
+ * in the namespace specified by the macro, and they will not be placed in the
+ * global namespace. WARNING: If the value defined by the macro is empty, the
+ * symbols will be placed in the global namespace anyway.
+ */
+
+/**
+ * @def LZAV_EXCEPT
+ * @brief If this macro is defined externally in a C++ environment, all LZAV
+ * functions will be declared without the `noexcept` specifier, and memory
+ * allocation may throw an exception on error. This macro is not defined by
+ * default.
+ */
+
+/**
+ * @def LZAV_NOEXC
+ * @brief Macro that defines the `noexcept` function specifier in a C++
+ * environment (if the @ref LZAV_EXCEPT macro is undefined).
+ */
+
+/**
+ * @def LZAV_NULL
+ * @brief Macro that conditionally expands to the `nullptr` keyword for
+ * compliance with C++ guidelines.
+ */
+
+/**
+ * @def LZAV_NS
+ * @brief Macro that defines the actual implementation namespace in a C++
+ * environment. Relevant symbols are also placed in the global namespace
+ * (if @ref LZAV_NS_CUSTOM is undefined).
+ */
+
+/**
+ * @def LZAV_MALLOC
+ * @brief Macro that defines the call to the memory allocation function.
+ *
+ * This macro can be defined externally if the standard `malloc` is
+ * unavailable, or if the use of `operator new[]` is not desired in a C++
+ * environment. The implementation must return a `T*` pointer aligned to a
+ * 4-byte boundary (or a 16-byte boundary for best performance).
+ *
+ * The called function should have the `noexcept` or `throw()` specifier
+ * (if the @ref LZAV_EXCEPT macro is undefined).
+ *
+ * @param s Allocation size, in bytes; a multiple of `sizeof( T )`.
+ * @param T Allocation element type, for a C++ environment.
+ */
+
+/**
+ * @def LZAV_FREE
+ * @brief Macro that defines the call to the memory deallocation function.
+ *
+ * This macro can be defined externally if the standard `free` is unavailable,
+ * or if the use of `operator delete[]` is not desired in a C++ environment.
+ *
+ * @param p Pointer to the memory block to free. The caller may supply a null
+ * pointer.
+ */
+
+/**
+ * @def LZAV_DEF_MALLOC
+ * @brief Macro denoting that the default memory allocator is being used.
+ */
+
+#if !defined( LZAV_MALLOC )
+
+	#if defined( LZAV_FREE )
+		#error LZAV: LZAV_FREE is defined while LZAV_MALLOC is not.
+	#endif // defined( LZAV_FREE )
+
+	#define LZAV_DEF_MALLOC
+
+#else // !defined( LZAV_MALLOC )
+
+	#if !defined( LZAV_FREE )
+		#error LZAV: LZAV_MALLOC is defined while LZAV_FREE is not.
+	#endif // !defined( LZAV_FREE )
+
+#endif // !defined( LZAV_MALLOC )
+
+#if defined( __cplusplus )
+
+	#include <climits>
+	#include <cstring> // Defines std::size_t.
+
+	#if defined( LZAV_EXCEPT )
+		#define LZAV_NOEXC
+
+		#if defined( LZAV_DEF_MALLOC )
+			#define LZAV_MALLOC( s, T ) new T[ s / sizeof( T )]
+			#define LZAV_FREE( p ) delete[] p
+		#endif // defined( LZAV_DEF_MALLOC )
+	#endif // defined( LZAV_EXCEPT )
+
+	#if __cplusplus >= 201103L
+
+		#include <cstdint>
+
+		#define LZAV_NULL nullptr
+
+		#if !defined( LZAV_EXCEPT )
+			#define LZAV_NOEXC noexcept
+
+			#if defined( LZAV_DEF_MALLOC )
+				#include <new>
+
+				#define LZAV_MALLOC( s, T ) \
+					new( std::nothrow ) T[ s / sizeof( T )]
+
+				#define LZAV_FREE( p ) delete[] p
+			#endif // defined( LZAV_DEF_MALLOC )
+		#endif // !defined( LZAV_EXCEPT )
+
+	#else // __cplusplus >= 201103L
+
+		#include <stdint.h> // A C99 fallback, as C++98 has no cstdint header.
+
+		#define LZAV_NULL NULL
+
+		#if !defined( LZAV_EXCEPT )
+			#define LZAV_NOEXC throw()
+
+			#if defined( LZAV_DEF_MALLOC )
+				#include <cstdlib>
+
+				#define LZAV_MALLOC( s, T ) (T*) std::malloc( s )
+				#define LZAV_FREE( p ) std::free( p )
+			#endif // defined( LZAV_DEF_MALLOC )
+		#endif // !defined( LZAV_EXCEPT )
+
+	#endif // __cplusplus >= 201103L
+
+	#if defined( LZAV_NS_CUSTOM )
+		#define LZAV_NS LZAV_NS_CUSTOM
+	#else // defined( LZAV_NS_CUSTOM )
+		#define LZAV_NS lzav
+	#endif // defined( LZAV_NS_CUSTOM )
+
+#else // defined( __cplusplus )
+
+	#include <limits.h>
+	#include <string.h> // Defines size_t.
+	#include <stdint.h>
+
+	#define LZAV_NOEXC
+	#define LZAV_NULL NULL
+
+	#if defined( LZAV_DEF_MALLOC )
+		#include <stdlib.h>
+
+		#define LZAV_MALLOC( s, T ) (T*) malloc( s )
+		#define LZAV_FREE( p ) free( p )
+	#endif // defined( LZAV_DEF_MALLOC )
+
+#endif // defined( __cplusplus )
+
+#if SIZE_MAX < 0xFFFFFFFFUL
+	#error LZAV: the platform or the compiler has an incompatible size_t type.
+#endif // size_t check
+
+#if INT_MAX < 0x7FFFFFFFL
+	#error LZAV: the platform or the compiler has an incompatible int type.
+#endif // int check
+
+#if CHAR_BIT != 8
+	#error LZAV: the platform or the compiler has an incompatible char type.
+#endif // char check
+
+/**
+ * @def LZAV_X86
+ * @brief Macro that is defined if an `x86` or `x86_64` platform is detected.
+ */
+
+#if defined( i386 ) || defined( __i386 ) || defined( __i386__ ) || \
+	defined( _X86_ ) || defined( __x86_64 ) || defined( __x86_64__ ) || \
+	defined( __amd64 ) || defined( __amd64__ ) || defined( _M_IX86 ) || \
+	( defined( _M_AMD64 ) && !defined( _M_ARM64EC ))
+
+	#define LZAV_X86
+
+#endif // x86 platform check
+
+/**
+ * @def LZAV_LITTLE_ENDIAN
+ * @brief Endianness definition macro that can be used as a logical constant.
+ *
+ * When C++20 is available, this macro is defined as 0, and the actual
+ * endianness is determined at compile time via std::endian::native.
+ * This means that a value of 0 for this macro indicates "big-endian" or
+ * "unknown".
+ *
+ * Note that for exotic platforms, you may need to include
+ * a compiler-dependent `endian.h` header before including `lzav.h` to avoid
+ * using a potentially slower fallback.
+ */
+
+/**
+ * @def LZAV_COND_EC( vl, vb )
+ * @brief Macro that emits either `vl` or `vb`, depending on the platform's
+ * endianness.
+ */
+
+#if ( defined( __BYTE_ORDER__ ) && defined( __ORDER_LITTLE_ENDIAN__ ) && \
+		__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ ) || \
+	( defined( __BYTE_ORDER ) && defined( __LITTLE_ENDIAN ) && \
+		__BYTE_ORDER == __LITTLE_ENDIAN ) || \
+	( defined( _BYTE_ORDER ) && defined( _LITTLE_ENDIAN ) && \
+		_BYTE_ORDER == _LITTLE_ENDIAN ) || \
+	defined( __LITTLE_ENDIAN__ ) || defined( __little_endian__ ) || \
+	( !defined( __BYTE_ORDER ) && !defined( __BIG_ENDIAN ) && \
+		defined( __LITTLE_ENDIAN )) || \
+	( !defined( _BYTE_ORDER ) && !defined( _BIG_ENDIAN ) && \
+		defined( _LITTLE_ENDIAN )) || \
+	( defined( LZAV_X86 ) && !defined( __VOS__ )) || defined( _WIN32 ) || \
+	defined( _M_ARM ) || defined( _M_ARM64EC )
+
+	#define LZAV_LITTLE_ENDIAN 1
+	#define LZAV_COND_EC( vl, vb ) ( vl )
+
+#elif ( defined( __BYTE_ORDER__ ) && defined( __ORDER_BIG_ENDIAN__ ) && \
+		__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ) || \
+	( defined( __BYTE_ORDER ) && defined( __BIG_ENDIAN ) && \
+		__BYTE_ORDER == __BIG_ENDIAN ) || \
+	( defined( _BYTE_ORDER ) && defined( _BIG_ENDIAN ) && \
+		_BYTE_ORDER == _BIG_ENDIAN ) || \
+	defined( __BIG_ENDIAN__ ) || defined( __big_endian__ ) || \
+	( !defined( __BYTE_ORDER ) && !defined( __LITTLE_ENDIAN ) && \
+		defined( __BIG_ENDIAN )) || \
+	( !defined( _BYTE_ORDER ) && !defined( _LITTLE_ENDIAN ) && \
+		defined( _BIG_ENDIAN )) || \
+	defined( __SYSC_ZARCH__ ) || defined( __zarch__ ) || \
+	defined( __s390__ ) || defined( __s390x__ ) || defined( __sparc ) || \
+	defined( __sparc__ ) || defined( __VOS__ )
+
+	#define LZAV_LITTLE_ENDIAN 0
+	#define LZAV_COND_EC( vl, vb ) ( vb )
+
+#elif defined( __cplusplus ) && __cplusplus >= 202002L
+
+	#include <bit>
+
+	#define LZAV_LITTLE_ENDIAN 0
+	#define LZAV_COND_EC( vl, vb ) ( std::endian::native == \
+		std::endian::little ? vl : vb )
+
+#else // defined( __cplusplus )
+
+	#define LZAV_LITTLE_ENDIAN 0
+	#define LZAV_COND_EC( vl, vb ) ( lzav_is_little_endian() ? vl : vb )
+
+#endif // defined( __cplusplus )
+
+/**
+ * @def LZAV_PTR32
+ * @brief Macro denoting that pointers are likely to be 32-bit (pointer
+ * overflow checks are required).
+ *
+ * Note that on 64-bit platforms, pointer overflow cannot happen since the
+ * LZAV data format's varint decoding produces a value strictly less than
+ * `2^35`, while 64-bit pointers on existing platforms are limited to values
+ * up to `2^57` (or `2^52` on AArch64). `2^57 + 2^35` is much less than
+ * `2^64`.
+ */
+
+#if SIZE_MAX <= 0xFFFFFFFFUL && \
+	( !defined( UINTPTR_MAX ) || UINTPTR_MAX <= 0xFFFFFFFFUL )
+
+	#define LZAV_PTR32
+
+#endif // 32-bit pointer check
+
+/**
+ * @def LZAV_ARCH64
+ * @brief Macro that denotes the availability of 64-bit instructions.
+ */
+
+#if defined( __LP64__ ) || defined( _LP64 ) || !defined( LZAV_PTR32 ) || \
+	defined( __x86_64__ ) || defined( __aarch64__ ) || \
+	defined( _M_AMD64 ) || defined( _M_ARM64 )
+
+	#define LZAV_ARCH64
+
+#endif // 64-bit availability check
+
+/**
+ * @def LZAV_LONG_COPY
+ * @brief Macro that permits the use of runs of 16-byte `memcpy` operations
+ * on platforms where this should not cause performance issues.
+ */
+
+#if defined( LZAV_ARCH64 ) || defined( __SSE__ ) || defined( __ARM_NEON ) || \
+	( defined( _M_IX86_FP ) && _M_IX86_FP >= 1 ) || defined( __VEC__ ) || \
+	defined( __ALTIVEC__ ) || defined( __wasm_simd128__ )
+
+	#define LZAV_LONG_COPY
+
+#endif // Long copy check
+
+/**
+ * @def LZAV_GCC_BUILTINS
+ * @brief Macro that denotes the availability of GCC-style built-in functions.
+ */
+
+/**
+ * @def LZAV_CPP_BIT
+ * @brief Macro that denotes the availability of C++20 `bit` functions.
+ */
+
+#if defined( __GNUC__ ) || defined( __clang__ ) || \
+	defined( __IBMC__ ) || defined( __IBMCPP__ ) || \
+	defined( __COMPCERT__ ) || ( defined( __INTEL_COMPILER ) && \
+		__INTEL_COMPILER >= 1300 && !defined( _MSC_VER ))
+
+	#define LZAV_GCC_BUILTINS
+
+#elif defined( __cplusplus ) && __cplusplus >= 202002L
+
+	#include <bit>
+
+	#define LZAV_CPP_BIT
+
+#elif defined( _MSC_VER )
+
+	#include <intrin.h> // For _BitScanForward.
+
+#endif // defined( _MSC_VER )
+
+/**
+ * @def LZAV_IEC32( x )
+ * @brief In-place endianness-correction macro for a single 32-bit variable.
+ *
+ * @param x Value to correct in-place.
+ */
+
+#if LZAV_LITTLE_ENDIAN
+
+	#define LZAV_IEC32( x ) (void) 0
+
+#else // LZAV_LITTLE_ENDIAN
+
+	#if defined( LZAV_GCC_BUILTINS )
+
+		#define LZAV_IEC32( x ) x = LZAV_COND_EC( x, __builtin_bswap32( x ))
+
+	#elif defined( _MSC_VER )
+
+		#if defined( __cplusplus )
+			#include <cstdlib>
+		#else // defined( __cplusplus )
+			#include <stdlib.h>
+		#endif // defined( __cplusplus )
+
+		#define LZAV_IEC32( x ) x = LZAV_COND_EC( x, _byteswap_ulong( x ))
+
+	#elif defined( __cplusplus ) && __cplusplus >= 202302L
+
+		#define LZAV_IEC32( x ) x = LZAV_COND_EC( x, std::byteswap( x ))
+
+	#else // defined( __cplusplus )
+
+		#define LZAV_IEC32( x ) x = (uint32_t) LZAV_COND_EC( x, \
+			x >> 24 | \
+			( x & 0x00FF0000 ) >> 8 | \
+			( x & 0x0000FF00 ) << 8 | \
+			x << 24 )
+
+	#endif // defined( __cplusplus )
+
+#endif // LZAV_LITTLE_ENDIAN
+
+/**
+ * @def LZAV_LIKELY( x )
+ * @brief Macro that indicates an expression is likely to be true and is used
+ * for manual micro-optimization.
+ *
+ * @param x Expression that is likely to evaluate to `true`.
+ */
+
+/**
+ * @def LZAV_UNLIKELY( x )
+ * @brief Macro that indicates an expression is unlikely to be true and is
+ * used for manual micro-optimization.
+ *
+ * @param x Expression that is unlikely to evaluate to `true`.
+ */
+
+/**
+ * @def LZAV_LIKELY_DO
+ * @brief Macro that applies the C++20 `[[likely]]` attribute to do-while
+ * loops.
+ */
+
+/**
+ * @def LZAV_LIKELY_DO_EXPR( x )
+ * @brief Macro that indicates a likely condition and is used for manual
+ * micro-optimization of do-while loops.
+ *
+ * @param x Expression that is likely to evaluate to `true`.
+ */
+
+#if defined( LZAV_GCC_BUILTINS )
+
+	#define LZAV_LIKELY( x ) ( __builtin_expect( x, 1 ))
+	#define LZAV_UNLIKELY( x ) ( __builtin_expect( x, 0 ))
+
+#elif defined( __cplusplus ) && __cplusplus >= 202002L
+
+	#define LZAV_LIKELY( x ) ( x ) [[likely]]
+	#define LZAV_UNLIKELY( x ) ( x ) [[unlikely]]
+	#define LZAV_LIKELY_DO [[likely]]
+	#define LZAV_LIKELY_DO_EXPR( x ) ( x )
+
+#else // Likelihood macros
+
+	#define LZAV_LIKELY( x ) ( x )
+	#define LZAV_UNLIKELY( x ) ( x )
+
+#endif // Likelihood macros
+
+#if !defined( LZAV_LIKELY_DO )
+	#define LZAV_LIKELY_DO
+	#define LZAV_LIKELY_DO_EXPR( x ) LZAV_LIKELY( x )
+#endif // !defined( LZAV_LIKELY_DO )
+
+/**
+ * @def LZAV_RESTRICT
+ * @brief Macro that defines the `restrict` type qualifier.
+ */
+
+#if defined( LZAV_GCC_BUILTINS ) || defined( _MSC_VER )
+
+	#define LZAV_RESTRICT __restrict
+
+#elif !defined( __cplusplus )
+
+	#define LZAV_RESTRICT restrict
+
+#else // !defined( __cplusplus )
+
+	#define LZAV_RESTRICT
+
+#endif // !defined( __cplusplus )
+
+/**
+ * @def LZAV_PREFETCH( a )
+ * @brief Macro that prefetches data from the given memory address into the
+ * CPU cache.
+ *
+ * @param a Prefetch address.
+ */
+
+#if defined( LZAV_GCC_BUILTINS ) && !defined( __COMPCERT__ )
+
+	#define LZAV_PREFETCH( a ) __builtin_prefetch( a, 0, 3 )
+
+#elif defined( _MSC_VER ) && !defined( __INTEL_COMPILER ) && \
+	defined( LZAV_X86 )
+
+	#include <intrin.h>
+
+	#define LZAV_PREFETCH( a ) _mm_prefetch( (const char*) ( a ), _MM_HINT_T0 )
+
+#else // defined( _MSC_VER )
+
+	#define LZAV_PREFETCH( a ) (void) 0
+
+#endif // defined( _MSC_VER )
+
+/**
+ * @def LZAV_STATIC
+ * @brief Macro that defines a function as "static".
+ */
+
+#if defined( LZAV_GCC_BUILTINS )
+
+	#define LZAV_STATIC static __attribute__((unused))
+
+#elif ( defined( __cplusplus ) && __cplusplus >= 201703L ) || \
+	( defined( __STDC_VERSION__ ) && __STDC_VERSION__ >= 202311L )
+
+	#define LZAV_STATIC [[maybe_unused]] static
+
+#else // defined( __cplusplus )
+
+	#define LZAV_STATIC static
+
+#endif // defined( __cplusplus )
+
+/**
+ * @def LZAV_INLINE
+ * @brief Macro that defines a function as an inline function, at the
+ * compiler's discretion.
+ */
+
+#define LZAV_INLINE LZAV_STATIC inline
+
+/**
+ * @def LZAV_INLINE_F
+ * @brief Macro that forces function inlining.
+ */
+
+#if defined( LZAV_GCC_BUILTINS )
+
+	#define LZAV_INLINE_F LZAV_INLINE __attribute__((always_inline))
+
+#elif defined( _MSC_VER )
+
+	#define LZAV_INLINE_F LZAV_STATIC __forceinline
+
+#else // defined( _MSC_VER )
+
+	#define LZAV_INLINE_F LZAV_INLINE
+
+#endif // defined( _MSC_VER )
+
+/**
+ * @def LZAV_NO_INLINE
+ * @brief Macro that defines a function as non-inline.
+ */
+
+#if defined( __cplusplus )
+
+	#if defined( LZAV_GCC_BUILTINS )
+
+		#define LZAV_NO_INLINE LZAV_STATIC __attribute__((noinline))
+
+	#elif defined( _MSC_VER )
+
+		#define LZAV_NO_INLINE LZAV_STATIC __declspec(noinline)
+
+	#elif __cplusplus >= 201103L
+
+		#define LZAV_NO_INLINE [[gnu::noinline]] LZAV_STATIC
+
+	#else // __cplusplus >= 201103L
+
+		#define LZAV_NO_INLINE LZAV_STATIC
+
+	#endif // __cplusplus >= 201103L
+
+#else // defined( __cplusplus )
+
+	#if defined( LZAV_GCC_BUILTINS )
+
+		#define LZAV_NO_INLINE LZAV_STATIC __attribute__((noinline))
+
+	#elif defined( _MSC_VER )
+
+		#define LZAV_NO_INLINE LZAV_INLINE __declspec(noinline)
+
+	#else // defined( _MSC_VER )
+
+		#define LZAV_NO_INLINE LZAV_INLINE
+
+	#endif // defined( _MSC_VER )
+
+#endif // defined( __cplusplus )
+
+#if defined( LZAV_NS )
+
+namespace LZAV_NS {
+
+using std::memcpy;
+using std::memset;
+using std::size_t;
+
+#if __cplusplus >= 201103L
+
+	using uint8_t = unsigned char; ///< For C++ type aliasing compliance.
+	using std::uint16_t;
+	using std::uint32_t;
+
+	#if defined( LZAV_ARCH64 )
+		using std::uint64_t;
+	#endif // defined( LZAV_ARCH64 )
+
+#endif // __cplusplus >= 201103L
+
+namespace enum_wrapper {
+
+#endif // defined( LZAV_NS )
+
+/**
+ * @brief Decompression error codes.
+ */
+
+enum LZAV_ERROR
+{
+	LZAV_E_PARAMS = -1, ///< Incorrect function parameters.
+	LZAV_E_SRCOOB = -2, ///< Source buffer out-of-bounds error.
+	LZAV_E_DSTOOB = -3, ///< Destination buffer out-of-bounds error.
+	LZAV_E_REFOOB = -4, ///< Back-reference out-of-bounds error.
+	LZAV_E_DSTLEN = -5, ///< Decompressed length mismatch error.
+	LZAV_E_UNKFMT = -6, ///< Unknown data format or invalid `mref`.
+	LZAV_E_PTROVR = -7 ///< Pointer overflow error.
+};
+
+#if defined( LZAV_NS )
+
+} // namespace enum_wrapper
+
+using namespace enum_wrapper;
+
+#endif // defined( LZAV_NS )
+
+/**
+ * @brief Compression algorithm parameters.
+ */
+
+enum LZAV_PARAM
+{
+	LZAV_WIN_LEN = ( 1 << 21 ), ///< LZ77 window length, in bytes.
+	LZAV_LIT_FIN = 9, ///< The number of literals required at the end.
+	LZAV_OFS_MIN = 8, ///< Minimum reference offset to use.
+	LZAV_OFS_TH1 = ( 1 << 10 ) - 1, ///< Reference offset threshold 1.
+	LZAV_OFS_TH2 = ( 1 << 15 ) - 1, ///< Reference offset threshold 2.
+	LZAV_MR5_THR = ( 1 << 18 ), ///< `srclen` threshold for using `mref=5`.
+	LZAV_FMT_CUR = 3 ///< Data format identifier used by the compressor.
+};
+
+/**
+ * @brief Determines the platform's endianness at runtime.
+ *
+ * Note that modern compilers evaluate this function at compile time,
+ * resulting in branch elimination.
+ *
+ * @return 1 if the platform is little-endian, 0 otherwise.
+ */
+
+LZAV_INLINE_F int lzav_is_little_endian(void) LZAV_NOEXC
+{
+	static const uint32_t val = 0x04030201;
+
+	unsigned char lsb;
+	memcpy( &lsb, &val, 1 );
+
+	return( lsb == 1 );
+}
+
+/**
+ * @brief Counts the number of consecutive leading bytes that match between
+ * two buffers.
+ *
+ * It is well optimized for a wide variety of compilers and platforms, given
+ * that the offset `o` is usually non-zero.
+ *
+ * @param p1 Pointer to the first buffer.
+ * @param p2 Pointer to the second buffer.
+ * @param ml The maximum number of bytes to match.
+ * @param o Initial offset; it can be greater than `ml`.
+ * @return The number of matching leading bytes. The result is not less than
+ * `o` and is not greater than `ml`. The result is `ml` if `o` is greater than
+ * `ml`.
+ */
+
+LZAV_INLINE_F size_t lzav_match_len( const uint8_t* const p1,
+	const uint8_t* const p2, const size_t ml, size_t o ) LZAV_NOEXC
+{
+#if defined( LZAV_ARCH64 )
+
+	size_t o2 = o + 7;
+
+	while LZAV_LIKELY( o2 < ml )
+	{
+		uint64_t v1, v2, vd;
+		memcpy( &v1, p1 + o, 8 );
+		memcpy( &v2, p2 + o, 8 );
+		vd = v1 ^ v2;
+
+		if( vd != 0 )
+		{
+		#if defined( LZAV_GCC_BUILTINS )
+
+			return( o + (size_t) ( LZAV_COND_EC(
+				__builtin_ctzll( vd ), __builtin_clzll( vd )) >> 3 ));
+
+		#elif defined( LZAV_CPP_BIT )
+
+			return( o + (size_t) ( LZAV_COND_EC(
+				std::countr_zero( vd ), std::countl_zero( vd )) >> 3 ));
+
+		#elif defined( _MSC_VER )
+
+			unsigned long i;
+			_BitScanForward64( &i, (unsigned __int64) vd );
+
+			return( o + ( i >> 3 ));
+
+		#else // defined( _MSC_VER )
+
+			#if !LZAV_LITTLE_ENDIAN
+				const uint64_t sw = vd >> 32 | vd << 32;
+				const uint64_t sw2 =
+					( sw & (uint64_t) 0xFFFF0000FFFF0000 ) >> 16 |
+					( sw & (uint64_t) 0x0000FFFF0000FFFF ) << 16;
+				vd = LZAV_COND_EC( vd,
+					( sw2 & (uint64_t) 0xFF00FF00FF00FF00 ) >> 8 |
+					( sw2 & (uint64_t) 0x00FF00FF00FF00FF ) << 8 );
+			#endif // !LZAV_LITTLE_ENDIAN
+
+			const uint64_t m = (uint64_t) 0x0101010101010101;
+
+			return( o + (((( vd ^ ( vd - 1 )) & ( m - 1 )) * m ) >> 56 ));
+
+		#endif // defined( _MSC_VER )
+		}
+
+		o2 += 8;
+		o += 8;
+	}
+
+	// At most 7 bytes left.
+
+	if LZAV_LIKELY( o + 3 < ml )
+	{
+
+#else // defined( LZAV_ARCH64 )
+
+	size_t o2 = o + 3;
+
+	while LZAV_LIKELY( o2 < ml )
+	{
+
+#endif // defined( LZAV_ARCH64 )
+
+		uint32_t v1, v2, vd;
+		memcpy( &v1, p1 + o, 4 );
+		memcpy( &v2, p2 + o, 4 );
+		vd = v1 ^ v2;
+
+		if( vd != 0 )
+		{
+		#if defined( LZAV_GCC_BUILTINS )
+
+			return( o + (size_t) ( LZAV_COND_EC(
+				__builtin_ctz( vd ), __builtin_clz( vd )) >> 3 ));
+
+		#elif defined( LZAV_CPP_BIT )
+
+			return( o + (size_t) ( LZAV_COND_EC(
+				std::countr_zero( vd ), std::countl_zero( vd )) >> 3 ));
+
+		#elif defined( _MSC_VER )
+
+			unsigned long i;
+			_BitScanForward( &i, (unsigned long) vd );
+
+			return( o + ( i >> 3 ));
+
+		#else // defined( _MSC_VER )
+
+			LZAV_IEC32( vd );
+			const uint32_t m = 0x01010101;
+
+			return( o + (((( vd ^ ( vd - 1 )) & ( m - 1 )) * m ) >> 24 ));
+
+		#endif // defined( _MSC_VER )
+		}
+
+		o2 += 4;
+		o += 4;
+	}
+
+	// At most 3 bytes left.
+
+	if( o < ml )
+	{
+		if( p1[ o ] != p2[ o ])
+		{
+			return( o );
+		}
+
+		if( ++o < ml )
+		{
+			if( p1[ o ] != p2[ o ])
+			{
+				return( o );
+			}
+
+			if( ++o < ml )
+			{
+				if( p1[ o ] != p2[ o ])
+				{
+					return( o );
+				}
+			}
+		}
+	}
+
+	return( ml );
+}
+
+/**
+ * @brief Counts the number of matching bytes in the reverse direction.
+ *
+ * Note that the function assumes `p1[ -1 ] == p2[ -1 ]`.
+ *
+ * @param p1 Origin pointer for buffer 1.
+ * @param p2 Origin pointer for buffer 2.
+ * @param ml The maximum number of bytes to back-match; cannot be 0.
+ * @return The number of matching prior bytes, not including the origin
+ * position.
+ */
+
+LZAV_INLINE_F size_t lzav_match_len_r1( const uint8_t* p1, const uint8_t* p2,
+	const size_t ml ) LZAV_NOEXC
+{
+	if( ml != 1 )
+	{
+		const uint8_t* const p1s = p1;
+		const uint8_t* const p1e = p1 - ml + 1;
+		p1--;
+
+		while( p1 > p1e )
+		{
+			uint16_t v1, v2;
+			memcpy( &v1, p1 - 2, 2 );
+			memcpy( &v2, p2 - 3, 2 );
+
+			const uint32_t vd = (uint32_t) ( v1 ^ v2 );
+
+			if( vd != 0 )
+			{
+				return( (size_t) ( p1s - p1 +
+					( LZAV_COND_EC( vd & 0xFF00, vd & 0x00FF ) == 0 )));
+			}
+
+			p1 -= 2;
+			p2 -= 2;
+		}
+
+		if( p1 == p1e && p1[ -1 ] != p2[ -2 ])
+		{
+			return( (size_t) ( p1s - p1 ));
+		}
+	}
+
+	return( ml );
+}
+
+/**
+ * @brief Internal LZAV block-header-writing function for data format 3.
+ *
+ * This internal function writes a block to the output buffer. It can be used
+ * in custom compression algorithms.
+ *
+ * The "raw" compressed data consists of any number of unnumbered "blocks".
+ * A block starts with a header byte, followed by several optional bytes.
+ * Bits 4-5 of the header specify the block's type.
+ *
+ * CC00LLLL: literal block (1-6 bytes). `LLLL` is the literal length.
+ *
+ * OO01RRRR: 10-bit offset block (2-7 bytes). `RRRR` is the reference length.
+ *
+ * OO10RRRR: 15-bit offset block (3-8 bytes). It contains 3 offset-carry bits.
+ *
+ * OO11RRRR: 21-bit offset block (4-9 bytes). It contains 5 offset-carry bits.
+ *
+ * If `LLLL` or `RRRR` equals 0, a value of 16 is assumed, and an additional
+ * length byte follows. If, in a block, this additional byte's highest bit is
+ * 1, one more length byte follows, which defines the higher bits of the
+ * length (this may continue for up to 4 bytes in total).
+ *
+ * In a reference block, additional length bytes follow the offset bytes.
+ * `CC` is a reference offset-carry value (the two additional bits of the
+ * offset for the next reference block). Block types 2 and 3 include more
+ * carry bits (in the highest bits of the offset byte).
+ *
+ * Note that reference offsets can be much larger than the @ref LZAV_WIN_LEN
+ * constant. This is due to offset-carry bits, which create a dynamic LZ77
+ * window instead of a fixed-length one. In practice, this encoding scheme
+ * covers 99.5% of the offsets in the compressor's hash table at any given
+ * time.
+ *
+ * The overall compressed data is prefixed with a byte whose lower 4 bits
+ * contain the minimum reference length (`mref`), and whose upper 4 bits
+ * contain the data format identifier. The compressed data always ends with
+ * @ref LZAV_LIT_FIN literals. The lzav_write_fin_3() function should be used
+ * to finalize compression.
+ *
+ * Except for the last block, a literal block is always followed by a
+ * reference block.
+ *
+ * @param op Output buffer pointer.
+ * @param lc Literal length, in bytes.
+ * @param rc Reference length, in bytes, not less than `mref`.
+ * @param d Reference offset, in bytes. It must not be less than
+ * @ref LZAV_OFS_MIN; it may be less than `rc`, permitting overlap.
+ * @param ipa Anchor pointer for literals.
+ * @param cbpp Pointer to a pointer to the latest offset-carry block header.
+ * It cannot be null, and the contained pointer cannot be null.
+ * @param cshp Pointer to the offset-carry shift.
+ * @param mref1 Minimum reference length minus 1, in bytes, used by the
+ * compression algorithm.
+ * @return The incremented output buffer pointer.
+ */
+
+LZAV_INLINE_F uint8_t* lzav_write_blk_3( uint8_t* op, const size_t lc,
+	size_t rc, size_t d, const uint8_t* LZAV_RESTRICT const ipa,
+	uint8_t** const cbpp, int* const cshp, const size_t mref1 ) LZAV_NOEXC
+{
+	// Perform offset-carry for the previous block (`csh` may be zero).
+
+	const int csh = *cshp;
+	rc -= mref1;
+	const size_t dc = ( d << 8 ) >> csh;
+	d >>= csh;
+	**cbpp |= (uint8_t) dc;
+
+	if LZAV_UNLIKELY( lc != 0 )
+	{
+		// Write a literal block.
+
+		const size_t cv = d << 6; // Offset-carry value in the literal block.
+		d >>= 2;
+
+		if LZAV_LIKELY( lc < 16 )
+		{
+			*op = (uint8_t) ( cv | lc );
+
+			memcpy( op + 1, ipa, 8 );
+			memcpy( op + 9, ipa + 8, 8 );
+			op++;
+		}
+		else
+		if( lc < 33 )
+		{
+			const uint16_t ov = (uint16_t) LZAV_COND_EC(
+				( lc - 16 ) << 8 | ( cv & 0xFF ), cv << 8 | ( lc - 16 ));
+
+			memcpy( op, &ov, 2 );
+
+			memcpy( op + 2, ipa, 16 );
+			memcpy( op + 18, ipa + 16, 16 );
+			op += 2;
+		}
+		else
+		{
+			op[ 0 ] = (uint8_t) cv;
+
+			size_t lcw = lc - 16;
+
+			while( lcw > 127 )
+			{
+				op[ 1 ] = (uint8_t) ( 0x80 | lcw );
+				lcw >>= 7;
+				op++;
+			}
+
+			op[ 1 ] = (uint8_t) lcw;
+			op += 2;
+
+			memcpy( op, ipa, lc );
+		}
+
+		op += lc;
+	}
+
+	// Write a reference block.
+
+	static const int ocsh[ 4 ] = { 0, 0, 3, 5 };
+	const size_t bt = (size_t) 1 + ( d > LZAV_OFS_TH1 ) + ( d > LZAV_OFS_TH2 );
+
+	uint8_t* opbt = op + bt;
+	*cshp = ocsh[ bt ];
+	*cbpp = opbt;
+
+	uint32_t ov = (uint32_t) ( d << 6 | bt << 4 );
+	opbt++;
+
+	if LZAV_LIKELY( rc < 16 )
+	{
+		ov |= (uint32_t) rc;
+
+		LZAV_IEC32( ov );
+		memcpy( op, &ov, 4 );
+
+		return( opbt );
+	}
+
+	LZAV_IEC32( ov );
+	rc -= 16;
+	memcpy( op, &ov, 4 );
+
+	if LZAV_LIKELY( rc < 128 )
+	{
+		*opbt = (uint8_t) rc;
+		return( opbt + 1 );
+	}
+
+	do
+	{
+		*opbt = (uint8_t) ( 0x80 | rc );
+		rc >>= 7;
+		opbt++;
+	} while( rc > 127 );
+
+	*opbt = (uint8_t) rc;
+	return( opbt + 1 );
+}
+
+/**
+ * @brief Internal LZAV finishing function for data format 3.
+ *
+ * This internal function writes the finishing literal block to the output
+ * buffer. It can be used in custom compression algorithms.
+ *
+ * @param op Output buffer pointer.
+ * @param lc Literal length, in bytes. It must not be less than
+ * @ref LZAV_LIT_FIN.
+ * @param ipa Anchor pointer for literals.
+ * @return The incremented output buffer pointer.
+ */
+
+LZAV_INLINE_F uint8_t* lzav_write_fin_3( uint8_t* LZAV_RESTRICT op,
+	const size_t lc, const uint8_t* LZAV_RESTRICT const ipa ) LZAV_NOEXC
+{
+	size_t lcw = lc;
+
+	if( lc > 15 )
+	{
+		*op = 0;
+		op++;
+
+		lcw -= 16;
+
+		while( lcw > 127 )
+		{
+			*op = (uint8_t) ( 0x80 | lcw );
+			lcw >>= 7;
+			op++;
+		}
+	}
+
+	*op = (uint8_t) lcw;
+	op++;
+
+	memcpy( op, ipa, lc );
+	return( op + lc );
+}
+
+/**
+ * @brief Calculates the buffer size required when the minimum reference
+ * length is 5.
+ *
+ * @param srclen Length of the source data to be compressed.
+ * @return The required allocation size for the destination compression
+ * buffer. The returned value is always non-negative (0 on overflow).
+ */
+
+LZAV_INLINE_F int lzav_compress_bound_mref5( const int srclen ) LZAV_NOEXC
+{
+	if( srclen <= 0 )
+	{
+		return( 16 );
+	}
+
+	const int l2 = srclen / ( 16 + 5 );
+	const int la = ( srclen - l2 * 5 + 15 ) / 16 * 2 - l2 + 16;
+
+	return( la > INT_MAX - srclen ? 0 : la + srclen );
+}
+
+/**
+ * @brief Calculates the buffer size required when the minimum reference
+ * length is 6.
+ *
+ * @param srclen Length of the source data to be compressed.
+ * @return The required allocation size for the destination compression
+ * buffer. The returned value is always non-negative (0 on overflow).
+ */
+
+LZAV_INLINE_F int lzav_compress_bound_mref6( const int srclen ) LZAV_NOEXC
+{
+	if( srclen <= 0 )
+	{
+		return( 16 );
+	}
+
+	const int k = 16 + 127 + 1;
+	const int l2 = srclen / ( k + 6 );
+	const int la = ( srclen - l2 * 6 + k - 1 ) / k * 2 - l2 + 16;
+
+	return( la > INT_MAX - srclen ? 0 : la + srclen );
+}
+
+/**
+ * @brief Calculates the buffer size required for LZAV compression.
+ *
+ * @param srclen Length of the source data to be compressed.
+ * @return The required allocation size for the destination compression
+ * buffer. The returned value is always non-negative (0 on overflow).
+ */
+
+LZAV_INLINE_F int lzav_compress_bound( const int srclen ) LZAV_NOEXC
+{
+	if( srclen < LZAV_MR5_THR )
+	{
+		return( lzav_compress_bound_mref5( srclen ));
+	}
+	else
+	{
+		return( lzav_compress_bound_mref6( srclen ));
+	}
+}
+
+/**
+ * @brief Calculates the buffer size required for higher-ratio LZAV
+ * compression.
+ *
+ * @param srclen Length of the source data to be compressed.
+ * @return The required allocation size for the destination compression
+ * buffer. The returned value is always non-negative (0 on overflow).
+ */
+
+LZAV_INLINE_F int lzav_compress_bound_hi( const int srclen ) LZAV_NOEXC
+{
+	return( lzav_compress_bound_mref5( srclen ));
+}
+
+/**
+ * @brief Hash table initialization function.
+ *
+ * This function initializes the hash table by replicating the contents of the
+ * specified tuple value.
+ *
+ * @param[out] ht Hash table pointer.
+ * @param htsize Hash table size. The size should be a power-of-2 value, not
+ * less than 64 bytes.
+ * @param[in] initv Pointer to an initialized 8-byte tuple.
+ */
+
+LZAV_INLINE_F void lzav_ht_init( uint8_t* LZAV_RESTRICT const ht,
+	const size_t htsize, const uint32_t* LZAV_RESTRICT const initv ) LZAV_NOEXC
+{
+	memcpy( ht, initv, 8 );
+	memcpy( ht + 8, initv, 8 );
+	memcpy( ht + 16, ht, 16 );
+	memcpy( ht + 32, ht, 32 );
+
+	uint8_t* LZAV_RESTRICT const hte = ht + htsize;
+	uint8_t* LZAV_RESTRICT htc = ht + 64;
+
+	while LZAV_LIKELY( htc != hte )
+	{
+		memcpy( htc, ht, 32 );
+		memcpy( htc + 32, ht, 32 );
+		htc += 64;
+	}
+}
+
+/**
+ * @brief Calculates a hash value for the specified input words.
+ *
+ * @param iw1 Input word 1.
+ * @param iw2 Input word 2.
+ * @param sh Hash value shift, in bits. It should be chosen so that `32-sh` is
+ * equal to the log2 of the hash table size.
+ * @param hmask Hash value mask.
+ * @return The masked hash value.
+ */
+
+LZAV_INLINE_F uint32_t lzav_hash( const uint32_t iw1, const uint32_t iw2,
+	const int sh, const uint32_t hmask ) LZAV_NOEXC
+{
+	uint32_t Seed1 = 0x243F6A88;
+	uint32_t hval = 0x85A308D3;
+
+	Seed1 ^= iw1;
+	hval ^= iw2;
+	hval *= Seed1;
+	hval >>= sh;
+
+	return( hval & hmask );
+}
+
+/**
+ * @brief Loads a secondary input word.
+ *
+ * The function loads a 16- or 8-bit value, depending on the `mref` parameter.
+ * This function relies heavily on forced code inlining for performance.
+ * Endianness correction is not applied.
+ *
+ * @param[out] ov Pointer to the variable that receives the loaded value.
+ * @param ip Input pointer.
+ * @param mref Minimum reference length, in bytes. Only values 5 and 6 are
+ * supported.
+ */
+
+LZAV_INLINE_F void lzav_load_w2( uint32_t* LZAV_RESTRICT const ov,
+	const uint8_t* LZAV_RESTRICT const ip, const size_t mref ) LZAV_NOEXC
+{
+	if( mref == 5 )
+	{
+		*ov = *ip;
+	}
+	else
+	{
+		uint16_t v;
+		memcpy( &v, ip, 2 );
+
+		*ov = v;
+	}
+}
+
+/**
+ * @brief LZAV compression function with an external buffer option.
+ *
+ * The function performs in-memory data compression using the LZAV compression
+ * algorithm and the LZAV data format. The function produces "raw" compressed
+ * data without a header containing the data length, identifier, or checksum.
+ *
+ * The function relies on forced code inlining, meaning that multiple calls
+ * to it throughout the code may increase the code size considerably. It is
+ * recommended to wrap the call to this function in a non-inlined function.
+ *
+ * Note that the compression algorithm and its output for the same source data
+ * may differ between LZAV versions and between big- and little-endian
+ * systems. However, decompression of compressed data produced by any prior
+ * compressor version will remain possible.
+ *
+ * @param[in] src Source (uncompressed) data pointer; can be 0 if `srclen`
+ * equals 0. Address alignment is unimportant.
+ * @param[out] dst Destination (compressed data) buffer pointer. It must not
+ * overlap `src`. The allocated size should be at least lzav_compress_bound()
+ * bytes. Address alignment is unimportant.
+ * @param srclen Source data length, in bytes; can be 0. If it is 0, the
+ * compressed length is assumed to be 0 as well.
+ * @param dstlen Destination buffer's capacity, in bytes.
+ * @param extbuf External buffer to use for the hash table; set to null to let
+ * the function manage memory itself (via the standard `malloc` or `new`).
+ * Supplying a pre-allocated buffer is useful if compression is performed
+ * frequently during an application's operation: this reduces memory
+ * allocation overhead and fragmentation. Note that access to the supplied
+ * buffer is not thread-safe. The buffer's address must be aligned to a 4-byte
+ * boundary. For strict compliance, it should be allocated as an array of
+ * `uint32_t` elements.
+ * @param extbuflen Capacity of `extbuf`, in bytes; should be a power-of-2
+ * value. If `extbuf` is null, this value is used as the hash table size.
+ * The capacity should not be less than `4*srclen`, and for the default
+ * compression ratio, it should not be greater than 1 MiB. The same
+ * `extbuflen` value can be used for any smaller source data. Using smaller
+ * `extbuflen` values reduces the compression ratio and, at the same time,
+ * increases the compression speed. This behavior can be leveraged for
+ * memory-constrained and low-performance processors.
+ * @param mref Minimum back-reference length, in bytes. Only values 5 and 6
+ * are supported.
+ * @return The length of the compressed data, in bytes. The returned value is
+ * 0 if `srclen` is less than or equal to 0, if `dstlen` is too small, if
+ * the buffer pointers are invalid, or if there is not enough memory.
+ */
+
+LZAV_INLINE_F int lzav_compress( const void* const src, void* const dst,
+	const int srclen, const int dstlen, void* const extbuf,
+	const int extbuflen, const size_t mref ) LZAV_NOEXC
+{
+	if( srclen <= 0 || src == LZAV_NULL || dst == LZAV_NULL ||
+		dstlen <= 0 || src == dst || ( mref != 5 && mref != 6 ))
+	{
+		return( 0 );
+	}
+
+	const int dstbound = ( mref == 5 ? lzav_compress_bound_mref5( srclen ) :
+		lzav_compress_bound_mref6( srclen ));
+
+	if( dstbound == 0 || dstlen < dstbound )
+	{
+		return( 0 );
+	}
+
+	const size_t mref1 = mref - 1;
+
+	uint8_t* op = (uint8_t*) dst; // Destination (compressed data) pointer.
+	*op = (uint8_t) ( LZAV_FMT_CUR << 4 | mref ); // Write the prefix byte.
+	op++;
+
+	if( srclen < 16 )
+	{
+		// Handle very short source data.
+
+		*op = (uint8_t) srclen;
+		op++;
+
+		memcpy( op, src, (size_t) srclen );
+
+		if( srclen > LZAV_LIT_FIN - 1 )
+		{
+			return( 2 + srclen );
+		}
+
+		memset( op + srclen, 0, (size_t) ( LZAV_LIT_FIN - srclen ));
+		return( 2 + LZAV_LIT_FIN );
+	}
+
+	uint32_t stack_buf[ 2048 ]; // On-stack hash table.
+	uint32_t* alloc_buf = LZAV_NULL; // Hash table allocated on the heap.
+
+	uint8_t* LZAV_RESTRICT ht =
+		(uint8_t*) stack_buf; // The actual hash table pointer.
+
+	size_t htsize; // Hash table's size in bytes (power of 2).
+	htsize = ( 1 << 7 ) * sizeof( uint32_t ) * 4;
+
+	size_t htsizem; // Maximum hash table size.
+
+	if( extbuf == LZAV_NULL )
+	{
+		htsizem = ( extbuflen > 0 ? (size_t) extbuflen : 1 << 20 );
+	}
+	else
+	{
+		htsizem = ( extbuflen > (int) sizeof( stack_buf ) ?
+			(size_t) extbuflen : sizeof( stack_buf ));
+	}
+
+	while(( htsize >> 2 ) < (size_t) srclen )
+	{
+		const size_t htsize2 = htsize << 1;
+
+		if( htsize2 < htsize || htsize2 > htsizem )
+		{
+			break;
+		}
+
+		htsize = htsize2;
+	}
+
+	if( htsize > sizeof( stack_buf ))
+	{
+		if( extbuf == LZAV_NULL )
+		{
+			alloc_buf = LZAV_MALLOC( htsize, uint32_t );
+
+			if( alloc_buf == LZAV_NULL )
+			{
+				return( 0 );
+			}
+
+			ht = (uint8_t*) alloc_buf;
+		}
+		else
+		{
+			ht = (uint8_t*) extbuf;
+		}
+	}
+
+	const uint32_t hmask = (uint32_t) (( htsize - 1 ) ^ 7 ); // Hash mask.
+	const uint8_t* ip = (const uint8_t*) src; // Source data pointer.
+	const uint8_t* const ipe = ip + srclen - LZAV_LIT_FIN; // End pointer.
+	const uint8_t* const ipet = ipe - 15 + LZAV_LIT_FIN; // Hashing threshold;
+		// this avoids out-of-bounds I/O.
+	const uint8_t* ipa = ip; // Anchor pointer for literals.
+
+	// Initialize the hash table. Each hash-table bucket consists of 1 tuple
+	// (4 initial match bytes; 32-bit source data offset). Start at offset 1
+	// for a non-zero back-match length.
+
+	uint32_t initv[ 2 ] = { 0, 1 };
+	ip++;
+	memcpy( initv, ip, 4 );
+
+	lzav_ht_init( ht, htsize, initv );
+
+	uint8_t* cbp = op - 1; // Pointer to the latest offset-carry block header.
+	int csh = 0; // Offset-carry shift.
+
+	size_t mavg = 100 << 17; // Running average (scaled by 2^11) of the match
+		// success signal (64) times the reference length.
+
+	ip++; // Avoid prefetch UB.
+
+	while LZAV_LIKELY( ip < ipet )
+	{
+		// Hash source data (endianness is of minimal importance for
+		// compression efficiency).
+
+		uint32_t iw1, iw2, ww2;
+		memcpy( &iw1, ip, 4 );
+		lzav_load_w2( &iw2, ip + 4, mref );
+
+		// Hash table access.
+
+		uint32_t* LZAV_RESTRICT hp = (uint32_t*) ( ht + lzav_hash( iw1, iw2,
+			12, hmask ));
+
+		uint32_t ipo = (uint32_t) ( ip - (const uint8_t*) src );
+
+		size_t wpo; // Offset into the window.
+		const uint8_t* wp; // Pointer into the window.
+		const uint8_t* ip0; // Saved `ip` variable.
+		size_t d, ml, rc, lc;
+
+		// Find source data in hash-table tuples.
+
+		if LZAV_LIKELY( iw1 != hp[ 0 ])
+		{
+		no_match:
+			wp = ip;
+			hp[ 0 ] = iw1;
+
+			mavg -= mavg >> 11;
+			ip++;
+
+			hp[ 1 ] = ipo;
+
+			if( mavg < ( 200 << 10 ) && wp != ipa ) // Speed-up threshold.
+			{
+				// Advance faster on data that is harder to compress.
+
+				ip += 1 + ( ipo & 1 ) + // Simple dithering.
+					( mavg < ( 130 << 10 ));
+
+				if LZAV_UNLIKELY( mavg < ( 100 << 10 ))
+				{
+					ip += (size_t) 100 - ( mavg >> 10 );
+				}
+			}
+
+			continue;
+		}
+
+		wpo = hp[ 1 ];
+		lzav_load_w2( &ww2, (const uint8_t*) src + wpo + 4, mref );
+
+		if LZAV_UNLIKELY( iw2 != ww2 )
+		{
+			goto no_match;
+		}
+
+		// The source data and a hash-table entry matched.
+
+		d = (size_t) ipo - wpo; // Reference offset (distance).
+		ml = (size_t) ( ipe - ip ); // Max reference match length. Make sure
+			// `LZAV_LIT_FIN` literals remain at the end.
+
+		if LZAV_UNLIKELY( d < LZAV_OFS_MIN )
+		{
+			// Small offsets may be inefficient.
+
+			goto d_oob;
+		}
+
+		LZAV_PREFETCH( ip - 2 );
+
+		wp = (const uint8_t*) src + wpo;
+		hp[ 1 ] = ( d > 31 ? ipo : (uint32_t) wpo );
+
+		rc = lzav_match_len( ip, wp, ml, mref );
+
+		ip0 = ip;
+		lc = (size_t) ( ip - ipa );
+
+		if LZAV_UNLIKELY( lc != 0 && ip[ -1 ] == wp[ -1 ])
+		{
+			// Try to consume literals by matching backwards.
+
+			ml = lzav_match_len_r1( ip, wp, ( lc < wpo ? lc : wpo ));
+			lc -= ml;
+			rc += ml;
+			ip -= ml;
+		}
+
+		if LZAV_LIKELY( d < (size_t) LZAV_WIN_LEN << csh <<
+			(( lc != 0 ) << 1 ))
+		{
+			// Update the hash table with two skipped positions.
+
+			memcpy( &iw1, ip0 + 2, 4 );
+			lzav_load_w2( &iw2, ip0 + 6, mref );
+
+			hp = (uint32_t*) ( ht + lzav_hash( iw1, iw2, 12, hmask ));
+			ipo += 2;
+			mavg -= mavg >> 10;
+
+			hp[ 0 ] = iw1;
+
+			ip += rc;
+			wp = ipa;
+
+			hp[ 1 ] = ipo;
+
+			memcpy( &iw1, ip0 + 4, 4 );
+			lzav_load_w2( &iw2, ip0 + 8, mref );
+
+			hp = (uint32_t*) ( ht + lzav_hash( iw1, iw2, 12, hmask ));
+			ipo += 2;
+
+			hp[ 0 ] = iw1;
+
+			ipa = ip;
+			mavg += rc << 7;
+
+			hp[ 1 ] = ipo;
+
+			op = lzav_write_blk_3( op, lc, rc, d, wp, &cbp, &csh, mref1 );
+			continue;
+		}
+
+		ip = ip0;
+
+	d_oob:
+		ip++;
+	}
+
+	op = lzav_write_fin_3( op, (size_t) ( ipe - ipa + LZAV_LIT_FIN ), ipa );
+
+	LZAV_FREE( alloc_buf );
+
+	return( (int) ( op - (uint8_t*) dst ));
+}
+
+/**
+ * @brief Wrapper function for lzav_compress() with `mref` equal to 5.
+ *
+ * See the lzav_compress() function for a more detailed description.
+ *
+ * Note that the lzav_compress_bound_mref5() function should be used to obtain
+ * the size bound of the `dst` buffer.
+ *
+ * @param[in] src Source (uncompressed) data pointer.
+ * @param[out] dst Destination (compressed data) buffer pointer. It must not
+ * overlap `src`. The allocated size should be at least
+ * lzav_compress_bound_mref5() bytes.
+ * @param srclen Source data length, in bytes.
+ * @param dstlen Destination buffer's capacity, in bytes.
+ * @param extbuf External buffer to use for the hash table.
+ * @param extbuflen Capacity of `extbuf`, in bytes.
+ * @return The length of the compressed data, in bytes.
+ */
+
+LZAV_INLINE int lzav_compress_mref5( const void* const src,
+	void* const dst, const int srclen, const int dstlen, void* const extbuf,
+	const int extbuflen ) LZAV_NOEXC
+{
+	return( lzav_compress( src, dst, srclen, dstlen, extbuf, extbuflen, 5 ));
+}
+
+/**
+ * @brief Wrapper function for lzav_compress() with `mref` equal to 6.
+ *
+ * See the lzav_compress() function for a more detailed description.
+ *
+ * Note that the lzav_compress_bound_mref6() function should be used to obtain
+ * the size bound of the `dst` buffer.
+ *
+ * @param[in] src Source (uncompressed) data pointer.
+ * @param[out] dst Destination (compressed data) buffer pointer. It must not
+ * overlap `src`. The allocated size should be at least
+ * lzav_compress_bound_mref6() bytes.
+ * @param srclen Source data length, in bytes.
+ * @param dstlen Destination buffer's capacity, in bytes.
+ * @param extbuf External buffer to use for the hash table.
+ * @param extbuflen Capacity of `extbuf`, in bytes.
+ * @return The length of the compressed data, in bytes.
+ */
+
+LZAV_INLINE int lzav_compress_mref6( const void* const src,
+	void* const dst, const int srclen, const int dstlen, void* const extbuf,
+	const int extbuflen ) LZAV_NOEXC
+{
+	return( lzav_compress( src, dst, srclen, dstlen, extbuf, extbuflen, 6 ));
+}
+
+/**
+ * @brief Default LZAV compression function.
+ *
+ * The function performs in-memory data compression using the LZAV compression
+ * algorithm with the default settings.
+ *
+ * See the lzav_compress() function for a more detailed description.
+ *
+ * @param[in] src Source (uncompressed) data pointer.
+ * @param[out] dst Destination (compressed data) buffer pointer. It must not
+ * overlap `src`. The allocated size should be at least lzav_compress_bound()
+ * bytes.
+ * @param srclen Source data length, in bytes.
+ * @param dstlen Destination buffer's capacity, in bytes.
+ * @return The length of the compressed data, in bytes. The returned value is
+ * 0 if `srclen` is less than or equal to 0, if `dstlen` is too small, or if
+ * there is not enough memory.
+ */
+
+LZAV_INLINE int lzav_compress_default( const void* const src,
+	void* const dst, const int srclen, const int dstlen ) LZAV_NOEXC
+{
+	if( srclen < LZAV_MR5_THR )
+	{
+		return( lzav_compress_mref5( src, dst, srclen, dstlen,
+			LZAV_NULL, 0 ));
+	}
+	else
+	{
+		return( lzav_compress_mref6( src, dst, srclen, dstlen,
+			LZAV_NULL, 0 ));
+	}
+}
+
+/**
+ * @brief Calculates the estimated size of an LZAV block.
+ *
+ * @param lc Literal length, in bytes.
+ * @param d Reference offset.
+ * @param csh Offset-carry bit count.
+ * @return The estimated block size.
+ */
+
+LZAV_INLINE_F size_t lzav_est_blksize( const size_t lc, size_t d,
+	const int csh ) LZAV_NOEXC
+{
+	const int lb = ( lc != 0 );
+	d >>= csh;
+	d >>= ( lb << 1 );
+
+	return( lc + (size_t) lb + ( lc > 15 ) + 2 +
+		( d > LZAV_OFS_TH1 ) + ( d > LZAV_OFS_TH2 ));
+}
+
+/**
+ * @brief Inserts a tuple into a hash-table bucket.
+ *
+ * @param hp Pointer to the hash-table bucket.
+ * @param iw1 Initial source bytes.
+ * @param ipo Source data offset, in bytes.
+ * @param htbsize Hash-table bucket size, in bytes.
+ */
+
+LZAV_INLINE_F void lzav_ht_insert( uint32_t* const hp, const uint32_t iw1,
+	const uint32_t ipo, const size_t htbsize ) LZAV_NOEXC
+{
+	size_t i;
+
+	for( i = htbsize - 8; i != 0; i -= 8 )
+	{
+		memcpy( (uint8_t*) hp + i, (uint8_t*) hp + i - 8, 8 );
+	}
+
+	hp[ 0 ] = iw1;
+	hp[ 1 ] = ipo;
+}
+
+/**
+ * @brief Higher-ratio LZAV compression function (much slower).
+ *
+ * The function performs in-memory data compression using the higher-ratio
+ * LZAV compression algorithm.
+ *
+ * @param[in] src Source (uncompressed) data pointer.
+ * @param[out] dst Destination (compressed data) buffer pointer. It must not
+ * overlap `src`. The allocated size should be at least
+ * lzav_compress_bound_hi() bytes.
+ * @param srclen Source data length, in bytes.
+ * @param dstlen Destination buffer's capacity, in bytes.
+ * @return The length of the compressed data, in bytes. The returned value is
+ * 0 if `srclen` is less than or equal to 0, if `dstlen` is too small, if
+ * the buffer pointers are invalid, or if there is not enough memory.
+ */
+
+LZAV_NO_INLINE int lzav_compress_hi( const void* const src, void* const dst,
+	const int srclen, const int dstlen ) LZAV_NOEXC
+{
+	const int dstbound = lzav_compress_bound_hi( srclen );
+
+	if( srclen <= 0 || src == LZAV_NULL || dst == LZAV_NULL ||
+		dstlen <= 0 || src == dst || dstbound == 0 ||
+		dstlen < dstbound )
+	{
+		return( 0 );
+	}
+
+	const size_t mref = 5; // Minimum reference length, in bytes.
+	const size_t mref1 = mref - 1;
+
+	uint8_t* op = (uint8_t*) dst; // Destination (compressed data) pointer.
+	*op = (uint8_t) ( LZAV_FMT_CUR << 4 | mref ); // Write the prefix byte.
+	op++;
+
+	if( srclen < 16 )
+	{
+		// Handle very short source data.
+
+		*op = (uint8_t) srclen;
+		op++;
+
+		memcpy( op, src, (size_t) srclen );
+
+		if( srclen > LZAV_LIT_FIN - 1 )
+		{
+			return( 2 + srclen );
+		}
+
+		memset( op + srclen, 0, (size_t) ( LZAV_LIT_FIN - srclen ));
+		return( 2 + LZAV_LIT_FIN );
+	}
+
+	size_t htsize; // Hash table's size in bytes (power of 2).
+	htsize = ( 1 << 7 ) * sizeof( uint32_t ) * 2 * 8;
+
+	while( htsize != ( 1 << 23 ) && ( htsize >> 2 ) < (size_t) srclen )
+	{
+		htsize <<= 1;
+	}
+
+	uint32_t* const alloc_buf =
+		LZAV_MALLOC( htsize, uint32_t ); // Hash table allocated on the heap.
+
+	if( alloc_buf == LZAV_NULL )
+	{
+		return( 0 );
+	}
+
+	uint8_t* LZAV_RESTRICT const ht = (uint8_t*) alloc_buf; // The actual
+		// hash table pointer.
+
+	const size_t htbsize = 8 * 8; // Hash-table bucket size, in bytes.
+	const uint32_t hmask = (uint32_t) (( htsize - 1 ) ^ ( htbsize - 1 ));
+	const uint8_t* ip = (const uint8_t*) src; // Source data pointer.
+	const uint8_t* const ipe = ip + srclen - LZAV_LIT_FIN; // End pointer.
+	const uint8_t* const ipet = ipe - 15 + LZAV_LIT_FIN; // Hashing threshold;
+		// this avoids out-of-bounds I/O.
+	const uint8_t* ipa = ip; // Anchor pointer for literals.
+
+	// Initialize the hash table. Each hash-table bucket consists of 8 tuples
+	// (4 initial match bytes; 32-bit source data offset). Start at offset 1
+	// for a non-zero back-match length.
+
+	uint32_t initv[ 2 ] = { 0, 1 };
+	ip++;
+	memcpy( initv, ip, 4 );
+
+	lzav_ht_init( ht, htsize, initv );
+
+	uint8_t* cbp = op - 1; // Pointer to the latest offset-carry block header.
+	int csh = 0; // Offset-carry shift.
+
+	size_t prc = 0; // Length of a previously found match.
+	size_t pd = 0; // Distance of a previously found match.
+	const uint8_t* pip = ip; // Source pointer of a previously found match.
+
+	ip++; // Avoid prefetch UB.
+
+	while LZAV_LIKELY( ip < ipet )
+	{
+		// Hash source data (endianness is of minimal importance for
+		// compression efficiency).
+
+		uint32_t iw1;
+		memcpy( &iw1, ip, 4 );
+
+		// Hash table access.
+
+		uint32_t* LZAV_RESTRICT hp = (uint32_t*) ( ht +
+			lzav_hash( iw1, ip[ 4 ], 8, hmask ));
+
+		LZAV_PREFETCH( hp );
+
+		const uint32_t ipo = (uint32_t) ( ip - (const uint8_t*) src );
+
+		// Find source data in hash-table tuples at up to 8 previous
+		// positions.
+
+		const size_t mle = (size_t) ( ipe - ip ); // Match length bound.
+		size_t rc = 1; // Best found match length, 1 = not found.
+		size_t d = LZAV_OFS_MIN; // Best found reference offset (distance).
+		size_t i;
+
+		// Match-finder.
+
+		for( i = 0; i < htbsize / 4; i += 4 )
+		{
+			const uint32_t ww1 = hp[ i ];
+			const uint8_t* const wp1 = (const uint8_t*) src + hp[ i + 1 ];
+			const uint32_t ww2 = hp[ i + 2 ];
+			const uint8_t* const wp2 = (const uint8_t*) src + hp[ i + 3 ];
+
+			if( iw1 == ww1 )
+			{
+				// Make sure `LZAV_LIT_FIN` literals remain at the end.
+
+				const size_t ml = lzav_match_len( ip, wp1, mle, 4 );
+
+				if( ml > rc )
+				{
+					d = (size_t) ( ip - wp1 );
+					rc = ml;
+				}
+			}
+
+			if( iw1 == ww2 )
+			{
+				const size_t ml = lzav_match_len( ip, wp2, mle, 4 );
+
+				if( ml > rc )
+				{
+					d = (size_t) ( ip - wp2 );
+					rc = ml;
+				}
+			}
+		}
+
+		if LZAV_LIKELY(( d != rc ) & ( d >= LZAV_OFS_MIN ))
+		{
+			// Update the hash-table entry, making sure the match is not an
+			// adjacent replication.
+
+			lzav_ht_insert( hp, iw1, ipo, htbsize );
+		}
+
+		if(( rc < mref + ( d > ( 1 << 18 )) + ( d > ( 1 << 22 ))) |
+			( d < LZAV_OFS_MIN ))
+		{
+			ip++;
+			continue;
+		}
+
+		// The source data and a hash-table entry matched, with a suitable
+		// length.
+
+		LZAV_PREFETCH( ip - 2 );
+
+		const uint8_t* wp = ip - d;
+		const uint8_t* const ip1 = ip + 1;
+		size_t lc = (size_t) ( ip - ipa );
+
+		if LZAV_UNLIKELY( lc != 0 && ip[ -1 ] == wp[ -1 ])
+		{
+			// Try to consume literals by matching backwards.
+
+			size_t ml = (size_t) ( wp - (const uint8_t*) src );
+
+			if LZAV_LIKELY( ml > lc )
+			{
+				ml = lc;
+			}
+
+			ml = lzav_match_len_r1( ip, wp, ml );
+			lc -= ml;
+			rc += ml;
+			ip -= ml;
+		}
+
+		if LZAV_UNLIKELY( d >= (size_t) LZAV_WIN_LEN << csh <<
+			(( lc != 0 ) << 1 ))
+		{
+			goto d_oob;
+		}
+
+		if( prc == 0 )
+		{
+			// Save the match for a later comparison.
+
+		save_match:
+			prc = rc;
+			pd = d;
+			pip = ip;
+			ip = ip1;
+			continue;
+
+		d_oob:
+			// `d` is out of bounds.
+
+			ip = ip1;
+
+			if LZAV_LIKELY( d != rc )
+			{
+				continue;
+			}
+
+			lzav_ht_insert( hp, iw1, ipo, htbsize );
+			continue;
+		}
+
+		// Block size overhead estimation and comparison with a previously
+		// found match.
+
+		const size_t plc = (size_t) ( pip - ipa );
+		const size_t ov = lzav_est_blksize( lc, d, csh );
+		const size_t pov = lzav_est_blksize( plc, pd, csh );
+
+		if LZAV_LIKELY( prc * ov > rc * pov )
+		{
+			// Note: the above multiplications can overflow on 32-bit
+			// platforms, but statistically, this does not considerably affect
+			// the compression ratio (both long matches and long literal runs
+			// are rare).
+
+			op = lzav_write_blk_3( op, plc, prc, pd, ipa, &cbp, &csh, mref1 );
+
+			ipa = pip + prc;
+
+			if LZAV_LIKELY( ipa > ip || d >= (size_t) LZAV_WIN_LEN << csh <<
+				(( ip - ipa != 0 ) << 1 ))
+			{
+				prc = 0;
+				ip = ( ipa > ip1 ? ipa : ip1 );
+				continue;
+			}
+
+			// A winning previous match does not overlap the current match.
+
+			goto save_match;
+		}
+
+		// Update the hash table with two skipped positions.
+
+		memcpy( &iw1, ip + 2, 4 );
+		wp = ipa;
+		hp = (uint32_t*) ( ht + lzav_hash( iw1, ip[ 6 ], 8, hmask ));
+
+		lzav_ht_insert( hp, iw1, (uint32_t) ( ip + 2 - (const uint8_t*) src ),
+			htbsize );
+
+		memcpy( &iw1, ip + 4, 4 );
+		hp = (uint32_t*) ( ht + lzav_hash( iw1, ip[ 8 ], 8, hmask ));
+
+		lzav_ht_insert( hp, iw1, (uint32_t) ( ip + 4 - (const uint8_t*) src ),
+			htbsize );
+
+		ip += rc;
+		prc = 0;
+		ipa = ip;
+
+		op = lzav_write_blk_3( op, lc, rc, d, wp, &cbp, &csh, mref1 );
+	}
+
+	if( prc != 0 )
+	{
+		op = lzav_write_blk_3( op, (size_t) ( pip - ipa ), prc, pd, ipa, &cbp,
+			&csh, mref1 );
+
+		ipa = pip + prc;
+	}
+
+	op = lzav_write_fin_3( op, (size_t) ( ipe - ipa + LZAV_LIT_FIN ), ipa );
+
+	LZAV_FREE( alloc_buf );
+
+	return( (int) ( op - (uint8_t*) dst ));
+}
+
+/**
+ * @typedef lzav_shift_t
+ * @brief Defines a type for shift-count variables, depending on the platform.
+ *
+ * This specialization prevents implicit type conversions.
+ */
+
+#if defined( LZAV_X86 )
+
+	typedef unsigned int lzav_shift_t;
+
+#else // defined( LZAV_X86 )
+
+	typedef size_t lzav_shift_t;
+
+#endif // defined( LZAV_X86 )
+
+/**
+ * @def LZAV_SET_IPD_CV( x, v, sh )
+ * @brief Macro that defines `ipd` as a pointer to the back-reference, checks
+ * bounds, and updates the carry bit variables.
+ *
+ * @param x Reference offset.
+ * @param v Next `cv` value.
+ * @param sh Next `csh` value.
+ */
+
+/**
+ * @def LZAV_LOAD_VARINT( cvar, sh0 )
+ * @brief Macro that loads a varint-encoded value from `ip` and adds it to
+ * `cvar`.
+ *
+ * The `cvar` variable should contain the least significant `sh0` bits of the
+ * value. The code reads up to 4 additional bytes, forming a value strictly
+ * less than `2^(sh0+28)`.
+ *
+ * @param cvar Name of the variable that receives the varint value.
+ * @param sh0 The number of least significant bits already present in `cvar`.
+ */
+
+/**
+ * @brief Internal LZAV decompression function for data format 3.
+ *
+ * The function decompresses "raw" data previously compressed into LZAV data
+ * format 3.
+ *
+ * This function should not be called directly since it does not check the
+ * format identifier.
+ *
+ * @param[in] src Source (compressed) data pointer.
+ * @param[out] dst Destination (decompressed data) buffer pointer.
+ * @param srclen Source data length, in bytes.
+ * @param dstlen Expected destination data length, in bytes.
+ * @param[out] pwl Pointer to a variable that receives the number of bytes
+ * written to the destination buffer (until an error occurs or the end of the
+ * buffer is reached).
+ * @return The length of the decompressed data, in bytes, or any negative
+ * value if an error occurs.
+ */
+
+LZAV_NO_INLINE int lzav_decompress_3( const void* const src, void* const dst,
+	const int srclen, const int dstlen, int* const pwl ) LZAV_NOEXC
+{
+	if LZAV_UNLIKELY( srclen < 11 )
+	{
+		*pwl = 0;
+		return( LZAV_E_SRCOOB );
+	}
+
+	const size_t litfin = 9; // The number of literals in the final block.
+		// Also used in `ipet + litfin` (compressed data boundary) to reduce
+		// variable usage.
+
+	const uint8_t* LZAV_RESTRICT ip =
+		(const uint8_t*) src; // Compressed data pointer.
+
+	const uint8_t* const ipet = ip + srclen - litfin; // Block header read
+		// threshold.
+	const uint8_t* const ipetg = ( ipet - ip < 64 ?
+		ip : ipet - 64 ); // Threshold for `goto refblk`.
+
+	uint8_t* op = (uint8_t*) dst; // Destination (decompressed data) pointer.
+	uint8_t* const ope = op + dstlen; // Destination boundary pointer.
+	uint8_t* const opet = ( ope - op < 63 ? op : ope - 63 ); // Threshold for
+		// fast copying to the destination.
+
+	const size_t mref1 = (size_t) ( *ip & 15 ) - 1; // Minimum reference
+		// length minus 1.
+
+	if LZAV_UNLIKELY( mref1 > 5 )
+	{
+		*pwl = 0;
+		return( LZAV_E_UNKFMT );
+	}
+
+	*pwl = dstlen;
+	size_t bh; // Current block header, updated in each branch.
+	size_t cv = 0; // Reference offset-carry value.
+	lzav_shift_t csh = 0; // Reference offset-carry shift.
+
+	#define LZAV_SET_IPD_CV( x, v, sh ) \
+		const size_t d = ( x ) << csh | cv; \
+		const size_t md = (size_t) ( op - (uint8_t*) dst ); \
+		csh = ( sh ); \
+		ipd = op; \
+		cv = ( v ); \
+		if LZAV_UNLIKELY( d > md ) \
+			goto err_refoob; \
+		ipd -= d
+
+	#define LZAV_LOAD_VARINT( cvar, sh0 ) { \
+		int sh = sh0; \
+		do \
+		{ \
+			bh = *ip; \
+			ip++; \
+			cvar += ( bh & 0x7F ) << sh; \
+			if( sh == sh0 + 21 ) \
+			{ \
+				break; \
+			} \
+			sh += 7; \
+		} while(( bh & 0x80 ) != 0 ); } (void) 0
+
+	ip++; // Advance beyond the prefix byte.
+
+	bh = *ip;
+
+	while LZAV_LIKELY( ip < ipet )
+	{
+		size_t cc; // Byte copy count.
+
+		if LZAV_LIKELY(( bh & 0x30 ) != 0 ) // Block type != 0.
+		{
+			const uint8_t* ipd; // Source data pointer.
+			size_t bt; // Block type.
+
+		refblk:
+			ip++;
+			bt = ( bh >> 4 ) & 3;
+
+			uint32_t bv;
+			memcpy( &bv, ip, 4 );
+			LZAV_IEC32( bv );
+
+			static const size_t om[ 4 ] = { 0, 0x3FF, 0x7FFF, 0x1FFFFF };
+			static const lzav_shift_t ocsh[ 4 ] = { 0, 0, 3, 5 };
+
+			const size_t bt8 = bt << 3;
+			const lzav_shift_t ncsh = ocsh[ bt ];
+
+			LZAV_SET_IPD_CV(( (size_t) bv << 2 | bh >> 6 ) & om[ bt ],
+				( (size_t) ip[ bt - 1 ] << ncsh ) >> 8, ncsh );
+
+			ip += bt;
+			bv >>= bt8;
+
+			LZAV_PREFETCH( ipd );
+
+			uint8_t* opcc = op + mref1;
+			cc = bh & 15;
+
+			if LZAV_LIKELY( cc != 0 ) // True if no length bytes follow.
+			{
+				opcc += cc;
+				bh = bv & 0xFF;
+
+				if LZAV_LIKELY( op < opet )
+				{
+					if LZAV_LIKELY( d > 15 )
+					{
+						memcpy( op, ipd, 16 );
+						memcpy( op + 16, ipd + 16, 4 );
+						op = opcc;
+						continue;
+					}
+
+					if LZAV_LIKELY( d > 7 )
+					{
+						memcpy( op, ipd, 8 );
+						memcpy( op + 8, ipd + 8, 8 );
+						memcpy( op + 16, ipd + 16, 4 );
+						op = opcc;
+						continue;
+					}
+
+					goto err_refoob;
+				}
+			}
+			else
+			{
+				ip++;
+				opcc += bv & 0x7F;
+
+				if LZAV_UNLIKELY(( bv & 0x80 ) != 0 )
+				{
+					LZAV_LOAD_VARINT( opcc, 7 );
+				}
+
+				opcc += 16;
+				bh = *ip;
+
+				#if defined( LZAV_PTR32 )
+				if LZAV_UNLIKELY( opcc < op )
+				{
+					goto err_ptrovr;
+				}
+				#endif // defined( LZAV_PTR32 )
+
+				#if defined( LZAV_LONG_COPY )
+				if LZAV_LIKELY(( opcc < opet ) & ( d > 15 ))
+				{
+					do LZAV_LIKELY_DO
+					{
+						memcpy( op, ipd, 16 );
+						memcpy( op + 16, ipd + 16, 16 );
+						memcpy( op + 32, ipd + 32, 16 );
+						memcpy( op + 48, ipd + 48, 16 );
+						op += 64;
+						ipd += 64;
+					} while LZAV_LIKELY_DO_EXPR( op < opcc );
+
+					op = opcc;
+					continue;
+				}
+				#endif // defined( LZAV_LONG_COPY )
+
+				if LZAV_LIKELY(( opcc < opet ) & ( d > 7 ))
+				{
+					do LZAV_LIKELY_DO
+					{
+						memcpy( op, ipd, 8 );
+						memcpy( op + 8, ipd + 8, 8 );
+						memcpy( op + 16, ipd + 16, 8 );
+						memcpy( op + 24, ipd + 24, 8 );
+						op += 32;
+						ipd += 32;
+					} while LZAV_LIKELY_DO_EXPR( op < opcc );
+
+					op = opcc;
+					continue;
+				}
+			}
+
+			if LZAV_UNLIKELY( d < 8 )
+			{
+				goto err_refoob;
+			}
+
+			if LZAV_UNLIKELY( ope - opcc < 8 )
+			{
+				goto err_dstoob_ref;
+			}
+
+			while( op + 7 < opcc )
+			{
+				memcpy( op, ipd, 8 );
+				memcpy( op + 8, ipd + 8, 8 );
+				op += 16;
+				ipd += 16;
+			}
+
+			if( op < opcc )
+			{
+				memcpy( op, ipd, 8 );
+			}
+
+			op = opcc;
+			continue;
+
+		err_dstoob_ref:
+			while( op != ope )
+			{
+				*op = *ipd;
+				ipd++;
+				op++;
+			}
+
+			return( LZAV_E_DSTOOB );
+		}
+
+		const uint8_t* LZAV_RESTRICT ipd; // Source data pointer.
+
+		size_t ncv = bh >> 6; // Additional offset-carry bits.
+		ip++;
+		cc = bh & 15;
+
+		if LZAV_LIKELY( cc != 0 ) // True if no length bytes follow.
+		{
+			ipd = ip;
+			ncv <<= csh;
+			ip += cc;
+			csh += 2;
+			cv |= ncv;
+
+			if LZAV_LIKELY(( op < opet ) & ( ipd < ipetg ))
+			{
+				bh = *ip;
+				memcpy( op, ipd, 16 );
+				op += cc;
+
+				goto refblk; // Reference block follows if not at EOS.
+			}
+		}
+		else
+		{
+			bh = *ip;
+			ncv <<= csh;
+			cc = bh & 0x7F;
+			csh += 2;
+			cv |= ncv;
+			ip++;
+
+			if LZAV_UNLIKELY(( bh & 0x80 ) != 0 )
+			{
+				LZAV_LOAD_VARINT( cc, 7 );
+			}
+
+			cc += 16;
+			ipd = ip;
+			ip += cc;
+
+			uint8_t* const opcc = op + cc;
+
+			#if defined( LZAV_PTR32 )
+			if LZAV_UNLIKELY(( ip < ipd ) | ( opcc < op ))
+			{
+				goto err_ptrovr;
+			}
+			#endif // defined( LZAV_PTR32 )
+
+			if LZAV_LIKELY(( opcc < opet ) & ( ip < ipetg ))
+			{
+				#if defined( LZAV_LONG_COPY )
+				do LZAV_LIKELY_DO
+				{
+					memcpy( op, ipd, 16 );
+					memcpy( op + 16, ipd + 16, 16 );
+					memcpy( op + 32, ipd + 32, 16 );
+					memcpy( op + 48, ipd + 48, 16 );
+					op += 64;
+					ipd += 64;
+				} while LZAV_LIKELY_DO_EXPR( op < opcc );
+				#else // defined( LZAV_LONG_COPY )
+				do LZAV_LIKELY_DO
+				{
+					memcpy( op, ipd, 8 );
+					memcpy( op + 8, ipd + 8, 8 );
+					memcpy( op + 16, ipd + 16, 8 );
+					memcpy( op + 24, ipd + 24, 8 );
+					op += 32;
+					ipd += 32;
+				} while LZAV_LIKELY_DO_EXPR( op < opcc );
+				#endif // defined( LZAV_LONG_COPY )
+
+				bh = *ip;
+				op = opcc;
+
+				goto refblk; // Reference block follows if not at EOS.
+			}
+		}
+
+		uint8_t* const opcc = op + cc;
+
+		if LZAV_UNLIKELY( opcc > ope )
+		{
+			goto err_dstoob_lit;
+		}
+
+		if LZAV_LIKELY( ip < ipet )
+		{
+			memcpy( op, ipd, cc );
+			bh = *ip;
+			op = opcc;
+
+			goto refblk; // Guards against `csh` accumulation.
+		}
+
+		if LZAV_UNLIKELY( ip > ipet + litfin )
+		{
+			goto err_srcoob_lit;
+		}
+
+		memcpy( op, ipd, cc );
+		op = opcc;
+		break;
+
+	err_srcoob_lit:
+		cc = (size_t) ( ipet + litfin - ipd );
+
+		if( cc < (size_t) ( ope - op ))
+		{
+			memcpy( op, ipd, cc );
+			*pwl = (int) ( op + cc - (uint8_t*) dst );
+		}
+		else
+		{
+			memcpy( op, ipd, (size_t) ( ope - op ));
+		}
+
+		return( LZAV_E_SRCOOB );
+
+	err_dstoob_lit:
+		if LZAV_UNLIKELY( ip > ipet + litfin )
+		{
+			goto err_srcoob_lit;
+		}
+
+		memcpy( op, ipd, (size_t) ( ope - op ));
+		return( LZAV_E_DSTOOB );
+	}
+
+	if LZAV_UNLIKELY( op != ope )
+	{
+		goto err_dstlen;
+	}
+
+	return( (int) ( op - (uint8_t*) dst ));
+
+err_refoob:
+	*pwl = (int) ( op - (uint8_t*) dst );
+	return( LZAV_E_REFOOB );
+
+err_dstlen:
+	*pwl = (int) ( op - (uint8_t*) dst );
+	return( LZAV_E_DSTLEN );
+
+#if defined( LZAV_PTR32 )
+err_ptrovr:
+	*pwl = (int) ( op - (uint8_t*) dst );
+	return( LZAV_E_PTROVR );
+#endif // defined( LZAV_PTR32 )
+}
+
+#if LZAV_FMT_MIN < 3
+
+/**
+ * @brief Internal LZAV decompression function for data format 2.
+ *
+ * The function decompresses "raw" data previously compressed into LZAV data
+ * format 2.
+ *
+ * This function should not be called directly since it does not check the
+ * format identifier.
+ *
+ * @param[in] src Source (compressed) data pointer.
+ * @param[out] dst Destination (decompressed data) buffer pointer.
+ * @param srclen Source data length, in bytes.
+ * @param dstlen Expected destination data length, in bytes.
+ * @param[out] pwl Pointer to a variable that receives the number of bytes
+ * written to the destination buffer (until an error occurs or the end of the
+ * buffer is reached).
+ * @return The length of the decompressed data, in bytes, or any negative
+ * value if an error occurs.
+ */
+
+LZAV_NO_INLINE int lzav_decompress_2( const void* const src, void* const dst,
+	const int srclen, const int dstlen, int* const pwl ) LZAV_NOEXC
+{
+	if LZAV_UNLIKELY( srclen < 8 )
+	{
+		*pwl = 0;
+		return( LZAV_E_SRCOOB );
+	}
+
+	const size_t litfin = 6; // The number of literals in the final block.
+		// Also used in `ipet + litfin` (compressed data boundary) to reduce
+		// variable usage.
+
+	const uint8_t* ip = (const uint8_t*) src; // Compressed data pointer.
+	const uint8_t* const ipet = ip + srclen - litfin; // Block header read
+		// threshold.
+	const uint8_t* const ipetg = ( ipet - ip < 64 ?
+		ip : ipet - 64 ); // Threshold for `goto refblk`.
+
+	uint8_t* op = (uint8_t*) dst; // Destination (decompressed data) pointer.
+	uint8_t* const ope = op + dstlen; // Destination boundary pointer.
+	uint8_t* const opet = ( ope - op < 63 ? op : ope - 63 ); // Threshold for
+		// fast copying to the destination.
+
+	const size_t mref1 = (size_t) ( *ip & 15 ) - 1; // Minimum reference
+		// length minus 1.
+
+	if LZAV_UNLIKELY( mref1 > 5 )
+	{
+		*pwl = 0;
+		return( LZAV_E_UNKFMT );
+	}
+
+	*pwl = dstlen;
+	size_t bh; // Current block header, updated in each branch.
+	size_t cv = 0; // Reference offset-carry value.
+	int csh = 0; // Reference offset-carry shift.
+
+	ip++; // Advance beyond the prefix byte.
+
+	bh = *ip;
+
+	while LZAV_LIKELY( ip < ipet )
+	{
+		const uint8_t* ipd; // Source data pointer.
+		size_t cc; // Byte copy count.
+		size_t bt; // Block type.
+
+		if LZAV_LIKELY(( bh & 0x30 ) != 0 ) // Block type != 0.
+		{
+		refblk:
+			bt = ( bh >> 4 ) & 3;
+			ip++;
+			const int bt8 = (int) ( bt << 3 );
+
+			uint32_t bv;
+			memcpy( &bv, ip, 4 );
+			LZAV_IEC32( bv );
+
+			ip += bt;
+
+		#if defined( LZAV_X86 )
+
+			static const uint32_t om[ 4 ] = { 0, 0xFF, 0xFFFF, 0xFFFFFF };
+			static const int ocsh[ 4 ] = { 0, 0, 0, 3 };
+
+			const uint32_t o = bv & om[ bt ];
+			bv >>= bt8;
+
+			const int wcsh = ocsh[ bt ];
+
+			LZAV_SET_IPD_CV(( bh >> 6 | o << 2 ) & 0x7FFFFF, o >> 21, wcsh );
+
+		#else // defined( LZAV_X86 )
+
+			// Memory accesses on RISC platforms are less efficient here.
+
+			const size_t o = bv & (( (uint32_t) 1 << bt8 ) - 1 );
+			bv >>= bt8;
+
+			LZAV_SET_IPD_CV(( bh >> 6 | o << 2 ) & 0x7FFFFF, o >> 21,
+				( bt == 3 ? 3 : 0 ));
+
+		#endif // defined( LZAV_X86 )
+
+			LZAV_PREFETCH( ipd );
+
+			cc = bh & 15;
+
+			if LZAV_LIKELY( cc != 0 ) // True if no length bytes follow.
+			{
+				cc += mref1;
+				bh = bv & 0xFF;
+
+				if LZAV_LIKELY( op < opet )
+				{
+					if LZAV_LIKELY( d > 15 )
+					{
+						memcpy( op, ipd, 16 );
+						memcpy( op + 16, ipd + 16, 4 );
+						op += cc;
+						continue;
+					}
+
+					if LZAV_LIKELY( d > 7 )
+					{
+						memcpy( op, ipd, 8 );
+						memcpy( op + 8, ipd + 8, 8 );
+						op += cc;
+						continue;
+					}
+
+					if( d > 3 )
+					{
+						memcpy( op, ipd, 4 );
+						memcpy( op + 4, ipd + 4, 4 );
+						op += cc;
+						continue;
+					}
+
+					goto err_refoob;
+				}
+
+				if LZAV_UNLIKELY( cc > d )
+				{
+					goto err_refoob;
+				}
+
+				uint8_t* const opcc = op + cc;
+
+				if LZAV_UNLIKELY( opcc > ope )
+				{
+					goto err_dstoob_ref;
+				}
+
+				memcpy( op, ipd, cc );
+				op = opcc;
+				continue;
+			}
+			else
+			{
+				bh = bv & 0xFF;
+				ip++;
+				cc = 16 + mref1 + bh;
+
+				if LZAV_UNLIKELY( bh == 255 )
+				{
+					cc += *ip;
+					ip++;
+				}
+
+				uint8_t* const opcc = op + cc;
+				bh = *ip;
+
+				if LZAV_LIKELY(( opcc < opet ) & ( d > 15 ))
+				{
+					do LZAV_LIKELY_DO
+					{
+						memcpy( op, ipd, 16 );
+						memcpy( op + 16, ipd + 16, 16 );
+						memcpy( op + 32, ipd + 32, 16 );
+						memcpy( op + 48, ipd + 48, 16 );
+						op += 64;
+						ipd += 64;
+					} while LZAV_LIKELY_DO_EXPR( op < opcc );
+
+					op = opcc;
+					continue;
+				}
+
+				if LZAV_UNLIKELY( cc > d )
+				{
+					goto err_refoob;
+				}
+
+				if LZAV_UNLIKELY( opcc > ope )
+				{
+					goto err_dstoob_ref;
+				}
+
+				memcpy( op, ipd, cc );
+				op = opcc;
+				continue;
+			}
+
+		err_dstoob_ref:
+			memcpy( op, ipd, (size_t) ( ope - op ));
+			return( LZAV_E_DSTOOB );
+		}
+
+		size_t ncv = bh >> 6; // Additional offset-carry bits.
+		ip++;
+		cc = bh & 15;
+
+		if LZAV_LIKELY( cc != 0 ) // True if no length bytes follow.
+		{
+			ipd = ip;
+			ncv <<= csh;
+			ip += cc;
+			csh += 2;
+			cv |= ncv;
+
+			if LZAV_LIKELY(( op < opet ) & ( ipd < ipetg ))
+			{
+				bh = *ip;
+				memcpy( op, ipd, 16 );
+				op += cc;
+
+				goto refblk; // Reference block follows if not at EOS.
+			}
+		}
+		else
+		{
+			bh = *ip;
+			ncv <<= csh;
+			cc = bh & 0x7F;
+			csh += 2;
+			cv |= ncv;
+			ip++;
+
+			if LZAV_UNLIKELY(( bh & 0x80 ) != 0 )
+			{
+				LZAV_LOAD_VARINT( cc, 7 );
+			}
+
+			cc += 16;
+			ipd = ip;
+			ip += cc;
+
+			uint8_t* const opcc = op + cc;
+
+			#if defined( LZAV_PTR32 )
+			if LZAV_UNLIKELY(( ip < ipd ) | ( opcc < op ))
+			{
+				goto err_ptrovr;
+			}
+			#endif // defined( LZAV_PTR32 )
+
+			if LZAV_LIKELY(( opcc < opet ) & ( ip < ipetg ))
+			{
+				do LZAV_LIKELY_DO
+				{
+					memcpy( op, ipd, 16 );
+					memcpy( op + 16, ipd + 16, 16 );
+					memcpy( op + 32, ipd + 32, 16 );
+					memcpy( op + 48, ipd + 48, 16 );
+					op += 64;
+					ipd += 64;
+				} while LZAV_LIKELY_DO_EXPR( op < opcc );
+
+				bh = *ip;
+				op = opcc;
+
+				goto refblk; // Reference block follows if not at EOS.
+			}
+		}
+
+		uint8_t* const opcc = op + cc;
+
+		if LZAV_UNLIKELY( opcc > ope )
+		{
+			goto err_dstoob_lit;
+		}
+
+		if LZAV_LIKELY( ip < ipet )
+		{
+			bh = *ip;
+			memcpy( op, ipd, cc );
+			op = opcc;
+
+			goto refblk; // Guards against `csh` accumulation.
+		}
+
+		if LZAV_UNLIKELY( ip > ipet + litfin )
+		{
+			goto err_srcoob_lit;
+		}
+
+		memcpy( op, ipd, cc );
+		op = opcc;
+		break;
+
+	err_srcoob_lit:
+		cc = (size_t) ( ipet + litfin - ipd );
+
+		if( cc < (size_t) ( ope - op ))
+		{
+			memcpy( op, ipd, cc );
+			*pwl = (int) ( op + cc - (uint8_t*) dst );
+		}
+		else
+		{
+			memcpy( op, ipd, (size_t) ( ope - op ));
+		}
+
+		return( LZAV_E_SRCOOB );
+
+	err_dstoob_lit:
+		if LZAV_UNLIKELY( ip > ipet + litfin )
+		{
+			goto err_srcoob_lit;
+		}
+
+		memcpy( op, ipd, (size_t) ( ope - op ));
+		return( LZAV_E_DSTOOB );
+	}
+
+	if LZAV_UNLIKELY( op != ope )
+	{
+		goto err_dstlen;
+	}
+
+	return( (int) ( op - (uint8_t*) dst ));
+
+err_refoob:
+	*pwl = (int) ( op - (uint8_t*) dst );
+	return( LZAV_E_REFOOB );
+
+err_dstlen:
+	*pwl = (int) ( op - (uint8_t*) dst );
+	return( LZAV_E_DSTLEN );
+
+#if defined( LZAV_PTR32 )
+err_ptrovr:
+	*pwl = (int) ( op - (uint8_t*) dst );
+	return( LZAV_E_PTROVR );
+#endif // defined( LZAV_PTR32 )
+}
+
+#endif // LZAV_FMT_MIN < 3
+
+#undef LZAV_SET_IPD_CV
+#undef LZAV_LOAD_VARINT
+
+/**
+ * @brief LZAV decompression function (partial).
+ *
+ * The function performs partial decompression of "raw" data previously
+ * compressed into the LZAV data format, and can also be used for data
+ * recovery. For example, this function can be used to decompress only an
+ * initial segment of a larger data block.
+ *
+ * @param[in] src Source (compressed) data pointer; can be 0 if `srclen` is 0.
+ * Address alignment is unimportant.
+ * @param[out] dst Destination (decompressed data) buffer pointer. It must not
+ * overlap `src`. Address alignment is unimportant.
+ * @param srclen Source data length, in bytes; can be 0.
+ * @param dstlen Destination buffer length, in bytes; can be 0.
+ * @return The length of the decompressed data, in bytes. The returned value
+ * is always non-negative; error codes are not returned.
+ */
+
+LZAV_INLINE_F int lzav_decompress_partial( const void* const src,
+	void* const dst, const int srclen, const int dstlen ) LZAV_NOEXC
+{
+	if( srclen <= 0 || src == LZAV_NULL || dst == LZAV_NULL || src == dst ||
+		dstlen <= 0 )
+	{
+		return( 0 );
+	}
+
+	const int fmt = *(const uint8_t*) src >> 4;
+	int dl = 0;
+
+	if( fmt == 3 )
+	{
+		lzav_decompress_3( src, dst, srclen, dstlen, &dl );
+	}
+
+#if LZAV_FMT_MIN < 3
+	else
+	if( fmt == 2 )
+	{
+		lzav_decompress_2( src, dst, srclen, dstlen, &dl );
+	}
+#endif // LZAV_FMT_MIN < 3
+
+	return( dl );
+}
+
+/**
+ * @brief LZAV decompression function.
+ *
+ * The function decompresses "raw" data previously compressed into the LZAV
+ * data format.
+ *
+ * Note that while the function performs checks to avoid OOB memory accesses
+ * and verifies the decompressed data length, these checks do not strictly
+ * guarantee valid decompression. In cases where the compressed data is stored
+ * long-term without embedded data integrity mechanisms (e.g., a database
+ * without RAID 1 redundancy, a binary container without a digital signature
+ * or CRC), a checksum (hash) of the original uncompressed data should be
+ * stored and then compared with the checksum of the decompressed data. Also,
+ * a separate checksum (hash) of an application-defined header, which contains
+ * the uncompressed and compressed data lengths, should be checked before
+ * decompression. The high-performance `komihash` hash function can be used to
+ * obtain a hash value of the data.
+ *
+ * @param[in] src Source (compressed) data pointer; can be 0 if `srclen` is 0.
+ * Address alignment is unimportant.
+ * @param[out] dst Destination (decompressed data) buffer pointer. It must
+ * not overlap `src`. Address alignment is unimportant.
+ * @param srclen Source data length, in bytes; can be 0.
+ * @param dstlen Expected destination data length, in bytes; can be 0.
+ * It should not be confused with the actual size of the destination buffer
+ * (which may be larger).
+ * @return The length of the decompressed data, in bytes, or any negative
+ * value if an error occurs. The returned value is always negative if the
+ * resulting decompressed data length differs from `dstlen`. This means that
+ * error handling requires just a check for a negative return value (see the
+ * LZAV_ERROR enum for possible values).
+ */
+
+LZAV_INLINE_F int lzav_decompress( const void* const src, void* const dst,
+	const int srclen, const int dstlen ) LZAV_NOEXC
+{
+	if( srclen < 0 )
+	{
+		return( LZAV_E_PARAMS );
+	}
+
+	if( srclen == 0 )
+	{
+		return( dstlen == 0 ? 0 : LZAV_E_PARAMS );
+	}
+
+	if( src == LZAV_NULL || dst == LZAV_NULL || src == dst || dstlen <= 0 )
+	{
+		return( LZAV_E_PARAMS );
+	}
+
+	const int fmt = *(const uint8_t*) src >> 4;
+
+	if( fmt == 3 )
+	{
+		int tmp;
+		return( lzav_decompress_3( src, dst, srclen, dstlen, &tmp ));
+	}
+
+#if LZAV_FMT_MIN < 3
+	if( fmt == 2 )
+	{
+		int tmp;
+		return( lzav_decompress_2( src, dst, srclen, dstlen, &tmp ));
+	}
+#endif // LZAV_FMT_MIN < 3
+
+	return( LZAV_E_UNKFMT );
+}
+
+#if defined( LZAV_NS )
+
+} // namespace LZAV_NS
+
+#if !defined( LZAV_NS_CUSTOM )
+
+namespace {
+
+using namespace LZAV_NS::enum_wrapper;
+using LZAV_NS::lzav_compress_bound_mref5;
+using LZAV_NS::lzav_compress_bound_mref6;
+using LZAV_NS::lzav_compress_bound;
+using LZAV_NS::lzav_compress_bound_hi;
+using LZAV_NS::lzav_compress;
+using LZAV_NS::lzav_compress_mref5;
+using LZAV_NS::lzav_compress_mref6;
+using LZAV_NS::lzav_compress_default;
+using LZAV_NS::lzav_compress_hi;
+using LZAV_NS::lzav_decompress_partial;
+using LZAV_NS::lzav_decompress;
+
+} // namespace
+
+#endif // !defined( LZAV_NS_CUSTOM )
+
+#endif // defined( LZAV_NS )
+
+// Macro definitions for Doxygen.
+
+#if !defined( LZAV_NS_CUSTOM )
+	#define LZAV_NS_CUSTOM
+	#undef LZAV_NS_CUSTOM
+#endif // !defined( LZAV_NS_CUSTOM )
+
+#if !defined( LZAV_EXCEPT )
+	#define LZAV_EXCEPT
+	#undef LZAV_EXCEPT
+#endif // !defined( LZAV_EXCEPT )
+
+#if defined( LZAV_DEF_MALLOC )
+	#undef LZAV_MALLOC
+	#undef LZAV_FREE
+	#undef LZAV_DEF_MALLOC
+#endif // defined( LZAV_DEF_MALLOC )
+
+#undef LZAV_NS
+#undef LZAV_NOEXC
+#undef LZAV_NULL
+#undef LZAV_X86
+#undef LZAV_LITTLE_ENDIAN
+#undef LZAV_COND_EC
+#undef LZAV_PTR32
+#undef LZAV_ARCH64
+#undef LZAV_LONG_COPY
+#undef LZAV_GCC_BUILTINS
+#undef LZAV_CPP_BIT
+#undef LZAV_IEC32
+#undef LZAV_LIKELY
+#undef LZAV_UNLIKELY
+#undef LZAV_LIKELY_DO
+#undef LZAV_LIKELY_DO_EXPR
+#undef LZAV_RESTRICT
+#undef LZAV_PREFETCH
+#undef LZAV_STATIC
+#undef LZAV_INLINE
+#undef LZAV_INLINE_F
+#undef LZAV_NO_INLINE
+
+#endif // LZAV_INCLUDED
+#if defined(__sun)
+#pragma pop_macro("_BYTE_ORDER")
+#pragma pop_macro("_BIG_ENDIAN")
+#pragma pop_macro("_LITTLE_ENDIAN")
+#endif // corresponds to #if (#if defined(__sun))
+/// LICENSE_END.27
+#endif // corresponds to #ifdef (#ifdef ZPAQLZAV)
+///NOSFTPSTART
 /// ZPAQMOUNT: read-only FUSE mount of an archive ("mount" command).
 ///
 /// Build with -DZPAQMOUNT.
 ///   Linux/BSD: needs libfuse3 headers and -lfuse3 (pkg-config fuse3).
+///   OpenBSD:   the FUSE 2 of the base system, just -lfuse (ZPAQMOUNT_FUSE2).
+///   macOS:     the same, from FUSE-T or macFUSE (both ship a libfuse3).
 ///   Windows:   needs the WinFsp headers only (-I"C:/Program Files (x86)/WinFsp/inc");
 ///              the WinFsp DLL is located and loaded at run time, so there
 ///              is NO link-time dependency (see zpaqmount_winfsp_bind()).
@@ -2178,7 +11968,30 @@ g++ -g -Wall -Wextra -Wpedantic -fsanitize=address,undefined -O3 zpaqfranz.cpp -
 /// must come early and, on Windows, after windows.h.
 ////////////////////////////////////////////////////////////////////////////
 #ifdef ZPAQMOUNT
+/*
+	OpenBSD is the odd one out. Its FUSE is in the base system and it is a
+	FUSE 2.6: there is no libfuse3 anywhere, not even in ports. So there the
+	mount is built against that API instead, which is the same thing seen
+	from a little further back: getattr without a fuse_file_info, a filler
+	without flags in readdir, an init without fuse_config. Three differences,
+	handled where they show up (ZPAQMOUNT_FUSE2). Everybody else: FUSE 3
+*/
+#if defined(__OpenBSD__)
+#define ZPAQMOUNT_FUSE2 1
+#define FUSE_USE_VERSION 26
+#else
 #define FUSE_USE_VERSION 31
+#endif // corresponds to #if (#if defined(__OpenBSD__))
+#include <atomic>
+/// macFUSE's libfuse3 has "Darwin extensions", ON by default, that change
+/// the prototypes of getattr, readdir and statfs (struct fuse_darwin_attr and
+/// struct statfs instead of struct stat and struct statvfs): three errors on
+/// mount_ops(). Everything here is written for the plain libfuse API, the one
+/// of Linux, FreeBSD, WinFsp and FUSE-T, and macFUSE gives that one too if
+/// asked before its header is included. FUSE-T does not know the macro at all
+#if defined(__APPLE__) && !defined(FUSE_DARWIN_ENABLE_EXTENSIONS)
+#define FUSE_DARWIN_ENABLE_EXTENSIONS 0
+#endif // corresponds to #if (#if defined(__APPLE__) && !defined(FUSE_DARWIN_ENABLE_EXTENSIONS))
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -2215,7 +12028,40 @@ void* zpaqmount_winfsp_load(const char** why);
 #define O_ACCMODE (O_RDONLY | O_WRONLY | O_RDWR)
 #endif
 #else
-#include <fuse3/fuse.h>
+/// Where libfuse3 keeps its header is a per-system choice, and the only
+/// portable thing about it is pkg-config: it hands out the right -I.
+/// Debian & C. put it in /usr/include/fuse3, so that directory is on the
+/// default search path and both spellings work. FreeBSD's fusefs-libs3
+/// installs /usr/local/include/fuse3/fuse.h, and the base clang does NOT
+/// search /usr/local/include: there only the pkg-config -I makes the header
+/// reachable, and then it is plain <fuse.h>. On macOS both FUSE-T and macFUSE
+/// install /usr/local/include/fuse3/fuse.h, and Apple clang does search
+/// /usr/local/include, so <fuse3/fuse.h> is found even without the -I.
+/// So ask the preprocessor which one exists instead of guessing. <fuse3/...>
+/// is tried first, so a machine carrying both libfuse2 (/usr/include/fuse.h)
+/// and libfuse3 cannot get the version 2 header by accident.
+#if defined(ZPAQMOUNT_FUSE2)
+	/// OpenBSD: FUSE 2 in the base system, headers in /usr/include/fuse
+	#if defined(__has_include) && !__has_include(<fuse/fuse.h>)
+		#include <fuse.h>
+	#else
+		#include <fuse/fuse.h>
+	#endif
+#elif defined(__has_include)
+	#if __has_include(<fuse3/fuse.h>)
+		#include <fuse3/fuse.h>
+	#else
+		#include <fuse.h>
+	#endif
+#else
+	#include <fuse3/fuse.h>
+#endif // corresponds to #if (#if defined(ZPAQMOUNT_FUSE2))
+/// If the wrong fuse.h did get picked up say so right here, instead of
+/// letting it fail later as a flood of unknown types (fuse_operations is
+/// quite different in FUSE 2: no fuse_file_info on readdir, no fuse_config)
+#if !defined(ZPAQMOUNT_FUSE2) && (!defined(FUSE_MAJOR_VERSION) || FUSE_MAJOR_VERSION < 3)
+#error "libfuse 3 needed (an older fuse.h was found): FreeBSD pkg install fusefs-libs3, debian/Ubuntu apt install libfuse3-dev, macOS FUSE-T or macFUSE, then build with $(pkg-config fuse3 --cflags --libs). OpenBSD is the exception: there the FUSE 2 of the base system is used, -lfuse and nothing else"
+#endif // corresponds to #if (#if !defined(ZPAQMOUNT_FUSE2) && ...)
 #include <sys/statvfs.h>
 #include <sys/mman.h>
 #define fuse_stat    stat
@@ -2230,7 +12076,7 @@ typedef mode_t fuse_mode_t;
 #endif
 std::string g_fuseopt;              // -fuseopt a,b,c  -> passed to FUSE/WinFsp as -o a,b,c
 std::string g_mountbackend= "auto"; // -backend auto|jidac ('core' commented out, see franzmount::mount_pick_backend)
-#endif // ZPAQMOUNT
+#endif // ZPAQMOUNT ///NOSFTPEND
 
 #ifdef ZPAQFULL ///NOSFTPSTART
 ///sed "/^[[:space:]]*$/d" 2.cpp > 3.cpp
@@ -4950,7 +14796,7 @@ int64_t	 g_startdownload = 0;
 int		 g_rd_ultimotempo= 0;
 uint32_t g_rd_errors	 = 0;  // rd: objects that could NOT be deleted
 uint32_t g_rd_lasterror	 = 0; // rd: the FIRST error found (Windows code)
-string	 g_rd_errorpath	 = ""; // rd: ...and on which object
+std::string g_rd_errorpath= ""; // rd: ...and on which object (std:: : we are before using std::string)
 int64_t	 g_cdatasize	 = 0;
 unsigned g_htsize		 = 0;
 bool	 g_fakewrite	 = false; // in add() disable write (ransomware)
@@ -5114,7 +14960,7 @@ bool flagturbo;
 bool flagimage;
 bool flagzip;			  // 'zip' command: x, but into ONE single ZIP64 file
 bool flagdeflate;		  // ...and -deflate compresses it, sequentially (method 8)
-string g_zipname= ""; // ...and this is the .zip to be created
+std::string g_zipname= ""; // ...and this is the .zip to be created (std:: : see g_rd_errorpath)
 #ifdef _WIN32
 bool flagraw;
 bool flagfindzpaq;
@@ -9680,1781 +19526,7 @@ std::string bin2hex_128(uint64_t i_high, uint64_t i_low)
 
 
 
-#ifdef _WIN32
-/// LICENSE_START.22
-
-/// A "stripped" LZ4 
-
-#define LZ4_ACCELERATION_DEFAULT 1
-#define LZ4_ACCELERATION_MAX 65537
-#define LZ4_MEMORY_USAGE_DEFAULT 14 /// 16KB
-#define LZ4_MEMORY_USAGE LZ4_MEMORY_USAGE_DEFAULT
-#define LZ4_MAX_INPUT_SIZE        0x7E000000   /* 2 113 929 216 bytes */
-#define LZ4_COMPRESSBOUND(isize)  ((unsigned)(isize) > (unsigned)LZ4_MAX_INPUT_SIZE ? 0 : (isize) + ((isize)/255) + 16)
-#define LZ4_DECODER_RING_BUFFER_SIZE(maxBlockSize) (65536 + 14 + (maxBlockSize))  /* for static allocation; maxBlockSize presumed valid */
-#define LZ4_DECOMPRESS_INPLACE_MARGIN(compressedSize)          (((compressedSize) >> 8) + 32)
-#define LZ4_DECOMPRESS_INPLACE_BUFFER_SIZE(decompressedSize)   ((decompressedSize) + LZ4_DECOMPRESS_INPLACE_MARGIN(decompressedSize))  /**< note: presumes that compressedSize < decompressedSize. note2: margin is overestimated a bit, since it could use compressedSize instead */
-#define LZ4_DISTANCE_MAX 65535   /* set to maximum value by default */
-#define LZ4_COMPRESS_INPLACE_MARGIN                           (LZ4_DISTANCE_MAX + 32)   /* LZ4_DISTANCE_MAX can be safely replaced by srcSize when it's smaller */
-#define LZ4_COMPRESS_INPLACE_BUFFER_SIZE(maxCompressedSize)   ((maxCompressedSize) + LZ4_COMPRESS_INPLACE_MARGIN)  /**< maxCompressedSize is generally LZ4_COMPRESSBOUND(inputSize), but can be set to any lower value, with the risk that compression can fail (return code 0(zero)) */
-#define LZ4_HASHLOG   (LZ4_MEMORY_USAGE-2)
-#define LZ4_HASH_SIZE_U32 (1 << LZ4_HASHLOG)       /* required as macro for static allocation */
-#define LZ4_FORCE_O2
-#define LZ4_ALIGN_TEST 1
-#define LZ4_STREAMDECODE_MINSIZE 32
-#define LZ4_STREAM_MINSIZE  ((1UL << (LZ4_MEMORY_USAGE)) + 32)  /* static size, for inter-version compatibility */
-
-#define MINMATCH 4
-#define WILDCOPYLENGTH 8
-#define LASTLITERALS   5   /* see ../doc/lz4_Block_format.md#parsing-restrictions */
-#define MFLIMIT       12   /* see ../doc/lz4_Block_format.md#parsing-restrictions */
-#define MATCH_SAFEGUARD_DISTANCE  ((2*WILDCOPYLENGTH) - MINMATCH)   /* ensure it's possible to write 2 x wildcopyLength without overflowing output buffer */
-#define FASTLOOP_SAFE_DISTANCE 64
-static const int LZ4_minLength = (MFLIMIT+1);
-
-#define KB *(1 <<10)
-#define MB *(1 <<20)
-#define GB *(1U<<30)
-
-#define LZ4_DISTANCE_ABSOLUTE_MAX 65535
-
-#define ML_BITS  4
-#define ML_MASK  ((1U<<ML_BITS)-1)
-#define RUN_BITS (8-ML_BITS)
-#define RUN_MASK ((1U<<RUN_BITS)-1)
-
-#define LZ4_STATIC_ASSERT(c)   { enum { LZ4_static_assert = 1/(int)(!!(c)) }; }   /* use after variable declarations */
-#define DEBUGLOG(l, ...) {}    /* disabled */
-
-
-typedef union LZ4_stream_u LZ4_stream_t;  /* incomplete type (defined later) */
-typedef union LZ4_streamDecode_u LZ4_streamDecode_t;   /* tracking context */
-typedef  int8_t  LZ4_i8;
-typedef uint8_t  LZ4_byte;
-typedef uint16_t LZ4_u16;
-typedef uint32_t LZ4_u32;
-
-int LZ4_compress_fast (const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
-int LZ4_compress_fast_continue (LZ4_stream_t* streamPtr, const char* src, char* dst, int srcSize, int dstCapacity, int acceleration);
-int LZ4_decompress_safe (const char* src, char* dst, int compressedSize, int dstCapacity);
-int LZ4_decompress_safe_continue (LZ4_streamDecode_t* LZ4_streamDecode,
-                        const char* src, char* dst,
-                        int srcSize, int dstCapacity);
-
-
-typedef struct LZ4_stream_t_internal LZ4_stream_t_internal;
-struct LZ4_stream_t_internal {
-    LZ4_u32 hashTable[LZ4_HASH_SIZE_U32];
-    const LZ4_byte* dictionary;
-    const LZ4_stream_t_internal* dictCtx;
-    LZ4_u32 currentOffset;
-    LZ4_u32 tableType;
-    LZ4_u32 dictSize;
-    /* Implicit padding to ensure structure is aligned */
-};
-
-union LZ4_stream_u {
-    char minStateSize[LZ4_STREAM_MINSIZE];
-    LZ4_stream_t_internal internal_donotuse;
-}; /* previously typedef'd to LZ4_stream_t */
-
-LZ4_stream_t* LZ4_initStream (void* buffer, size_t size);
-
-typedef struct {
-    const LZ4_byte* externalDict;
-    const LZ4_byte* prefixEnd;
-    size_t extDictSize;
-    size_t prefixSize;
-} LZ4_streamDecode_t_internal;
-
-
-union LZ4_streamDecode_u {
-    char minStateSize[LZ4_STREAMDECODE_MINSIZE];
-    LZ4_streamDecode_t_internal internal_donotuse;
-} ;   /* previously typedef'd to LZ4_streamDecode_t */
-
-
-#ifndef LZ4_FORCE_INLINE
-#  ifdef _MSC_VER    /* Visual Studio */
-#    define LZ4_FORCE_INLINE static __forceinline
-#  else
-#    if defined (__cplusplus) || defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L   /* C99 */
-#      ifdef __GNUC__
-#        define LZ4_FORCE_INLINE static inline __attribute__((always_inline))
-#      else
-#        define LZ4_FORCE_INLINE static inline
-#      endif
-#    else
-#      define LZ4_FORCE_INLINE static
-#    endif /* __STDC_VERSION__ */
-#  endif  /* _MSC_VER */
-#endif /* LZ4_FORCE_INLINE */ // corresponds to #ifndef (#ifndef LZ4_FORCE_INLINE)
-
-
-#if (defined(__GNUC__) && (__GNUC__ >= 3)) || (defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 800)) || defined(__clang__)
-#  define expect(expr,value)    (__builtin_expect ((expr),(value)) )
-#else
-#  define expect(expr,value)    (expr)
-#endif // corresponds to #if (#if (defined(__GNUC__) && (__GNUC__ >= 3)) || (defined(__INTEL_COMPILER) && (__INTEL_COMPILER >= 800)) || defined(__clang__))
-
-#ifndef likely
-#define likely(expr)     expect((expr) != 0, 1)
-#endif // corresponds to #ifndef (#ifndef likely)
-#ifndef unlikely
-#define unlikely(expr)   expect((expr) != 0, 0)
-#endif // corresponds to #ifndef (#ifndef unlikely)
-
-#define ALLOC(s)          malloc(s)
-#define ALLOC_AND_ZERO(s) calloc(1,s)
-#define FREEMEM(p)        free(p)
-#define LZ4_memset(p,v,s) memset((p),(v),(s))
-#define MEM_INIT(p,v,s)   LZ4_memset((p),(v),(s))
-
-
-static int LZ4_isAligned(const void* ptr, size_t alignment)
-{
-    return ((size_t)ptr & (alignment -1)) == 0;
-}
-
-typedef  uint8_t BYTE;
-typedef uint16_t U16;
-typedef uint32_t U32;
-typedef  int32_t S32;
-typedef uint64_t U64;
-typedef uintptr_t uptrval;
-
-#if defined(__x86_64__)
-  typedef U64    reg_t;   /* 64-bits in x32 mode */
-#else
-  typedef size_t reg_t;   /* 32-bits in x32 mode */
-#endif // corresponds to #if (#if defined(__x86_64__))
-
-typedef enum {
-    notLimited = 0,
-    limitedOutput = 1,
-    fillOutput = 2
-} limitedOutput_directive;
-
-
-#if !defined(LZ4_memcpy)
-#  if defined(__GNUC__) && (__GNUC__ >= 4)
-#    define LZ4_memcpy(dst, src, size) __builtin_memcpy(dst, src, size)
-#  else
-#    define LZ4_memcpy(dst, src, size) memcpy(dst, src, size)
-#  endif
-#endif // corresponds to #if (#if !defined(LZ4_memcpy))
-
-#if !defined(LZ4_memmove)
-#  if defined(__GNUC__) && (__GNUC__ >= 4)
-#    define LZ4_memmove __builtin_memmove
-#  else
-#    define LZ4_memmove memmove
-#  endif
-#endif // corresponds to #if (#if !defined(LZ4_memmove))
-
-static unsigned LZ4_isLittleEndian(void)
-{
-	return 1;
-	
-    ///const union { U32 u; BYTE c[4]; } one = { 1 };   /* don't use static : performance detrimental */
-    ///return one.c[0];
-}
-
-#if defined(__GNUC__) || defined(__INTEL_COMPILER)
-#define LZ4_PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
-#elif defined(_MSC_VER)
-#define LZ4_PACK( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop))
-#endif // corresponds to #if (#if defined(__GNUC__) || defined(__INTEL_COMPILER))
-
-LZ4_PACK(typedef struct { U16 u16; }) LZ4_unalign16;
-LZ4_PACK(typedef struct { U32 u32; }) LZ4_unalign32;
-LZ4_PACK(typedef struct { reg_t uArch; }) LZ4_unalignST;
-
-static U16 LZ4_read16(const void* ptr) { return ((const LZ4_unalign16*)ptr)->u16; }
-static U32 LZ4_read32(const void* ptr) { return ((const LZ4_unalign32*)ptr)->u32; }
-static reg_t LZ4_read_ARCH(const void* ptr) { return ((const LZ4_unalignST*)ptr)->uArch; }
-
-static void LZ4_write16(void* memPtr, U16 value) { ((LZ4_unalign16*)memPtr)->u16 = value; }
-static void LZ4_write32(void* memPtr, U32 value) { ((LZ4_unalign32*)memPtr)->u32 = value; }
-
-
-
-static U16 LZ4_readLE16(const void* memPtr)
-{
-    if (LZ4_isLittleEndian()) {
-        return LZ4_read16(memPtr);
-    } else {
-        const BYTE* p = (const BYTE*)memPtr;
-        return (U16)((U16)p[0] + (p[1]<<8));
-    }
-}
-
-static void LZ4_writeLE16(void* memPtr, U16 value)
-{
-    if (LZ4_isLittleEndian()) {
-        LZ4_write16(memPtr, value);
-    } else {
-        BYTE* p = (BYTE*)memPtr;
-        p[0] = (BYTE) value;
-        p[1] = (BYTE)(value>>8);
-    }
-}
-
-/* customized variant of memcpy, which can overwrite up to 8 bytes beyond dstEnd */
-LZ4_FORCE_INLINE
-void LZ4_wildCopy8(void* dstPtr, const void* srcPtr, void* dstEnd)
-{
-    BYTE* d = (BYTE*)dstPtr;
-    const BYTE* s = (const BYTE*)srcPtr;
-    BYTE* const e = (BYTE*)dstEnd;
-
-    do { LZ4_memcpy(d,s,8); d+=8; s+=8; } while (d<e);
-}
-
-static const unsigned inc32table[8] = {0, 1, 2,  1,  0,  4, 4, 4};
-static const int      dec64table[8] = {0, 0, 0, -1, -4,  1, 2, 3};
-
-
-#ifndef LZ4_FAST_DEC_LOOP
-#  if defined __i386__ || defined _M_IX86 || defined __x86_64__ || defined _M_X64
-#    define LZ4_FAST_DEC_LOOP 1
-#  elif defined(__aarch64__) && defined(__APPLE__)
-#    define LZ4_FAST_DEC_LOOP 1
-#  elif defined(__aarch64__) && !defined(__clang__)
-     /* On non-Apple aarch64, we disable this optimization for clang because
-      * on certain mobile chipsets, performance is reduced with clang. For
-      * more information refer to https://github.com/lz4/lz4/pull/707 */
-#    define LZ4_FAST_DEC_LOOP 1
-#  else
-#    define LZ4_FAST_DEC_LOOP 0
-#  endif
-#endif // corresponds to #ifndef (#ifndef LZ4_FAST_DEC_LOOP)
-
-#if LZ4_FAST_DEC_LOOP
-
-LZ4_FORCE_INLINE void
-LZ4_memcpy_using_offset_base(BYTE* dstPtr, const BYTE* srcPtr, BYTE* dstEnd, const size_t offset)
-{
-    assert(srcPtr + offset == dstPtr);
-    if (offset < 8) {
-        LZ4_write32(dstPtr, 0);   /* silence an msan warning when offset==0 */
-        dstPtr[0] = srcPtr[0];
-        dstPtr[1] = srcPtr[1];
-        dstPtr[2] = srcPtr[2];
-        dstPtr[3] = srcPtr[3];
-		
-        srcPtr += inc32table[offset];
-        LZ4_memcpy(dstPtr+4, srcPtr, 4);
-        srcPtr -= dec64table[offset];
-        dstPtr += 8;
-    } else {
-        LZ4_memcpy(dstPtr, srcPtr, 8);
-        dstPtr += 8;
-        srcPtr += 8;
-    }
-
-    LZ4_wildCopy8(dstPtr, srcPtr, dstEnd);
-}
-
-/* customized variant of memcpy, which can overwrite up to 32 bytes beyond dstEnd
- * this version copies two times 16 bytes (instead of one time 32 bytes)
- * because it must be compatible with offsets >= 16. */
-LZ4_FORCE_INLINE void
-LZ4_wildCopy32(void* dstPtr, const void* srcPtr, void* dstEnd)
-{
-    BYTE* d = (BYTE*)dstPtr;
-    const BYTE* s = (const BYTE*)srcPtr;
-    BYTE* const e = (BYTE*)dstEnd;
-
-    do { LZ4_memcpy(d,s,16); LZ4_memcpy(d+16,s+16,16); d+=32; s+=32; } while (d<e);
-}
-
-/* LZ4_memcpy_using_offset()  presumes :
- * - dstEnd >= dstPtr + MINMATCH
- * - there is at least 8 bytes available to write after dstEnd */
-LZ4_FORCE_INLINE void
-LZ4_memcpy_using_offset(BYTE* dstPtr, const BYTE* srcPtr, BYTE* dstEnd, const size_t offset)
-{
-    BYTE v[8];
-
-    assert(dstEnd >= dstPtr + MINMATCH);
-
-    switch(offset) {
-    case 1:
-        MEM_INIT(v, *srcPtr, 8);
-        break;
-    case 2:
-        LZ4_memcpy(v, srcPtr, 2);
-        LZ4_memcpy(&v[2], srcPtr, 2);
-#if defined(_MSC_VER) && (_MSC_VER <= 1937) /* MSVC 2022 ver 17.7 or earlier */
-#  pragma warning(push)
-#  pragma warning(disable : 6385) /* warning C6385: Reading invalid data from 'v'. */
-#endif // corresponds to #if (#if defined(_MSC_VER) && (_MSC_VER <= 1937) /* MSVC 2022 ver 17.7 or earlier */)
-        LZ4_memcpy(&v[4], v, 4);
-#if defined(_MSC_VER) && (_MSC_VER <= 1937) /* MSVC 2022 ver 17.7 or earlier */
-#  pragma warning(pop)
-#endif // corresponds to #if (#if defined(_MSC_VER) && (_MSC_VER <= 1937) /* MSVC 2022 ver 17.7 or earlier */)
-        break;
-    case 4:
-        LZ4_memcpy(v, srcPtr, 4);
-        LZ4_memcpy(&v[4], srcPtr, 4);
-        break;
-    default:
-        LZ4_memcpy_using_offset_base(dstPtr, srcPtr, dstEnd, offset);
-        return;
-    }
-
-    LZ4_memcpy(dstPtr, v, 8);
-    dstPtr += 8;
-    while (dstPtr < dstEnd) {
-        LZ4_memcpy(dstPtr, v, 8);
-        dstPtr += 8;
-    }
-}
-#endif // corresponds to #if (#if LZ4_FAST_DEC_LOOP)
-
-
-/*-************************************
-*  Common functions
-**************************************/
-static unsigned LZ4_NbCommonBytes (reg_t val)
-{
-    assert(val != 0);
-    if (LZ4_isLittleEndian()) {
-        if (sizeof(val) == 8) {
-#       if defined(_MSC_VER) && (_MSC_VER >= 1800) && (defined(_M_AMD64) && !defined(_M_ARM64EC)) && !defined(LZ4_FORCE_SW_BITCOUNT)
-/*-*************************************************************************************************
-* ARM64EC is a Microsoft-designed ARM64 ABI compatible with AMD64 applications on ARM64 Windows 11.
-* The ARM64EC ABI does not support AVX/AVX2/AVX512 instructions, nor their relevant intrinsics
-* including _tzcnt_u64. Therefore, we need to neuter the _tzcnt_u64 code path for ARM64EC.
-****************************************************************************************************/
-#         if defined(__clang__) && (__clang_major__ < 10)
-            /* Avoid undefined clang-cl intrinsics issue.
-             * See https://github.com/lz4/lz4/pull/1017 for details. */
-            return (unsigned)__builtin_ia32_tzcnt_u64(val) >> 3;
-#         else
-            /* x64 CPUS without BMI support interpret `TZCNT` as `REP BSF` */
-            return (unsigned)_tzcnt_u64(val) >> 3;
-#         endif
-#       elif defined(_MSC_VER) && defined(_WIN64) && !defined(LZ4_FORCE_SW_BITCOUNT)
-            unsigned long r = 0;
-            _BitScanForward64(&r, (U64)val);
-            return (unsigned)r >> 3;
-#       elif (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
-                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
-                                        !defined(LZ4_FORCE_SW_BITCOUNT)
-            return (unsigned)__builtin_ctzll((U64)val) >> 3;
-#       else
-            const U64 m = 0x0101010101010101ULL;
-            val ^= val - 1;
-            return (unsigned)(((U64)((val & (m - 1)) * m)) >> 56);
-#       endif
-        } else /* 32 bits */ {
-#       if defined(_MSC_VER) && (_MSC_VER >= 1400) && !defined(LZ4_FORCE_SW_BITCOUNT)
-            unsigned long r;
-            _BitScanForward(&r, (U32)val);
-            return (unsigned)r >> 3;
-#       elif (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
-                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
-                        !defined(__TINYC__) && !defined(LZ4_FORCE_SW_BITCOUNT)
-            return (unsigned)__builtin_ctz((U32)val) >> 3;
-#       else
-            const U32 m = 0x01010101;
-            return (unsigned)((((val - 1) ^ val) & (m - 1)) * m) >> 24;
-#       endif
-        }
-    } else   /* Big Endian CPU */ {
-        if (sizeof(val)==8) {
-#       if (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
-                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
-                        !defined(__TINYC__) && !defined(LZ4_FORCE_SW_BITCOUNT)
-            return (unsigned)__builtin_clzll((U64)val) >> 3;
-#       else
-#if 1
-            /* this method is probably faster,
-             * but adds a 128 bytes lookup table */
-            static const unsigned char ctz7_tab[128] = {
-                7, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                6, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                5, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-                4, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
-            };
-            U64 const mask = 0x0101010101010101ULL;
-            U64 const t = (((val >> 8) - mask) | val) & mask;
-            return ctz7_tab[(t * 0x0080402010080402ULL) >> 57];
-#else
-            /* this method doesn't consume memory space like the previous one,
-             * but it contains several branches,
-             * that may end up slowing execution */
-            static const U32 by32 = sizeof(val)*4;  /* 32 on 64 bits (goal), 16 on 32 bits.
-            Just to avoid some static analyzer complaining about shift by 32 on 32-bits target.
-            Note that this code path is never triggered in 32-bits mode. */
-            unsigned r;
-            if (!(val>>by32)) { r=4; } else { r=0; val>>=by32; }
-            if (!(val>>16)) { r+=2; val>>=8; } else { val>>=24; }
-            r += (!val);
-            return r;
-#endif // corresponds to #if (#if 1)
-#       endif
-        } else /* 32 bits */ {
-#       if (defined(__clang__) || (defined(__GNUC__) && ((__GNUC__ > 3) || \
-                            ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4))))) && \
-                                        !defined(LZ4_FORCE_SW_BITCOUNT)
-            return (unsigned)__builtin_clz((U32)val) >> 3;
-#       else
-            val >>= 8;
-            val = ((((val + 0x00FFFF00) | 0x00FFFFFF) + val) |
-              (val + 0x00FF0000)) >> 24;
-            return (unsigned)val ^ 3;
-#       endif
-        }
-    }
-}
-
-
-#define STEPSIZE sizeof(reg_t)
-LZ4_FORCE_INLINE
-unsigned LZ4_count(const BYTE* pIn, const BYTE* pMatch, const BYTE* pInLimit)
-{
-    const BYTE* const pStart = pIn;
-
-    if (likely(pIn < pInLimit-(STEPSIZE-1))) {
-        reg_t const diff = LZ4_read_ARCH(pMatch) ^ LZ4_read_ARCH(pIn);
-        if (!diff) {
-            pIn+=STEPSIZE; pMatch+=STEPSIZE;
-        } else {
-            return LZ4_NbCommonBytes(diff);
-    }   }
-
-    while (likely(pIn < pInLimit-(STEPSIZE-1))) {
-        reg_t const diff = LZ4_read_ARCH(pMatch) ^ LZ4_read_ARCH(pIn);
-        if (!diff) { pIn+=STEPSIZE; pMatch+=STEPSIZE; continue; }
-        pIn += LZ4_NbCommonBytes(diff);
-        return (unsigned)(pIn - pStart);
-    }
-
-    if ((STEPSIZE==8) && (pIn<(pInLimit-3)) && (LZ4_read32(pMatch) == LZ4_read32(pIn))) { pIn+=4; pMatch+=4; }
-    if ((pIn<(pInLimit-1)) && (LZ4_read16(pMatch) == LZ4_read16(pIn))) { pIn+=2; pMatch+=2; }
-    if ((pIn<pInLimit) && (*pMatch == *pIn)) pIn++;
-    return (unsigned)(pIn - pStart);
-}
-
-
-static const U32 LZ4_skipTrigger = 6;  /* Increase this value ==> compression run slower on incompressible data */
-
-typedef enum { clearedTable = 0, byPtr, byU32, byU16 } tableType_t;
-typedef enum { noDict = 0, withPrefix64k, usingExtDict, usingDictCtx } dict_directive;
-typedef enum { noDictIssue = 0, dictSmall } dictIssue_directive;
-
-
-int LZ4_decompress_safe_forceExtDict(const char* source, char* dest,
-                                     int compressedSize, int maxOutputSize,
-                                     const void* dictStart, size_t dictSize);
-int LZ4_decompress_safe_partial_forceExtDict(const char* source, char* dest,
-                                     int compressedSize, int targetOutputSize, int dstCapacity,
-                                     const void* dictStart, size_t dictSize);
-
-LZ4_FORCE_INLINE U32 LZ4_hash4(U32 sequence, tableType_t const tableType)
-{
-    if (tableType == byU16)
-        return ((sequence * 2654435761U) >> ((MINMATCH*8)-(LZ4_HASHLOG+1)));
-    else
-        return ((sequence * 2654435761U) >> ((MINMATCH*8)-LZ4_HASHLOG));
-}
-
-LZ4_FORCE_INLINE U32 LZ4_hash5(U64 sequence, tableType_t const tableType)
-{
-    const U32 hashLog = (tableType == byU16) ? LZ4_HASHLOG+1 : LZ4_HASHLOG;
-    if (LZ4_isLittleEndian()) {
-        const U64 prime5bytes = 889523592379ULL;
-        return (U32)(((sequence << 24) * prime5bytes) >> (64 - hashLog));
-    } else {
-        const U64 prime8bytes = 11400714785074694791ULL;
-        return (U32)(((sequence >> 24) * prime8bytes) >> (64 - hashLog));
-    }
-}
-
-LZ4_FORCE_INLINE U32 LZ4_hashPosition(const void* const p, tableType_t const tableType)
-{
-    if ((sizeof(reg_t)==8) && (tableType != byU16)) return LZ4_hash5(LZ4_read_ARCH(p), tableType);
-    return LZ4_hash4(LZ4_read32(p), tableType);
-}
-
-LZ4_FORCE_INLINE void LZ4_clearHash(U32 h, void* tableBase, tableType_t const tableType)
-{
-    switch (tableType)
-    {
-    default: /* fallthrough */
-    case clearedTable: { /* illegal! */ assert(0); return; }
-    case byPtr: { const BYTE** hashTable = (const BYTE**)tableBase; hashTable[h] = NULL; return; }
-    case byU32: { U32* hashTable = (U32*) tableBase; hashTable[h] = 0; return; }
-    case byU16: { U16* hashTable = (U16*) tableBase; hashTable[h] = 0; return; }
-    }
-}
-
-LZ4_FORCE_INLINE void LZ4_putIndexOnHash(U32 idx, U32 h, void* tableBase, tableType_t const tableType)
-{
-    switch (tableType)
-    {
-    default: /* fallthrough */
-    case clearedTable: /* fallthrough */
-    case byPtr: { /* illegal! */ assert(0); return; }
-    case byU32: { U32* hashTable = (U32*) tableBase; hashTable[h] = idx; return; }
-    case byU16: { U16* hashTable = (U16*) tableBase; assert(idx < 65536); hashTable[h] = (U16)idx; return; }
-    }
-}
-
-/* LZ4_putPosition*() : only used in byPtr mode */
-LZ4_FORCE_INLINE void LZ4_putPositionOnHash(const BYTE* p, U32 h,
-                                  void* tableBase, tableType_t const tableType)
-{
-    const BYTE** const hashTable = (const BYTE**)tableBase;
-    assert(tableType == byPtr); (void)tableType;
-    hashTable[h] = p;
-}
-
-LZ4_FORCE_INLINE void LZ4_putPosition(const BYTE* p, void* tableBase, tableType_t tableType)
-{
-    U32 const h = LZ4_hashPosition(p, tableType);
-    LZ4_putPositionOnHash(p, h, tableBase, tableType);
-}
-
-/* LZ4_getIndexOnHash() :
- * Index of match position registered in hash table.
- * hash position must be calculated by using base+index, or dictBase+index.
- * Assumption 1 : only valid if tableType == byU32 or byU16.
- * Assumption 2 : h is presumed valid (within limits of hash table)
- */
-LZ4_FORCE_INLINE U32 LZ4_getIndexOnHash(U32 h, const void* tableBase, tableType_t tableType)
-{
-    LZ4_STATIC_ASSERT(LZ4_MEMORY_USAGE > 2);
-    if (tableType == byU32) {
-        const U32* const hashTable = (const U32*) tableBase;
-        assert(h < (1U << (LZ4_MEMORY_USAGE-2)));
-        return hashTable[h];
-    }
-    if (tableType == byU16) {
-        const U16* const hashTable = (const U16*) tableBase;
-        assert(h < (1U << (LZ4_MEMORY_USAGE-1)));
-        return hashTable[h];
-    }
-    assert(0); return 0;  /* forbidden case */
-}
-
-static const BYTE* LZ4_getPositionOnHash(U32 h, const void* tableBase, tableType_t tableType)
-{
-    assert(tableType == byPtr); (void)tableType;
-    { const BYTE* const* hashTable = (const BYTE* const*) tableBase; return hashTable[h]; }
-}
-
-LZ4_FORCE_INLINE const BYTE*
-LZ4_getPosition(const BYTE* p,
-                const void* tableBase, tableType_t tableType)
-{
-    U32 const h = LZ4_hashPosition(p, tableType);
-    return LZ4_getPositionOnHash(h, tableBase, tableType);
-}
-
-
-/** LZ4_compress_generic_validated() :
- *  inlined, to ensure branches are decided at compilation time.
- *  The following conditions are presumed already validated:
- *  - source != NULL
- *  - inputSize > 0
- */
-LZ4_FORCE_INLINE int LZ4_compress_generic_validated(
-                 LZ4_stream_t_internal* const cctx,
-                 const char* const source,
-                 char* const dest,
-                 const int inputSize,
-                 int*  inputConsumed, /* only written when outputDirective == fillOutput */
-                 const int maxOutputSize,
-                 const limitedOutput_directive outputDirective,
-                 const tableType_t tableType,
-                 const dict_directive dictDirective,
-                 const dictIssue_directive dictIssue,
-                 const int acceleration)
-{
-    int result;
-    const BYTE* ip = (const BYTE*)source;
-
-    U32 const startIndex = cctx->currentOffset;
-    const BYTE* base = (const BYTE*)source - startIndex;
-    const BYTE* lowLimit;
-
-    const LZ4_stream_t_internal* dictCtx = (const LZ4_stream_t_internal*) cctx->dictCtx;
-    const BYTE* const dictionary =
-        dictDirective == usingDictCtx ? dictCtx->dictionary : cctx->dictionary;
-    const U32 dictSize =
-        dictDirective == usingDictCtx ? dictCtx->dictSize : cctx->dictSize;
-    const U32 dictDelta =
-        (dictDirective == usingDictCtx) ? startIndex - dictCtx->currentOffset : 0;   /* make indexes in dictCtx comparable with indexes in current context */
-
-    int const maybe_extMem = (dictDirective == usingExtDict) || (dictDirective == usingDictCtx);
-    U32 const prefixIdxLimit = startIndex - dictSize;   /* used when dictDirective == dictSmall */
-    const BYTE* const dictEnd = dictionary ? dictionary + dictSize : dictionary;
-    const BYTE* anchor = (const BYTE*) source;
-    const BYTE* const iend = ip + inputSize;
-    const BYTE* const mflimitPlusOne = iend - MFLIMIT + 1;
-    const BYTE* const matchlimit = iend - LASTLITERALS;
-
-    /* the dictCtx currentOffset is indexed on the start of the dictionary,
-     * while a dictionary in the current context precedes the currentOffset */
-    const BYTE* dictBase = (dictionary == NULL) ? NULL :
-                           (dictDirective == usingDictCtx) ?
-                            dictionary + dictSize - dictCtx->currentOffset :
-                            dictionary + dictSize - startIndex;
-
-    BYTE* op = (BYTE*) dest;
-    BYTE* const olimit = op + maxOutputSize;
-
-    U32 offset = 0;
-    U32 forwardH;
-
-    DEBUGLOG(5, "LZ4_compress_generic_validated: srcSize=%i, tableType=%u", inputSize, tableType);
-    assert(ip != NULL);
-    if (tableType == byU16) assert(inputSize<LZ4_64Klimit);  /* Size too large (not within 64K limit) */
-    if (tableType == byPtr) assert(dictDirective==noDict);   /* only supported use case with byPtr */
-    /* If init conditions are not met, we don't have to mark stream
-     * as having dirty context, since no action was taken yet */
-    if (outputDirective == fillOutput && maxOutputSize < 1) { return 0; } /* Impossible to store anything */
-    assert(acceleration >= 1);
-
-    lowLimit = (const BYTE*)source - (dictDirective == withPrefix64k ? dictSize : 0);
-
-    /* Update context state */
-    if (dictDirective == usingDictCtx) {
-        /* Subsequent linked blocks can't use the dictionary. */
-        /* Instead, they use the block we just compressed. */
-        cctx->dictCtx = NULL;
-        cctx->dictSize = (U32)inputSize;
-    } else {
-        cctx->dictSize += (U32)inputSize;
-    }
-    cctx->currentOffset += (U32)inputSize;
-    cctx->tableType = (U32)tableType;
-
-    if (inputSize<LZ4_minLength) goto _last_literals;        /* Input too small, no compression (all literals) */
-
-    /* First Byte */
-    {   U32 const h = LZ4_hashPosition(ip, tableType);
-        if (tableType == byPtr) {
-            LZ4_putPositionOnHash(ip, h, cctx->hashTable, byPtr);
-        } else {
-            LZ4_putIndexOnHash(startIndex, h, cctx->hashTable, tableType);
-    }   }
-    ip++; forwardH = LZ4_hashPosition(ip, tableType);
-
-    /* Main Loop */
-    for ( ; ; ) {
-        const BYTE* match;
-        BYTE* token;
-        const BYTE* filledIp;
-
-        /* Find a match */
-        if (tableType == byPtr) {
-            const BYTE* forwardIp = ip;
-            int step = 1;
-            int searchMatchNb = acceleration << LZ4_skipTrigger;
-            do {
-                U32 const h = forwardH;
-                ip = forwardIp;
-                forwardIp += step;
-                step = (searchMatchNb++ >> LZ4_skipTrigger);
-
-                if (unlikely(forwardIp > mflimitPlusOne)) goto _last_literals;
-                assert(ip < mflimitPlusOne);
-
-                match = LZ4_getPositionOnHash(h, cctx->hashTable, tableType);
-                forwardH = LZ4_hashPosition(forwardIp, tableType);
-                LZ4_putPositionOnHash(ip, h, cctx->hashTable, tableType);
-
-            } while ( (match+LZ4_DISTANCE_MAX < ip)
-                   || (LZ4_read32(match) != LZ4_read32(ip)) );
-
-        } else {   /* byU32, byU16 */
-
-            const BYTE* forwardIp = ip;
-            int step = 1;
-            int searchMatchNb = acceleration << LZ4_skipTrigger;
-            do {
-                U32 const h = forwardH;
-                U32 const current = (U32)(forwardIp - base);
-                U32 matchIndex = LZ4_getIndexOnHash(h, cctx->hashTable, tableType);
-                assert(matchIndex <= current);
-                assert(forwardIp - base < (ptrdiff_t)(2 GB - 1));
-                ip = forwardIp;
-                forwardIp += step;
-                step = (searchMatchNb++ >> LZ4_skipTrigger);
-
-                if (unlikely(forwardIp > mflimitPlusOne)) goto _last_literals;
-                assert(ip < mflimitPlusOne);
-
-                if (dictDirective == usingDictCtx) {
-                    if (matchIndex < startIndex) {
-                        /* there was no match, try the dictionary */
-                        assert(tableType == byU32);
-                        matchIndex = LZ4_getIndexOnHash(h, dictCtx->hashTable, byU32);
-                        match = dictBase + matchIndex;
-                        matchIndex += dictDelta;   /* make dictCtx index comparable with current context */
-                        lowLimit = dictionary;
-                    } else {
-                        match = base + matchIndex;
-                        lowLimit = (const BYTE*)source;
-                    }
-                } else if (dictDirective == usingExtDict) {
-                    if (matchIndex < startIndex) {
-                        DEBUGLOG(7, "extDict candidate: matchIndex=%5u  <  startIndex=%5u", matchIndex, startIndex);
-                        assert(startIndex - matchIndex >= MINMATCH);
-                        assert(dictBase);
-                        match = dictBase + matchIndex;
-                        lowLimit = dictionary;
-                    } else {
-                        match = base + matchIndex;
-                        lowLimit = (const BYTE*)source;
-                    }
-                } else {   /* single continuous memory segment */
-                    match = base + matchIndex;
-                }
-                forwardH = LZ4_hashPosition(forwardIp, tableType);
-                LZ4_putIndexOnHash(current, h, cctx->hashTable, tableType);
-
-                DEBUGLOG(7, "candidate at pos=%u  (offset=%u \n", matchIndex, current - matchIndex);
-                if ((dictIssue == dictSmall) && (matchIndex < prefixIdxLimit)) { continue; }    /* match outside of valid area */
-                assert(matchIndex < current);
-                if ( ((tableType != byU16) || (LZ4_DISTANCE_MAX < LZ4_DISTANCE_ABSOLUTE_MAX))
-                  && (matchIndex+LZ4_DISTANCE_MAX < current)) {
-                    continue;
-                } /* too far */
-                assert((current - matchIndex) <= LZ4_DISTANCE_MAX);  /* match now expected within distance */
-
-                if (LZ4_read32(match) == LZ4_read32(ip)) {
-                    if (maybe_extMem) offset = current - matchIndex;
-                    break;   /* match found */
-                }
-
-            } while(1);
-        }
-
-        /* Catch up */
-        filledIp = ip;
-        assert(ip > anchor); /* this is always true as ip has been advanced before entering the main loop */
-        if ((match > lowLimit) && unlikely(ip[-1] == match[-1])) {
-            do { ip--; match--; } while (((ip > anchor) & (match > lowLimit)) && (unlikely(ip[-1] == match[-1])));
-        }
-
-        /* Encode Literals */
-        {   unsigned const litLength = (unsigned)(ip - anchor);
-            token = op++;
-            if ((outputDirective == limitedOutput) &&  /* Check output buffer overflow */
-                (unlikely(op + litLength + (2 + 1 + LASTLITERALS) + (litLength/255) > olimit)) ) {
-                return 0;   /* cannot compress within `dst` budget. Stored indexes in hash table are nonetheless fine */
-            }
-            if ((outputDirective == fillOutput) &&
-                (unlikely(op + (litLength+240)/255 /* litlen */ + litLength /* literals */ + 2 /* offset */ + 1 /* token */ + MFLIMIT - MINMATCH /* min last literals so last match is <= end - MFLIMIT */ > olimit))) {
-                op--;
-                goto _last_literals;
-            }
-            if (litLength >= RUN_MASK) {
-                int len = (int)(litLength - RUN_MASK);
-                *token = (RUN_MASK<<ML_BITS);
-                for(; len >= 255 ; len-=255) *op++ = 255;
-                *op++ = (BYTE)len;
-            }
-            else *token = (BYTE)(litLength<<ML_BITS);
-
-            /* Copy Literals */
-            LZ4_wildCopy8(op, anchor, op+litLength);
-            op+=litLength;
-            DEBUGLOG(6, "seq.start:%i, literals=%u, match.start:%i",
-                        (int)(anchor-(const BYTE*)source), litLength, (int)(ip-(const BYTE*)source));
-        }
-
-_next_match:
-        /* at this stage, the following variables must be correctly set :
-         * - ip : at start of LZ operation
-         * - match : at start of previous pattern occurrence; can be within current prefix, or within extDict
-         * - offset : if maybe_ext_memSegment==1 (constant)
-         * - lowLimit : must be == dictionary to mean "match is within extDict"; must be == source otherwise
-         * - token and *token : position to write 4-bits for match length; higher 4-bits for literal length supposed already written
-         */
-
-        if ((outputDirective == fillOutput) &&
-            (op + 2 /* offset */ + 1 /* token */ + MFLIMIT - MINMATCH /* min last literals so last match is <= end - MFLIMIT */ > olimit)) {
-            /* the match was too close to the end, rewind and go to last literals */
-            op = token;
-            goto _last_literals;
-        }
-
-        /* Encode Offset */
-        if (maybe_extMem) {   /* static test */
-            DEBUGLOG(6, "             with offset=%u  (ext if > %i)", offset, (int)(ip - (const BYTE*)source));
-            assert(offset <= LZ4_DISTANCE_MAX && offset > 0);
-            LZ4_writeLE16(op, (U16)offset); op+=2;
-        } else  {
-            DEBUGLOG(6, "             with offset=%u  (same segment)", (U32)(ip - match));
-            assert(ip-match <= LZ4_DISTANCE_MAX);
-            LZ4_writeLE16(op, (U16)(ip - match)); op+=2;
-        }
-
-        /* Encode MatchLength */
-        {   unsigned matchCode;
-
-            if ( (dictDirective==usingExtDict || dictDirective==usingDictCtx)
-              && (lowLimit==dictionary) /* match within extDict */ ) {
-                const BYTE* limit = ip + (dictEnd-match);
-                assert(dictEnd > match);
-                if (limit > matchlimit) limit = matchlimit;
-                matchCode = LZ4_count(ip+MINMATCH, match+MINMATCH, limit);
-                ip += (size_t)matchCode + MINMATCH;
-                if (ip==limit) {
-                    unsigned const more = LZ4_count(limit, (const BYTE*)source, matchlimit);
-                    matchCode += more;
-                    ip += more;
-                }
-                DEBUGLOG(6, "             with matchLength=%d starting in extDict", matchCode+MINMATCH);
-            } else {
-                matchCode = LZ4_count(ip+MINMATCH, match+MINMATCH, matchlimit);
-                ip += (size_t)matchCode + MINMATCH;
-                DEBUGLOG(6, "             with matchLength=%d", matchCode+MINMATCH);
-            }
-
-            if ((outputDirective) &&    /* Check output buffer overflow */
-                (unlikely(op + (1 + LASTLITERALS) + (matchCode+240)/255 > olimit)) ) {
-                if (outputDirective == fillOutput) {
-                    /* Match description too long : reduce it */
-                    U32 newMatchCode = 15 /* in token */ - 1 /* to avoid needing a zero byte */ + ((U32)(olimit - op) - 1 - LASTLITERALS) * 255;
-                    ip -= matchCode - newMatchCode;
-                    assert(newMatchCode < matchCode);
-                    matchCode = newMatchCode;
-                    if (unlikely(ip <= filledIp)) {
-                        /* We have already filled up to filledIp so if ip ends up less than filledIp
-                         * we have positions in the hash table beyond the current position. This is
-                         * a problem if we reuse the hash table. So we have to remove these positions
-                         * from the hash table.
-                         */
-                        const BYTE* ptr;
-                        DEBUGLOG(5, "Clearing %u positions", (U32)(filledIp - ip));
-                        for (ptr = ip; ptr <= filledIp; ++ptr) {
-                            U32 const h = LZ4_hashPosition(ptr, tableType);
-                            LZ4_clearHash(h, cctx->hashTable, tableType);
-                        }
-                    }
-                } else {
-                    assert(outputDirective == limitedOutput);
-                    return 0;   /* cannot compress within `dst` budget. Stored indexes in hash table are nonetheless fine */
-                }
-            }
-            if (matchCode >= ML_MASK) {
-                *token += ML_MASK;
-                matchCode -= ML_MASK;
-                LZ4_write32(op, 0xFFFFFFFF);
-                while (matchCode >= 4*255) {
-                    op+=4;
-                    LZ4_write32(op, 0xFFFFFFFF);
-                    matchCode -= 4*255;
-                }
-                op += matchCode / 255;
-                *op++ = (BYTE)(matchCode % 255);
-            } else
-                *token += (BYTE)(matchCode);
-        }
-        /* Ensure we have enough space for the last literals. */
-        assert(!(outputDirective == fillOutput && op + 1 + LASTLITERALS > olimit));
-
-        anchor = ip;
-
-        /* Test end of chunk */
-        if (ip >= mflimitPlusOne) break;
-
-        /* Fill table */
-        {   U32 const h = LZ4_hashPosition(ip-2, tableType);
-            if (tableType == byPtr) {
-                LZ4_putPositionOnHash(ip-2, h, cctx->hashTable, byPtr);
-            } else {
-                U32 const idx = (U32)((ip-2) - base);
-                LZ4_putIndexOnHash(idx, h, cctx->hashTable, tableType);
-        }   }
-
-        /* Test next position */
-        if (tableType == byPtr) {
-
-            match = LZ4_getPosition(ip, cctx->hashTable, tableType);
-            LZ4_putPosition(ip, cctx->hashTable, tableType);
-            if ( (match+LZ4_DISTANCE_MAX >= ip)
-              && (LZ4_read32(match) == LZ4_read32(ip)) )
-            { token=op++; *token=0; goto _next_match; }
-
-        } else {   /* byU32, byU16 */
-
-            U32 const h = LZ4_hashPosition(ip, tableType);
-            U32 const current = (U32)(ip-base);
-            U32 matchIndex = LZ4_getIndexOnHash(h, cctx->hashTable, tableType);
-            assert(matchIndex < current);
-            if (dictDirective == usingDictCtx) {
-                if (matchIndex < startIndex) {
-                    /* there was no match, try the dictionary */
-                    assert(tableType == byU32);
-                    matchIndex = LZ4_getIndexOnHash(h, dictCtx->hashTable, byU32);
-                    match = dictBase + matchIndex;
-                    lowLimit = dictionary;   /* required for match length counter */
-                    matchIndex += dictDelta;
-                } else {
-                    match = base + matchIndex;
-                    lowLimit = (const BYTE*)source;  /* required for match length counter */
-                }
-            } else if (dictDirective==usingExtDict) {
-                if (matchIndex < startIndex) {
-                    assert(dictBase);
-                    match = dictBase + matchIndex;
-                    lowLimit = dictionary;   /* required for match length counter */
-                } else {
-                    match = base + matchIndex;
-                    lowLimit = (const BYTE*)source;   /* required for match length counter */
-                }
-            } else {   /* single memory segment */
-                match = base + matchIndex;
-            }
-            LZ4_putIndexOnHash(current, h, cctx->hashTable, tableType);
-            assert(matchIndex < current);
-            if ( ((dictIssue==dictSmall) ? (matchIndex >= prefixIdxLimit) : 1)
-              && (((tableType==byU16) && (LZ4_DISTANCE_MAX == LZ4_DISTANCE_ABSOLUTE_MAX)) ? 1 : (matchIndex+LZ4_DISTANCE_MAX >= current))
-              && (LZ4_read32(match) == LZ4_read32(ip)) ) {
-                token=op++;
-                *token=0;
-                if (maybe_extMem) offset = current - matchIndex;
-                DEBUGLOG(6, "seq.start:%i, literals=%u, match.start:%i",
-                            (int)(anchor-(const BYTE*)source), 0, (int)(ip-(const BYTE*)source));
-                goto _next_match;
-            }
-        }
-
-        /* Prepare next loop */
-        forwardH = LZ4_hashPosition(++ip, tableType);
-
-    }
-
-_last_literals:
-    /* Encode Last Literals */
-    {   size_t lastRun = (size_t)(iend - anchor);
-        if ( (outputDirective) &&  /* Check output buffer overflow */
-            (op + lastRun + 1 + ((lastRun+255-RUN_MASK)/255) > olimit)) {
-            if (outputDirective == fillOutput) {
-                /* adapt lastRun to fill 'dst' */
-                assert(olimit >= op);
-                lastRun  = (size_t)(olimit-op) - 1/*token*/;
-                lastRun -= (lastRun + 256 - RUN_MASK) / 256;  /*additional length tokens*/
-            } else {
-                assert(outputDirective == limitedOutput);
-                return 0;   /* cannot compress within `dst` budget. Stored indexes in hash table are nonetheless fine */
-            }
-        }
-        DEBUGLOG(6, "Final literal run : %i literals", (int)lastRun);
-        if (lastRun >= RUN_MASK) {
-            size_t accumulator = lastRun - RUN_MASK;
-            *op++ = RUN_MASK << ML_BITS;
-            for(; accumulator >= 255 ; accumulator-=255) *op++ = 255;
-            *op++ = (BYTE) accumulator;
-        } else {
-            *op++ = (BYTE)(lastRun<<ML_BITS);
-        }
-        LZ4_memcpy(op, anchor, lastRun);
-        ip = anchor + lastRun;
-        op += lastRun;
-    }
-
-    if (outputDirective == fillOutput) {
-        *inputConsumed = (int) (((const char*)ip)-source);
-    }
-    result = (int)(((char*)op) - dest);
-    assert(result > 0);
-    DEBUGLOG(5, "LZ4_compress_generic: compressed %i bytes into %i bytes", inputSize, result);
-    return result;
-}
-
-/** LZ4_compress_generic() :
- *  inlined, to ensure branches are decided at compilation time;
- *  takes care of src == (NULL, 0)
- *  and forward the rest to LZ4_compress_generic_validated */
-LZ4_FORCE_INLINE int LZ4_compress_generic(
-                 LZ4_stream_t_internal* const cctx,
-                 const char* const src,
-                 char* const dst,
-                 const int srcSize,
-                 int *inputConsumed, /* only written when outputDirective == fillOutput */
-                 const int dstCapacity,
-                 const limitedOutput_directive outputDirective,
-                 const tableType_t tableType,
-                 const dict_directive dictDirective,
-                 const dictIssue_directive dictIssue,
-                 const int acceleration)
-{
-    DEBUGLOG(5, "LZ4_compress_generic: srcSize=%i, dstCapacity=%i",
-                srcSize, dstCapacity);
-
-    if ((U32)srcSize > (U32)LZ4_MAX_INPUT_SIZE) { return 0; }  /* Unsupported srcSize, too large (or negative) */
-    if (srcSize == 0) {   /* src == NULL supported if srcSize == 0 */
-        if (outputDirective != notLimited && dstCapacity <= 0) return 0;  /* no output, can't write anything */
-        DEBUGLOG(5, "Generating an empty block");
-        assert(outputDirective == notLimited || dstCapacity >= 1);
-        assert(dst != NULL);
-        dst[0] = 0;
-        if (outputDirective == fillOutput) {
-            assert (inputConsumed != NULL);
-            *inputConsumed = 0;
-        }
-        return 1;
-    }
-    assert(src != NULL);
-
-    return LZ4_compress_generic_validated(cctx, src, dst, srcSize,
-                inputConsumed, /* only written into if outputDirective == fillOutput */
-                dstCapacity, outputDirective,
-                tableType, dictDirective, dictIssue, acceleration);
-}
-
-
-LZ4_stream_t* LZ4_createStream(void)
-{
-    LZ4_stream_t* const lz4s = (LZ4_stream_t*)ALLOC(sizeof(LZ4_stream_t));
-	g_allocatedram+=sizeof(LZ4_stream_t);
-    LZ4_STATIC_ASSERT(sizeof(LZ4_stream_t) >= sizeof(LZ4_stream_t_internal));
-    DEBUGLOG(4, "LZ4_createStream %p", lz4s);
-    if (lz4s == NULL) return NULL;
-    LZ4_initStream(lz4s, sizeof(*lz4s));
-    return lz4s;
-}
-
-static size_t LZ4_stream_t_alignment(void)
-{
-#if LZ4_ALIGN_TEST
-    typedef struct { char c; LZ4_stream_t t; } t_a;
-    return sizeof(t_a) - sizeof(LZ4_stream_t);
-#else
-    return 1;  /* effectively disabled */
-#endif // corresponds to #if (#if LZ4_ALIGN_TEST)
-}
-
-LZ4_stream_t* LZ4_initStream (void* buffer, size_t size)
-{
-    DEBUGLOG(5, "LZ4_initStream");
-    if (buffer == NULL) { return NULL; }
-    if (size < sizeof(LZ4_stream_t)) { return NULL; }
-    if (!LZ4_isAligned(buffer, LZ4_stream_t_alignment())) return NULL;
-    MEM_INIT(buffer, 0, sizeof(LZ4_stream_t_internal));
-    return (LZ4_stream_t*)buffer;
-}
-
-int LZ4_freeStream (LZ4_stream_t* LZ4_stream)
-{
-    if (!LZ4_stream) return 0;   /* support free on NULL */
-    DEBUGLOG(5, "LZ4_freeStream %p", LZ4_stream);
-    FREEMEM(LZ4_stream);
-    return (0);
-}
-
-
-
-
-static void LZ4_renormDictT(LZ4_stream_t_internal* LZ4_dict, int nextSize)
-{
-    assert(nextSize >= 0);
-    if (LZ4_dict->currentOffset + (unsigned)nextSize > 0x80000000) {   /* potential ptrdiff_t overflow (32-bits mode) */
-        /* rescale hash table */
-        U32 const delta = LZ4_dict->currentOffset - 64 KB;
-        const BYTE* dictEnd = LZ4_dict->dictionary + LZ4_dict->dictSize;
-        int i;
-        DEBUGLOG(4, "LZ4_renormDictT");
-        for (i=0; i<LZ4_HASH_SIZE_U32; i++) {
-            if (LZ4_dict->hashTable[i] < delta) LZ4_dict->hashTable[i]=0;
-            else LZ4_dict->hashTable[i] -= delta;
-        }
-        LZ4_dict->currentOffset = 64 KB;
-        if (LZ4_dict->dictSize > 64 KB) LZ4_dict->dictSize = 64 KB;
-        LZ4_dict->dictionary = dictEnd - LZ4_dict->dictSize;
-    }
-}
-
-
-int LZ4_compress_fast_continue (LZ4_stream_t* LZ4_stream,
-                                const char* source, char* dest,
-                                int inputSize, int maxOutputSize,
-                                int acceleration)
-{
-    const tableType_t tableType = byU32;
-    LZ4_stream_t_internal* const streamPtr = &LZ4_stream->internal_donotuse;
-    const char* dictEnd = streamPtr->dictSize ? (const char*)streamPtr->dictionary + streamPtr->dictSize : NULL;
-
-    DEBUGLOG(5, "LZ4_compress_fast_continue (inputSize=%i, dictSize=%u)", inputSize, streamPtr->dictSize);
-
-    LZ4_renormDictT(streamPtr, inputSize);   /* fix index overflow */
-    if (acceleration < 1) acceleration = LZ4_ACCELERATION_DEFAULT;
-    if (acceleration > LZ4_ACCELERATION_MAX) acceleration = LZ4_ACCELERATION_MAX;
-
-    /* invalidate tiny dictionaries */
-    if ( (streamPtr->dictSize < 4)     /* tiny dictionary : not enough for a hash */
-      && (dictEnd != source)           /* prefix mode */
-      && (inputSize > 0)               /* tolerance : don't lose history, in case next invocation would use prefix mode */
-      && (streamPtr->dictCtx == NULL)  /* usingDictCtx */
-      ) {
-        DEBUGLOG(5, "LZ4_compress_fast_continue: dictSize(%u) at addr:%p is too small", streamPtr->dictSize, streamPtr->dictionary);
-        /* remove dictionary existence from history, to employ faster prefix mode */
-        streamPtr->dictSize = 0;
-        streamPtr->dictionary = (const BYTE*)source;
-        dictEnd = source;
-    }
-
-    /* Check overlapping input/dictionary space */
-    {   const char* const sourceEnd = source + inputSize;
-        if ((sourceEnd > (const char*)streamPtr->dictionary) && (sourceEnd < dictEnd)) {
-            streamPtr->dictSize = (U32)(dictEnd - sourceEnd);
-            if (streamPtr->dictSize > 64 KB) streamPtr->dictSize = 64 KB;
-            if (streamPtr->dictSize < 4) streamPtr->dictSize = 0;
-            streamPtr->dictionary = (const BYTE*)dictEnd - streamPtr->dictSize;
-        }
-    }
-
-    /* prefix mode : source data follows dictionary */
-    if (dictEnd == source) {
-        if ((streamPtr->dictSize < 64 KB) && (streamPtr->dictSize < streamPtr->currentOffset))
-            return LZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, withPrefix64k, dictSmall, acceleration);
-        else
-            return LZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, withPrefix64k, noDictIssue, acceleration);
-    }
-
-    /* external dictionary mode */
-    {   int result;
-        if (streamPtr->dictCtx) {
-            /* We depend here on the fact that dictCtx'es (produced by
-             * LZ4_loadDict) guarantee that their tables contain no references
-             * to offsets between dictCtx->currentOffset - 64 KB and
-             * dictCtx->currentOffset - dictCtx->dictSize. This makes it safe
-             * to use noDictIssue even when the dict isn't a full 64 KB.
-             */
-            if (inputSize > 4 KB) {
-                /* For compressing large blobs, it is faster to pay the setup
-                 * cost to copy the dictionary's tables into the active context,
-                 * so that the compression loop is only looking into one table.
-                 */
-                LZ4_memcpy(streamPtr, streamPtr->dictCtx, sizeof(*streamPtr));
-                result = LZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingExtDict, noDictIssue, acceleration);
-            } else {
-                result = LZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingDictCtx, noDictIssue, acceleration);
-            }
-        } else {  /* small data <= 4 KB */
-            if ((streamPtr->dictSize < 64 KB) && (streamPtr->dictSize < streamPtr->currentOffset)) {
-                result = LZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingExtDict, dictSmall, acceleration);
-            } else {
-                result = LZ4_compress_generic(streamPtr, source, dest, inputSize, NULL, maxOutputSize, limitedOutput, tableType, usingExtDict, noDictIssue, acceleration);
-            }
-        }
-        streamPtr->dictionary = (const BYTE*)source;
-        streamPtr->dictSize = (U32)inputSize;
-        return result;
-    }
-}
-
-typedef enum { decode_full_block = 0, partial_decode = 1 } earlyEnd_directive;
-
-#undef MIN
-#define MIN(a,b)    ( (a) < (b) ? (a) : (b) )
-
-
-
-/* Read the variable-length literal or match length.
- *
- * @ip : input pointer
- * @ilimit : position after which if length is not decoded, the input is necessarily corrupted.
- * @initial_check - check ip >= ipmax before start of loop.  Returns initial_error if so.
- * @error (output) - error code.  Must be set to 0 before call.
-**/
-typedef size_t Rvl_t;
-static const Rvl_t rvl_error = (Rvl_t)(-1);
-LZ4_FORCE_INLINE Rvl_t
-read_variable_length(const BYTE** ip, const BYTE* ilimit,
-                     int initial_check)
-{
-    Rvl_t s, length = 0;
-    assert(ip != NULL);
-    assert(*ip !=  NULL);
-    assert(ilimit != NULL);
-    if (initial_check && unlikely((*ip) >= ilimit)) {    /* read limit reached */
-        return rvl_error;
-    }
-    s = **ip;
-    (*ip)++;
-    length += s;
-    if (unlikely((*ip) > ilimit)) {    /* read limit reached */
-        return rvl_error;
-    }
-    /* accumulator overflow detection (32-bit mode only) */
-    if ((sizeof(length) < 8) && unlikely(length > ((Rvl_t)(-1)/2)) ) {
-        return rvl_error;
-    }
-    if (likely(s != 255)) return length;
-    do {
-        s = **ip;
-        (*ip)++;
-        length += s;
-        if (unlikely((*ip) > ilimit)) {    /* read limit reached */
-            return rvl_error;
-        }
-        /* accumulator overflow detection (32-bit mode only) */
-        if ((sizeof(length) < 8) && unlikely(length > ((Rvl_t)(-1)/2)) ) {
-            return rvl_error;
-        }
-    } while (s == 255);
-
-    return length;
-}
-
-/*! LZ4_decompress_generic() :
- *  This generic decompression function covers all use cases.
- *  It shall be instantiated several times, using different sets of directives.
- *  Note that it is important for performance that this function really get inlined,
- *  in order to remove useless branches during compilation optimization.
- */
-LZ4_FORCE_INLINE int
-LZ4_decompress_generic(
-                 const char* const src,
-                 char* const dst,
-                 int srcSize,
-                 int outputSize,         /* If endOnInput==endOnInputSize, this value is `dstCapacity` */
-
-                 earlyEnd_directive partialDecoding,  /* full, partial */
-                 dict_directive dict,                 /* noDict, withPrefix64k, usingExtDict */
-                 const BYTE* const lowPrefix,  /* always <= dst, == dst when no prefix */
-                 const BYTE* const dictStart,  /* only if dict==usingExtDict */
-                 const size_t dictSize         /* note : = 0 if noDict */
-                 )
-{
-    if ((src == NULL) || (outputSize < 0)) { return -1; }
-
-    {   const BYTE* ip = (const BYTE*) src;
-        const BYTE* const iend = ip + srcSize;
-
-        BYTE* op = (BYTE*) dst;
-        BYTE* const oend = op + outputSize;
-        BYTE* cpy;
-
-        const BYTE* const dictEnd = (dictStart == NULL) ? NULL : dictStart + dictSize;
-
-        const int checkOffset = (dictSize < (int)(64 KB));
-
-
-        /* Set up the "end" pointers for the shortcut. */
-        const BYTE* const shortiend = iend - 14 /*maxLL*/ - 2 /*offset*/;
-        const BYTE* const shortoend = oend - 14 /*maxLL*/ - 18 /*maxML*/;
-
-        const BYTE* match;
-        size_t offset;
-        unsigned token;
-        size_t length;
-
-
-        DEBUGLOG(5, "LZ4_decompress_generic (srcSize:%i, dstSize:%i)", srcSize, outputSize);
-
-        /* Special cases */
-        assert(lowPrefix <= op);
-        if (unlikely(outputSize==0)) {
-            /* Empty output buffer */
-            if (partialDecoding) return 0;
-            return ((srcSize==1) && (*ip==0)) ? 0 : -1;
-        }
-        if (unlikely(srcSize==0)) { return -1; }
-
-    /* LZ4_FAST_DEC_LOOP:
-     * designed for modern OoO performance cpus,
-     * where copying reliably 32-bytes is preferable to an unpredictable branch.
-     * note : fast loop may show a regression for some client arm chips. */
-#if LZ4_FAST_DEC_LOOP
-        if ((oend - op) < FASTLOOP_SAFE_DISTANCE) {
-            DEBUGLOG(6, "skip fast decode loop");
-            goto safe_decode;
-        }
-
-        /* Fast loop : decode sequences as long as output < oend-FASTLOOP_SAFE_DISTANCE */
-        DEBUGLOG(6, "using fast decode loop");
-        while (1) {
-            /* Main fastloop assertion: We can always wildcopy FASTLOOP_SAFE_DISTANCE */
-            assert(oend - op >= FASTLOOP_SAFE_DISTANCE);
-            assert(ip < iend);
-            token = *ip++;
-            length = token >> ML_BITS;  /* literal length */
-
-            /* decode literal length */
-            if (length == RUN_MASK) {
-                size_t const addl = read_variable_length(&ip, iend-RUN_MASK, 1);
-                if (addl == rvl_error) {
-                    DEBUGLOG(6, "error reading long literal length");
-                    goto _output_error;
-                }
-                length += addl;
-                if (unlikely((uptrval)(op)+length<(uptrval)(op))) { goto _output_error; } /* overflow detection */
-                if (unlikely((uptrval)(ip)+length<(uptrval)(ip))) { goto _output_error; } /* overflow detection */
-
-                /* copy literals */
-                LZ4_STATIC_ASSERT(MFLIMIT >= WILDCOPYLENGTH);
-                if ((op+length>oend-32) || (ip+length>iend-32)) { goto safe_literal_copy; }
-                LZ4_wildCopy32(op, ip, op+length);
-                ip += length; op += length;
-            } else if (ip <= iend-(16 + 1/*max lit + offset + nextToken*/)) {
-                /* We don't need to check oend, since we check it once for each loop below */
-                DEBUGLOG(7, "copy %u bytes in a 16-bytes stripe", (unsigned)length);
-                /* Literals can only be <= 14, but hope compilers optimize better when copy by a register size */
-                LZ4_memcpy(op, ip, 16);
-                ip += length; op += length;
-            } else {
-                goto safe_literal_copy;
-            }
-
-            /* get offset */
-            offset = LZ4_readLE16(ip); ip+=2;
-            DEBUGLOG(6, " offset = %zu", offset);
-            match = op - offset;
-            assert(match <= op);  /* overflow check */
-
-            /* get matchlength */
-            length = token & ML_MASK;
-
-            if (length == ML_MASK) {
-                size_t const addl = read_variable_length(&ip, iend - LASTLITERALS + 1, 0);
-                if (addl == rvl_error) {
-                    DEBUGLOG(6, "error reading long match length");
-                    goto _output_error;
-                }
-                length += addl;
-                length += MINMATCH;
-                if (unlikely((uptrval)(op)+length<(uptrval)op)) { goto _output_error; } /* overflow detection */
-                if (op + length >= oend - FASTLOOP_SAFE_DISTANCE) {
-                    goto safe_match_copy;
-                }
-            } else {
-                length += MINMATCH;
-                if (op + length >= oend - FASTLOOP_SAFE_DISTANCE) {
-                    goto safe_match_copy;
-                }
-
-                /* Fastpath check: skip LZ4_wildCopy32 when true */
-                if ((dict == withPrefix64k) || (match >= lowPrefix)) {
-                    if (offset >= 8) {
-                        assert(match >= lowPrefix);
-                        assert(match <= op);
-                        assert(op + 18 <= oend);
-
-                        LZ4_memcpy(op, match, 8);
-                        LZ4_memcpy(op+8, match+8, 8);
-                        LZ4_memcpy(op+16, match+16, 2);
-                        op += length;
-                        continue;
-            }   }   }
-
-            if ( checkOffset && (unlikely(match + dictSize < lowPrefix)) ) {
-                DEBUGLOG(6, "Error : pos=%zi, offset=%zi => outside buffers", op-lowPrefix, op-match);
-                goto _output_error;
-            }
-            /* match starting within external dictionary */
-            if ((dict==usingExtDict) && (match < lowPrefix)) {
-                assert(dictEnd != NULL);
-                if (unlikely(op+length > oend-LASTLITERALS)) {
-                    if (partialDecoding) {
-                        DEBUGLOG(7, "partialDecoding: dictionary match, close to dstEnd");
-                        length = MIN(length, (size_t)(oend-op));
-                    } else {
-                        DEBUGLOG(6, "end-of-block condition violated")
-                        goto _output_error;
-                }   }
-
-                if (length <= (size_t)(lowPrefix-match)) {
-                    /* match fits entirely within external dictionary : just copy */
-                    LZ4_memmove(op, dictEnd - (lowPrefix-match), length);
-                    op += length;
-                } else {
-                    /* match stretches into both external dictionary and current block */
-                    size_t const copySize = (size_t)(lowPrefix - match);
-                    size_t const restSize = length - copySize;
-                    LZ4_memcpy(op, dictEnd - copySize, copySize);
-                    op += copySize;
-                    if (restSize > (size_t)(op - lowPrefix)) {  /* overlap copy */
-                        BYTE* const endOfMatch = op + restSize;
-                        const BYTE* copyFrom = lowPrefix;
-                        while (op < endOfMatch) { *op++ = *copyFrom++; }
-                    } else {
-                        LZ4_memcpy(op, lowPrefix, restSize);
-                        op += restSize;
-                }   }
-                continue;
-            }
-
-            /* copy match within block */
-            cpy = op + length;
-
-            assert((op <= oend) && (oend-op >= 32));
-            if (unlikely(offset<16)) {
-                LZ4_memcpy_using_offset(op, match, cpy, offset);
-            } else {
-                LZ4_wildCopy32(op, match, cpy);
-            }
-
-            op = cpy;   /* wildcopy correction */
-        }
-    safe_decode:
-#endif // corresponds to #if (#if LZ4_FAST_DEC_LOOP)
-
-        /* Main Loop : decode remaining sequences where output < FASTLOOP_SAFE_DISTANCE */
-        DEBUGLOG(6, "using safe decode loop");
-        while (1) {
-            assert(ip < iend);
-            token = *ip++;
-            length = token >> ML_BITS;  /* literal length */
-
-            /* A two-stage shortcut for the most common case:
-             * 1) If the literal length is 0..14, and there is enough space,
-             * enter the shortcut and copy 16 bytes on behalf of the literals
-             * (in the fast mode, only 8 bytes can be safely copied this way).
-             * 2) Further if the match length is 4..18, copy 18 bytes in a similar
-             * manner; but we ensure that there's enough space in the output for
-             * those 18 bytes earlier, upon entering the shortcut (in other words,
-             * there is a combined check for both stages).
-             */
-            if ( (length != RUN_MASK)
-                /* strictly "less than" on input, to re-enter the loop with at least one byte */
-              && likely((ip < shortiend) & (op <= shortoend)) ) {
-                /* Copy the literals */
-                LZ4_memcpy(op, ip, 16);
-                op += length; ip += length;
-
-                /* The second stage: prepare for match copying, decode full info.
-                 * If it doesn't work out, the info won't be wasted. */
-                length = token & ML_MASK; /* match length */
-                offset = LZ4_readLE16(ip); ip += 2;
-                match = op - offset;
-                assert(match <= op); /* check overflow */
-
-                /* Do not deal with overlapping matches. */
-                if ( (length != ML_MASK)
-                  && (offset >= 8)
-                  && (dict==withPrefix64k || match >= lowPrefix) ) {
-                    /* Copy the match. */
-                    LZ4_memcpy(op + 0, match + 0, 8);
-                    LZ4_memcpy(op + 8, match + 8, 8);
-                    LZ4_memcpy(op +16, match +16, 2);
-                    op += length + MINMATCH;
-                    /* Both stages worked, load the next token. */
-                    continue;
-                }
-
-                /* The second stage didn't work out, but the info is ready.
-                 * Propel it right to the point of match copying. */
-                goto _copy_match;
-            }
-
-            /* decode literal length */
-            if (length == RUN_MASK) {
-                size_t const addl = read_variable_length(&ip, iend-RUN_MASK, 1);
-                if (addl == rvl_error) { goto _output_error; }
-                length += addl;
-                if (unlikely((uptrval)(op)+length<(uptrval)(op))) { goto _output_error; } /* overflow detection */
-                if (unlikely((uptrval)(ip)+length<(uptrval)(ip))) { goto _output_error; } /* overflow detection */
-            }
-
-#if LZ4_FAST_DEC_LOOP
-        safe_literal_copy:
-#endif // corresponds to #if (#if LZ4_FAST_DEC_LOOP)
-            /* copy literals */
-            cpy = op+length;
-
-            LZ4_STATIC_ASSERT(MFLIMIT >= WILDCOPYLENGTH);
-            if ((cpy>oend-MFLIMIT) || (ip+length>iend-(2+1+LASTLITERALS))) {
-                /* We've either hit the input parsing restriction or the output parsing restriction.
-                 * In the normal scenario, decoding a full block, it must be the last sequence,
-                 * otherwise it's an error (invalid input or dimensions).
-                 * In partialDecoding scenario, it's necessary to ensure there is no buffer overflow.
-                 */
-                if (partialDecoding) {
-                    /* Since we are partial decoding we may be in this block because of the output parsing
-                     * restriction, which is not valid since the output buffer is allowed to be undersized.
-                     */
-                    DEBUGLOG(7, "partialDecoding: copying literals, close to input or output end")
-                    DEBUGLOG(7, "partialDecoding: literal length = %u", (unsigned)length);
-                    DEBUGLOG(7, "partialDecoding: remaining space in dstBuffer : %i", (int)(oend - op));
-                    DEBUGLOG(7, "partialDecoding: remaining space in srcBuffer : %i", (int)(iend - ip));
-                    /* Finishing in the middle of a literals segment,
-                     * due to lack of input.
-                     */
-                    if (ip+length > iend) {
-                        length = (size_t)(iend-ip);
-                        cpy = op + length;
-                    }
-                    /* Finishing in the middle of a literals segment,
-                     * due to lack of output space.
-                     */
-                    if (cpy > oend) {
-                        cpy = oend;
-                        assert(op<=oend);
-                        length = (size_t)(oend-op);
-                    }
-                } else {
-                     /* We must be on the last sequence (or invalid) because of the parsing limitations
-                      * so check that we exactly consume the input and don't overrun the output buffer.
-                      */
-                    if ((ip+length != iend) || (cpy > oend)) {
-                        DEBUGLOG(6, "should have been last run of literals")
-                        DEBUGLOG(6, "ip(%p) + length(%i) = %p != iend (%p)", ip, (int)length, ip+length, iend);
-                        DEBUGLOG(6, "or cpy(%p) > oend(%p)", cpy, oend);
-                        goto _output_error;
-                    }
-                }
-                LZ4_memmove(op, ip, length);  /* supports overlapping memory regions, for in-place decompression scenarios */
-                ip += length;
-                op += length;
-                /* Necessarily EOF when !partialDecoding.
-                 * When partialDecoding, it is EOF if we've either
-                 * filled the output buffer or
-                 * can't proceed with reading an offset for following match.
-                 */
-                if (!partialDecoding || (cpy == oend) || (ip >= (iend-2))) {
-                    break;
-                }
-            } else {
-                LZ4_wildCopy8(op, ip, cpy);   /* can overwrite up to 8 bytes beyond cpy */
-                ip += length; op = cpy;
-            }
-
-            /* get offset */
-            offset = LZ4_readLE16(ip); ip+=2;
-            match = op - offset;
-
-            /* get matchlength */
-            length = token & ML_MASK;
-
-    _copy_match:
-            if (length == ML_MASK) {
-                size_t const addl = read_variable_length(&ip, iend - LASTLITERALS + 1, 0);
-                if (addl == rvl_error) { goto _output_error; }
-                length += addl;
-                if (unlikely((uptrval)(op)+length<(uptrval)op)) goto _output_error;   /* overflow detection */
-            }
-            length += MINMATCH;
-
-#if LZ4_FAST_DEC_LOOP
-        safe_match_copy:
-#endif // corresponds to #if (#if LZ4_FAST_DEC_LOOP)
-            if ((checkOffset) && (unlikely(match + dictSize < lowPrefix))) goto _output_error;   /* Error : offset outside buffers */
-            /* match starting within external dictionary */
-            if ((dict==usingExtDict) && (match < lowPrefix)) {
-                assert(dictEnd != NULL);
-                if (unlikely(op+length > oend-LASTLITERALS)) {
-                    if (partialDecoding) length = MIN(length, (size_t)(oend-op));
-                    else goto _output_error;   /* doesn't respect parsing restriction */
-                }
-
-                if (length <= (size_t)(lowPrefix-match)) {
-                    /* match fits entirely within external dictionary : just copy */
-                    LZ4_memmove(op, dictEnd - (lowPrefix-match), length);
-                    op += length;
-                } else {
-                    /* match stretches into both external dictionary and current block */
-                    size_t const copySize = (size_t)(lowPrefix - match);
-                    size_t const restSize = length - copySize;
-                    LZ4_memcpy(op, dictEnd - copySize, copySize);
-                    op += copySize;
-                    if (restSize > (size_t)(op - lowPrefix)) {  /* overlap copy */
-                        BYTE* const endOfMatch = op + restSize;
-                        const BYTE* copyFrom = lowPrefix;
-                        while (op < endOfMatch) *op++ = *copyFrom++;
-                    } else {
-                        LZ4_memcpy(op, lowPrefix, restSize);
-                        op += restSize;
-                }   }
-                continue;
-            }
-            assert(match >= lowPrefix);
-
-            /* copy match within block */
-            cpy = op + length;
-
-            /* partialDecoding : may end anywhere within the block */
-            assert(op<=oend);
-            if (partialDecoding && (cpy > oend-MATCH_SAFEGUARD_DISTANCE)) {
-                size_t const mlen = MIN(length, (size_t)(oend-op));
-                const BYTE* const matchEnd = match + mlen;
-                BYTE* const copyEnd = op + mlen;
-                if (matchEnd > op) {   /* overlap copy */
-                    while (op < copyEnd) { *op++ = *match++; }
-                } else {
-                    LZ4_memcpy(op, match, mlen);
-                }
-                op = copyEnd;
-                if (op == oend) { break; }
-                continue;
-            }
-
-            if (unlikely(offset<8)) {
-                LZ4_write32(op, 0);   /* silence msan warning when offset==0 */
-                op[0] = match[0];
-                op[1] = match[1];
-                op[2] = match[2];
-                op[3] = match[3];
-                match += inc32table[offset];
-                LZ4_memcpy(op+4, match, 4);
-                match -= dec64table[offset];
-            } else {
-                LZ4_memcpy(op, match, 8);
-                match += 8;
-            }
-            op += 8;
-
-            if (unlikely(cpy > oend-MATCH_SAFEGUARD_DISTANCE)) {
-                BYTE* const oCopyLimit = oend - (WILDCOPYLENGTH-1);
-                if (cpy > oend-LASTLITERALS) { goto _output_error; } /* Error : last LASTLITERALS bytes must be literals (uncompressed) */
-                if (op < oCopyLimit) {
-                    LZ4_wildCopy8(op, match, oCopyLimit);
-                    match += oCopyLimit - op;
-                    op = oCopyLimit;
-                }
-                while (op < cpy) { *op++ = *match++; }
-            } else {
-                LZ4_memcpy(op, match, 8);
-                if (length > 16)  { LZ4_wildCopy8(op+8, match+8, cpy); }
-            }
-            op = cpy;   /* wildcopy correction */
-        }
-
-        /* end of decoding */
-        DEBUGLOG(5, "decoded %i bytes", (int) (((char*)op)-dst));
-        return (int) (((char*)op)-dst);     /* Nb of output bytes decoded */
-
-        /* Overflow error detected */
-    _output_error:
-        return (int) (-(((const char*)ip)-src))-1;
-    }
-}
-
-LZ4_FORCE_O2
-int LZ4_decompress_safe(const char* source, char* dest, int compressedSize, int maxDecompressedSize)
-{
-    return LZ4_decompress_generic(source, dest, compressedSize, maxDecompressedSize,
-                                  decode_full_block, noDict,
-                                  (BYTE*)dest, NULL, 0);
-}
-
-LZ4_FORCE_O2 /* Exported, an obsolete API function. */
-int LZ4_decompress_safe_withPrefix64k(const char* source, char* dest, int compressedSize, int maxOutputSize)
-{
-    return LZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
-                                  decode_full_block, withPrefix64k,
-                                  (BYTE*)dest - 64 KB, NULL, 0);
-}
-
-
-
-LZ4_FORCE_O2
-static int LZ4_decompress_safe_withSmallPrefix(const char* source, char* dest, int compressedSize, int maxOutputSize,
-                                               size_t prefixSize)
-{
-    return LZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
-                                  decode_full_block, noDict,
-                                  (BYTE*)dest-prefixSize, NULL, 0);
-}
-
-
-LZ4_FORCE_O2
-int LZ4_decompress_safe_forceExtDict(const char* source, char* dest,
-                                     int compressedSize, int maxOutputSize,
-                                     const void* dictStart, size_t dictSize)
-{
-    DEBUGLOG(5, "LZ4_decompress_safe_forceExtDict");
-    return LZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
-                                  decode_full_block, usingExtDict,
-                                  (BYTE*)dest, (const BYTE*)dictStart, dictSize);
-}
-
-
-
-/* The "double dictionary" mode, for use with e.g. ring buffers: the first part
- * of the dictionary is passed as prefix, and the second via dictStart + dictSize.
- * These routines are used only once, in LZ4_decompress_*_continue().
- */
-LZ4_FORCE_INLINE
-int LZ4_decompress_safe_doubleDict(const char* source, char* dest, int compressedSize, int maxOutputSize,
-                                   size_t prefixSize, const void* dictStart, size_t dictSize)
-{
-    return LZ4_decompress_generic(source, dest, compressedSize, maxOutputSize,
-                                  decode_full_block, usingExtDict,
-                                  (BYTE*)dest-prefixSize, (const BYTE*)dictStart, dictSize);
-}
-
-/*===== streaming decompression functions =====*/
-
-LZ4_streamDecode_t* LZ4_createStreamDecode(void)
-{
-    LZ4_STATIC_ASSERT(sizeof(LZ4_streamDecode_t) >= sizeof(LZ4_streamDecode_t_internal));
-	g_allocatedram+=sizeof(LZ4_streamDecode_t);
-    return (LZ4_streamDecode_t*) ALLOC_AND_ZERO(sizeof(LZ4_streamDecode_t));
-}
-
-int LZ4_freeStreamDecode (LZ4_streamDecode_t* LZ4_stream)
-{
-    if (LZ4_stream == NULL) { return 0; }  /* support free on NULL */
-    FREEMEM(LZ4_stream);
-    return 0;
-}
-
-
-/*
-*_continue() :
-    These decoding functions allow decompression of multiple blocks in "streaming" mode.
-    Previously decoded blocks must still be available at the memory position where they were decoded.
-    If it's not possible, save the relevant part of decoded data into a safe buffer,
-    and indicate where it stands using LZ4_setStreamDecode()
-*/
-LZ4_FORCE_O2
-int LZ4_decompress_safe_continue (LZ4_streamDecode_t* LZ4_streamDecode, const char* source, char* dest, int compressedSize, int maxOutputSize)
-{
-    LZ4_streamDecode_t_internal* lz4sd = &LZ4_streamDecode->internal_donotuse;
-    int result;
-
-    if (lz4sd->prefixSize == 0) {
-        /* The first call, no dictionary yet. */
-        assert(lz4sd->extDictSize == 0);
-        result = LZ4_decompress_safe(source, dest, compressedSize, maxOutputSize);
-        if (result <= 0) return result;
-        lz4sd->prefixSize = (size_t)result;
-        lz4sd->prefixEnd = (BYTE*)dest + result;
-    } else if (lz4sd->prefixEnd == (BYTE*)dest) {
-        /* They're rolling the current segment. */
-        if (lz4sd->prefixSize >= 64 KB - 1)
-            result = LZ4_decompress_safe_withPrefix64k(source, dest, compressedSize, maxOutputSize);
-        else if (lz4sd->extDictSize == 0)
-            result = LZ4_decompress_safe_withSmallPrefix(source, dest, compressedSize, maxOutputSize,
-                                                         lz4sd->prefixSize);
-        else
-            result = LZ4_decompress_safe_doubleDict(source, dest, compressedSize, maxOutputSize,
-                                                    lz4sd->prefixSize, lz4sd->externalDict, lz4sd->extDictSize);
-        if (result <= 0) return result;
-        lz4sd->prefixSize += (size_t)result;
-        lz4sd->prefixEnd  += result;
-    } else {
-        /* The buffer wraps around, or they're switching to another buffer. */
-        lz4sd->extDictSize = lz4sd->prefixSize;
-        lz4sd->externalDict = lz4sd->prefixEnd - lz4sd->extDictSize;
-        result = LZ4_decompress_safe_forceExtDict(source, dest, compressedSize, maxOutputSize,
-                                                  lz4sd->externalDict, lz4sd->extDictSize);
-        if (result <= 0) return result;
-        lz4sd->prefixSize = (size_t)result;
-        lz4sd->prefixEnd  = (BYTE*)dest + result;
-    }
-
-    return result;
-}
-
-/// LICENSE_END.22
-#endif // corresponds to #ifdef (#ifdef _WIN32)
+/// (65.3v) the stripped LZ4 1.9 that was here is gone: zlz4 (LZ4 1.10) does its job
 
 
 
@@ -13470,6 +21542,16 @@ public:
   int getState() const {return state;}
   void setOutput(Writer* out) {z.output=out;}
   void setSHA1(SHA1* sha1ptr) {z.sha1=sha1ptr;}
+#ifdef ZPAQLZ4
+  /// -m6: the pcomp is the canonical LZ4 decoder, decoded natively
+  bool lz4native;
+  std::string lz4in;
+#endif
+#ifdef ZPAQLZAV
+  /// -m7: the pcomp is the canonical LZAV decoder, decoded natively
+  bool lzavnative;
+  std::string lzavin;
+#endif
 };
 //////////////////////// Decompresser ////////////////////////
 // For decompression and listing archive contents
@@ -13505,6 +21587,10 @@ public:
     out(0), low(1), high(0xFFFFFFFF), pr(z) {}
   void init();
   void compress(int c);  // c is 0..255 or EOF
+  /// no model (stored: -m0, -m6, -m7): n bytes at once, exactly what n calls
+  /// of compress(c) would write, same chunks, but with memcpy
+  bool stored() {return !pr.isModeled();}
+  void compressstored(const char* p, int n);
   int stat(int x) {return pr.stat(x);}
   Writer* out;  // destination
 private:
@@ -13588,6 +21674,9 @@ private:
   Reader* in;   // input source
   SHA1 sha1;    // to test pz output
 ///  char sha1result[20];  // sha1 output
+#ifdef DEBUG
+  char sha1result[20];  // sha1 output, only endSegmentChecksum() (-DDEBUG) uses it
+#endif // corresponds to #ifdef (#ifdef DEBUG)
   enum {INIT, BLOCK1, SEG1, BLOCK2, SEG2} state;
   bool verify;  // if true then test by postprocessing
 };
@@ -13728,6 +21817,23 @@ void Writer::write(const char* buf, int n) {
 
 
 ///////////////////////// allocx //////////////////////
+/*
+	W^X, and the JIT on OpenBSD.
+
+	Asking for memory that is writable AND executable at the same time is
+	refused by OpenBSD ("Not supported"), which is why the JIT was turned
+	off there and everything ran on the interpreter. But the rule is about
+	the two rights TOGETHER: a page that is written first and then turned
+	into an executable one with mprotect(2) is fine, even from a partition
+	that is not mounted wxallowed. Tested on OpenBSD 7.9.
+	And it fits the way the code is used here: the JIT writes the whole
+	thing once (assemble/assemble_p) and from then on only runs it.
+	So: the usual PROT_READ|PROT_WRITE|PROT_EXEC first, exactly as before
+	on Linux, FreeBSD, macOS and Windows, and only if the system says no,
+	write-only memory to be turned executable by protectx() when the code
+	is finished. If that does not work either, the interpreter, as always
+*/
+bool g_jit_mprotect= false; /// this system wants write first, execute after
 // Allocate newsize > 0 bytes of executable memory and update
 // p to point to it and newsize = n. Free any previously
 // allocated memory first. If newsize is 0 then free only.
@@ -13758,7 +21864,16 @@ void allocx(U8* &p, int &n, int newsize) {
 #ifdef unix
 	///myprintf("BEFORE mmap of newsize %s\n",migliaia(newsize));
 	/// PROT_EXEC can be stopped
-    p=(U8*)mmap(0, newsize, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON, -1, 0);
+    p=(U8*)MAP_FAILED;
+	if (!g_jit_mprotect) /// no point in asking twice once the system said no
+		p=(U8*)mmap(0, newsize, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON, -1, 0);
+	if ((void*)p==MAP_FAILED)
+	{
+		/// W^X (OpenBSD): writable now, executable later, see protectx()
+		p=(U8*)mmap(0, newsize, PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON, -1, 0);
+		if ((void*)p!=MAP_FAILED)
+			g_jit_mprotect= true;
+	}
 	////myprintf("AFTER mmap\n");
 
     if ((void*)p==MAP_FAILED) 
@@ -13787,6 +21902,38 @@ void allocx(U8* &p, int &n, int newsize) {
     }
   }
 	}
+}
+
+/*
+	The code is written: make it executable. Does something only where the
+	memory had to be asked for without PROT_EXEC (see allocx), i.e. OpenBSD;
+	everywhere else it is executable already and this is a couple of tests.
+	Called once, when the JIT has finished writing and before the first run
+*/
+void protectx(U8* i_p, int i_n)
+{
+#ifdef unix
+	if (!g_jit_mprotect)
+		return;
+	if (i_p==NULL || i_n<=0)
+		return;
+	long pagesize= sysconf(_SC_PAGESIZE); /// mprotect wants whole pages
+	if (pagesize<1)
+		pagesize= 4096;
+	const size_t pagina= (size_t)pagesize;
+	const size_t quanto= ((size_t)i_n+pagina-1)&~(pagina-1);
+	if (mprotect(i_p, quanto, PROT_READ|PROT_EXEC)!=0)
+	{
+		if (flagdebug3)
+			myprintf("10254$ mprotect PROT_EXEC failed\n");
+		/// nothing else to do here: the call that follows would die, so the
+		/// JIT goes off and the interpreter takes over from the next time
+		flagnojit=true;
+	}
+#else
+	(void)i_p;
+	(void)i_n;
+#endif // corresponds to #ifdef (#ifdef unix)
 }
 
 /// LICENSE_START.1
@@ -15597,8 +23744,24 @@ int Decoder::skip() {
   }
 }
 ////////////////////// PostProcessor //////////////////////
+#ifdef ZPAQLZ4
+bool lz4_is_canonical(const U8* i_code, int i_len);
+void lz4_native_decode(const std::string& i_in, ZPAQL& z);
+#endif
+#ifdef ZPAQLZAV
+bool lzav_is_canonical(const U8* i_code, int i_len);
+void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm);
+#endif
 // Copy ph, pm from block header
 void PostProcessor::init(int h, int m) {
+#ifdef ZPAQLZAV
+  lzavnative=false;
+  lzavin.clear();
+#endif
+#ifdef ZPAQLZ4
+  lz4native=false;
+  lz4in.clear();
+#endif
   state=hsize=0;
   ph=h;
   pm=m;
@@ -15644,9 +23807,37 @@ int PostProcessor::write(int c) {
         z.header[1]=hsize>>8;
         z.initp();
         state=5;
+#ifdef ZPAQLZ4
+        lz4native=lz4_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
+#endif
+#ifdef ZPAQLZAV
+        lzavnative=lzav_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
+#endif
       }
       break;
     case 5:  // PROG ... data
+#ifdef ZPAQLZAV
+      if (lzavnative) {
+        if (c>=0)
+          lzavin+=(char)c;
+        else {
+          lzav_native_decode(lzavin, z, pm);
+          lzavin.clear();
+        }
+        break;
+      }
+#endif
+#ifdef ZPAQLZ4
+      if (lz4native) {
+        if (c>=0)
+          lz4in+=(char)c;
+        else {
+          lz4_native_decode(lz4in, z);
+          lz4in.clear();
+        }
+        break;
+      }
+#endif
       z.run(c);
       if (c<0) z.flush();
       break;
@@ -15838,6 +24029,24 @@ void Encoder::compress(int c) {
       low=0;
     }
     if (c>=0) buf[low++]=c;
+  }
+}
+void Encoder::compressstored(const char* p, int n) {
+  while (n>0) {
+    if (low && low==buf.size()) { /// full: out it goes, before the next byte, as compress(c) does
+      out->put((low>>24)&255);
+      out->put((low>>16)&255);
+      out->put((low>>8)&255);
+      out->put(low&255);
+      out->write(&buf[0], low);
+      low=0;
+    }
+    const int spazio=(int)(buf.size()-low);
+    const int quanto=n<spazio ? n : spazio;
+    memcpy(&buf[low], p, (size_t)quanto);
+    low+=quanto;
+    p+=quanto;
+    n-=quanto;
   }
 }
 //////////////////////////// Compiler /////////////////////////
@@ -16356,6 +24565,12 @@ bool Compressor::compress(int n) {
     if (nr<0 || nr>BUFSIZE || nr>nbuf) error("invalid read size");
     if (nr<=0) return false;
     if (n>=0) n-=nr;
+    /// stored and no verify: a buffer at a time (the profile of -m0/-m6/-m7:
+    /// a quarter of the CPU was here, one byte per call)
+    if (!verify && enc.stored()) {
+      enc.compressstored(buf, nr);
+      continue;
+    }
     for (int i=0; i<nr; ++i) {
       int ch=U8(buf[i]);
       enc.compress(ch);
@@ -17882,6 +26097,9 @@ int Predictor::predict() {
     }
     if (!pcode || n<15 || pcode_size<15)
       error("run JIT failed");
+    protectx(pcode, pcode_size); /// written: now it can be executed
+    if (flagnojit)               /// protectx gave up: interpreter
+      return predict0();
   }
   ///assert(pcode && pcode[0]);
   if (!(pcode && pcode[0]))
@@ -17930,6 +26148,12 @@ void ZPAQL::run(U32 input) {
     }
     if (!rcode || n<10 || rcode_size<10)
       error("run JIT failed");
+    protectx(rcode, rcode_size); /// written: now it can be executed
+    if (flagnojit)               /// protectx gave up: interpreter
+    {
+      run0(input);
+      return;
+    }
   }
   a=input;
   
@@ -19435,6 +27659,7 @@ class LZBuffer: public libzpaq::Reader {
   const unsigned maxLiteral;  // longest literal length allowed
   const unsigned lookahead;   // second context look ahead
   unsigned h1, h2;            // low, high order context hashes of in[i..]
+  unsigned hpre;              // h1 of a position ZPAQ_LZAHEAD bytes ahead, only to prefetch
   const unsigned bucket;      // number of matches to search per hash - 1
   const unsigned shift1, shift2;  // how far to shift h1, h2 per hash
   const int minMatchBoth;     // max(minMatch, minMatch2)
@@ -19508,6 +27733,11 @@ public:
 // last 4 bytes giving its position LSB first.
 // floor(log2(x)) + 1 = number of bits excluding leading zeros (0..32)
 int lg(unsigned x) {
+#if defined(__GNUC__) || defined(__clang__)
+  /// the very same value, one instruction: LZBuffer::fill() calls it for
+  /// every candidate match (-m1, 3% of the time in perf)
+  return x ? 32-__builtin_clz(x) : 0;
+#endif
   unsigned r=0;
   if (x>=65536) r=16, x>>=16;
   if (x>=256) r+=8, x>>=8;
@@ -19586,7 +27816,7 @@ LZBuffer::LZBuffer(StringBuffer& inbuf, int args[], const unsigned* sap):
     maxMatch(BUFSIZE*3),
     maxLiteral(BUFSIZE/4),
     lookahead(args[6]),
-    h1(0), h2(0),
+    h1(0), h2(0), hpre(0),
     bucket((1<<args[4])-1),
     shift1(minMatch>0 ? (args[5]-1)/minMatch+1 : 1),
     shift2(minMatch2>0 ? (args[5]-1)/minMatch2+1 : 0),
@@ -19617,7 +27847,40 @@ LZBuffer::LZBuffer(StringBuffer& inbuf, int args[], const unsigned* sap):
       isa=&ht[n*(sap==0)];
     }
   }
+  /*
+	The LZ77 hash table is READ before it is written: fill() looks a match
+	up, then stores. calloc() of something that big hands out untouched
+	pages, the first read maps the shared zero page, the first write then
+	has to copy it (copy-on-write) and flush the TLB of EVERY core running
+	the process (an interrupt to each one). -m1 on 4 GB, 4 threads (Linux,
+	perf): 40 s of the 160 of CPU in the kernel, just for that. Written
+	first, each page is simply allocated on its first touch
+  */
+  else if (htsize>0)
+    memset(&ht[0], 0, (size_t)htsize*sizeof(ht[0]));
 }
+/*
+	The LZ77 hash table of -m1 is 64 MB: every look up in fill() is a cache
+	miss, and there the core waits for the RAM (perf, -m1: 40% of fill() on
+	the single line "p=ht[h1^k]"). But the hash of a position is known well
+	before it is needed: a second copy of it (hpre) runs ZPAQ_LZAHEAD bytes
+	ahead and asks the CPU for that cache line, so it is there when fill()
+	gets to it. One position ahead is too close to hide the latency of the
+	RAM (5%); 32 hide most of it (8: 18 s, 16: 16.2, 32: 15.9, 64: 16.2 on -m1, 4 GB, 4 threads).
+	hpre needs no care: after minMatch steps the old bytes are shifted out
+	of the mask (shift1*minMatch >= the bits of the table), so it is right
+	by itself, and if it were not, a prefetch of the wrong line only wastes
+	a little bandwidth. A bucket (h1^k, k<=15) is 16 words, 64 bytes, one
+	line: one prefetch is enough. Nothing changes in what is written
+*/
+#if defined(__GNUC__) || defined(__clang__)
+#define ZPAQ_LZPREFETCH(p) __builtin_prefetch((p), 0, 3)
+#else
+#define ZPAQ_LZPREFETCH(p) ((void)0)
+#endif
+#ifndef ZPAQ_LZAHEAD
+#define ZPAQ_LZAHEAD 32
+#endif
 // Encode from in to buf until end of input or buf is not empty
 void LZBuffer::fill() {
   // BWT
@@ -19738,6 +28001,7 @@ void LZBuffer::fill() {
             ht[h2^ih]=p;
             h2=(((h2*9)<<shift2)
                 +(in[i+minMatch2+lookahead]+1)*23456789u)&(htsize-1);
+            ZPAQ_LZPREFETCH(&ht[h2]);
           }
           ht[h1^ih]=p;	
 		  ///alpine
@@ -19751,6 +28015,10 @@ void LZBuffer::fill() {
 		  }
 */
           h1=(((h1*5)<<shift1)+(in[i+minMatch]+1)*123456791u)&(htsize-1);
+          if (i+ZPAQ_LZAHEAD+minMatch<n) {
+            hpre=(((hpre*5)<<shift1)+(in[i+ZPAQ_LZAHEAD+minMatch]+1)*123456791u)&(htsize-1);
+            ZPAQ_LZPREFETCH(&ht[hpre]);
+          }
         }
         ++i;
       }
@@ -20493,6 +28761,493 @@ std::string makeConfig(const char* method, int args[]) {
 // in the segment header. If comment is 0 then the default is the input size
 // as a decimal string, plus " jDC\x01" for a journaling method (method[0]
 // is not 's'). Write the generated method to methodOut if not 0.
+#ifdef ZPAQLZ4
+/*
+	-m6 (EXPERIMENTAL): LZ4, the "clean" way. The block is a plain zpaq block:
+	no context model at all (n=0, the bytes are stored, as in -m0), and a
+	postprocessor written in ZPAQL that decodes the LZ4 block format. So ANY
+	zpaq (7.15 included, and every zpaqfranz, built with or without ZPAQLZ4)
+	extracts it by running this very program; this build recognizes it and
+	decodes it natively (lz4_native_decode).
+	Tested: zpaq 7.15 extracts identical files. On a 14.3 GB VM, 32 threads:
+	as fast as -m1 (the deduplicator is the limit), 1/6 of the CPU, archive
+	+21% (LZ4), +10% (-m6h9). LZ4 sees 64 KB back, -m1 the whole block.
+	LZ4 block format: token (high nibble literal length, low nibble match
+	length-4, 15 = more bytes follow, each 255 = go on), literals, offset
+	(2 bytes, little endian, 1..65535), match length bytes. The last sequence
+	has only literals. M is the 64 KB window (every *b and *c wraps by itself)
+	r1 state, r2 literal length, r3 match length-4, r4 offset, b write position.
+	The state is loaded once (a=r 1) and then only compared: a comparison sets
+	the flag and leaves A alone, and the bodies of states 0..3 always end with
+	halt, so a test not taken reaches the next one with A still = r1 (thanks
+	to the forum for spotting the four redundant reloads). The reload before
+	state 5 is NOT redundant: state 4 can fall through to the copy with A = r3,
+	and a match length nibble of 5 would then look like state 5
+	(65.3w: the canonical bytecode changed with it, see lz4_is_canonical)
+	DO NOT CHANGE A SINGLE BYTE of it: the native path recognizes the
+	compiled bytecode, and old archives carry the old one
+*/
+static const char* LZ4_PCOMP=
+"pcomp lz4 ;\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 2 r=a 3 r=a 4\n"
+"    halt\n"
+"  endif\n"
+"  c=a\n"
+"  a=r 1 a== 0 if\n"
+"    a=c a>>= 4 r=a 2\n"
+"    a=c a&= 15 r=a 3\n"
+"    a=r 2 a== 15 if\n"
+"      a= 1 r=a 1\n"
+"    else\n"
+"      a=r 2 a== 0 if\n"
+"        a= 3 r=a 1\n"
+"      else\n"
+"        a= 2 r=a 1\n"
+"      endif\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 1 if\n"
+"    a=r 2 a+=c r=a 2\n"
+"    a=c a== 255 ifnot\n"
+"      a= 2 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 2 if\n"
+"    a=c *b=a out b++\n"
+"    a=r 2 a-- r=a 2\n"
+"    a== 0 if\n"
+"      a= 3 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 3 if\n"
+"    a=c r=a 4\n"
+"    a= 4 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 4 if\n"
+"    a=c a<<= 8 d=a a=r 4 a+=d r=a 4\n"
+"    a=r 3 a== 15 if\n"
+"      a= 5 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"  endif\n"
+"  a=r 1 a== 5 if\n"
+"    a=r 3 a+=c r=a 3\n"
+"    a=c a== 255 if\n"
+"      halt\n"
+"    endif\n"
+"  endif\n"
+"  d=r 4 a=b a-=d c=a\n"
+"  d=r 3 d++ d++ d++ d++\n"
+"  do a=d a> 0 if\n"
+"    d--\n"
+"    a=*c *b=a out c++ b++\n"
+"  forever endif\n"
+"  a=0 r=a 1\n"
+"  halt\n"
+"end\n";
+static const char* LZ4_CONFIG_HEAD= "comp 0 0 0 16 0\nhcomp\nhalt\n";
+
+/*
+	The tuning comes from the method string, after the level and the block
+	size: -m6 (LZ4 default), -m6h9 (HC, level 1..12), -m6a8 (fast, acceleration
+	1..65537), -m66h9 (HC 9, 64 MB blocks). By then it looks like "64h9,R,t"
+	Returns the compressed size, 0 if it did not shrink (=> stored)
+*/
+int lz4_encode(const std::string& i_method, const char* i_src, int i_n, std::vector<char>& o_dst)
+{
+	const int capacity= zlz4::ZLZ4_compressBound(i_n);
+	if (capacity<=0)
+		return 0;
+	o_dst.resize((size_t)capacity);
+	char modo	 = 0;
+	int	 livello= 0;
+	for (size_t i= 1; i<i_method.size() && i_method[i]!=','; i++)
+		if (i_method[i]=='h' || i_method[i]=='a')
+		{
+			modo   = i_method[i];
+			livello= atoi(i_method.c_str()+i+1);
+			break;
+		}
+	int risultato= 0;
+	if (modo=='h')
+		risultato= zlz4::ZLZ4_compress_HC(i_src, &o_dst[0], i_n, capacity, livello);
+	else if (modo=='a')
+		risultato= zlz4::ZLZ4_compress_fast(i_src, &o_dst[0], i_n, capacity, livello);
+	else
+		risultato= zlz4::ZLZ4_compress_default(i_src, &o_dst[0], i_n, capacity);
+	if (risultato<=0 || risultato>=i_n-64)
+		return 0;
+	return risultato;
+}
+/// the bytecode of LZ4_PCOMP, compiled once (thread safe: C++11 static)
+static std::string lz4_canonical_bytes()
+{
+	libzpaq::ZPAQL hz, pz;
+	int args[9]={0};
+	const std::string config= std::string(LZ4_CONFIG_HEAD)+LZ4_PCOMP;
+	Compiler(config.c_str(), args, hz, pz, NULL);
+	return std::string((const char*)&pz.header[pz.hbegin], (size_t)(pz.hend-pz.hbegin));
+}
+bool lz4_is_canonical(const U8* i_code, int i_len)
+{
+	static const std::string canonico= lz4_canonical_bytes();
+	return i_len==(int)canonico.size() && memcmp(i_code, canonico.data(), (size_t)i_len)==0;
+}
+/*
+	The native twin of LZ4_PCOMP: same input, same output, to the byte (the
+	ZPAQL one decides what is right: a stream that is not a valid LZ4 block
+	is an error here, as it would be garbage there). The size is not stored
+	anywhere, so a first pass over the sequences adds it up, then
+	ZLZ4_decompress_safe() does the real work and the result goes out in one
+	piece, SHA-1 included
+*/
+void lz4_native_decode(const std::string& i_in, ZPAQL& z)
+{
+	const U8*	 p		= (const U8*)i_in.data();
+	const size_t n		= i_in.size();
+	size_t		 i		= 0;
+	int64_t		 totale= 0;
+	while (i<n)
+	{
+		const unsigned token= p[i++];
+		int64_t		   lit	= token>>4;
+		if (lit==15)
+		{
+			unsigned x;
+			do
+			{
+				if (i>=n) error("LZ4: truncated literal length");
+				x= p[i++];
+				lit+= x;
+			} while (x==255);
+		}
+		if ((int64_t)(n-i)<lit) error("LZ4: truncated literals");
+		i+= (size_t)lit;
+		totale+= lit;
+		if (i==n)
+			break; /// the last sequence: literals only
+		if (i+2>n) error("LZ4: truncated offset");
+		i+= 2;
+		int64_t match= token&15;
+		if (match==15)
+		{
+			unsigned x;
+			do
+			{
+				if (i>=n) error("LZ4: truncated match length");
+				x= p[i++];
+				match+= x;
+			} while (x==255);
+		}
+		totale+= match+4;
+	}
+	if (totale>0x7fffffffLL) error("LZ4: block too big");
+	std::string fuori;
+	fuori.resize((size_t)totale);
+	if (totale>0)
+	{
+		const int fatti= zlz4::ZLZ4_decompress_safe((const char*)p, &fuori[0], (int)n, (int)totale);
+		if (fatti!=(int)totale) error("LZ4: corrupted block");
+	}
+	z.flush();
+	if (totale>0)
+	{
+		if (z.output) z.output->write(fuori.data(), (int)totale);
+		if (z.sha1) z.sha1->write(fuori.data(), totale);
+	}
+}
+#endif // ZPAQLZ4
+
+#ifdef ZPAQLZAV
+/*
+	-m7 (EXPERIMENTAL): LZAV (format 3), the same way as -m6: a plain zpaq
+	block with no context model (n=0, the bytes are stored) and a ZPAQL
+	postprocessor that decodes LZAV. Any zpaq extracts it by running it,
+	this build recognizes it and calls lzav_decompress_3().
+	LZAV format 3, from lzav.h (lzav_write_blk_3, lzav_decompress_3):
+	- the stream starts with a prefix byte: format<<4 | mref (minimum match)
+	- then blocks. Header bits 4-5 = type:
+	  CC00LLLL literal block: LLLL literals (0 = 16 + length bytes follow)
+	  OO01RRRR reference, 10 bit offset (1 offset byte)
+	  OO10RRRR reference, 15 bit offset (2 offset bytes, 3 carry bits)
+	  OO11RRRR reference, 21 bit offset (3 offset bytes, 5 carry bits)
+	  RRRR = match length - mref + 1 (0 = 16 + length bytes follow)
+	- length bytes: 7 bits each, high bit = one more follows, 4 at most
+	- offset-carry: the LOW bits of an offset come from the blocks BEFORE it
+	  (the top bits of the last offset byte of the previous reference, and
+	  the CC bits of a literal block in between), so a decoder that reads
+	  in order always has them. The offset is (own bits << csh) | cv
+	- the last block is a literal block
+	Registers: r1 state, r2 mref-1, r3 cv (carry), r4 csh (carry shift),
+	r5 literal count / match length, r6 offset bytes, r7 block header,
+	r8 shift of the next length/offset byte, r9 block type, r10 offset;
+	b write position, c the input byte (then the copy source).
+	M holds the whole block (pm = block size): offsets can reach it all.
+	The state is loaded once: a comparison does not change A, and states
+	0,1,2,3,5 end with halt. States 4, 6 and 7 fall through to the copy,
+	so r1 is loaded again before testing 6 and 7.
+	DO NOT CHANGE A SINGLE BYTE of it: the native path recognizes the
+	compiled bytecode
+*/
+static const char* LZAV_PCOMP=
+"pcomp lzav ;\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 3 r=a 4\n"
+"    halt\n"
+"  endif\n"
+"  c=a\n"
+"  a=r 1 a== 0 if\n"
+"    a=c a&= 15 a-- r=a 2\n"
+"    a=0 b=a r=a 3 r=a 4\n"
+"    a= 1 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 1 if\n"
+"    a=c r=a 7\n"
+"    a>>= 4 a&= 3 r=a 9\n"
+"    a== 0 if\n"
+"      a=c a>>= 6 d=r 4 a<<=d d=a a=r 3 a|=d r=a 3\n"
+"      a=r 4 a+= 2 r=a 4\n"
+"      a=c a&= 15 r=a 5\n"
+"      a== 0 if\n"
+"        a= 3 r=a 1\n"
+"      else\n"
+"        a= 2 r=a 1\n"
+"      endif\n"
+"      halt\n"
+"    endif\n"
+"    a=0 r=a 6 r=a 8\n"
+"    a= 4 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 2 if\n"
+"    a=c *b=a out b++\n"
+"    a=r 5 a-- r=a 5\n"
+"    a== 0 if\n"
+"      a= 1 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 3 if\n"
+"    a=c a&= 127 r=a 5\n"
+"    a=c a> 127 if\n"
+"      a= 7 r=a 8\n"
+"      a= 5 r=a 1\n"
+"    else\n"
+"      a=r 5 a+= 16 r=a 5\n"
+"      a= 2 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 5 if\n"
+"    a=c a&= 127 d=r 8 a<<=d d=a a=r 5 a+=d r=a 5\n"
+"    a=c a> 127 if\n"
+"      a=r 8 a== 28 ifnot\n"
+"        a+= 7 r=a 8\n"
+"        halt\n"
+"      endif\n"
+"    endif\n"
+"    a=r 5 a+= 16 r=a 5\n"
+"    a= 2 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 4 ifl\n"
+"    a=c d=r 8 a<<=d d=a a=r 6 a+=d r=a 6\n"
+"    a=r 8 a+= 8 r=a 8\n"
+"    a=r 9 a<<= 3 d=a a=r 8 a<d if\n"
+"      halt\n"
+"    endif\n"
+"    a=r 9 a== 1 if\n"
+"      a= 1 a<<= 10\n"
+"    else\n"
+"      a== 2 if\n"
+"        a= 1 a<<= 15\n"
+"      else\n"
+"        a= 1 a<<= 21\n"
+"      endif\n"
+"    endif\n"
+"    a-- r=a 10\n"
+"    a=r 7 a>>= 6 d=a\n"
+"    a=r 6 a<<= 2 a|=d\n"
+"    d=r 10 a&=d\n"
+"    d=r 4 a<<=d\n"
+"    d=r 3 a|=d r=a 10\n"
+"    a=r 9 a== 1 if\n"
+"      a=0 r=a 3 r=a 4\n"
+"    else\n"
+"      a== 2 if\n"
+"        a=c a>>= 5 r=a 3 a= 3 r=a 4\n"
+"      else\n"
+"        a=c a>>= 3 r=a 3 a= 5 r=a 4\n"
+"      endif\n"
+"    endif\n"
+"    a=r 7 a&= 15 a== 0 if\n"
+"      a= 6 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    d=r 2 a+=d r=a 5\n"
+"  endif\n"
+"  a=r 1 a== 6 if\n"
+"    a=c a&= 127 d=r 2 a+=d a+= 16 r=a 5\n"
+"    a=c a> 127 if\n"
+"      a= 7 r=a 8 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"  endif\n"
+"  a=r 1 a== 7 if\n"
+"    a=c a&= 127 d=r 8 a<<=d d=a a=r 5 a+=d r=a 5\n"
+"    a=c a> 127 if\n"
+"      a=r 8 a== 28 ifnot\n"
+"        a+= 7 r=a 8\n"
+"        halt\n"
+"      endif\n"
+"    endif\n"
+"  endif\n"
+"  d=r 10 a=b a-=d c=a\n"
+"  d=r 5\n"
+"  do a=d a> 0 if\n"
+"    d--\n"
+"    a=*c *b=a out c++ b++\n"
+"  forever endif\n"
+"  a= 1 r=a 1\n"
+"  halt\n"
+"end\n";
+
+/// -m7 default, -m7h LZAV "hi" (better ratio, slower). Returns the
+/// compressed size, 0 if it did not shrink (=> stored)
+int lzav_encode(const std::string& i_method, const char* i_src, int i_n, std::vector<char>& o_dst)
+{
+	if (i_n<256)
+		return 0;
+	bool alto= false;
+	for (size_t i= 1; i<i_method.size() && i_method[i]!=','; i++)
+		if (i_method[i]=='h')
+			alto= true;
+	const int capacity= alto ? zlzav::lzav_compress_bound_hi(i_n) : zlzav::lzav_compress_bound(i_n);
+	if (capacity<=0)
+		return 0;
+	o_dst.resize((size_t)capacity);
+	const int risultato= alto ? zlzav::lzav_compress_hi(i_src, &o_dst[0], i_n, capacity)
+							  : zlzav::lzav_compress_default(i_src, &o_dst[0], i_n, capacity);
+	if (risultato<=0 || risultato>=i_n-64)
+		return 0;
+	return risultato;
+}
+static std::string lzav_config(int i_pm)
+{
+	return "comp 0 0 0 "+itos(i_pm)+" 0\nhcomp\nhalt\n"+LZAV_PCOMP;
+}
+/// the bytecode of LZAV_PCOMP (the pm of the header is not part of it)
+static std::string lzav_canonical_bytes()
+{
+	libzpaq::ZPAQL hz, pz;
+	int args[9]={0};
+	const std::string config= lzav_config(24);
+	Compiler(config.c_str(), args, hz, pz, NULL);
+	return std::string((const char*)&pz.header[pz.hbegin], (size_t)(pz.hend-pz.hbegin));
+}
+bool lzav_is_canonical(const U8* i_code, int i_len)
+{
+	static const std::string canonico= lzav_canonical_bytes();
+	return i_len==(int)canonico.size() && memcmp(i_code, canonico.data(), (size_t)i_len)==0;
+}
+/*
+	The native twin of LZAV_PCOMP. The size is not stored anywhere, but M of
+	the pcomp is as big as the block, so that is the room given: a valid
+	stream then ends with LZAV_E_DSTLEN ("shorter than the room") and the
+	number of bytes written, anything else is a broken block
+*/
+void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm)
+{
+	if (i_in.size()<11 || ((U8)i_in[0]>>4)!=3)
+		error("LZAV: not a format 3 stream");
+	if (i_pm<10 || i_pm>30)
+		error("LZAV: strange block size");
+	const int spazio= 1<<i_pm;
+	std::string fuori;
+	fuori.resize((size_t)spazio+64);
+	int scritti= 0;
+	const int esito= zlzav::lzav_decompress_3(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti);
+	int lunghezza= 0;
+	if (esito>=0)
+		lunghezza= esito;
+	else if (esito==zlzav::LZAV_E_DSTLEN)
+		lunghezza= scritti;
+	else
+		error("LZAV: corrupted block");
+	z.flush();
+	if (lunghezza>0)
+	{
+		if (z.output) z.output->write(fuori.data(), lunghezza);
+		if (z.sha1) z.sha1->write(fuori.data(), lunghezza);
+	}
+}
+#endif // ZPAQLZAV
+
+#if defined(ZPAQLZ4) || defined(ZPAQLZAV)
+/*
+	The PCOMP of -m6 and -m7 are FROZEN. Once an archive is out there, the
+	bytecode of its pcomp is part of it: any zpaq runs it, and this build
+	takes the native road only if it is byte-identical to the canonical one
+	(lz4_is_canonical, lzav_is_canonical). The canonical bytecode is compiled
+	from the text of LZ4_PCOMP / LZAV_PCOMP, so touching that text (even a
+	"harmless" cleanup) would silently make NEW archives with ANOTHER pcomp.
+	So its SHA-1 is written here, once and for all: the autotest checks it,
+	and compressBlock() refuses to write a -m6/-m7 block if it does not match.
+	Another decoder means a NEW pcomp, next to these ones, never in their place
+*/
+#define ZPAQ_LZ4_PCOMP_SHA1	 "D80D8DFA1D0F58C9D0919192D79C76986320FD3A"
+#define ZPAQ_LZAV_PCOMP_SHA1 "B9FF18F22627E2AABB6D41BB7C032D9CCBE7DCF0"
+static std::string pcomp_sha1hex(const std::string& i_bytes)
+{
+	SHA1 sha;
+	sha.write(i_bytes.data(), (int64_t)i_bytes.size());
+	const char* r= sha.result();
+	static const char esa[]= "0123456789ABCDEF";
+	std::string risultato;
+	for (int i= 0; i<20; i++)
+	{
+		risultato+= esa[((U8)r[i])>>4];
+		risultato+= esa[((U8)r[i])&15];
+	}
+	return risultato;
+}
+/// number of PCOMP whose bytecode is not the frozen one (0 = all good)
+int pcomp_frozen_check(bool i_verbose)
+{
+	int errori= 0;
+#ifdef ZPAQLZ4
+	{
+		const std::string h= pcomp_sha1hex(lz4_canonical_bytes());
+		const bool ok= (h==ZPAQ_LZ4_PCOMP_SHA1);
+		if (i_verbose || !ok)
+			myprintf("65400%s -m6 LZ4_PCOMP  bytecode SHA-1 %s %s\n", ok ? ":" : "!", h.c_str(), ok ? "(frozen, OK)" : "CHANGED! expected " ZPAQ_LZ4_PCOMP_SHA1);
+		errori+= !ok;
+	}
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+	{
+		const std::string h= pcomp_sha1hex(lzav_canonical_bytes());
+		const bool ok= (h==ZPAQ_LZAV_PCOMP_SHA1);
+		if (i_verbose || !ok)
+			myprintf("65401%s -m7 LZAV_PCOMP bytecode SHA-1 %s %s\n", ok ? ":" : "!", h.c_str(), ok ? "(frozen, OK)" : "CHANGED! expected " ZPAQ_LZAV_PCOMP_SHA1);
+		errori+= !ok;
+	}
+#endif // ZPAQLZAV
+	return errori;
+}
+/// checked once (thread safe: C++11 static), then free
+static bool pcomp_is_frozen()
+{
+	static const bool congelato= (pcomp_frozen_check(false)==0);
+	return congelato;
+}
+#endif // corresponds to #if (#if defined(ZPAQLZ4) || defined(ZPAQLZAV))
 void compressBlock(StringBuffer* in, Writer* out, const char* method_,
                    const char* filename, const char* comment, bool dosha1) {
   assert(in);
@@ -20526,6 +29281,64 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     sha1.write(in->c_str(), n);
     sha1ptr=sha1.result();
   }
+#ifdef ZPAQLZ4
+  // -m6: LZ4 stored + ZPAQL decoder (see LZ4_PCOMP)
+  if (method[0]=='6') {
+    if (!pcomp_is_frozen()) /// never an archive with a pcomp that is not the frozen one
+      error("-m6/-m7: PCOMP bytecode changed, refusing to write (see pcomp_frozen_check)");
+    std::vector<char> lz4;
+    const int lz4size= lz4_encode(method, in->c_str(), (int)n, lz4);
+    if (lz4size>0) {
+      const std::string config= std::string(LZ4_CONFIG_HEAD)+LZ4_PCOMP;
+      int args[9]={0};
+      libzpaq::Compressor co;
+      co.setOutput(out);
+      StringBuffer pcomp_cmd;
+      co.writeTag();
+      co.startBlock(config.c_str(), args, &pcomp_cmd);
+      std::string cs=itos(n);
+      if (comment) cs=cs+" "+comment;
+      co.startSegment(filename, cs.c_str());
+      StringBuffer lzin;
+      lzin.write(&lz4[0], lz4size);
+      co.setInput(&lzin);
+      co.compress();
+      co.endSegment(sha1ptr);
+      co.endBlock();
+      return;
+    }
+    method="0"+method.substr(1); /// incompressible: stored, as -m1 would do
+  }
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+  // -m7: LZAV stored + ZPAQL decoder (see LZAV_PCOMP)
+  if (method[0]=='7') {
+    if (!pcomp_is_frozen()) /// never an archive with a pcomp that is not the frozen one
+      error("-m6/-m7: PCOMP bytecode changed, refusing to write (see pcomp_frozen_check)");
+    std::vector<char> lzav;
+    const int lzavsize= lzav_encode(method, in->c_str(), (int)n, lzav);
+    if (lzavsize>0) {
+      const std::string config= lzav_config(arg0+20); /// M = the whole block
+      int args[9]={0};
+      libzpaq::Compressor co;
+      co.setOutput(out);
+      StringBuffer pcomp_cmd;
+      co.writeTag();
+      co.startBlock(config.c_str(), args, &pcomp_cmd);
+      std::string cs=itos(n);
+      if (comment) cs=cs+" "+comment;
+      co.startSegment(filename, cs.c_str());
+      StringBuffer lzin;
+      lzin.write(&lzav[0], lzavsize);
+      co.setInput(&lzin);
+      co.compress();
+      co.endSegment(sha1ptr);
+      co.endBlock();
+      return;
+    }
+    method="0"+method.substr(1); /// incompressible: stored
+  }
+#endif // ZPAQLZAV
   // Expand default methods
   if (isdigit(method[0])) {
     const int level=method[0]-'0';
@@ -27426,12 +36239,34 @@ using libzpaq::error;
 
 
 
+/*
+	The stack of a thread. glibc gives every thread 8 MB (RLIMIT_STACK), musl
+	only 128 KB, macOS 512 KB, FreeBSD 1 or 2 MB. The compressors of -m6/-m7
+	(LZ4, LZAV) keep their hash tables on the stack, and libzpaq is not shy
+	either: the static musl builds for NAS died with a segfault at the very
+	first -m6/-m7 block. So these threads get at least 8 MB. It is virtual
+	memory: only the pages really touched cost RAM. Where the default is
+	already that big (glibc) nothing changes
+*/
+int zpaq_thread_create(pthread_t *o_tid, void *(*i_f)(void *), void *i_arg)
+{
+	const size_t   minimo= (size_t)8 << 20;
+	pthread_attr_t attributi;
+	if (pthread_attr_init(&attributi) != 0)
+		return pthread_create(o_tid, NULL, i_f, i_arg);
+	size_t attuale= 0;
+	if ((pthread_attr_getstacksize(&attributi, &attuale) == 0) && (attuale < minimo))
+		pthread_attr_setstacksize(&attributi, minimo);
+	const int risultato= pthread_create(o_tid, &attributi, i_f, i_arg);
+	pthread_attr_destroy(&attributi);
+	return risultato;
+}
 #ifdef unix
 typedef void	 *ThreadReturn;											   // job return type
 typedef pthread_t ThreadID;												   // job ID type
 void			  run(ThreadID &tid, ThreadReturn (*f)(void *), void *arg) // start job
 {
-	pthread_create(&tid, NULL, f, arg);
+	zpaq_thread_create(&tid, f, arg);
 }
 void join(ThreadID tid)
 {
@@ -27770,20 +36605,28 @@ typedef struct _REPARSE_LX_SYMLINK_BUFFER
 #endif // corresponds to #ifndef (#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING)
 static HANDLE stdoutHandle;
 static DWORD  outModeInit;
+static bool	  consolemodeset= false; /// true only if setupConsole() really changed something
+/*
+	stdout redirected (dotest.bat > log, a scheduled task writing a log) is
+	not a console: GetConsoleMode() fails with ERROR_INVALID_HANDLE, and this
+	used to exit(6) right there, in the middle of c -checksum or r. No console
+	means no escape sequences to enable, and nothing to put back: go on
+*/
 void		  setupConsole(void)
 {
+	consolemodeset= false;
 	if (flagnoconsole)
 		return;
 	DWORD outMode= 0;
 	stdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
 	if (stdoutHandle == INVALID_HANDLE_VALUE)
-		exit(GetLastError());
+		return;
 	if (!GetConsoleMode(stdoutHandle, &outMode))
-		exit(GetLastError());
+		return;
 	outModeInit= outMode;
 	outMode|= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-	if (!SetConsoleMode(stdoutHandle, outMode))
-		exit(GetLastError());
+	if (SetConsoleMode(stdoutHandle, outMode))
+		consolemodeset= true;
 }
 void restoreConsole(void)
 {
@@ -27792,8 +36635,8 @@ void restoreConsole(void)
 	if (flagsilent)
 		return;
 	printf("\x1b[0m");
-	if (!SetConsoleMode(stdoutHandle, outModeInit))
-		exit(GetLastError());
+	if (consolemodeset)
+		SetConsoleMode(stdoutHandle, outModeInit);
 }
 // In Windows, convert 16-bit wide string to UTF-8 and \ to /
 bool   windows7_or_above= false; // windows version (for using FindFirstFileExW)
@@ -28335,9 +37178,14 @@ void restoreConsole(void)
 int terminalwidth()
 {
 #if defined(_WIN32)
+	/// no console (redirected): see terminalheight(), same 80 of *nix
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
-	return (int)csbi.srWindow.Right - csbi.srWindow.Left + 1;
+	if (!GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi))
+		return 80;
+	int colonna= (int)csbi.srWindow.Right - csbi.srWindow.Left + 1;
+	if ((colonna < 1) || (colonna > 200))
+		colonna= 80;
+	return colonna;
 #else
 	struct winsize w;
 	int			   colonna= 80;
@@ -28351,9 +37199,17 @@ int terminalwidth()
 int terminalheight()
 {
 #if defined(_WIN32)
+	/// stdout redirected (a .bat with > log, -out): no console, the call
+	/// fails and csbi is whatever was on the stack. It was: c -checksum from
+	/// the autotest printed thousands of garbage rows and crashed. Same 30
+	/// of the *nix branch, when there is nothing to ask
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
-	return (int)csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+	if (!GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi))
+		return 30;
+	int riga= (int)csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+	if ((riga < 1) || (riga > 200))
+		riga= 30;
+	return riga;
 #else
 	struct winsize w;
 	int			   riga= 30;
@@ -30565,7 +39421,16 @@ uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
 #else
 
   uint32_t crc = ~previousCrc32; // same as previousCrc32 ^ 0xFFFFFFFF
-  const uint32_t* current = (const uint32_t*) data;
+  /*
+    The buffer is read one word at a time, and it is NOT aligned (t and x
+    hand over pieces of a block, anywhere). *(uint32_t*) on it is fine on
+    x86, but on ARM gcc may merge the four loads into one LDM or LDRD, which
+    do not tolerate it: SIGBUS (Bus error) on a Cortex-A9 NAS. And on ARMv5
+    an unaligned LDR does not fault, it silently returns ROTATED data. memcpy
+    says the same thing the legal way: one plain load on x86 and aarch64
+    (same code, same speed), the right thing on the others
+  */
+  const uint8_t* current = (const uint8_t*) data;
   // enabling optimization (at least -O2) automatically unrolls the inner for-loop
   const size_t Unroll = 4;
   const size_t BytesAtOnce = 16 * Unroll;
@@ -30574,10 +39439,13 @@ uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
     for (size_t unrolling = 0; unrolling < Unroll; unrolling++)
     {
 #if __BYTE_ORDER == __BIG_ENDIAN
-    uint32_t one   = *current++ ^ swap(crc);
-    uint32_t two   = *current++;
-    uint32_t three = *current++;
-    uint32_t four  = *current++;
+    uint32_t one, two, three, four;
+    memcpy(&one,   current,      4);
+    memcpy(&two,   current + 4,  4);
+    memcpy(&three, current + 8,  4);
+    memcpy(&four,  current + 12, 4);
+    current += 16;
+    one ^= swap(crc);
     crc  = Crc32Lookup[ 0][ four         & 0xFF] ^
            Crc32Lookup[ 1][(four  >>  8) & 0xFF] ^
            Crc32Lookup[ 2][(four  >> 16) & 0xFF] ^
@@ -30595,10 +39463,13 @@ uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
            Crc32Lookup[14][(one   >> 16) & 0xFF] ^
            Crc32Lookup[15][(one   >> 24) & 0xFF];
 #else
-    uint32_t one   = *current++ ^ crc;
-    uint32_t two   = *current++;
-    uint32_t three = *current++;
-    uint32_t four  = *current++;
+    uint32_t one, two, three, four;
+    memcpy(&one,   current,      4);
+    memcpy(&two,   current + 4,  4);
+    memcpy(&three, current + 8,  4);
+    memcpy(&four,  current + 12, 4);
+    current += 16;
+    one ^= crc;
     crc  = Crc32Lookup[ 0][(four  >> 24) & 0xFF] ^
            Crc32Lookup[ 1][(four  >> 16) & 0xFF] ^
            Crc32Lookup[ 2][(four  >>  8) & 0xFF] ^
@@ -30619,7 +39490,7 @@ uint32_t crc32_16bytes(const void* data, size_t length, uint32_t previousCrc32)
     }
     length -= BytesAtOnce;
   }
-  const uint8_t* currentChar = (const uint8_t*) current;
+  const uint8_t* currentChar = current;
   // remaining 1 to 63 bytes (standard algorithm)
   while (length-- != 0)
     crc = (crc >> 8) ^ Crc32Lookup[0][(crc & 0xFF) ^ *currentChar++];
@@ -32118,14 +40989,14 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 			{
 				if (hdrBuf[k]=='\r' && hdrBuf[k+1]=='\n' && hdrBuf[k+2]=='\r' && hdrBuf[k+3]=='\n')
 				{
-					body= hdrBuf.data() + k + 4;
+					body= &hdrBuf[0] + k + 4;
 					break;
 				}
 			}
 			if (body)
 			{
 				headerDone= true;
-				size_t bodyLen= (hdrBuf.data() + hdrBuf.size()) - body;
+				size_t bodyLen= (&hdrBuf[0] + hdrBuf.size()) - body;
 				if (bodyLen > 0)
 					fwrite(body, 1, bodyLen, file);
 			}
@@ -32795,15 +41666,23 @@ string mm_hash_calc_file(int i_algo, const char *i_filename, bool i_flagcalccrc3
 	return risultato;
 }
 
+#ifdef NOLM
+/// -DNOLM: custom_log() and its constants are further down
+double custom_log(double x);
+#ifndef MAX_ITERATIONS
+#define MAX_ITERATIONS 50
+#endif // corresponds to #ifndef (#ifndef MAX_ITERATIONS)
+#ifndef MYEPSILON
+#define MYEPSILON 1e-10
+#endif // corresponds to #ifndef (#ifndef MYEPSILON)
+#endif // corresponds to #ifdef (#ifdef NOLM)
 double custom_log2(double x)
 {
 #ifndef NOLM
 	return log2(x);
 #else
-	double risultato= custom_log(x) * 1.4426950408889634; // 1/ln(2)
-	double check	= log2(x);
-	myprintf("51123: log2 delta %f\n", risultato - check);
-
+	/// no log2() here: the whole point of NOLM is not to need libm
+	return custom_log(x) * 1.4426950408889634; // 1/ln(2)
 #endif
 }
 
@@ -34777,8 +43656,8 @@ bool headcompare(std::string i_file1, std::string i_file2) {
     // 4. Allocazione buffer (1MB è un buon compromesso tra RAM e velocità disco)
     const size_t buf_size = 1048576; // 1MB
     // Uso unique_ptr per gestione automatica della memoria (niente delete manuale)
-    std::unique_ptr<char[]> buf1(new char[buf_size]);
-    std::unique_ptr<char[]> buf2(new char[buf_size]);
+    std::vector<char> buf1(buf_size); /// not unique_ptr: C++98 (gcc 3.4 of ESXi)
+    std::vector<char> buf2(buf_size);
 
     int64_t total_read = 0;
     bool are_equal_prefix = true;
@@ -34792,8 +43671,8 @@ bool headcompare(std::string i_file1, std::string i_file2) {
         int64_t remaining = len1 - total_read;
         size_t to_read = (remaining > (int64_t)buf_size) ? buf_size : (size_t)remaining;
 
-        size_t r1 = std::fread(buf1.get(), 1, to_read, f1);
-        size_t r2 = std::fread(buf2.get(), 1, to_read, f2);
+        size_t r1 = std::fread(&buf1[0], 1, to_read, f1);
+        size_t r2 = std::fread(&buf2[0], 1, to_read, f2);
 
         // Aggiornamento interfaccia utente
         (void)myavanzamentoby1sec(donesize, len1, startcompare, false);
@@ -34805,7 +43684,7 @@ bool headcompare(std::string i_file1, std::string i_file2) {
             are_equal_prefix = false;
         } else {
             // Confronto veloce della memoria
-            if (memcmp(buf1.get(), buf2.get(), to_read) != 0) {
+            if (memcmp(&buf1[0], &buf2[0], to_read) != 0) {
                 are_equal_prefix = false;
 
                 // Troviamo il byte esatto che differisce
@@ -39426,7 +48305,7 @@ class franzcri
 
 				// Usa std::set<string> per O(log n) insert e lookup
 				std::set<std::string>						  seen_nonces;
-				std::vector<std::pair<uint64_t, std::string>> duplicates;
+				std::vector<std::pair<uint64_t, std::string> > duplicates;
 
 				// Salva posizione corrente
 				int64_t saved_pos= ftello(file_handle);
@@ -41998,6 +50877,15 @@ bool franzsanitizepath(const string &i_path, string &o_fixed, bool i_strict= fal
 				corrente[j]= '_';
 				cambiato   = true;
 			}
+		}
+		/// "./locale/x" (made by a -to ./locale) is just locale/x: the "." goes
+		/// nowhere, so it is dropped, not turned into a "_" folder (the autotest
+		/// extracted its chunk_????.zpaq into _/locale and 4 checks failed).
+		/// ".." is another story: it escapes, and it stays neutralized
+		if ((corrente == ".") && (i + 1 < pezzi.size()) && (pezzi[i + 1] != ""))
+		{
+			cambiato= true;
+			continue;
 		}
 		if ((corrente == ".") || (corrente == ".."))
 		{
@@ -44968,8 +53856,21 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 		if ((fp == FPNULL) && (!nowrite))
 			off+= len;
 		else
-			while (len-- > 0)
-				put(*ibuf++);
+			/// what put() does byte by byte, a piece at a time: flush() is
+			/// called at the very same points (the buffer full, one more byte
+			/// to come), so encryption and -chunk see exactly the same thing
+			while (len > 0)
+			{
+				if (ptr >= BUFSIZE)
+					flush();
+				int quanto= (int)(BUFSIZE - ptr);
+				if (quanto > len)
+					quanto= len;
+				memcpy(buf + ptr, ibuf, (size_t)quanto);
+				ptr+= quanto;
+				ibuf+= quanto;
+				len-= quanto;
+			}
 	}
 	// Flush output and close
 	void close()
@@ -45756,6 +54657,7 @@ struct DT // if you get some warning here, update your compiler!
 	int64_t	 expectedsize;
 	int		 version;
 	bool	 forceadd;
+	bool	 rehash; /// read again only to store a hash (see add())
 
 	bool	 is4;
 	uint64_t red_total;
@@ -45785,7 +54687,7 @@ struct DT // if you get some warning here, update your compiler!
 	int				 zipindex;		// ...and which g_zipentries[] describes it
 	vector<unsigned> block_for_ptr;
 
-	DT() : date(0), size(0), attr(0), data(0), creationdate(0), accessdate(0), written(-1), isordered(false), isselected(false), /*franz_block_size(FRANZOFFSETV3),*/ file_crc32(0), hashedsize(0), chunk(-1), expectedsize(0), version(0), forceadd(false), is4(false), red_total(0), red_count(0), red_min(256), red_max(0), red_avg(0), red_candidate(0), isedt(false), kompressedsize(0), filework(0),
+	DT() : date(0), size(0), attr(0), data(0), creationdate(0), accessdate(0), written(-1), isordered(false), isselected(false), /*franz_block_size(FRANZOFFSETV3),*/ file_crc32(0), hashedsize(0), chunk(-1), expectedsize(0), version(0), forceadd(false), rehash(false), is4(false), red_total(0), red_count(0), red_min(256), red_max(0), red_avg(0), red_candidate(0), isedt(false), kompressedsize(0), filework(0),
 		   donotextractme(false), zipdataoffset(-1), zipindex(-1)
 	{
 		///	let's save a bit of RAM (during compression)
@@ -56636,6 +65538,7 @@ enum class ImageType { NTFS, RAW };
 class Jidac
 {
   public:
+	Jidac(); /// the initial values of the members (no in-class initializers: C++98, gcc 3.4 of ESXi)
 	int64_t read_archive(callback_function i_advance, const char *arc, int *errors= 0, int i_myappend= 0, bool i_quiet= false); // read arc
 
 	vector<HT>	   ht;		  // list of fragments
@@ -56693,48 +65596,48 @@ class Jidac
 // Paranoid verification methods
     std::set<std::string> extractBasePaths();
     
-	char	lettera	   = 0;
-	int64_t total_size = 0;
-	int		numerodrive= -1;
+	char	lettera;
+	int64_t total_size;
+	int		numerodrive;
 	string	arcname;
 	char	salt[32];
-	int64_t offset	  = 0;
-	int64_t header_pos= 0;
-	int		parts	  = 0; // number of existing parts in multipart
+	int64_t offset;
+	int64_t header_pos;
+	int		parts; // number of existing parts in multipart
 
-	string	initialquickhash= "0";
-	int64_t initialzpaqsize = 0;
-	string	initialzpaqquick= "";
-	string	initialzpaqcrc32= "";
-	string	prezpaqcrc32	= "";
-	int64_t prezpaqsize		= 0;
+	string	initialquickhash;
+	int64_t initialzpaqsize;
+	string	initialzpaqquick;
+	string	initialzpaqcrc32;
+	string	prezpaqcrc32;
+	int64_t prezpaqsize;
 
-	string	 indexinitialquickhash= "0";
-	int64_t	 indexinitialzpaqsize = 0;
-	string	 indexinitialzpaqquick= "";
-	string	 indexinitialzpaqcrc32= "";
-	string	 indexprezpaqcrc32	  = "";
-	int64_t	 indexprezpaqsize	  = 0;
-	int64_t	 thecdatasize		  = 0;
-	int64_t	 archive_size		  = 0;
-	unsigned files_updated		  = 0;
-	unsigned files_added		  = 0;
-	int		 removed			  = 0; // count
+	string	 indexinitialquickhash;
+	int64_t	 indexinitialzpaqsize;
+	string	 indexinitialzpaqquick;
+	string	 indexinitialzpaqcrc32;
+	string	 indexprezpaqcrc32;
+	int64_t	 indexprezpaqsize;
+	int64_t	 thecdatasize;
+	int64_t	 archive_size;
+	unsigned files_updated;
+	unsigned files_added;
+	int		 removed; // count
 #ifdef _WIN32
-	unsigned int maxfilelength= 0;
+	unsigned int maxfilelength;
 #endif
-	int64_t total_done= 0;
-	int64_t cdatasize = 0;
+	int64_t total_done;
+	int64_t cdatasize;
 
 	vector<DTMap::iterator> vf;
-	int						removedcount= 0; // count
+	int						removedcount; // count
 	franzfs					thefranzfs;
-	string					memfilehash= "";
+	string					memfilehash;
 
-	int64_t archive_end		   = 0;
-	int64_t dimensione_garchive= 0;
+	int64_t archive_end;
+	int64_t dimensione_garchive;
 	string	zetacrc32;
-	int		errors= 0;
+	int		errors;
 
 
 	vector<list_HT>	 list_ht;							  // list of fragments
@@ -56817,6 +65720,10 @@ class Jidac
 	// Commands
 	int redu();	   // check redundancy
 	int add();	   // add, return 1 if error else 0
+#ifndef ANCIENT
+	int add2();	   // -turbo: add() with the SHA-1 of the fragments in parallel
+	friend ThreadReturn add2_readthread(void *i_arg); /// it calls updatehash()
+#endif
 	int addhome(); // add, return 1 if error else 0
 	int list();	   // list (one parameter) / check (more than one)
 #ifndef ANCIENT
@@ -56890,9 +65797,9 @@ class Jidac
 #endif /// NOSFTPEND
 	int versum();
 	int last2();
-#ifdef ZPAQMOUNT
+#ifdef ZPAQMOUNT ///NOSFTPSTART
 	int mount();
-#endif
+#endif ///NOSFTPEND
 	int last();
 	int testbackup();
 	int consolidatebackup();
@@ -56942,7 +65849,7 @@ class Jidac
 	void	scandir(bool i_checkifselected, DTMap &i_edt, string filename, bool i_recursive= true);																	   // scan dirs to dt
 	void	addfile(bool i_checkifselected, DTMap &i_edt, string filename, int64_t edate, int64_t esize, int64_t eattr, int64_t i_creationdate, int64_t i_accessdate); // add external file to dt
 	int64_t franzparallelscandir(bool i_flaghash, bool i_recursive, bool i_forcedir);
-	int64_t franzparallelhashfiles(string i_hashtype, int64_t i_totalsize, vector<string> i_thefiles, bool i_silent, vector<std::pair<string, string>> &o_hashname);
+	int64_t franzparallelhashfiles(string i_hashtype, int64_t i_totalsize, vector<string> i_thefiles, bool i_silent, vector<std::pair<string, string> > &o_hashname);
 
 	bool   equal(DTMap::const_iterator p, const char *filename, uint32_t &o_crc32, string i_myhashtype, string i_myhash, string &o_hash); // compare file contents with p
 	void   write715attr(libzpaq::StringBuffer &i_sb, uint64_t i_data, unsigned int i_quanti);
@@ -57246,6 +66153,43 @@ class Jidac
 	int rebuildbackupindex();
 
 };
+/// C++98: gcc 3.4 (ESXi) knows no in-class initializers, so here they are
+Jidac::Jidac()
+{
+	lettera= 0;
+	total_size= 0;
+	numerodrive= -1;
+	offset= 0;
+	header_pos= 0;
+	parts= 0;
+	initialquickhash= "0";
+	initialzpaqsize= 0;
+	initialzpaqquick= "";
+	initialzpaqcrc32= "";
+	prezpaqcrc32= "";
+	prezpaqsize= 0;
+	indexinitialquickhash= "0";
+	indexinitialzpaqsize= 0;
+	indexinitialzpaqquick= "";
+	indexinitialzpaqcrc32= "";
+	indexprezpaqcrc32= "";
+	indexprezpaqsize= 0;
+	thecdatasize= 0;
+	archive_size= 0;
+	files_updated= 0;
+	files_added= 0;
+	removed= 0;
+#ifdef _WIN32
+	maxfilelength= 0;
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+	total_done= 0;
+	cdatasize= 0;
+	removedcount= 0;
+	memfilehash= "";
+	archive_end= 0;
+	dimensione_garchive= 0;
+	errors= 0;
+}
 
 Jidac *pjidac;
 
@@ -57846,7 +66790,7 @@ size_t leggi(void *buffer, size_t size)
 
 		m_mythreads= new pthread_t[m_howmanythreads];
 		for (int i= 0; i < m_howmanythreads; ++i)
-			pthread_create(&m_mythreads[i], NULL, worker_routine, m_ctx);
+			zpaq_thread_create(&m_mythreads[i], worker_routine, m_ctx); /// big enough stack, see zpaq_thread_create
 
 		m_file_it		  = (*m_jidac).dt.begin();
 		m_frag_idx		  = 0;
@@ -60672,8 +69616,9 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 				}
 				else
 				{
+					/// stop here: going on would update the .zpaq and leave the .franzen behind (libsodium missing, permissions...)
 					myprintf("43791!  cannot open franzen <<%Z>>\n", franzenfilename.c_str());
-					g_p_franzenfile= 0;
+					error("cannot open franzen archive for append");
 				}
 			}
 		}
@@ -60780,8 +69725,9 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 					}
 					else
 					{
+						/// stop here: with Franzen-only (nowrite) the data would go nowhere, and "all OK" at the end
 						myprintf("43791!  cannot create franzen <<%Z>>\n", franzenfilename.c_str());
-						g_p_franzenfile= 0;
+						error("cannot create franzen archive");
 					}
 				}
 			}
@@ -64961,6 +73907,9 @@ string help_autotest(bool i_usage, bool i_example)
 		scrivi_riga("-to d0", "Create (into folder d0) a dotest.sh/bat script)");
 		scrivi_riga("-checktxt X", "Test outYY.txt files inside X folder");
 		scrivi_riga("-franzen pippo", "Turn on the franzen test");
+		scrivi_riga(" ", "-to also tests the hash healing (attribute-only change, -touch)");
+		scrivi_riga(" ", "and, if mount works here (tried for real), the mount (mount -test)");
+		scrivi_riga(" ", "and -turbo (the archive must be the same, to the byte, of a plain a)");
 	}
 	if (i_usage && i_example)
 		scrivi_examples();
@@ -65439,7 +74388,7 @@ string help_consolidatebackup(bool i_usage, bool i_example)
 	return ("Manage multipart backup");
 }
 
-#ifdef ZPAQMOUNT
+#ifdef ZPAQMOUNT ///NOSFTPSTART
 /// lo spiegone, ancora da mettere a punto
 string help_mount(bool i_usage, bool i_example)
 {
@@ -65453,6 +74402,9 @@ string help_mount(bool i_usage, bool i_example)
 		scrivi_riga(" ", "Windows: mountpoint is a drive letter (Z:) or a not-yet-existing folder;");
 		scrivi_riga(" ", "         omit it to get the first free letter and an Explorer window");
 		scrivi_riga(" ", "Unix: mountpoint is an empty directory; stays in foreground, Ctrl+C unmounts");
+		scrivi_riga(" ", "macOS: needs FUSE-T (no kernel extension) or macFUSE installed;");
+		scrivi_riga(" ", "       omit the mountpoint and one is made (/Volumes if root, else the");
+		scrivi_riga(" ", "       temp folder), the Finder opens on it, removed when unmounted");
 		scrivi_riga("-all", "Mount every version (VER00000000, VER00000001 ...), not just the last");
 		scrivi_riga(" ", "  slower to mount: one directory tree has to be built per version");
 		scrivi_riga("-until N", "Version N (or a date) becomes the last one, and that is what is");
@@ -65466,7 +74418,11 @@ string help_mount(bool i_usage, bool i_example)
 		scrivi_riga("-fuseopt a,b", "Extra options passed to FUSE/WinFsp as -o a,b");
 		scrivi_riga(" ", "  Windows: VolumePrefix=\\zpaqfuse\\name (network drive, tames the AV),");
 		scrivi_riga(" ", "  FileSystemName=NTFS (run .exe from the mount)");
+		scrivi_riga(" ", "  macOS: volname=Name (shown by the Finder; default: the archive name)");
 		scrivi_riga("-noeta", "No progress line while the index is being scanned");
+		scrivi_riga("-test", "Mount, check every file THROUGH the mountpoint, unmount:");
+		scrivi_riga(" ", "  size, date, stored hash, random-offset reads; exit code 0 if OK");
+		scrivi_riga(" ", "  (the list comes from the index read as x does, not from the mount)");
 		scrivi_riga("-debug", "Also enable FUSE/WinFsp debug output (-d)");
 		scrivi_riga(" ", "Env: ZPAQFUSE_CACHE_MB (256) ZPAQFUSE_SHARDS ZPAQFUSE_PREFETCH_THREADS");
 		scrivi_riga(" ", "     ZPAQFUSE_WINNAMES ZPAQFUSE_CASEFOLD ZPAQFUSE_CASE_INSENSITIVE (Windows)");
@@ -65480,14 +74436,17 @@ string help_mount(bool i_usage, bool i_example)
 		scrivi_esempio("Every version, one folder each", "mount z:\\1.zpaq Z: -all");
 		scrivi_esempio("Mount as a network drive (Windows)", "mount z:\\1.zpaq Z: -fuseopt VolumePrefix=\\zpaqfuse\\1");
 		scrivi_esempio("Mount on a directory (Unix)", "mount /tmp/1.zpaq /mnt/zpaq");
+		scrivi_esempio("Mount with a Finder name (macOS)", "mount ~/1.zpaq ~/mnt -fuseopt volname=Backup");
+		scrivi_esempio("Make the mountpoint, open the Finder (macOS)", "mount ~/1.zpaq");
 		scrivi_esempio("Version 3 instead of the last one", "mount z:\\1.zpaq Z: -until 3");
 		scrivi_esempio("The first 3 versions, one folder each", "mount z:\\1.zpaq Z: -all -until 3");
 		scrivi_esempio("Mount an encrypted archive", "mount z:\\enc.zpaq Z: -key mypassword");
 		scrivi_esempio("Name the engine (jidac, the only one)", "mount z:\\1.zpaq Z: -backend jidac");
+		scrivi_esempio("Does the mount work here? (and unmount)", "mount z:\\1.zpaq z:\\mnt -test");
 	}
 	return ("Mount an archive read-only (FUSE/WinFsp)");
 }
-#endif // ZPAQMOUNT
+#endif // ZPAQMOUNT ///NOSFTPEND
 string help_last2(bool i_usage, bool i_example)
 {
 	if (i_usage)
@@ -65672,7 +74631,7 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-nochecksum", "Disable extra checksums (faster, but less reliable)");
 		scrivi_riga("-nodedup", "Turn off deduplicator");
 		scrivi_riga("-store", "Store mode: no deduplication, no compression");
-		scrivi_riga("-touch", "Force 'touch' on date (converting 7.15 to zpaqfranz)");
+		scrivi_riga("-touch", "Re-hash unchanged files without a usable hash (7.15, other algo)");
 		scrivi_riga("-norecursion", "Do not recurse into folders (default: YES)");
 #ifdef _WIN32
 		scrivi_riga("-findzpaq", "On Windows search the .zpaq in every drive letter (USB device)");
@@ -65763,7 +74722,8 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-checksize X", "Check if enoungh free space (or fail)");
 		scrivi_riga("-nodelete", "Store all files togheter. WARNING: you must handle name collisions!");
 		scrivi_riga("-franzen X", "EXPERIMENTAL: create .franzen file too with key X");
-		scrivi_riga("-turbo", "Use latest algo: faster but not tested");
+		scrivi_riga("-turbo", "EXPERIMENTAL faster add: files >= 4 MB are cut into fragments and");
+		scrivi_riga(" ", "  hashed by several threads. The archive is the same, to the byte");
 	}
 	/*
 	fdisk -l image.img
@@ -65807,10 +74767,11 @@ losetup -d /dev/loop0
 #endif // corresponds to #if (#if defined(_WIN32))
 #endif /// NOSFTPEND
 		scrivi_esempio("Prepare a debug archive...for me", "a z:\\1.zpaq c:\\nz\\ -debug -zero");
-		scrivi_esempio("In-place 7.15 to zpaqfranz  1/2", "a z:\\1.zpaq c:\\nz\\ -touch");
-		scrivi_esempio("In-place 7.15 to zpaqfranz  2/2", "a z:\\1.zpaq c:\\nz\\");
+		scrivi_esempio("In-place 7.15 to zpaqfranz", "a z:\\1.zpaq c:\\nz\\ -touch");
+		scrivi_esempio("Store SHA-256 of unchanged files", "a z:\\1.zpaq c:\\nz\\ -touch -sha256");
 		scrivi_esempio("Hard-check of files", "a z:\\1.zpaq c:\\nz\\ -paranoid");
 		scrivi_esempio("Hard-check of files multithread", "a z:\\1.zpaq c:\\nz\\ -paranoid -ssd");
+		scrivi_esempio("Faster add of big files (experimental)", "a z:\\1.zpaq c:\\vm\\ -turbo");
 		scrivi_esempio("Archive, without recursion", "a z:\\1.zpaq f:\\zarc\\*.* -norecursion");
 		scrivi_esempio("Archive mysqldump", "a z:\\1.zpaq mydump.sql -stdin");
 		scrivi_esempio("Stdin with %% progress bar", "a z:\\1.zpaq dump.sql -stdin -stdinsize 2GB");
@@ -67546,6 +76507,15 @@ string help_mainswitches(bool i_usage, bool i_example)
 		scrivi_riga("-franzen X", "Franzen (ChaCha20) password X");
 		scrivi_riga("", "env var FRANZFRANZEN used as fallback if -franzen is not given");
 		scrivi_riga("-mN -method N", "0=no compression, 1..5=faster..better ");
+#ifdef ZPAQLZ4
+		scrivi_riga("-m6[hN|aN]", "LZ4 (experimental; any zpaq, 7.15 too, extracts it)");
+		scrivi_riga(" ", "  -m6 default, -m6h9 HC level 1..12, -m6a8 fast with acceleration");
+		scrivi_riga(" ", "  -m66h9: the same with 64 MB blocks (2^6)");
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+		scrivi_riga("-m7[h]", "LZAV (experimental; any zpaq, 7.15 too, extracts it)");
+		scrivi_riga(" ", "  -m7 default, -m7h LZAV hi (smaller, slower), -m76: 64 MB blocks");
+#endif // ZPAQLZAV
 		scrivi_riga("-force", "Overwrite");
 		scrivi_riga("-test", "Verify (extract/add)");
 		scrivi_riga("-kill", "Allow destructive operations ('wet runs')");
@@ -67682,6 +76652,23 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "m8,24: MIX all previous models, N1 context bits, learning rate N2");
 		scrivi_riga(" ", "s8,32,255: SSE last model. N1 context bits, count range N2..N3");
 		scrivi_riga(" ", "t8,24: MIX2 last 2 models, N1 context bits, learning rate N2");
+#ifdef ZPAQLZ4
+		scrivi_riga("-m6[B][hN|aN]", "LZ4 (experimental): stored block + LZ4 decoder in ZPAQL");
+		scrivi_riga(" ", "  inside it, so ANY zpaq (7.15 too) extracts it; zpaqfranz decodes it");
+		scrivi_riga(" ", "  natively. B: 2^B MiB blocks (default 4, -m6 = -m64)");
+		scrivi_riga(" ", "  hN: LZ4 HC level 1..12 (9 = best size for the time). aN: fast mode,");
+		scrivi_riga(" ", "  acceleration N (bigger = faster, larger). Nothing: LZ4 default");
+		scrivi_riga(" ", "  About -m1 speed with 1/6 of its CPU, +10..20% size (the dedup is the");
+		scrivi_riga(" ", "  limit). Ex: -m6 -m6h9 -m6a8 -m66h9");
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+		scrivi_riga("-m7[B][h]", "LZAV (experimental): stored block + LZAV decoder in ZPAQL");
+		scrivi_riga(" ", "  inside it, so ANY zpaq (7.15 too) extracts it; zpaqfranz decodes it");
+		scrivi_riga(" ", "  natively. B: 2^B MiB blocks (default 4, -m7 = -m74). h: LZAV hi,");
+		scrivi_riga(" ", "  smaller and slower. LZ77 with a 2 MB window, farther with the offset");
+		scrivi_riga(" ", "  carry (-m6 has 64 KB): smaller than -m6, the pcomp needs a");
+		scrivi_riga(" ", "  block-sized buffer");
+#endif // ZPAQLZAV
 	}
 	return ("Expert-level (nerd) switches");
 }
@@ -67941,9 +76928,9 @@ void Jidac::load_help_map()
 	help_map.insert(std::pair<string, HelpInfo>("f", HelpInfo("Utils    ", help_f, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("last", HelpInfo("Utils    ", help_last, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("last2", HelpInfo("Utils    ", help_last2, 8)));
-#ifdef ZPAQMOUNT
+#ifdef ZPAQMOUNT ///NOSFTPSTART
 	help_map.insert(std::pair<string, HelpInfo>("mount", HelpInfo("Utils    ", help_mount, 8)));
-#endif
+#endif ///NOSFTPEND
 	help_map.insert(std::pair<string, HelpInfo>("pause", HelpInfo("Utils    ", help_pause, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("rsync", HelpInfo("Utils    ", help_rsync, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("utf", HelpInfo("Utils    ", help_utf, 8)));
@@ -68975,6 +77962,10 @@ bool Jidac::cli_getdate(string& i_opt,string i_string,int argc,const char** argv
 			if (strlen(argv[(*i_i)+1])>=1)
 			{
 				string mytimestamp=argv[(*i_i)+1];
+				/// -touch can be used without a date: then the next argument
+				/// is a switch (-touch -summary), do not swallow it
+				if (mytimestamp[0]=='-')
+					return false;
 				(*i_i)++;
 				///format_datetime
 
@@ -69159,12 +78150,14 @@ bool readfiletoarray(string i_filename, vector<string>& o_lines)
     char* line = buffer_mem.data();
 #endif
 
+#ifndef ESX /// on ESX line is an array on the stack: it cannot be NULL (-Waddress)
     // Safety check (per placare compilatori molto pedanti)
-    if (line == NULL) 
+    if (line == NULL)
 	{
         fclose(myfile);
         return false;
     }
+#endif // corresponds to #ifndef (#ifndef ESX)
 
     string linea;
     while (fgets(line, static_cast<int>(LINE_BUFSIZE), myfile))
@@ -69308,7 +78301,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagtar,			"-tar",					"TAR mode (store/show Posix metadata)",							"");
 	g_programflags.add(&flagtmp,			"-tmp",					"Use .tmp instead of .zpaq during backup",			"");
 	g_programflags.add(&flagtest,			"-test",				"Only do test",										"");
-	g_programflags.add(&flagtouch,			"-touch",				"Force 'touch' on date (7.15 to zpaqfranz)",		"");
+	g_programflags.add(&flagtouch,			"-touch",				"Re-hash files without a usable hash (7.15 to zpaqfranz)",		"");
 	g_programflags.add(&flagutc,			"-utc",					"Use UTC time",										"");
 	g_programflags.add(&flagdate,			"-date",				"Show/save creation date (if possible)",			"");
 	g_programflags.add(&flagutf,			"-utf",					"UTF-8",											"");
@@ -69351,7 +78344,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 	g_programflags.add(&flaghw,				"-hw",					"Use HW SHA1",										"a;x;");
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
-	g_programflags.add(&flagturbo,			"-turbo",				"Use newer (faster) algo",							"");
+	g_programflags.add(&flagturbo,			"-turbo",				"Faster add: parallel fragmenter (same archive)",	"");
 	
 
 	for (int i=0; i<argc; i++)
@@ -69647,6 +78640,25 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if (flagdebug)
 		myprintf("52588: UNIX: checking OS support for JIT\n");
     void* p=(void*)mmap(0,8192, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON, -1, 0);
+	if (p==MAP_FAILED)
+	{
+		/*
+			W^X (OpenBSD): writable and executable together is refused, but
+			written first and turned executable afterwards is allowed. Where
+			that works the JIT stays on, and allocx()/protectx() take that
+			road from now on (g_jit_mprotect)
+		*/
+		void* q=(void*)mmap(0,8192, PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON, -1, 0);
+		if (q!=MAP_FAILED && mprotect(q,8192,PROT_READ|PROT_EXEC)==0)
+		{
+			if (flagdebug)
+				myprintf("52851: W^X system: write first, execute after (mprotect)\n");
+			libzpaq::g_jit_mprotect=true;
+			p=q; /// good enough: the JIT stays on, and the munmap below frees it
+		}
+		else if (q!=MAP_FAILED)
+			munmap(q,8192);
+	}
 	if (p==MAP_FAILED) 
 	{
 		if (flagverbose)
@@ -69678,17 +78690,34 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if (flagdebug)
 		myprintf("52862: k2 flagnojit %d\n",int(flagnojit));
 
-	string textnojit="-JIT,";
+	string textnojit="-JIT";
 	if (flagnojit)
-		textnojit="-NOJIT,";
-		
+		textnojit="-NOJIT";
+
 #ifdef ESX
-	textnojit="-ESX,";
+	textnojit="-ESX";
 #endif // corresponds to #ifdef (#ifdef ESX)
 
 #ifdef NAS
-	textnojit="-NAS,";
+	textnojit="-NAS";
 #endif // corresponds to #ifdef (#ifdef NAS)
+
+	/*
+		What was built in, right after the JIT, so that a user (and whoever
+		reads a bug report) sees it at once: 6 = -m6 LZ4 (ZPAQLZ4),
+		7 = -m7 LZAV (ZPAQLZAV), and so on.
+		All of them: -JIT67+M  -NOJIT67+M
+	*/
+#ifdef ZPAQLZ4
+	textnojit+="6";
+#endif // corresponds to #ifdef (#ifdef ZPAQLZ4)
+#ifdef ZPAQLZAV
+	textnojit+="7"; /// -m7 LZAV (ZPAQLZAV)
+#endif // corresponds to #ifdef (#ifdef ZPAQLZAV)
+#ifdef ZPAQMOUNT ///NOSFTPSTART
+	textnojit+="+M"; /// the mount command (-DZPAQMOUNT, FUSE/WinFsp)
+#endif // corresponds to #ifdef (#ifdef ZPAQMOUNT) ///NOSFTPEND
+	textnojit+=",";
 
 	if (flag715)
 		myprintf("52511: zpaq v7.15 journaling archiver, compiled Aug 17 2016\n");
@@ -69917,9 +78946,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_filesandcommand(opt,"trim",		'4',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"versum",		'|',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"last2",		'^',argc,argv,&i));
-#ifdef ZPAQMOUNT
+#ifdef ZPAQMOUNT ///NOSFTPSTART
 		else if (cli_filesandcommand(opt,"mount",		'V',argc,argv,&i));
-#endif
+#endif ///NOSFTPEND
 		else if (cli_filesandcommand(opt,"testbackup",	'_',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"comparehex",	'?',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"work",		']',argc,argv,&i));
@@ -70227,10 +79256,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getuint64	(opt,"-remotespeed",false,	"",								argc,argv,&i,g_remotespeed,		&g_remotespeed));
 		else if (cli_getuint64	(opt,"-checksize",	false,	"",								argc,argv,&i,g_checksize,		&g_checksize));
 		else if (cli_getstring	(opt,"-method",		false,	"-m",							argc,argv,&i,"",				&method));
-#ifdef ZPAQMOUNT
+#ifdef ZPAQMOUNT ///NOSFTPSTART
 		else if (cli_getstring	(opt,"-fuseopt",	false,	"",								argc,argv,&i,"",				&g_fuseopt));
 		else if (cli_getstring	(opt,"-backend",	false,	"",								argc,argv,&i,"auto",			&g_mountbackend));
-#endif
+#endif ///NOSFTPEND
 		else if (cli_getstring	(opt,"-csv",		false,	"-tab",							argc,argv,&i,"",				&g_csvstring));
 		else if (cli_getstring	(opt,"-csvhf",		false,	"",								argc,argv,&i,"",				&g_csvhf));
 		else if (cli_getstring	(opt,"-bin",		false,	"",								argc,argv,&i,"",				&g_bin));
@@ -70547,6 +79576,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 	if (!method.empty())
 		if ((method[0]-48)>5)
+#ifdef ZPAQLZ4
+			if (method[0] != '6') /// -m6 is LZ4 here
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+			if (method[0] != '7') /// -m7 is LZAV here
+#endif // ZPAQLZAV
 			myprintf("54209$ method >5 not different of method 5\n");
 	
 	myreplaceall(g_csvstring,"/","\\");
@@ -70815,6 +79850,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 //  Return 1 if error else 0.
 
+///NOSFTPSTART
 ////////////////////////////////////////////////////////////////////////////
 /// ZPAQMOUNT: "mount" command -- expose an archive as a read-only file
 /// system. By default that is the LAST version and nothing else: the
@@ -72414,9 +81450,33 @@ inline Resolved mount_resolve(const MountBackend& be, size_t v, const string& sh
 	}
 }
 
-// Thread-safe LRU cache of decompressed blocks, bounded by bytes, split in
-// N independent shards (reader + mutex + LRU each) so different blocks can
-// decompress on different cores, plus a small worker pool for read-ahead.
+// Thread-safe LRU cache of decompressed blocks, bounded by bytes.
+//
+// It used to be split in N independent shards (reader + mutex + LRU each,
+// block -> shard by hashing its offset), and that was a trap. There are as
+// many shards as threads, i.e. as many as the cores: 256 MB on 16 cores is
+// 16 MB each, LESS than a single block (about 20 MB with -m1, up to 64 MB
+// and more from -m2 up). Every block was thrown out the moment it went in,
+// and the next read, a few KB further, decompressed it all over again.
+// With fewer, bigger shards the read-ahead did the same job: the block
+// being read plus the 4 prefetched ones, three of them in the same shard,
+// and out goes the one the reader is on... Measured on 16 cores: 100 MB of
+// a -m1 file took 119 decompressions of 5 blocks (macOS), a whole 531 MB
+// file 17 s and 158 decompressions of 24 blocks (Windows), and the same
+// file with -m2 was still being read after 13 minutes. On top
+// of that the shard mutex was held DURING the decompression, so a read of
+// a block already in memory waited behind the decompression of another one
+// that happened to live in the same shard.
+//
+// Now: ONE index and ONE LRU for the whole budget, so the least recently
+// used block is the one that goes, whoever it is; the decompression runs
+// OUTSIDE the lock, on a pool of readers (ZPAQFUSE_SHARDS of them, one
+// archive handle each: that is how many blocks can be decompressed at the
+// same time), and a block wanted by two threads is decompressed once, the
+// second one waits for it. The block just made is never evicted, not even
+// if it is bigger than the whole budget: it would be decompressed again at
+// the very next read. How far the read-ahead goes is up to
+// mount_read_range(), which keeps it within half of the budget.
 // Blocks are handed out as shared_ptr: a 4KB read of a 16MB block costs
 // no copy, and the data stays alive even if the LRU evicts it mid-read.
 class MountCache
@@ -72424,130 +81484,226 @@ class MountCache
 public:
 	typedef std::shared_ptr<const string> BlockData;
 
-	MountCache(MountBackend& be, size_t byte_budget, int nshards, int prefetch_threads)
-		: nshards_((std::max)(1, nshards)), shutdown_(false)
+	MountCache(MountBackend& be, size_t byte_budget, int nreaders, int prefetch_threads)
+		: budget_((std::max)((size_t)1, byte_budget)), total_bytes_(0), decompressions_(0), shutdown_(false)
 	{
-		size_t per_shard= (std::max)((size_t)1, byte_budget/(size_t)nshards_);
-		for (int i= 0; i<nshards_; ++i) shards_.push_back(std::unique_ptr<Shard>(new Shard(be.new_reader(), per_shard)));
+		const int n= (std::max)(1, nreaders);
+		for (int i= 0; i<n; ++i)
+		{
+			readers_.push_back(std::unique_ptr<MountReader>(be.new_reader()));
+			free_readers_.push_back(readers_.back().get());
+		}
 		for (int i= 0; i<(std::max)(0, prefetch_threads); ++i) workers_.push_back(std::thread(&MountCache::worker_loop, this));
 	}
 	~MountCache()
 	{
-		{ std::lock_guard<std::mutex> lk(pool_mu_); shutdown_= true; }
-		pool_cv_.notify_all();
+		{ std::lock_guard<std::mutex> lk(mu_); shutdown_= true; }
+		work_cv_.notify_all();
+		ready_cv_.notify_all();
 		for (size_t i= 0; i<workers_.size(); ++i) if (workers_[i].joinable()) workers_[i].join();
 	}
 	MountCache(const MountCache&)= delete;
 	MountCache& operator=(const MountCache&)= delete;
 
-	BlockData get_or_decompress(const MountBlock& b) { return shard_for(b.offset).get_or_decompress(b); }
+	BlockData get_or_decompress(const MountBlock& b) { return fetch(b, false); }
 
 	// Best-effort background decompression of a block needed soon.
 	void prefetch_async(const MountBlock& b)
 	{
-		if (shard_for(b.offset).is_cached(b.offset)) return;
-		std::lock_guard<std::mutex> lk(pool_mu_);
-		if (shutdown_ || workers_.empty() || pending_.count(b.offset)) return;
+		std::lock_guard<std::mutex> lk(mu_);
+		if (shutdown_ || workers_.empty()) return;
+		if (index_.count(b.offset) || pending_.count(b.offset)) return; // cached, or on its way
 		pending_.insert(b.offset);
 		queue_.push_back(b);
-		pool_cv_.notify_one();
+		work_cv_.notify_one();
 	}
+	size_t budget() const { return budget_; }
 	int64_t total_decompressions() const
 	{
-		int64_t t= 0;
-		for (size_t i= 0; i<shards_.size(); ++i) t+= shards_[i]->decompressions();
-		return t;
+		std::lock_guard<std::mutex> lk(mu_);
+		return decompressions_;
 	}
 
 private:
-	struct Entry { BlockData data; std::list<int64_t>::iterator lru_it; };
-	struct Shard
+	struct Entry
 	{
-		Shard(MountReader* r, size_t budget) : reader_(r), budget_(budget), total_bytes_(0), decompressions_(0) {}
-		BlockData get_or_decompress(const MountBlock& b)
-		{
-			std::lock_guard<std::mutex> lock(mu_);
-			std::unordered_map<int64_t, Entry>::iterator it= index_.find(b.offset);
-			if (it!=index_.end()) { lru_.splice(lru_.begin(), lru_, it->second.lru_it); return it->second.data; }
-			BlockData data= std::make_shared<const string>(reader_->decompress(b));
-			decompressions_++;
-			total_bytes_+= data->size();
-			lru_.push_front(b.offset);
-			Entry e; e.data= data; e.lru_it= lru_.begin();
-			index_[b.offset]= e;
-			while (total_bytes_>budget_ && !lru_.empty())
-			{
-				int64_t victim= lru_.back();
-				lru_.pop_back();
-				std::unordered_map<int64_t, Entry>::iterator vit= index_.find(victim);
-				if (vit!=index_.end()) { total_bytes_-= vit->second.data->size(); index_.erase(vit); }
-			}
-			return data;
-		}
-		bool is_cached(int64_t offset) { std::lock_guard<std::mutex> lock(mu_); return index_.count(offset)>0; }
-		int64_t decompressions() { std::lock_guard<std::mutex> lock(mu_); return decompressions_; }
-
-		std::unique_ptr<MountReader>		reader_;
-		std::mutex							mu_;
-		size_t								budget_;
-		size_t								total_bytes_;
-		int64_t								decompressions_;
-		std::list<int64_t>					lru_;
-		std::unordered_map<int64_t, Entry>	index_;
+		BlockData					data;           // NULL while loading
+		bool						loading= false; // a thread is decompressing it
+		std::list<int64_t>::iterator lru_it;        // valid only once loaded
 	};
-	Shard& shard_for(int64_t offset) { return *shards_[std::hash<int64_t>()(offset)%(size_t)nshards_]; }
+
+	BlockData fetch(const MountBlock& b, bool is_prefetch)
+	{
+		std::unique_lock<std::mutex> lk(mu_);
+		// A prefetch leaves the last free reader to whoever is waiting for
+		// data right now: read-ahead must not make a read slower
+		const size_t need= (is_prefetch && readers_.size()>1) ? 2 : 1;
+		while (true)
+		{
+			std::unordered_map<int64_t, Entry>::iterator it= index_.find(b.offset);
+			if (it!=index_.end() && !it->second.loading)
+			{
+				lru_.splice(lru_.begin(), lru_, it->second.lru_it);
+				return it->second.data;
+			}
+			if (is_prefetch && (shutdown_ || it!=index_.end()))
+				return BlockData(); // going away, or somebody is already on it
+			if (it==index_.end() && free_readers_.size()>=need)
+				break; // nobody has it, nobody is making it: this thread will
+			ready_cv_.wait(lk);
+		}
+		MountReader* r= free_readers_.back();
+		free_readers_.pop_back();
+		index_[b.offset].loading= true;
+		lk.unlock();
+		BlockData data;
+		try
+		{
+			data= std::make_shared<const string>(r->decompress(b));
+		}
+		catch (...)
+		{
+			lk.lock();
+			free_readers_.push_back(r);
+			index_.erase(b.offset); // the waiters will try on their own
+			ready_cv_.notify_all();
+			throw;
+		}
+		lk.lock();
+		free_readers_.push_back(r);
+		decompressions_++;
+		// looked up again: other threads may have rehashed the map meanwhile.
+		// A loading entry is not in the LRU, so nobody evicted it
+		Entry& e= index_[b.offset];
+		e.data= data;
+		e.loading= false;
+		lru_.push_front(b.offset);
+		e.lru_it= lru_.begin();
+		total_bytes_+= data->size();
+		// least recently used first, and never the block just made (front)
+		while (total_bytes_>budget_ && lru_.size()>1)
+		{
+			int64_t victim= lru_.back();
+			lru_.pop_back();
+			std::unordered_map<int64_t, Entry>::iterator vit= index_.find(victim);
+			if (vit!=index_.end()) { total_bytes_-= vit->second.data->size(); index_.erase(vit); }
+		}
+		ready_cv_.notify_all();
+		return data;
+	}
 	void worker_loop()
 	{
 		while (true)
 		{
 			MountBlock b;
 			{
-				std::unique_lock<std::mutex> lk(pool_mu_);
-				while (!shutdown_ && queue_.empty()) pool_cv_.wait(lk);
-				if (shutdown_ && queue_.empty()) return;
+				std::unique_lock<std::mutex> lk(mu_);
+				while (!shutdown_ && queue_.empty()) work_cv_.wait(lk);
+				if (shutdown_) return;
 				b= queue_.front();
 				queue_.pop_front();
 			}
-			try { get_or_decompress(b); } catch (...) {}
-			{ std::lock_guard<std::mutex> lk(pool_mu_); pending_.erase(b.offset); }
+			try { fetch(b, true); } catch (...) {}
+			{ std::lock_guard<std::mutex> lk(mu_); pending_.erase(b.offset); }
 		}
 	}
 
-	int									nshards_;
-	vector<std::unique_ptr<Shard> >		shards_;
-	vector<std::thread>					workers_;
-	std::mutex							pool_mu_;
-	std::condition_variable				pool_cv_;
+	size_t								budget_;
+	size_t								total_bytes_;
+	int64_t								decompressions_;
+	mutable std::mutex					mu_;        // everything below
+	std::condition_variable				ready_cv_;  // a block got loaded, or a reader got free
+	std::condition_variable				work_cv_;   // something for the prefetch workers
+	std::unordered_map<int64_t, Entry>	index_;
+	std::list<int64_t>					lru_;       // loaded blocks, most recent first
+	vector<std::unique_ptr<MountReader> >	readers_;
+	vector<MountReader*>				free_readers_;
 	std::deque<MountBlock>				queue_;
 	std::set<int64_t>					pending_;
 	bool								shutdown_;
+	vector<std::thread>					workers_;   // last: they use everything above
 };
 
-// Reads [offset, offset+len) of a file's content, touching only the blocks
-// that cover the range, then queues read-ahead for the file's next blocks.
-inline size_t mount_read_range(const MountBackend& be, MountCache& cache, const MountEntry& e, char* out, size_t len, int64_t offset)
+/*
+	Everything a file needs while it is open, hanging from fuse_file_info.fh.
+
+	Two things used to be paid on EVERY single read, and both grew with the
+	size of the file instead of the size of the read: the list of fragments
+	was walked from the beginning to find the ones the read touches, and
+	mount_file_size() walked it again to know how big the file is. A 100 GB
+	file inside the archive means something like a million and a half
+	fragments, so a couple of milliseconds thrown away per read, every read:
+	minutes of pure counting to go through the file once.
+	So the fragment list is turned, once, at open() time, into the offset
+	where each fragment starts: the fragment holding a byte is then found
+	with a binary search, and the size of the file is the last of those
+	offsets. The fragment list itself belongs to the backend and stays alive
+	for the whole mount, so only the offsets are kept here.
+*/
+struct MountFile
 {
-	if (!e.ptr) return 0;
-	int64_t file_pos= 0;
+	MountEntry				entry;
+	vector<int64_t>			starts;   // starts[i] = first byte of fragment i, starts.back() = size
+	std::atomic<int64_t>	last_end; // where the last read stopped, -1 = nothing read yet
+	MountFile() : last_end(-1) {}
+	int64_t size() const { return starts.empty() ? 0 : starts.back(); }
+};
+
+inline void mount_build_starts(const MountBackend& be, const MountEntry& e, vector<int64_t>& o_starts)
+{
+	o_starts.clear();
+	int64_t pos= 0;
+	if (e.ptr!=NULL)
+	{
+		o_starts.reserve(e.ptr->size()+1);
+		for (size_t i= 0; i<e.ptr->size(); ++i)
+		{
+			o_starts.push_back(pos);
+			pos+= be.frag_size((*e.ptr)[i]);
+		}
+	}
+	o_starts.push_back(pos); /// end of the last fragment: the size of the file
+}
+
+/*
+	How far from where the last read stopped a read may start and still count
+	as "going straight through the file". Not zero: the kernels read ahead by
+	themselves, with several threads, and the requests do not arrive in order
+	(macFUSE asks a 673 MB file as 1 MB requests from a handful of threads),
+	so demanding offset==last_end would switch the read-ahead off for a
+	perfectly sequential reader. 8 MB is much more than that jitter and much
+	less than a jump inside a file worth mounting
+*/
+static const int64_t MOUNT_SEQ_SLACK= 8<<20;
+
+// Reads [offset, offset+len) of a file's content, touching only the blocks
+// that cover the range, then (only for a sequential reader) queues
+// read-ahead for the file's next blocks.
+inline size_t mount_read_range(const MountBackend& be, MountCache& cache, const MountFile& f, char* out, size_t len, int64_t offset, bool i_readahead)
+{
+	if (f.entry.ptr==NULL) return 0;
+	const vector<unsigned>& ptr= *f.entry.ptr;
+	const vector<int64_t>& starts= f.starts;
+	if (starts.size()!=ptr.size()+1) throw std::runtime_error("fragment offsets not built");
 	size_t written= 0;
 	int64_t last_block_offset= -1;
 	size_t last_frag_index= 0;
-	const vector<unsigned>& ptr= *e.ptr;
-	for (size_t fi= 0; fi<ptr.size(); ++fi)
+	const int64_t end= offset+(int64_t)len;
+	/// the fragment holding `offset`: the last one starting at or before it
+	size_t fi= (size_t)(std::upper_bound(starts.begin(), starts.end(), offset)-starts.begin());
+	if (fi>0) --fi;
+	for (; fi<ptr.size() && starts[fi]<end; ++fi)
 	{
-		unsigned frag= ptr[fi];
-		unsigned fsize= be.frag_size(frag);
-		int64_t frag_start= file_pos, frag_end= file_pos+fsize;
-		file_pos= frag_end;
-		if (offset>=frag_end || (int64_t)(offset+len)<=frag_start) continue;
+		const int64_t frag_start= starts[fi], frag_end= starts[fi+1];
+		if (frag_end<=offset) continue; /// empty fragments, and the one just before
 		size_t local_off= 0;
-		const MountBlock* b= be.block_of(frag, &local_off);
+		const MountBlock* b= be.block_of(ptr[fi], &local_off);
 		if (!b) throw std::runtime_error("fragment without owning block");
 		MountCache::BlockData data= cache.get_or_decompress(*b);
 		last_block_offset= b->offset;
 		last_frag_index= fi;
 		int64_t want_from= (std::max)(offset, frag_start);
-		int64_t want_to= (std::min)(offset+(int64_t)len, frag_end);
+		int64_t want_to= (std::min)(end, frag_end);
 		size_t src_off= local_off+(size_t)(want_from-frag_start);
 		size_t n= (size_t)(want_to-want_from);
 		size_t dst_off= (size_t)(want_from-offset);
@@ -72555,15 +81711,36 @@ inline size_t mount_read_range(const MountBackend& be, MountCache& cache, const 
 		memcpy(out+dst_off, data->data()+src_off, n);
 		written= (std::max)(written, dst_off+n);
 	}
+	/*
+		Read-ahead: the next blocks of the file, up to READAHEAD_DEPTH, but
+		only as many as fit in HALF of the cache. The other half is for the
+		block being read and for whoever else is reading: asking for more than
+		the cache can hold only throws out the block the reader is on (see
+		MountCache). 256 MB: four 20 MB blocks (-m1), two 64 MB ones (-m2 and
+		up), none at all with a cache smaller than twice a block.
+		And only for somebody reading the file from one end to the other: to
+		one jumping around (a video being seeked, a database, a program
+		reading the header of every file to make a thumbnail) the next blocks
+		are of no use, and decompressing them was about twice the work really
+		needed. See MOUNT_SEQ_SLACK and mount_read()
+	*/
 	const int READAHEAD_DEPTH= 4;
-	if (last_block_offset!=-1)
+	if (i_readahead && last_block_offset!=-1)
 	{
 		int queued= 0;
 		int64_t prev= last_block_offset;
-		for (size_t fi= last_frag_index+1; fi<ptr.size() && queued<READAHEAD_DEPTH; ++fi)
+		size_t room= cache.budget()/2;
+		for (size_t k= last_frag_index+1; k<ptr.size() && queued<READAHEAD_DEPTH; ++k)
 		{
-			const MountBlock* nb= be.block_of(ptr[fi], NULL);
-			if (nb && nb->offset!=prev) { cache.prefetch_async(*nb); prev= nb->offset; ++queued; }
+			const MountBlock* nb= be.block_of(ptr[k], NULL);
+			if (nb && nb->offset!=prev)
+			{
+				if ((size_t)nb->usize>room) break;
+				room-= nb->usize;
+				cache.prefetch_async(*nb);
+				prev= nb->offset;
+				++queued;
+			}
 		}
 	}
 	return written;
@@ -72578,7 +81755,7 @@ struct MountState
 	MountBackend*				be= NULL;
 	std::unique_ptr<MountCache>	cache;      // created in init(), after any daemonize()
 	size_t						cache_bytes= 0;
-	int							shards= 4;
+	int							shards= 4;  // blocks decompressed at the same time (ZPAQFUSE_SHARDS, see MountCache)
 	int							prefetch= 4;
 	size_t						nversions= 0; // versions exposed (-until may cut the list)
 	bool						allversions= false; // -all: one folder per version, else
@@ -72591,6 +81768,26 @@ struct MountState
 	int64_t						total_files= 0;
 };
 static MountState* g_mount= NULL;
+/// true once the filesystem is really serving: from there on a signal is
+/// not an error, it is how one unmounts (see the end of Jidac::mount())
+static std::atomic<bool> g_mount_served(false); /// atomic: mount -test reads it from its own thread
+/// mount -test on Windows: "please stop". The next getattr ends the loop,
+/// with the pointer it gets from the context (see mount_test_run)
+static std::atomic<bool> g_mount_exit(false);
+#ifdef _WIN32
+/*
+	Why not fuse_exit(fuse_get_context()->fuse), as the book says. In WinFsp
+	the context of a callback is the FUSE 2 one, and its ->fuse is the FUSE 2
+	struct fuse (fsp_fuse_op_enter: context->fuse= f), while fuse3_exit(),
+	which is what fuse_exit is here, takes it for a struct fuse3 and follows
+	a field of it: a crash, or a random handle signalled. Tried, both.
+	The FUSE 2 fsp_fuse_exit() is the one that fits that pointer, and all it
+	does is SetEvent() on the loop: fuse_main() returns, unmounts, cleans up.
+	Not in the fuse3 headers, so it is bound by hand, like the others
+*/
+typedef void (*t_fsp_fuse_exit)(struct fsp_fuse_env* env, void* f);
+static t_fsp_fuse_exit g_fsp_fuse_exit= NULL;
+#endif
 
 inline void mount_set_times(struct fuse_stat* st, int64_t t)
 {
@@ -72599,14 +81796,52 @@ inline void mount_set_times(struct fuse_stat* st, int64_t t)
 	st->st_ctim.tv_sec= (decltype(st->st_ctim.tv_sec))t; st->st_ctim.tv_nsec= 0;
 #ifdef _WIN32
 	st->st_birthtim.tv_sec= (decltype(st->st_birthtim.tv_sec))t; st->st_birthtim.tv_nsec= 0;
-#endif
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+	/*
+		No birth time anywhere else, and not for want of a field: the BSDs do
+		have st_birthtim in their struct stat. The FUSE protocol is what has
+		nowhere to put it (struct fuse_attr carries atime/mtime/ctime and
+		nothing else), so whatever were written here the kernel would replace
+		with its own "unknown", -1, which stat(1) shows as Jan 1 1970.
+		Tried on FreeBSD 14.2: it cannot be done. Same on macOS: FUSE-T
+		goes through NFS, which has no birth time either, and macFUSE would
+		have one (crtime) only in its Darwin extensions, turned off above
+		(FUSE_DARWIN_ENABLE_EXTENSIONS). WinFsp is another matter,
+		it has a real creation time and takes it from st_birthtim above
+	*/
 }
+/*
+	st_blksize of every file and folder. macFUSE takes it as THE size of its
+	reads: with 4096 a 673 MB file came in as some 172,000 requests of 4 KB
+	each, 12 s, against 1.2 s with 1 MB (256 KB and 4 MB: the same 1.2 s).
+	FUSE-T does not care (there NFS decides). FreeBSD does not either: it
+	asks 128 KB per read on its own, whatever is declared here. Linux and
+	WinFsp have not been measured, so everybody but macOS keeps the 4096
+	of always
+*/
+#if defined(__APPLE__)
+static const int MOUNT_BLKSIZE= 1048576;
+#else
+static const int MOUNT_BLKSIZE= 4096;
+#endif // corresponds to #if (#if defined(__APPLE__))
 inline void mount_fill_dir(struct fuse_stat* st, int64_t t)
 {
 	memset(st, 0, sizeof(*st));
-	st->st_mode= S_IFDIR|0555; st->st_nlink= 2;
+	st->st_mode= S_IFDIR|0555;
+	/*
+		st_nlink 1, and not the 2 of a directory that holds itself and "."
+		A directory here does not know how many subdirectories it has
+		without walking its children, and that number is exactly what
+		find(1) and friends read out of the link count (the "leaf
+		optimization" of fts(3)): given 2 they work out that there is
+		nothing below and do not even look. Seen on OpenBSD 7.9, where
+		find listed the top directory and stopped, while ls went
+		everywhere. 1 is what a file system that cannot count its
+		subdirectories says, and it means "do not trust this, go and see"
+	*/
+	st->st_nlink= 1;
 	st->st_uid= g_mount->uid; st->st_gid= g_mount->gid;
-	st->st_blksize= 4096;
+	st->st_blksize= MOUNT_BLKSIZE;
 	mount_set_times(st, t);
 }
 inline void mount_fill_file(struct fuse_stat* st, int64_t size, int64_t t)
@@ -72615,7 +81850,7 @@ inline void mount_fill_file(struct fuse_stat* st, int64_t size, int64_t t)
 	st->st_mode= S_IFREG|0444; st->st_nlink= 1;
 	st->st_uid= g_mount->uid; st->st_gid= g_mount->gid;
 	st->st_size= (decltype(st->st_size))size;
-	st->st_blksize= 4096;
+	st->st_blksize= MOUNT_BLKSIZE;
 	st->st_blocks= (decltype(st->st_blocks))((size+511)/512);
 	mount_set_times(st, t);
 }
@@ -72678,6 +81913,17 @@ inline int64_t mount_entry_time(size_t v, const Resolved& r)
 
 static int mount_getattr(const char* path, struct fuse_stat* st, struct fuse_file_info*)
 {
+#ifdef _WIN32
+	if (g_mount_exit)
+	{
+		struct fuse_context* contesto= fuse_get_context();
+		if (contesto!=NULL && contesto->fuse!=NULL)
+		{
+			zpaqmount_winfsp_bind("fsp_fuse_exit", (void**)&g_fsp_fuse_exit);
+			g_fsp_fuse_exit(fsp_fuse_env(), (void*)contesto->fuse);
+		}
+	}
+#endif
 	try
 	{
 		string p(path);
@@ -72698,17 +81944,36 @@ static int mount_getattr(const char* path, struct fuse_stat* st, struct fuse_fil
 	catch (...) { return -EIO; }
 }
 
+#ifdef ZPAQMOUNT_FUSE2
+/// FUSE 2 asks for the attributes and nothing else: no fuse_file_info
+static int mount_getattr2(const char* path, struct fuse_stat* st) { return mount_getattr(path, st, NULL); }
+#endif // corresponds to #ifdef (#ifdef ZPAQMOUNT_FUSE2)
+
+/// The filler of FUSE 2 takes no flags: one macro here, instead of two
+/// copies of the whole readdir
+#ifdef ZPAQMOUNT_FUSE2
+#define MOUNT_FILL(buf, name, st, flags) filler((buf), (name), (st), 0)
+#else
+#define MOUNT_FILL(buf, name, st, flags) filler((buf), (name), (st), 0, (flags))
+#endif // corresponds to #ifdef (#ifdef ZPAQMOUNT_FUSE2)
+
+#ifdef ZPAQMOUNT_FUSE2
+static int mount_readdir(const char* path, void* buf, fuse_fill_dir_t filler, fuse_off_t, struct fuse_file_info*)
+#else
 static int mount_readdir(const char* path, void* buf, fuse_fill_dir_t filler, fuse_off_t, struct fuse_file_info*, enum fuse_readdir_flags rflags)
+#endif
 {
 	try
 	{
 		string p(path);
+#ifndef ZPAQMOUNT_FUSE2
 		// Full stat with every entry: WinFsp uses it and skips one getattr
 		// per entry; libfuse uses it only for READDIRPLUS.
 		const enum fuse_fill_dir_flags fflags= (rflags & FUSE_READDIR_PLUS) ? FUSE_FILL_DIR_PLUS : (enum fuse_fill_dir_flags)0;
+#endif
 		struct fuse_stat st;
-		filler(buf, ".", NULL, 0, (enum fuse_fill_dir_flags)0);
-		filler(buf, "..", NULL, 0, (enum fuse_fill_dir_flags)0);
+		MOUNT_FILL(buf, ".", NULL, (enum fuse_fill_dir_flags)0);
+		MOUNT_FILL(buf, "..", NULL, (enum fuse_fill_dir_flags)0);
 		// With -all the root is the list of versions. Without it the root
 		// is the last version's own root, listed by the generic code below
 		// -- and an archive with no version at all has an empty root.
@@ -72717,7 +81982,7 @@ static int mount_readdir(const char* path, void* buf, fuse_fill_dir_t filler, fu
 			for (size_t i= 0; i<g_mount->nversions; ++i)
 			{
 				mount_fill_dir(&st, mount_date_to_unix(g_mount->be->version_date(i)));
-				filler(buf, mount_version_name(i).c_str(), &st, 0, fflags);
+				MOUNT_FILL(buf, mount_version_name(i).c_str(), &st, fflags);
 			}
 			return 0;
 		}
@@ -72740,7 +82005,7 @@ static int mount_readdir(const char* path, void* buf, fuse_fill_dir_t filler, fu
 			else continue;
 			string shown= r.internal.empty() ? mount_shown_root_name(*g_mount->be, v, bare, g_mount->windows_names)
 											 : mount_escape_name(bare, g_mount->windows_names);
-			filler(buf, shown.c_str(), &st, 0, fflags);
+			MOUNT_FILL(buf, shown.c_str(), &st, fflags);
 		}
 		return 0;
 	}
@@ -72748,6 +82013,8 @@ static int mount_readdir(const char* path, void* buf, fuse_fill_dir_t filler, fu
 	catch (...) { return -EIO; }
 }
 
+// The path is resolved once, here, and what the reads need (the offsets of
+// the fragments) is built once, here: from now on the file is fi->fh.
 static int mount_open(const char* path, struct fuse_file_info* fi)
 {
 	try
@@ -72757,25 +82024,56 @@ static int mount_open(const char* path, struct fuse_file_info* fi)
 		if (!mount_split(path, v, rel)) return -ENOENT;
 		Resolved r= mount_lookup(v, rel);
 		if (!r.found || r.is_dir || !r.has_entry) return -ENOENT;
+		std::unique_ptr<MountFile> f(new MountFile);
+		f->entry= r.entry;
+		mount_build_starts(*g_mount->be, r.entry, f->starts);
+		fi->fh= (uint64_t)(uintptr_t)f.release();
 		return 0;
 	}
+	catch (const std::exception& ex) { myprintf("94007! open %s: %s\n", path, ex.what()); return -EIO; }
 	catch (...) { return -EIO; }
 }
 
-static int mount_read(const char* path, char* buf, size_t size, fuse_off_t offset, struct fuse_file_info*)
+static int mount_release(const char*, struct fuse_file_info* fi)
+{
+	if (fi!=NULL && fi->fh!=0)
+	{
+		delete (MountFile*)(uintptr_t)fi->fh;
+		fi->fh= 0;
+	}
+	return 0;
+}
+
+static int mount_read(const char* path, char* buf, size_t size, fuse_off_t offset, struct fuse_file_info* fi)
 {
 	try
 	{
 		if (!g_mount->cache) return -EIO;
-		size_t v; string rel;
-		if (!mount_split(path, v, rel)) return -ENOENT;
-		Resolved r= mount_lookup(v, rel);
-		if (!r.found || r.is_dir || !r.has_entry) return -ENOENT;
-		int64_t total= mount_file_size(*g_mount->be, r.entry);
+		MountFile* f= (fi!=NULL) ? (MountFile*)(uintptr_t)fi->fh : NULL;
+		MountFile alvolo; /// only if a read ever turns up without its open()
+		if (f==NULL)
+		{
+			size_t v; string rel;
+			if (!mount_split(path, v, rel)) return -ENOENT;
+			Resolved r= mount_lookup(v, rel);
+			if (!r.found || r.is_dir || !r.has_entry) return -ENOENT;
+			alvolo.entry= r.entry;
+			mount_build_starts(*g_mount->be, r.entry, alvolo.starts);
+			f= &alvolo;
+		}
+		const int64_t total= f->size();
 		if (offset<0 || offset>=total) return 0;
 		size_t want= (size_t)(std::min)((int64_t)size, total-offset);
 		if (want>(size_t)0x7fffffff) want= 0x7fffffff;
-		return (int)mount_read_range(*g_mount->be, *g_mount->cache, r.entry, buf, want, offset);
+		/// read-ahead only to somebody going through the file: the first read
+		/// of a file from its very beginning, or one carrying on from where
+		/// the previous one stopped (give or take MOUNT_SEQ_SLACK)
+		const int64_t ultimo= f->last_end.load();
+		const bool sequenziale= (ultimo<0) ? (offset==0)
+											: (offset>=ultimo-MOUNT_SEQ_SLACK && offset<=ultimo+MOUNT_SEQ_SLACK);
+		const size_t fatti= mount_read_range(*g_mount->be, *g_mount->cache, *f, buf, want, offset, sequenziale);
+		f->last_end.store(offset+(int64_t)fatti);
+		return (int)fatti;
 	}
 	catch (const std::exception& ex) { myprintf("94003! read %s: %s\n", path, ex.what()); return -EIO; }
 	catch (...) { return -EIO; }
@@ -72799,12 +82097,18 @@ static int mount_statfs(const char*, struct fuse_statvfs* stbuf)
 // Runs once the file system is up (on libfuse: AFTER the daemonize fork,
 // which is why the cache and its worker threads are created here and not
 // in Jidac::mount()).
+#ifdef ZPAQMOUNT_FUSE2
+/// FUSE 2 has no fuse_config: what it does with the caches is decided by
+/// mount options, and the OpenBSD kernel takes its own decisions anyway
+static void* mount_init(struct fuse_conn_info* conn)
+#else
 static void* mount_init(struct fuse_conn_info* conn, struct fuse_config* cfg)
+#endif
 {
-	(void)conn; (void)cfg;
+	(void)conn;
 #ifdef _WIN32
 	if (g_mount->case_insensitive_volume) conn->want|= FUSE_CAP_CASE_INSENSITIVE;
-#else
+#elif !defined(ZPAQMOUNT_FUSE2)
 	cfg->kernel_cache= 1;
 	cfg->attr_timeout= 86400;
 	cfg->entry_timeout= 86400;
@@ -72812,6 +82116,7 @@ static void* mount_init(struct fuse_conn_info* conn, struct fuse_config* cfg)
 	try
 	{
 		g_mount->cache.reset(new MountCache(*g_mount->be, g_mount->cache_bytes, g_mount->shards, g_mount->prefetch));
+		g_mount_served= true; /// mounted AND able to read: we are in business
 	}
 	catch (const std::exception& ex)
 	{
@@ -72824,9 +82129,14 @@ static struct fuse_operations mount_ops()
 {
 	struct fuse_operations ops;
 	memset(&ops, 0, sizeof(ops));
+#ifdef ZPAQMOUNT_FUSE2
+	ops.getattr= mount_getattr2;
+#else
 	ops.getattr= mount_getattr;
+#endif
 	ops.readdir= mount_readdir;
 	ops.open= mount_open;
+	ops.release= mount_release;
 	ops.read= mount_read;
 	ops.statfs= mount_statfs;
 	ops.init= mount_init;
@@ -72920,15 +82230,19 @@ inline void open_explorer_when_mounted(const string& drive)
 		}
 	}).detach();
 }
+#endif // _WIN32
+
+// The name of the volume: WinFsp shows it in Explorer, on macOS it is the
+// name the Finder gives to the mount (volname). A comma would split the -o
+// option string in two, so it goes the way of the wildcards
 inline string volume_label(const string& pattern)
 {
 	size_t cut= pattern.find_last_of("/\\");
 	string base= (cut==string::npos) ? pattern : pattern.substr(cut+1);
-	for (size_t i= 0; i<base.size(); ++i) if (base[i]=='?' || base[i]=='*') base[i]= '#';
+	for (size_t i= 0; i<base.size(); ++i) if (base[i]=='?' || base[i]=='*' || base[i]==',') base[i]= '#';
 	if (base.size()>32) base.resize(32);
 	return base;
 }
-#endif // _WIN32
 
 } // namespace franzmount
 
@@ -72956,6 +82270,375 @@ extern "C" void zpaqmount_winfsp_bind(const char* name, void** slot)
 	InterlockedExchangePointer(slot, p);
 }
 #endif
+
+#ifndef _WIN32
+/*
+	Unmounting on *nix: why Ctrl+C did not work
+
+	libfuse has signal handlers of its own for SIGINT, SIGTERM and SIGHUP: they
+	call fuse_session_exit(), the loop ends, fuse_main() returns and libfuse
+	unmounts the filesystem by itself. Very clean, and it never happened here.
+
+	The reason is inside libfuse, in set_one_signal_handler(): the handler is
+	installed ONLY IF the one already there is SIG_DFL
+
+		if (old_sa.sa_handler == (remove ? handler : SIG_DFL) && ...)
+
+	and zpaqfranz puts my_handler() on SIGINT in zpaq_main_internal(), for every
+	command, long before mount() is called. So libfuse politely left SIGINT
+	alone, Ctrl+C went to my_handler(), which prints its housekeeping and
+	exit(1)s: the process dies without telling the kernel anything, and what is
+	left behind is a mountpoint that answers ENOTCONN, "Transport endpoint is
+	not connected", to be cleaned up by hand with fusermount3 -u.
+
+	Two things are done about it. For the time of the mount, and only for that,
+	the three signals go back to SIG_DFL, so libfuse takes them and Ctrl+C
+	unmounts for real. And, whatever happens (a signal we do not handle, an
+	exit() from somewhere else, a libfuse that gives up without unmounting), an
+	atexit() hook checks the mountpoint and, if something is still mounted
+	there, unmounts it the hard way.
+*/
+static string g_mountpoint_unix= ""; /// where we are mounted, while we are
+
+/*
+	How one unmounts by hand, which is NOT the same command everywhere.
+	On Linux libfuse3 installs fusermount3, setuid, so that even a mount made
+	by a normal user can be undone without root. FreeBSD does not: the
+	fusefs-libs3 package ships the library and nothing else, there is no
+	fusermount3 (nor fusermount) anywhere, and the only thing that unmounts is
+	umount(8). Same story on the other BSDs and on macOS (macFUSE has
+	umount/diskutil). So do not tell a FreeBSD user to run a program that is
+	not, and will not be, on their machine
+*/
+#if defined(__linux__)
+	#define MOUNT_UNMOUNT_HINT "fusermount3 -u"
+#else
+	#define MOUNT_UNMOUNT_HINT "umount"
+#endif // corresponds to #if (#if defined(__linux__))
+
+/*
+	fuse_daemonize(), inside libfuse, does a chdir("/") even in foreground mode
+	(-f, which is what we always pass): from the moment fuse_main() starts, a
+	relative path does not resolve any more. And the readers of the block cache
+	are built lazily, one per shard, at the FIRST read, when the archive has to
+	be opened again: so "zpaqfranz mount pippo.zpaq /tmp/mnt" mounted, showed
+	the whole tree (that one is in memory) and then gave EIO on every single
+	byte read, with a "cannot open the archive for reading" in the log.
+	So the name of the archive is made absolute BEFORE mounting. Not with
+	realpath(): it can hold wildcards (part_???.zpaq) and does not have to exist
+*/
+inline string mount_absolute_path(const string& i_path)
+{
+	if (i_path=="")
+		return i_path;
+	if (i_path[0]=='/')
+		return i_path;
+	char cartella[8192];
+	if (getcwd(cartella, sizeof(cartella))==NULL)
+		return i_path;
+	string risultato= cartella;
+	if (risultato=="" || risultato[risultato.size()-1]!='/')
+		risultato+= '/';
+	return risultato+i_path;
+}
+
+/*
+	Is anything still mounted on i_path? A fuse mount whose process is gone
+	answers ENOTCONN on stat(), a live one sits on a device of its own: ".."
+	from inside a mountpoint goes back to the underlying filesystem, so the two
+	st_dev differ. No /proc needed, which keeps this working on BSD and macOS
+*/
+inline bool mount_still_mounted(const string& i_path)
+{
+	if (i_path=="")
+		return false;
+	struct stat qui;
+	if (stat(i_path.c_str(), &qui)!=0)
+	{
+		/// ENOTCONN is THE symptom: a fuse mount whose process is gone. A
+		/// directory that is not there any more is not something to unmount
+		return (errno!=ENOENT) && (errno!=ENOTDIR);
+	}
+	struct stat padre;
+	if (stat((i_path+"/..").c_str(), &padre)!=0)
+		return false;
+	return qui.st_dev!=padre.st_dev;
+}
+
+/*
+	fork()+execvp()+waitpid() and not system(): this can run while the process
+	is already dying, from an atexit() called inside a signal handler, and
+	system() is not async-signal-safe (fork and exec are). Whatever the child
+	says is ignored: the only thing that counts is whether the mount is gone,
+	and the caller looks at that
+*/
+inline void mount_esegui(const char* i_exe, const char* i_a1, const char* i_a2, const char* i_a3)
+{
+	char* argomenti[5];
+	int	  n= 0;
+	argomenti[n++]= (char*)i_exe;
+	if (i_a1!=NULL) argomenti[n++]= (char*)i_a1;
+	if (i_a2!=NULL) argomenti[n++]= (char*)i_a2;
+	if (i_a3!=NULL) argomenti[n++]= (char*)i_a3;
+	argomenti[n]= NULL;
+	const pid_t figlio= fork();
+	if (figlio<0)
+		return;
+	if (figlio==0)
+	{
+		/// the child says nothing: a "not mounted" on the console would be noise
+		const int nullo= open("/dev/null", O_WRONLY);
+		if (nullo>=0)
+		{
+			dup2(nullo, 1);
+			dup2(nullo, 2);
+			if (nullo>2)
+				close(nullo);
+		}
+		execvp(i_exe, argomenti);
+		_exit(127); /// not installed: the caller will try the next one
+	}
+	int stato= 0;
+	for (int tentativi= 0; tentativi<1000; tentativi++)
+		if (waitpid(figlio, &stato, 0)==figlio)
+			break; /// EINTR is the only failure worth retrying, and it is cheap
+}
+
+#if defined(__APPLE__)
+/*
+	No mountpoint on the command line (or "*"): make one, the way Windows
+	takes the first free drive letter. /Volumes is where a Mac keeps its
+	volumes, and where the Finder looks first, but it belongs to root: a
+	normal user cannot create anything in there, so the second choice is the
+	private temporary folder of the user ($TMPDIR).
+	Why make it at all: macFUSE would create the folder by itself (its mount
+	helper runs as root) but only removes the ones it made under /Volumes,
+	while FUSE-T refuses to mount on something that is not there ("bad mount
+	point: No such file or directory"). Made here, it behaves the same with
+	both, and whoever creates it is the one who removes it
+*/
+static string g_mount_made_dir= ""; /// made by us, to be removed at the end
+
+inline string mount_make_mountpoint(const string& i_archive)
+{
+	const string nome= franzmount::volume_label(i_archive);
+	string percorso= "/Volumes/"+nome;
+	if (mkdir(percorso.c_str(), 0755)==0)
+	{
+		g_mount_made_dir= percorso;
+		return percorso;
+	}
+	const char* temp= getenv("TMPDIR");
+	string base= (temp!=NULL && *temp!=0) ? string(temp) : string("/tmp/");
+	if (base=="" || base[base.size()-1]!='/')
+		base+= '/';
+	char pid[32];
+	snprintf(pid, sizeof(pid), "%ld", (long)getpid());
+	percorso= base+"zpaqfranz-"+nome+"-"+pid;
+	if (mkdir(percorso.c_str(), 0755)==0)
+	{
+		g_mount_made_dir= percorso;
+		return percorso;
+	}
+	return "";
+}
+/// rmdir and nothing else: it works only on an empty directory, so a
+/// mountpoint still mounted, or one that was not empty, is left alone
+inline void mount_remove_made_dir()
+{
+	if (g_mount_made_dir=="")
+		return;
+	rmdir(g_mount_made_dir.c_str());
+	g_mount_made_dir= "";
+}
+/*
+	Show the mount in the Finder, the way Windows opens an Explorer window on
+	the new drive: /usr/bin/open is the ShellExecute of macOS. It has to wait
+	until the file system really answers, otherwise the Finder would open the
+	empty folder underneath, so a detached thread keeps an eye on it (30 s at
+	most, then it gives up: the mount stays, only the window does not open)
+*/
+inline void mount_open_finder_when_mounted(const string& i_mountpoint)
+{
+	const string mp= i_mountpoint;
+	std::thread([mp]()
+	{
+		for (int i= 0; i<300; ++i)
+		{
+			usleep(100*1000);
+			if (mount_still_mounted(mp))
+			{
+				mount_esegui("open", mp.c_str(), NULL, NULL);
+				return;
+			}
+		}
+	}).detach();
+}
+#endif // corresponds to #if (#if defined(__APPLE__))
+
+/// Every way of unmounting mp that *nix offers, until one works. true if mp
+/// is not mounted any more. Used by mount -test (to unmount by itself) and
+/// by mount_unmount_if_needed()
+bool mount_unmount_tries(const string& mp)
+{
+	/// lazy (-z): the mountpoint is detached right away, whoever still holds
+	/// a file keeps it until it closes it
+	mount_esegui("fusermount3", "-u", "-z", mp.c_str());
+	if (!mount_still_mounted(mp))
+		return true;
+	mount_esegui("fusermount", "-u", "-z", mp.c_str());
+	if (!mount_still_mounted(mp))
+		return true;
+	/*
+		umount(8) is not the same program everywhere either. -l (lazy) is a
+		Linux extension: FreeBSD answers "umount: illegal option -- l", prints
+		its usage and unmounts exactly nothing, and so do the other BSDs and
+		macOS. Since fusermount3/fusermount do not exist there either, plain
+		umount is the ONE thing that can work, and without it a mount left
+		behind (a SIGKILL, an exit() from somewhere else) stays there forever.
+		So try all three spellings, cheapest and most polite first: lazy, then
+		plain, then -f (the BSD/macOS force, for when something is still
+		holding a file open inside)
+	*/
+	mount_esegui("umount", "-l", mp.c_str(), NULL);
+	if (!mount_still_mounted(mp))
+		return true;
+	mount_esegui("umount", mp.c_str(), NULL, NULL);
+	if (!mount_still_mounted(mp))
+		return true;
+	mount_esegui("umount", "-f", mp.c_str(), NULL);
+	return !mount_still_mounted(mp);
+}
+/*
+	The last resort. Called after fuse_main() (where normally there is
+	nothing left to do) and by atexit(): if something is still mounted where
+	we mounted, unmount it
+*/
+void mount_unmount_if_needed()
+{
+	if (g_mountpoint_unix=="")
+		return;
+	const string mp  = g_mountpoint_unix;
+	g_mountpoint_unix= ""; /// once, and only once
+	if (!mount_still_mounted(mp))
+		return;
+	myprintf("94025$ still mounted on %s: unmounting it\n", mp.c_str());
+	if (!mount_unmount_tries(mp))
+		myprintf("94026! cannot unmount %s: please run %s %s\n", mp.c_str(), MOUNT_UNMOUNT_HINT, mp.c_str());
+}
+void mount_atexit_unmount()
+{
+	mount_unmount_if_needed();
+#if defined(__APPLE__)
+	mount_remove_made_dir();
+#endif
+}
+
+/// Everything zpaqfranz put on these four signals, kept aside
+struct s_mountsignals
+{
+	struct sigaction sigint;
+	struct sigaction sigterm;
+	struct sigaction sighup;
+	struct sigaction sigpipe;
+	bool			 salvato;
+	s_mountsignals() : salvato(false) {}
+};
+
+/*
+	SIGPIPE, during the mount, lands here and does nothing: the write that
+	caused it simply fails with EPIPE. Why not SIG_IGN, see below
+*/
+static void mount_sigpipe_nothing(int)
+{
+}
+
+#if defined(__OpenBSD__)
+/*
+	Ctrl+C on OpenBSD, and why it needs a hand.
+
+	There the file system loop sits in a read of /dev/fuse that a signal does
+	not break: the process stays in "fusedr" (ps STAT/WCHAN) and goes on
+	ignoring SIGINT and SIGTERM, whoever is supposed to be handling them.
+	Tried on 7.9: kill -INT and kill -TERM change nothing, and neither does
+	touching the mountpoint to give the loop something to do; what ends the
+	mount, and cleanly, is the unmount itself, from another terminal.
+	So on OpenBSD the three signals do exactly that: run umount on the
+	mountpoint. The kernel takes the file system down, the read returns, the
+	loop ends and fuse_main comes back the usual way.
+	fork()+exec(), which is what mount_esegui() does, is allowed in a signal
+	handler; a std::string is not, so the path is copied into a plain buffer
+	before the mount starts (see Jidac::mount)
+*/
+static char g_mountpoint_openbsd[4096]= { 0 };
+
+static void mount_signal_umount(int)
+{
+	if (g_mountpoint_openbsd[0]!=0)
+		mount_esegui("umount", g_mountpoint_openbsd, NULL, NULL);
+}
+#endif // corresponds to #if (#if defined(__OpenBSD__))
+
+/// Give three signals back to libfuse, which takes them only if they are
+/// SIG_DFL, keep the fourth (SIGPIPE) away from it, and remember what was
+/// there before
+inline void mount_signals_to_default(s_mountsignals& o_salva)
+{
+	if (sigaction(SIGINT, NULL, &o_salva.sigint)!=0)
+		return;
+	if (sigaction(SIGTERM, NULL, &o_salva.sigterm)!=0)
+		return;
+	if (sigaction(SIGHUP, NULL, &o_salva.sighup)!=0)
+		return;
+	if (sigaction(SIGPIPE, NULL, &o_salva.sigpipe)!=0)
+		return;
+	o_salva.salvato= true;
+	struct sigaction predefinito;
+	memset(&predefinito, 0, sizeof(predefinito));
+#if defined(__OpenBSD__)
+	/// SIG_DFL would be of no use here: nobody would ever see the signal.
+	/// The handler unmounts, and that is what ends the loop (see above)
+	predefinito.sa_handler= mount_signal_umount;
+#else
+	predefinito.sa_handler= SIG_DFL;
+#endif
+	sigemptyset(&predefinito.sa_mask);
+	predefinito.sa_flags= 0;
+	sigaction(SIGINT, &predefinito, NULL);
+	sigaction(SIGTERM, &predefinito, NULL);
+	sigaction(SIGHUP, &predefinito, NULL);
+	/*
+		SIGPIPE is the other way round: it must NOT be left to libfuse.
+		On macOS with FUSE-T the filesystem is served by a helper process
+		(go-nfsv4) at the other end of a socket. When the mount ends (umount,
+		Ctrl+C, whatever) the helper goes away first; then libfuse puts SIGPIPE
+		back to SIG_DFL (fuse_remove_signal_handlers) and only AFTER that
+		fuse_unmount() writes to the helper's socket, which is closed. SIGPIPE,
+		default action: zpaqfranz died on EVERY unmount, "Broken pipe", exit
+		code 141, no final message, no atexit().
+		SIG_IGN is not enough: libfuse sees it, takes it for the one it put
+		there itself, and resets it to SIG_DFL all the same. A handler that
+		does nothing is neither SIG_DFL nor SIG_IGN, so libfuse leaves it
+		alone, from the start to the very end. Harmless elsewhere: with the
+		Linux/BSD kernel driver nothing raises SIGPIPE in the first place
+	*/
+	struct sigaction nulla;
+	memset(&nulla, 0, sizeof(nulla));
+	nulla.sa_handler= mount_sigpipe_nothing;
+	sigemptyset(&nulla.sa_mask);
+	nulla.sa_flags= SA_RESTART;
+	sigaction(SIGPIPE, &nulla, NULL);
+}
+inline void mount_signals_restore(const s_mountsignals& i_salva)
+{
+	if (!i_salva.salvato)
+		return;
+	sigaction(SIGINT, &i_salva.sigint, NULL);
+	sigaction(SIGTERM, &i_salva.sigterm, NULL);
+	sigaction(SIGHUP, &i_salva.sighup, NULL);
+	sigaction(SIGPIPE, &i_salva.sigpipe, NULL);
+}
+#endif // corresponds to #ifndef (#ifndef _WIN32)
 
 #ifdef _WIN32
 /// kickstart_mount: make sure WinFsp is usable before mounting.
@@ -73172,6 +82855,405 @@ int kickstart_mount()
 }
 #endif
 
+/*
+	mount -test: mount, check, unmount. The autotest uses it, and so can
+	anyone who wants to know if the mount really works on a given machine.
+	Everything goes THROUGH the mountpoint, with the plain file API of the
+	system, the way any other program would see it:
+	- every file of the mounted version is there, with its size and date;
+	- nothing more is there (the files are counted walking the tree);
+	- the content: the hash stored in the archive (XXHASH64, SHA-256...) is
+	  computed again on the file read through the mount (like v does);
+	- reads at random offsets give the very same bytes of a plain
+	  sequential read (8 pieces per file, any size);
+	- with -all, one folder per version, each one can be walked.
+	What is expected does NOT come from the mount: it is the index read by
+	read_archive(), the same of x and v, so the two readers check each other.
+	At the end it unmounts by itself: on *nix with umount & co. (what a
+	user would do), on Windows with fuse_exit() (WinFsp takes it from any
+	thread). The exit code says how it went, and so does the last line
+*/
+bool ismemfile(const string &i_filename); /// defined further down
+struct s_mounttestfile
+{
+	string	shown;		/// relative to the mountpoint, '/' separated
+	string	name;		/// as stored in the archive, for the messages
+	int64_t size;
+	int64_t unixdate;
+	string	hashtype;	/// "" = no hash stored (zpaq 7.15): size and date only
+	string	hash;
+	s_mounttestfile() : size(0), unixdate(0) {}
+};
+struct s_mounttest
+{
+	string					mountpoint;
+	vector<s_mounttestfile> files;
+	string					walkroot;	/// "" or "VER00000003/" with -all
+	size_t					nversions;
+	bool					allversions;
+	std::atomic<bool>		finished;	/// fuse_main() came back: nobody is serving
+	bool					unmounted;
+	int						errors;
+	int64_t					hashok;
+	int64_t					sizeonly;
+	int64_t					randomok;
+	int64_t					walked;
+	s_mounttest() : nversions(0), allversions(false), finished(false), unmounted(false), errors(0), hashok(0), sizeonly(0), randomok(0), walked(0) {}
+};
+
+/// Archive name -> the name the mount shows for it, relative to the root of
+/// the version: the same normalization, drive rule and escaping of readdir()
+inline string mount_test_shown(const franzmount::MountBackend& be, size_t v, const string& i_name, bool windows_rules)
+{
+	const string norm= franzmount::mount_normalize_path(i_name);
+	string		 risultato= "";
+	size_t		 start= 0;
+	while (start<norm.size())
+	{
+		size_t slash= norm.find('/', start);
+		string comp= (slash==string::npos) ? norm.substr(start) : norm.substr(start, slash-start);
+		if (risultato!="")
+			risultato+= '/';
+		risultato+= (start==0) ? franzmount::mount_shown_root_name(be, v, comp, windows_rules) : franzmount::mount_escape_name(comp, windows_rules);
+		if (slash==string::npos)
+			break;
+		start= slash+1;
+	}
+	return risultato;
+}
+
+/// the full path, in the spelling of the system (\ on Windows)
+inline string mount_test_path(const string& i_mountpoint, const string& i_shown)
+{
+	string risultato= i_mountpoint;
+#ifdef _WIN32
+	if (risultato!="" && risultato[risultato.size()-1]!='\\' && risultato[risultato.size()-1]!='/')
+		risultato+= '\\';
+	string pezzo= i_shown;
+	myreplaceall(pezzo, "/", "\\");
+	risultato+= pezzo;
+#else
+	if (risultato!="" && risultato[risultato.size()-1]!='/')
+		risultato+= '/';
+	risultato+= i_shown;
+#endif
+	return risultato;
+}
+
+inline void mount_test_error(s_mounttest& io_t, const char* i_what, const string& i_name)
+{
+	io_t.errors++;
+	if (io_t.errors<=20)
+		myprintf("94301! mount test: %s <<%Z>>\n", i_what, i_name.c_str());
+	else if (io_t.errors==21)
+		myprintf("94302! mount test: more errors, not shown\n");
+}
+
+/// size and date (unix seconds) of a file, seen through the system
+inline bool mount_test_stat(const string& i_path, int64_t& o_size, int64_t& o_unixdate)
+{
+#ifdef _WIN32
+	WIN32_FILE_ATTRIBUTE_DATA dati;
+	if (!GetFileAttributesExW(utow(i_path.c_str()).c_str(), GetFileExInfoStandard, &dati))
+		return false;
+	if (dati.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		return false;
+	o_size= ((int64_t)dati.nFileSizeHigh<<32)|dati.nFileSizeLow;
+	const int64_t filetime= ((int64_t)dati.ftLastWriteTime.dwHighDateTime<<32)|dati.ftLastWriteTime.dwLowDateTime;
+	o_unixdate= filetime/10000000-11644473600LL;
+	return true;
+#else
+	struct stat st;
+	if (stat(i_path.c_str(), &st)!=0)
+		return false;
+	if (!S_ISREG(st.st_mode))
+		return false;
+	o_size	  = (int64_t)st.st_size;
+	o_unixdate= (int64_t)st.st_mtime;
+	return true;
+#endif
+}
+
+/// Walks a directory of the mount: files counted in io_files, folders listed
+/// in o_folders when asked (the version folders, with -all). false on error
+bool mount_test_walk(const string& i_dir, int64_t& io_files, vector<string>* o_folders)
+{
+#ifdef _WIN32
+	WIN32_FIND_DATAW trovato;
+	HANDLE			 h= FindFirstFileW(utow(mount_test_path(i_dir, "*").c_str()).c_str(), &trovato);
+	if (h==INVALID_HANDLE_VALUE)
+		return false;
+	bool ok= true;
+	do
+	{
+		const string nome= wtou(trovato.cFileName);
+		if (nome=="." || nome=="..")
+			continue;
+		if (trovato.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		{
+			if (o_folders)
+				o_folders->push_back(nome);
+			ok&= mount_test_walk(mount_test_path(i_dir, nome), io_files, NULL);
+		}
+		else
+			io_files++;
+	} while (FindNextFileW(h, &trovato));
+	FindClose(h);
+	return ok;
+#else
+	DIR* d= opendir(i_dir.c_str());
+	if (d==NULL)
+		return false;
+	bool		   ok= true;
+	struct dirent* e;
+	while ((e= readdir(d))!=NULL)
+	{
+		const string nome= e->d_name;
+		if (nome=="." || nome=="..")
+			continue;
+		const string completo= mount_test_path(i_dir, nome);
+		struct stat	 st;
+		if (lstat(completo.c_str(), &st)!=0)
+		{
+			ok= false;
+			continue;
+		}
+		if (S_ISDIR(st.st_mode))
+		{
+			if (o_folders)
+				o_folders->push_back(nome);
+			ok&= mount_test_walk(completo, io_files, NULL);
+		}
+		else if (S_ISREG(st.st_mode))
+			io_files++;
+	}
+	closedir(d);
+	return ok;
+#endif
+}
+
+/// seek + read on a FILE*, 64 bit offsets everywhere
+inline bool mount_test_readat(FILE* i_file, int64_t i_offset, char* o_buffer, size_t i_len)
+{
+#ifdef _WIN32
+	if (_fseeki64(i_file, i_offset, SEEK_SET)!=0)
+		return false;
+#else
+	if (fseeko(i_file, (off_t)i_offset, SEEK_SET)!=0)
+		return false;
+#endif
+	return fread(o_buffer, 1, i_len, i_file)==i_len;
+}
+
+/*
+	The file read twice, with the same handle: once from start to end, with
+	an odd buffer size (never aligned to anything the mount uses), keeping
+	aside only 8 random pieces of it; then the same 8 pieces read again, each
+	one with a seek. They must be exactly the same bytes. This is the path of
+	a program that seeks (a database, a video player, a zip reader), the
+	sequential one is already covered by the hash. Only the pieces are kept
+	in memory, so a file of any size gets it (a 400 MB one: 8 x 128 KB)
+*/
+bool mount_test_random(const string& i_path, int64_t i_size, uint64_t i_seed)
+{
+	if (i_size<=0)
+		return true;
+	const int	   quanti= 8;
+	int64_t		   inizio[quanti];
+	int64_t		   lunghezza[quanti];
+	vector<string> attesi(quanti);
+	uint64_t	   x= i_seed*2654435761ULL+88172645463325252ULL;
+	for (int i= 0; i<quanti; i++)
+	{
+		x^= x<<13;
+		x^= x>>7;
+		x^= x<<17;
+		inizio[i]	= (int64_t)(x%(uint64_t)i_size);
+		lunghezza[i]= 1+(int64_t)((x>>20)%131072);
+		if (inizio[i]+lunghezza[i]>i_size)
+			lunghezza[i]= i_size-inizio[i];
+		attesi[i].resize((size_t)lunghezza[i]);
+	}
+	FILE* f= freadopen(i_path.c_str());
+	if (f==NULL)
+		return false;
+	vector<char> buffer(65521);
+	int64_t		 posizione= 0;
+	while (posizione<i_size)
+	{
+		const size_t n= fread(&buffer[0], 1, buffer.size(), f);
+		if (n==0)
+			break;
+		/// the part of each piece that falls into this chunk
+		for (int i= 0; i<quanti; i++)
+		{
+			const int64_t da= (std::max)(posizione, inizio[i]);
+			const int64_t a = (std::min)(posizione+(int64_t)n, inizio[i]+lunghezza[i]);
+			if (da<a)
+				memcpy(&attesi[i][(size_t)(da-inizio[i])], &buffer[(size_t)(da-posizione)], (size_t)(a-da));
+		}
+		posizione+= (int64_t)n;
+	}
+	bool ok= (posizione==i_size);
+	/// and not a single byte more: past the end means EOF
+	char extra;
+	if (ok && fread(&extra, 1, 1, f)!=0)
+		ok= false;
+	vector<char> pezzo;
+	for (int i= 0; ok && i<quanti; i++)
+	{
+		pezzo.resize((size_t)lunghezza[i]);
+		if (!mount_test_readat(f, inizio[i], &pezzo[0], (size_t)lunghezza[i]))
+			ok= false;
+		else if (memcmp(&pezzo[0], attesi[i].data(), (size_t)lunghezza[i])!=0)
+			ok= false;
+	}
+	fclose(f);
+	return ok;
+}
+
+/// is the file system there, and answering?
+inline bool mount_test_ready(const string& i_mountpoint)
+{
+	if (!franzmount::g_mount_served)
+		return false;
+#ifdef _WIN32
+	return GetFileAttributesW(utow(i_mountpoint.c_str()).c_str())!=INVALID_FILE_ATTRIBUTES;
+#else
+	return mount_still_mounted(i_mountpoint);
+#endif
+}
+
+/// the thread of mount -test: waits for the mount, checks, unmounts
+void mount_test_run(s_mounttest* io_t)
+{
+	s_mounttest& t= *io_t;
+	/// 60 seconds to come up: the index is already in memory, what is left
+	/// is the system mounting it (macOS and FUSE-T are the slow ones)
+	bool pronto= false;
+	for (int i= 0; i<600 && !t.finished; i++)
+	{
+		if (mount_test_ready(t.mountpoint))
+		{
+			pronto= true;
+			break;
+		}
+#ifdef _WIN32
+		Sleep(100);
+#else
+		usleep(100*1000);
+#endif
+	}
+	if (!pronto)
+	{
+		mount_test_error(t, "the file system did not come up on", t.mountpoint);
+		if (t.finished)
+			return; /// nothing to unmount: it never started, or it is gone
+	}
+	else
+	{
+		/// 1. what is there: walking the tree
+		if (flagverbose)
+			myprintf("94313: mounted, walking the tree\n");
+		int64_t		 contati= 0;
+		const string radice = mount_test_path(t.mountpoint, t.walkroot);
+		if (!mount_test_walk(radice, contati, NULL))
+			mount_test_error(t, "cannot walk the whole tree of", radice);
+		t.walked= contati;
+		if (t.allversions)
+		{
+			/// one folder per version, and each one can be walked
+			vector<string> versioni;
+			int64_t		   dummy= 0;
+			if (!mount_test_walk(t.mountpoint, dummy, &versioni))
+				mount_test_error(t, "cannot walk the versions of", t.mountpoint);
+			if (versioni.size()!=t.nversions)
+			{
+				char messaggio[128];
+				snprintf(messaggio, sizeof(messaggio), "%s version folders instead of %s in", migliaia(versioni.size()), migliaia2(t.nversions));
+				mount_test_error(t, messaggio, t.mountpoint);
+			}
+		}
+		if (contati!=(int64_t)t.files.size())
+		{
+			char messaggio[128];
+			snprintf(messaggio, sizeof(messaggio), "%s files found walking, %s expected, in", migliaia(contati), migliaia2(t.files.size()));
+			mount_test_error(t, messaggio, radice);
+		}
+		/// 2. each file: size, date, content
+		const int64_t inizio= mtime();
+		int64_t		  totale= 0;
+		for (size_t i= 0; i<t.files.size(); i++)
+			totale+= t.files[i].size;
+		for (size_t i= 0; i<t.files.size(); i++)
+		{
+			const s_mounttestfile& f	  = t.files[i];
+			const string		   percorso= mount_test_path(t.mountpoint, f.shown);
+			int64_t				   dimensione= 0;
+			int64_t				   data		 = 0;
+			if (!mount_test_stat(percorso, dimensione, data))
+			{
+				mount_test_error(t, "missing", f.name);
+				continue;
+			}
+			if (dimensione!=f.size)
+			{
+				mount_test_error(t, "wrong size", f.name);
+				continue;
+			}
+			/// 2 seconds: FAT-like rounding, somewhere, is not a mount error
+			if (f.unixdate>0 && (data<f.unixdate-2 || data>f.unixdate+2))
+				mount_test_error(t, "wrong date", f.name);
+			if (flagverbose)
+				myprintf("94312: hash %s %Z\n", f.hashtype.c_str(), f.name.c_str());
+			if (f.hashtype!="")
+			{
+				franz_do_hash hasher(f.hashtype);
+				const string  calcolato= hasher.filehash(0, percorso, f.hashtype=="CRC-32", inizio, totale);
+				if (calcolato!=f.hash)
+					mount_test_error(t, "wrong content (hash)", f.name);
+				else
+					t.hashok++;
+			}
+			else
+				t.sizeonly++;
+			if (flagverbose)
+				myprintf("94311: random reads %Z\n", f.name.c_str());
+			if (f.size>0)
+			{
+				if (mount_test_random(percorso, f.size, (uint64_t)i))
+					t.randomok++;
+				else
+					mount_test_error(t, "random reads differ", f.name);
+			}
+		}
+	}
+	/// 3. and away
+#ifdef _WIN32
+	/*
+		The loop is ended from inside the file system, where the pointer
+		comes from (see g_fsp_fuse_exit): raise the flag, then ask for a
+		name that does not exist, so that a getattr has to come, every time
+		a different one (a known name could be answered from the cache)
+	*/
+	franzmount::g_mount_exit= true;
+	for (int i= 0; i<100 && !t.finished; i++)
+	{
+		char nome[64];
+		snprintf(nome, sizeof(nome), "zpaqfranz-exit-%d-%d", (int)GetCurrentProcessId(), i);
+		GetFileAttributesW(utow(mount_test_path(t.mountpoint, nome).c_str()).c_str());
+		Sleep(100);
+	}
+	t.unmounted= t.finished;
+	if (!t.unmounted)
+		mount_test_error(t, "cannot unmount", t.mountpoint);
+#else
+	t.unmounted= mount_unmount_tries(t.mountpoint);
+	if (!t.unmounted)
+		mount_test_error(t, "cannot unmount", t.mountpoint);
+#endif
+}
+
 /// mount <archive> [mountpoint] [-backend jidac] [-fuseopt a,b] [-until N] [-t N]
 int Jidac::mount()
 {
@@ -73186,7 +83268,15 @@ int Jidac::mount()
 	archive= files[0];
 	if (!iszpaq(archive))
 		archive+= ".zpaq";
+#ifndef _WIN32
+	/// libfuse chdir()s to / the moment the mount starts: a relative name
+	/// would stop working exactly when the first read needs it
+	archive= mount_absolute_path(archive);
+#endif
 	string mountpoint= files.size()>=2 ? files[1] : "";
+#if defined(__APPLE__)
+	bool apri_finder= false; /// mountpoint made by us: show it in the Finder
+#endif
 #ifdef _WIN32
 	{
 		// WinFsp missing: download, verify and (admin + captcha) install it, then quit
@@ -73204,14 +83294,29 @@ int Jidac::mount()
 				return 2;
 			}
 			myprintf("94013: Mount point (first free drive letter) %s\n", mountpoint.c_str());
-			open_explorer_when_mounted(mountpoint);
+			if (!flagtest) /// -test: nobody is looking, and it unmounts in a moment
+				open_explorer_when_mounted(mountpoint);
 		}
 	}
 #else
-	if (mountpoint=="")
+	if (mountpoint=="" || mountpoint=="*")
 	{
+#if defined(__APPLE__)
+		/// nothing said: make a mountpoint and open the Finder on it once
+		/// mounted, like the free drive letter and the Explorer window of
+		/// Windows. Removed at the end, whatever happens (atexit)
+		mountpoint= mount_make_mountpoint(archive);
+		if (mountpoint=="")
+		{
+			myprintf("94030! cannot make a mountpoint: give one on the command line\n");
+			return 2;
+		}
+		apri_finder= !flagtest; /// -test: nobody is looking
+		myprintf("94029: Mount point (made now, removed at the end) %s\n", mountpoint.c_str());
+#else
 		myprintf("94014! mount requires a mountpoint (an existing empty directory)\n");
 		return 2;
+#endif // corresponds to #if (#if defined(__APPLE__))
 	}
 #endif
 	const string backend= mount_pick_backend(g_mountbackend, archive);
@@ -73334,6 +83439,72 @@ int Jidac::mount()
 		myprintf("94019: cache %s MB, %s shards, %s prefetch threads, windows names %d, case fallback %d\n",
 			migliaia((int64_t)(st.cache_bytes>>20)), migliaia2(st.shards), migliaia3(st.prefetch), int(st.windows_names), int(st.case_fallback));
 
+	/// -test: what has to be there, from the index as x and v read it
+	/// (not from the backend of the mount), see mount_test_run()
+	s_mounttest prova;
+	if (flagtest)
+	{
+		if (st.nversions==0)
+		{
+			myprintf("94303! mount test: no version to check\n");
+			g_mount= NULL;
+			return 2;
+		}
+		const int vecchioall= all; /// -all here means "one folder per version", not what read_archive() makes of it
+		all= 0;
+		/// files[] holds archive and mountpoint, and read_archive() takes it
+		/// as the selection: nothing would match. Everything is wanted here
+		const vector<string> vecchifiles= files;
+		files.clear();
+		const int64_t letti= read_archive(NULL, archive.c_str());
+		files= vecchifiles;
+		all	 = vecchioall;
+		if (letti<1)
+		{
+			myprintf("94304! mount test: cannot read the index of %s\n", archive.c_str());
+			g_mount= NULL;
+			return 2;
+		}
+		const size_t ultima= st.nversions-1;
+		prova.nversions	   = st.nversions;
+		prova.allversions  = st.allversions;
+		prova.walkroot	   = st.allversions ? mount_version_name(ultima)+"/" : "";
+		for (DTMap::iterator p= dt.begin(); p!=dt.end(); ++p)
+		{
+			if (p->second.date==0 || p->first=="" || p->first[p->first.size()-1]=='/')
+				continue;
+			s_mounttestfile f;
+			f.name	  = p->first;
+			f.shown	  = prova.walkroot+mount_test_shown(*be, ultima, p->first, st.windows_names);
+			f.size	  = p->second.size;
+			f.unixdate= mount_date_to_unix(p->second.date);
+			/// the stored hash, exactly the way verify() takes it
+			if (p->second.size>0 && p->first!="VFILE-l-filelist.txt" && !ismemfile(p->first))
+			{
+				string		 tipo	  = "";
+				string		 hash	  = "";
+				string		 crc32	  = "";
+				int64_t		 creazione= 0;
+				int64_t		 accesso  = 0;
+				bool		 ordinato = false;
+				int			 versione = 0;
+				franz_posix* posix	  = NULL;
+				bool		 aggiunto = false;
+				decode_franz_block(false, p->second.franz_block, tipo, hash, crc32, creazione, accesso, ordinato, versione, posix, aggiunto);
+				if (tipo=="" && crc32!="")
+					tipo= "CRC-32";
+				if (tipo!="" && franz_get_hash(tipo)!=NULL)
+				{
+					f.hashtype= tipo;
+					f.hash	  = (tipo=="CRC-32" && hash=="") ? crc32 : hash;
+				}
+			}
+			prova.files.push_back(f);
+		}
+		if (!do_not_print_headers())
+			myprintf("94305: mount test: %s files to check (index read again, as x does)\n", migliaia(prova.files.size()));
+	}
+
 	// FUSE argv: program, mountpoint, options
 	vector<string> fargs;
 	fargs.push_back("zpaqfranz");
@@ -73354,6 +83525,20 @@ int Jidac::mount()
 	}
 #else
 	fargs.push_back("-f"); // stay in the foreground: our threads would not survive a daemonize() fork
+#if defined(__APPLE__)
+	/*
+		The name the Finder shows for the mount. Left alone, macFUSE calls it
+		"macFUSE Volume 0 (zpaqfranz)" and FUSE-T names it after the folder
+		of the mountpoint (fuse-t:/mnt): give it the name of the archive
+		instead, the same label WinFsp gets on Windows.
+		Both libraries know volname; a -fuseopt volname=... wins
+	*/
+	if (!mount_has_opt(g_fuseopt, "volname"))
+	{
+		fargs.push_back("-o");
+		fargs.push_back("volname="+volume_label(archive));
+	}
+#endif // corresponds to #if (#if defined(__APPLE__))
 #endif
 	if (g_fuseopt!="") { fargs.push_back("-o"); fargs.push_back(g_fuseopt); }
 	vector<char*> fargv;
@@ -73364,18 +83549,102 @@ int Jidac::mount()
 #ifdef _WIN32
 		myprintf("94020: Mounting on %s (Ctrl+C to unmount)\n", mountpoint.c_str());
 #else
-		myprintf("94020: Mounting on %s (Ctrl+C or fusermount3 -u to unmount)\n", mountpoint.c_str());
+		myprintf("94020: Mounting on %s (Ctrl+C or %s to unmount)\n", mountpoint.c_str(), MOUNT_UNMOUNT_HINT);
 #endif
 	}
 	struct fuse_operations ops= mount_ops();
+#ifndef _WIN32
+	/*
+		SIGINT/SIGTERM/SIGHUP to libfuse, which installs its handlers only if
+		they are SIG_DFL, plus the safety net for every other way out: see the
+		long story above mount_still_mounted()
+	*/
+	s_mountsignals salvasegnali;
+	mount_signals_to_default(salvasegnali);
+	g_mountpoint_unix= my_realpath(mountpoint);
+#if defined(__OpenBSD__)
+	/// the signal handler cannot touch a std::string: plain characters
+	snprintf(g_mountpoint_openbsd, sizeof(g_mountpoint_openbsd), "%s", g_mountpoint_unix.c_str());
+#endif
+	{
+		static bool registrato= false;
+		if (!registrato)
+		{
+			registrato= true;
+			atexit(mount_atexit_unmount);
+		}
+	}
+#if defined(__APPLE__)
+	/// the watcher starts here, and not when the mountpoint was made: the
+	/// scan of a big archive can take minutes, and it would give up first
+	if (apri_finder)
+		mount_open_finder_when_mounted(mountpoint);
+#endif
+#endif
+	std::thread verificatore;
+	if (flagtest)
+	{
+#ifdef _WIN32
+		prova.mountpoint= mountpoint;
+#else
+		prova.mountpoint= g_mountpoint_unix; /// the real path: mount_still_mounted() compares it with its parent
+#endif
+		verificatore= std::thread(mount_test_run, &prova);
+	}
 	int rc= fuse_main((int)fargv.size(), fargv.data(), &ops, &st);
+	if (flagtest)
+	{
+		prova.finished= true; /// if it never came up, the thread stops waiting
+		verificatore.join();
+	}
+#ifndef _WIN32
+	mount_signals_restore(salvasegnali);
+	/// libfuse unmounts by itself when the loop ends: this is for when it did not
+	mount_unmount_if_needed();
+#if defined(__APPLE__)
+	mount_remove_made_dir();
+#endif
+	/*
+		fuse_main() gives back non-zero when the loop ends because of a signal:
+		libfuse's exit_handler() puts the signal into se->error and the loop
+		returns it (8, "an error occurred during the life of the file system").
+		But a Ctrl+C on a mount is not an error, it is HOW one unmounts, and
+		telling the user "(with errors)" for it is just wrong. If the
+		filesystem was really serving, the job is done
+	*/
+	if ((rc!=0) && g_mount_served)
+	{
+		if (!do_not_print_headers())
+			myprintf("94027: %s unmounted\n", mountpoint.c_str());
+		rc= 0;
+	}
+#endif
 	if (flagverbose && st.cache)
 		myprintf("94021: %s block decompressions\n", migliaia(st.cache->total_decompressions()));
 	st.cache.reset();
 	g_mount= NULL;
+	g_mount_exit= false;
+	if (flagtest)
+	{
+		myprintf("94306: mount test: %s files expected, %s found walking the mountpoint\n", migliaia(prova.files.size()), migliaia2(prova.walked));
+		myprintf("94307: mount test: %s hash OK, %s size and date only (no hash), %s random reads OK\n", migliaia(prova.hashok), migliaia2(prova.sizeonly), migliaia3(prova.randomok));
+		if (!g_mount_served)
+			prova.errors++; /// never mounted: already said by the thread, or by FUSE/WinFsp
+		if (prova.errors==0)
+		{
+			color_green();
+			myprintf("94308: Mount test: OK\n");
+			color_restore();
+			return 0;
+		}
+		color_red();
+		myprintf("94309! Mount test: FAILED (%s errors)\n", migliaia(prova.errors));
+		color_restore();
+		return 2;
+	}
 	return rc;
 }
-#endif // ZPAQMOUNT
+#endif // ZPAQMOUNT ///NOSFTPEND
 int Jidac::doCommand()
 {
 	if (g_chunk_size>0)
@@ -73531,12 +83800,22 @@ int Jidac::doCommand()
 			return append();
 		if (flaghome)
 			return addhome();
+#ifndef ANCIENT
+		else if (flagturbo)
+			return add2(); /// the same archive, faster (see add2)
+#else
+		else if (flagturbo)
+		{
+			myprintf("65391: -turbo is not in the ANCIENT builds (ESX, NAS): plain add\n");
+			return add();
+		}
+#endif // corresponds to #ifndef (#ifndef ANCIENT)
 		else
 			return add();
 	}
-#ifdef ZPAQMOUNT
+#ifdef ZPAQMOUNT ///NOSFTPSTART
 	else if (command=='V') return mount();
-#endif
+#endif ///NOSFTPEND
 	else if (command=='+') return crop();
 #ifdef ZPAQFULL ///NOSFTPSTART
 	else if (command=='!') return isopen();
@@ -74514,7 +84793,7 @@ end_attribute_scan:; // Label to exit the base record scan
 
 void buildPaths(DWORDLONG rootFrn, const std::wstring &rootPath, const std::map<DWORDLONG, NTFSFileInfo> &files, std::map<DWORDLONG, std::wstring> &frnToPath)
 {
-	std::map<DWORDLONG, std::vector<DWORDLONG>> parentToChildren;
+	std::map<DWORDLONG, std::vector<DWORDLONG> > parentToChildren;
 	for (const auto &pair : files)
 		parentToChildren[pair.second.parentFrn].push_back(pair.first);
 
@@ -78001,9 +88280,9 @@ static void decompress_print(FILE *inpFp, size_t messageMaxBytes)
 	const int ringBufferBytes= 1024 * 256 + messageMaxBytes;
 
 	int64_t					  startdecompress= mtime();
-	LZ4_streamDecode_t *const lz4StreamDecode= LZ4_createStreamDecode();
-	char *const				  cmpBuf		 = (char *)malloc(LZ4_COMPRESSBOUND(messageMaxBytes));
-	g_allocatedram+= LZ4_COMPRESSBOUND(messageMaxBytes);
+	zlz4::ZLZ4_streamDecode_t *const lz4StreamDecode= zlz4::ZLZ4_createStreamDecode();
+	char *const				  cmpBuf		 = (char *)malloc(ZLZ4_COMPRESSBOUND(messageMaxBytes));
+	g_allocatedram+= ZLZ4_COMPRESSBOUND(messageMaxBytes);
 	if (cmpBuf == NULL)
 	{
 		myprintf("00742: guru allocating cmpBuf\n");
@@ -78035,7 +88314,7 @@ static void decompress_print(FILE *inpFp, size_t messageMaxBytes)
 			break;
 
 		char *const decPtr	= &decBuf[decOffset];
-		const int	decBytes= LZ4_decompress_safe_continue(
+		const int	decBytes= zlz4::ZLZ4_decompress_safe_continue(
 			  lz4StreamDecode, cmpBuf, decPtr, cmpBytes, (int)messageMaxBytes);
 		if (decBytes <= 0)
 			break;
@@ -78064,7 +88343,7 @@ static void decompress_print(FILE *inpFp, size_t messageMaxBytes)
 	}
 	free(decBuf);
 	free(cmpBuf);
-	LZ4_freeStreamDecode(lz4StreamDecode);
+	zlz4::ZLZ4_freeStreamDecode(lz4StreamDecode);
 }
 
 bool win32_print_ads(string i_filename, string i_adsname, int i_maxmessagelen)
@@ -81183,11 +91462,117 @@ bool debugwritebuffertofile(string i_filename, const void *i_buffer, size_t i_si
 	return true;
 }
 */
+#if defined(ZPAQMOUNT) && defined(ZPAQFULL) ///NOSFTPSTART
+/*
+	autotest, mount tests: does the mount work HERE, for THIS user? Asking
+	whether FUSE or WinFsp are installed is not enough (a Linux without
+	/dev/fuse in a container, an OpenBSD where only root can mount, a macOS
+	with macFUSE not yet allowed...). So the real thing is tried: this very
+	executable, "mount <small archive> <mountpoint> -test", in a process of
+	its own, with a time limit. Exit code of the child, -1 if it could not
+	be started or did not finish in time
+*/
+int autotest_spawn(const string& i_exe, const vector<string>& i_args, int i_timeout)
+{
+#ifdef _WIN32
+	std::wstring riga= L"\"" + utow(i_exe.c_str()) + L"\"";
+	for (size_t i= 0; i < i_args.size(); i++)
+		riga+= L" \"" + utow(i_args[i].c_str()) + L"\"";
+	SECURITY_ATTRIBUTES sa;
+	ZeroMemory(&sa, sizeof(sa));
+	sa.nLength		 = sizeof(sa);
+	sa.bInheritHandle= TRUE;
+	HANDLE nulla	 = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, NULL);
+	STARTUPINFOW		si;
+	PROCESS_INFORMATION pi;
+	ZeroMemory(&si, sizeof(si));
+	ZeroMemory(&pi, sizeof(pi));
+	si.cb		  = sizeof(si);
+	si.dwFlags	  = STARTF_USESTDHANDLES;
+	si.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+	si.hStdOutput = nulla;
+	si.hStdError  = nulla;
+	std::vector<wchar_t> comando(riga.begin(), riga.end());
+	comando.push_back(0);
+	const BOOL partito= CreateProcessW(NULL, &comando[0], NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+	if (nulla != INVALID_HANDLE_VALUE)
+		CloseHandle(nulla);
+	if (!partito)
+		return -1;
+	int risultato= -1;
+	if (WaitForSingleObject(pi.hProcess, (DWORD)i_timeout * 1000) == WAIT_OBJECT_0)
+	{
+		DWORD codice= 1;
+		if (GetExitCodeProcess(pi.hProcess, &codice))
+			risultato= (int)codice;
+	}
+	/// too slow: left alone. Killing a process in the middle of a read of
+	/// its own WinFsp volume leaves it stuck in the kernel, mount included
+	CloseHandle(pi.hProcess);
+	CloseHandle(pi.hThread);
+	return risultato;
+#else
+	vector<char*> argomenti;
+	argomenti.push_back((char*)i_exe.c_str());
+	for (size_t i= 0; i < i_args.size(); i++)
+		argomenti.push_back((char*)i_args[i].c_str());
+	argomenti.push_back(NULL);
+	const pid_t figlio= fork();
+	if (figlio < 0)
+		return -1;
+	if (figlio == 0)
+	{
+		const int nullo= open("/dev/null", O_WRONLY);
+		if (nullo >= 0)
+		{
+			dup2(nullo, 1);
+			dup2(nullo, 2);
+			if (nullo > 2)
+				close(nullo);
+		}
+		execv(i_exe.c_str(), &argomenti[0]);
+		_exit(127);
+	}
+	int stato= 0;
+	for (int i= 0; i < i_timeout * 10; i++)
+	{
+		const pid_t fatto= waitpid(figlio, &stato, WNOHANG);
+		if (fatto == figlio)
+			return WIFEXITED(stato) ? WEXITSTATUS(stato) : -1;
+		if (fatto < 0 && errno != EINTR)
+			return -1;
+		usleep(100 * 1000);
+	}
+	/// too slow: SIGTERM, the mount unmounts on it (see mount_signals_to_default)
+	kill(figlio, SIGTERM);
+	for (int i= 0; i < 100; i++)
+	{
+		if (waitpid(figlio, &stato, WNOHANG) == figlio)
+			return -1;
+		usleep(100 * 1000);
+	}
+	kill(figlio, SIGKILL);
+	waitpid(figlio, &stato, 0);
+	return -1;
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+}
+#endif // corresponds to #if (#if defined(ZPAQMOUNT) && defined(ZPAQFULL)) ///NOSFTPEND
+
 int Jidac::autotest()
 {
 	myprintf("01147: Self-test for correct internal functioning\n"); // for non-Intel CPU
 	if (all)
 		pc_info();
+#if defined(ZPAQLZ4) || defined(ZPAQLZAV)
+	/// first of all: the PCOMP of -m6/-m7 must be the frozen ones (see pcomp_frozen_check)
+	if (libzpaq::pcomp_frozen_check(true) != 0)
+	{
+		color_red();
+		myprintf("65402! The PCOMP of -m6/-m7 CHANGED: old archives lose the native decoder, new ones differ. Do NOT release this build\n");
+		color_restore();
+		return 2;
+	}
+#endif // corresponds to #if (#if defined(ZPAQLZ4) || defined(ZPAQLZAV))
 
 #ifdef ZPAQFULL /// NOSFTPSTART
 #ifdef _WIN64
@@ -81855,6 +92240,57 @@ int Jidac::autotest()
 			myprintf("\n");
 			fclose(myfile);
 		}
+		/// three small files for the hash healing tests (see the script)
+		for (unsigned int j= 1; j <= 3; j++)
+		{
+			snprintf(mynomefile, sizeof(mynomefile), "%sheal/h%u.txt", outfolder.c_str(), j);
+			makepath(mynomefile);
+			FILE *myfile= fopen(mynomefile, "wb");
+			if (myfile == NULL)
+			{
+				myprintf("56470: cannot write on %s\n", mynomefile);
+				seppuku();
+			}
+			for (unsigned int i= 0; i < 1000 * j; i++)
+				fprintf(myfile, "heal %u line %u\n", j, i);
+			fclose(myfile);
+		}
+		/*
+			Names that are hard for somebody: accented UTF-8, CJK, a 4 byte emoji
+			(a surrogate pair in UTF-16, i.e. on Windows), spaces, a lone %, a
+			literal %3A (exactly what the mount on Windows uses to escape a ':',
+			so it must escape the % itself), an empty file, an empty folder.
+			Written as UTF-8 bytes on purpose: the source file is not UTF-8
+		*/
+		{
+			const char *nomi[]= {"citt\xc3\xa0 \xc3\xa8 perch\xc3\xa9.txt",
+								 "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e.txt",
+								 "emoji \xf0\x9f\x98\x80.txt",
+								 "100%.txt",
+								 "a%3Ab.txt",
+								 "sub dir/with space.txt",
+								 "empty.txt"};
+			for (unsigned int j= 0; j < sizeof(nomi) / sizeof(nomi[0]); j++)
+			{
+				const string nome= outfolder + "names/" + nomi[j];
+				makepath(nome);
+#ifdef _WIN32
+				FILE *myfile= _wfopen(utow(nome.c_str()).c_str(), L"wb");
+#else
+				FILE *myfile= fopen(nome.c_str(), "wb");
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+				if (myfile == NULL)
+				{
+					myprintf("56479: cannot write on %s\n", nome.c_str());
+					seppuku();
+				}
+				if (string(nomi[j]) != "empty.txt")
+					for (unsigned int i= 0; i < 500 * (j + 1); i++)
+						fprintf(myfile, "file %u (%s) line %u\n", j, nomi[j], i);
+				fclose(myfile);
+			}
+			makepath(outfolder + "names/empty folder/");
+		}
 
 #ifdef _WIN32
 		string linuxpath= outfolder;
@@ -81900,6 +92336,53 @@ int Jidac::autotest()
 		if (flagdebug2)
 			myprintf("01221: myzpaqexe %s\n", myzpaqexe.c_str());
 
+		/// the mount tests: only if the mount really works here (see autotest_spawn)
+		bool   testmount	= false;
+		string mountpoint	= outfolder + "mnt";
+#if defined(ZPAQMOUNT)
+		{
+			bool presente= true;
+#ifdef _WIN32
+			/// mountpoint: a folder that does not exist, WinFsp makes it (and removes it)
+			const char *perche= NULL;
+			presente		  = (zpaqmount_winfsp_load(&perche) != NULL);
+#else
+			/// mountpoint: an empty folder
+			if (!direxists(mountpoint))
+				mkdir(mountpoint.c_str(), 0700);
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+			if (presente)
+			{
+				myprintf("56471: Trying a mount (mount %ssha256.zpaq %s -test), please wait...\n", outfolder.c_str(), mountpoint.c_str());
+				vector<string> argomenti;
+				argomenti.push_back("mount");
+				argomenti.push_back(outfolder + "sha256.zpaq");
+				argomenti.push_back(mountpoint);
+				argomenti.push_back("-test");
+				argomenti.push_back("-noeta");
+				const int codice= autotest_spawn(myzpaqexe, argomenti, 300);
+				testmount		= (codice == 0);
+				if (!testmount)
+					myprintf("56472: The mount does not work here (exit code %d): no mount tests\n", codice);
+			}
+			else
+				myprintf("56473: WinFsp not installed: no mount tests\n");
+			if (testmount)
+			{
+				color_green();
+				myprintf("56474: The mount works: the mount tests are in the script\n");
+				color_restore();
+				/// checkautotest() looks for this, to know that out56... are expected
+				FILE *segno= fopen((outfolder + "mounttest.txt").c_str(), "wb");
+				if (segno != NULL)
+				{
+					fprintf(segno, "mount tests in the script\n");
+					fclose(segno);
+				}
+			}
+		}
+#endif // corresponds to #if (#if defined(ZPAQMOUNT))
+
 		FILE *batch= fopen(filebatch.c_str(), "wb");
 		if (batch == NULL)
 		{
@@ -81913,6 +92396,21 @@ int Jidac::autotest()
 
 #ifdef _WIN32
 		fprintf(batch, "@echo OFF\r\n");
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+		/*
+			The script works INSIDE the test folder, whatever folder it is started
+			from. Some steps depend on it: the -chunk archives are made with
+			-to ./locale/NN, relative names, and "x chunk_????.zpaq" (no -to) puts
+			them into the CURRENT folder, while the checks look for them in the
+			test folder. Started from somewhere else, locale/ was made there (dirt
+			in the wrong place) and out08, out11, out17, out19 failed. So: cd first,
+			and stop right there if it is not possible
+		*/
+		const string cartellatest= excludetrailingbackslash(outfolder);
+#ifdef _WIN32
+		fprintf(batch, "cd /d \"%s\" || exit /b 1%s", cartellatest.c_str(), acapo.c_str());
+#else
+		fprintf(batch, "cd \"%s\" || exit 1%s", cartellatest.c_str(), acapo.c_str());
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 		fprintf(batch, "\"%s\" x \"%ssha256.zpaq\" -space -to \"%ste\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
 		fprintf(batch, "\"%s\" sum \"%ste\" -sha256 -rename -force -out \"%sout01.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
@@ -82071,8 +92569,9 @@ int Jidac::autotest()
 			// Rimozione strato esterno (out29)
 			fprintf(batch, "\"%s\" franzen \"%saesfranzen.zpaq.franzen\" -to \"%saesfranzen_decoded.zpaq\" -franzen \"%s\" -out \"%sout29.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), g_franzen.c_str(), outfolder.c_str(), acapo.c_str());
 
-			// Confronto binario zpaq decodificato vs originale (out30)
-			fprintf(batch, "\"%s\" work fc \"%saesfranzen.zpaq\" \"%saesfranzen_decoded.zpaq\" -out \"%sout30.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			// The decoded .zpaq must be a good archive (out30). No binary compare:
+			// since 65.1 there is no cleartext .zpaq beside the .franzen to compare with
+			fprintf(batch, "\"%s\" t \"%saesfranzen_decoded.zpaq\" -key pippo -noeta -out \"%sout30.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
 
 			// 2. ONLY FRANZEN (out31 - out38)
 			fprintf(batch, "\"%s\" a \"%sonlyfranzen\" \"%sbigone01.big\"  -franzen \"%s\" -timestamp 20250101000000 -out \"%sout31.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), g_franzen.c_str(), outfolder.c_str(), acapo.c_str());
@@ -82086,7 +92585,7 @@ int Jidac::autotest()
 			
 			fprintf(batch, "\"%s\" franzen \"%sonlyfranzen.zpaq.franzen\" -to \"%sonlyfranzen_decoded.zpaq\" -franzen \"%s\" -out \"%sout37.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), g_franzen.c_str(), outfolder.c_str(), acapo.c_str());
 			
-			fprintf(batch, "\"%s\" work fc \"%sonlyfranzen.zpaq\" \"%sonlyfranzen_decoded.zpaq\" -out \"%sout38.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" t \"%sonlyfranzen_decoded.zpaq\" -noeta -out \"%sout38.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
 
 
 			// 3. ESTRAZIONE E VERIFICA CONTENUTI (out39 - out44)
@@ -82109,6 +92608,132 @@ int Jidac::autotest()
 			fprintf(batch, "\"%s\" work fc \"%sbigone02.big\" \"%sonly_franzen_bigone02.bin\" -out \"%sout49.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
 			fprintf(batch, "\"%s\" work fc \"%sbigone03.big\" \"%sonly_franzen_bigone03.bin\" -out \"%sout50.txt\" %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
 		}
+		/*
+			Hash healing (65.3q/65.3s). heal.zpaq: SHA-256 first, then only the
+			attribute of h1.txt changes and the default hash (XXHASH64) is asked:
+			h1 must be read again, not stored with a zero hash (v would FAIL).
+			touch.zpaq: a zpaq 7.15 archive (no hash at all), then -touch -sha3
+			gives a hash to every file, in one run; run again, nothing to do
+		*/
+		string heal= outfolder + "heal";
+		fprintf(batch, "\"%s\" a \"%sheal.zpaq\" \"%s\" -sha256 -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), heal.c_str(), acapo.c_str());
+#ifdef _WIN32
+		fprintf(batch, "attrib -A \"%s%ch1.txt\"%s", heal.c_str(), barra, acapo.c_str());
+#else
+		fprintf(batch, "chmod 600 \"%s%ch1.txt\"%s", heal.c_str(), barra, acapo.c_str());
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+		fprintf(batch, "\"%s\" a \"%sheal.zpaq\" \"%s\" -noeta -out \"%sout51.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), heal.c_str(), outfolder.c_str(), acapo.c_str());
+		fprintf(batch, "\"%s\" v \"%sheal.zpaq\" -out \"%sout52.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+		fprintf(batch, "\"%s\" a \"%stouch.zpaq\" \"%s\" -715 -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), heal.c_str(), acapo.c_str());
+		fprintf(batch, "\"%s\" a \"%stouch.zpaq\" \"%s\" -touch -sha3 -noeta -out \"%sout53.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), heal.c_str(), outfolder.c_str(), acapo.c_str());
+		fprintf(batch, "\"%s\" v \"%stouch.zpaq\" -out \"%sout54.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+		fprintf(batch, "\"%s\" a \"%stouch.zpaq\" \"%s\" -touch -sha3 -noeta -out \"%sout55.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), heal.c_str(), outfolder.c_str(), acapo.c_str());
+		/// difficult names: stored and verified against the disk
+		fprintf(batch, "\"%s\" a \"%snames.zpaq\" \"%snames\" -sha256 -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+		fprintf(batch, "\"%s\" v \"%snames.zpaq\" -out \"%sout64.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+
+		/*
+			Mount: every archive made above, read THROUGH the mount (mount -test:
+			mount, compare with the index, unmount by itself). Plain, every
+			version, -until, encrypted multipart, backup multipart, the healed
+			one, and the Franzen ones if any
+		*/
+		if (testmount)
+		{
+			fprintf(batch, "\"%s\" mount \"%s\" \"%s\" -test -noeta -out \"%sout56.txt\"%s", myzpaqexe.c_str(), filezpaq.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" mount \"%s\" \"%s\" -all -test -noeta -out \"%sout57.txt\"%s", myzpaqexe.c_str(), filezpaq.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" mount \"%s\" \"%s\" -until 3 -test -noeta -out \"%sout58.txt\"%s", myzpaqexe.c_str(), filezpaq.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" mount \"%schunk_????.zpaq\" \"%s\" -key pippo -test -noeta -out \"%sout59.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" mount \"%smultipart_????????\" \"%s\" -key pippo -test -noeta -out \"%sout60.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" mount \"%sheal.zpaq\" \"%s\" -test -noeta -out \"%sout61.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			/// the difficult names through the mount (escaping on Windows)
+			fprintf(batch, "\"%s\" mount \"%snames.zpaq\" \"%s\" -test -noeta -out \"%sout65.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			/// version 1 of touch.zpaq is a zpaq 7.15 one: no hash, size and date only
+			fprintf(batch, "\"%s\" mount \"%stouch.zpaq\" \"%s\" -until 1 -test -noeta -out \"%sout66.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			/// big files (400 MB, 15 versions, deduplicated, one all zeros)
+			fprintf(batch, "\"%s\" mount \"%sthebigone.zpaq\" \"%s\" -test -noeta -out \"%sout67.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+			if (g_franzen != "")
+			{
+				fprintf(batch, "\"%s\" mount \"%saesfranzen\" \"%s\" -key pippo -franzen \"%s\" -test -noeta -out \"%sout62.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), g_franzen.c_str(), outfolder.c_str(), acapo.c_str());
+				fprintf(batch, "\"%s\" mount \"%sonlyfranzen\" \"%s\" -franzen \"%s\" -test -noeta -out \"%sout63.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), g_franzen.c_str(), outfolder.c_str(), acapo.c_str());
+			}
+		}
+
+#ifdef ZPAQLZ4
+		/*
+			-m6 (LZ4 stored + a decoder in ZPAQL, see LZ4_PCOMP). Three archives:
+			m6.zpaq    the ten hash folders (1.75 GB, 42.735 files, a lot of dedup), -m6
+			m6h9.zpaq  te, heal and names (UTF-8, emoji, empty files), LZ4 HC 9
+			m66.zpaq   three big files, one all zeros, HC 9 with 64 MB blocks
+			and every way of reading them back: t (the native decoder), p -verify
+			(unzpaq: another decoder, which RUNS the ZPAQL, compared with the files
+			on disk), w (the chunked extraction), and the mount if there is one
+		*/
+		{
+			string cartelle= "";
+			for (int j= 0; j <= 9; j++)
+			{
+				char numero[8];
+				snprintf(numero, sizeof(numero), "%02d", j);
+				cartelle+= "\"" + outfolder + numero + "\" ";
+			}
+			fprintf(batch, "\"%s\" a \"%sm6.zpaq\" %s-m6 -noeta -out \"%sout68.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), cartelle.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" t \"%sm6.zpaq\" -noeta -out \"%sout69.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" p \"%sm6.zpaq\" -verify -noeta -out \"%sout70.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" w \"%sm6.zpaq\" -test -checksum -noeta -out \"%sout71.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sm6h9.zpaq\" \"%ste\" \"%sheal\" \"%snames\" -m6h9 -noeta -out \"%sout72.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" p \"%sm6h9.zpaq\" -verify -noeta -out \"%sout73.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sm66.zpaq\" \"%sbigone01.big\" \"%sbigone02.big\" \"%sbigone15.big\" -m66h9 -noeta -out \"%sout74.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" p \"%sm66.zpaq\" -verify -noeta -out \"%sout75.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			if (testmount)
+				fprintf(batch, "\"%s\" mount \"%sm6.zpaq\" \"%s\" -test -noeta -out \"%sout76.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+		}
+#endif // corresponds to #ifdef (#ifdef ZPAQLZ4)
+#ifdef ZPAQLZAV
+		/// -m7 (LZAV + a decoder in ZPAQL): the same checks of -m6
+		{
+			string cartelle= "";
+			for (int j= 0; j <= 9; j++)
+			{
+				char numero[8];
+				snprintf(numero, sizeof(numero), "%02d", j);
+				cartelle+= "\"" + outfolder + numero + "\" ";
+			}
+			fprintf(batch, "\"%s\" a \"%sm7.zpaq\" %s-m7 -noeta -out \"%sout77.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), cartelle.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" t \"%sm7.zpaq\" -noeta -out \"%sout78.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" p \"%sm7.zpaq\" -verify -noeta -out \"%sout79.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sm7h.zpaq\" \"%ste\" \"%sheal\" \"%snames\" \"%sbigone01.big\" \"%sbigone15.big\" -m7h -noeta -out \"%sout80.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" p \"%sm7h.zpaq\" -verify -noeta -out \"%sout81.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			if (testmount)
+				fprintf(batch, "\"%s\" mount \"%sm7.zpaq\" \"%s\" -test -noeta -out \"%sout82.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), mountpoint.c_str(), outfolder.c_str(), acapo.c_str());
+		}
+#endif // corresponds to #ifdef (#ifdef ZPAQLZAV)
+		/*
+			-turbo (add2, the parallel fragmenter): the same files, with the same
+			version dates, with and without it. The two archives must be the
+			same file, to the byte: the big files go through the parallel path,
+			the small ones through the loop of add(), and the second version
+			(another big file, on top of the first) checks the deduplication.
+			Then the same with -m7, and a t of what -turbo made
+		*/
+		{
+			const string sorgenti= "\"" + outfolder + "bigone01.big\" \"" + outfolder + "bigone02.big\" \"" + outfolder + "bigone15.big\" \"" + outfolder + "te\" \"" + outfolder + "heal\"";
+			const string altro	 = "\"" + outfolder + "bigone03.big\"";
+			const char	*v1		 = "-timestamp 2025-01-01_10:00:00";
+			const char	*v2		 = "-timestamp 2025-01-02_10:00:00";
+			fprintf(batch, "\"%s\" a \"%sturbo_no.zpaq\" %s %s -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), sorgenti.c_str(), v1, acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sturbo_no.zpaq\" %s %s -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), altro.c_str(), v2, acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sturbo_si.zpaq\" %s %s -turbo -noeta -out \"%sout83.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), sorgenti.c_str(), v1, outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sturbo_si.zpaq\" %s %s -turbo -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), altro.c_str(), v2, acapo.c_str());
+			fprintf(batch, "\"%s\" work fc \"%sturbo_no.zpaq\" \"%sturbo_si.zpaq\" -out \"%sout84.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+			fprintf(batch, "\"%s\" t \"%sturbo_si.zpaq\" -noeta -out \"%sout85.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+#ifdef ZPAQLZAV
+			fprintf(batch, "\"%s\" a \"%sturbo7_no.zpaq\" %s %s -m7 -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), sorgenti.c_str(), v1, acapo.c_str());
+			fprintf(batch, "\"%s\" a \"%sturbo7_si.zpaq\" %s %s -m7 -turbo -noeta %s", myzpaqexe.c_str(), outfolder.c_str(), sorgenti.c_str(), v1, acapo.c_str());
+			fprintf(batch, "\"%s\" work fc \"%sturbo7_no.zpaq\" \"%sturbo7_si.zpaq\" -out \"%sout86.txt\"%s", myzpaqexe.c_str(), outfolder.c_str(), outfolder.c_str(), outfolder.c_str(), acapo.c_str());
+#endif // corresponds to #ifdef (#ifdef ZPAQLZAV)
+		}
+
 		if (g_franzen!="")
 			fprintf(batch, "\"%s\" autotest -checktxt \"%s\" -franzen pluto%s", myzpaqexe.c_str(), temp.c_str(), acapo.c_str());
 		else
@@ -82129,6 +92754,11 @@ int Jidac::autotest()
 #endif // corresponds to #ifdef (#ifdef unix)
 		myprintf("\n\n");
 		myprintf("01227: The test batchfile is: %s\n", filebatch.c_str());
+		color_cyan();
+		myprintf("56476: NOTE: the script works INSIDE %s\n", excludetrailingbackslash(outfolder).c_str());
+		myprintf("56477:       its first line is a cd there (some steps use ./relative paths):\n");
+		myprintf("56478:       run it from anywhere, but do not remove that cd\n");
+		color_restore();
 	}
 #endif /// NOSFTPEND
 #ifndef ESX
@@ -85185,7 +95815,8 @@ void myaddfile(uint32_t i_tnumber, DTMap &i_edt, string i_filename, int64_t i_da
 	g_arrayfilescanned[i_tnumber]++;
 	unsigned int consolemaxrow= g_arraybytescanned.size();
 	if ((int)g_arraybytescanned.size() > (terminalheight() - 5))
-		consolemaxrow= (terminalheight() - 5);
+		if (terminalheight() > 5) /// never a negative number turned unsigned: rows past the vector
+			consolemaxrow= (terminalheight() - 5);
 
 	if (!flagnoeta)
 	{
@@ -90403,21 +101034,21 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
     size_t messageMaxBytes = sizeof(linebuffer);
     size_t ringBufferBytes = 1024 * 256 + messageMaxBytes;
 
-    LZ4_stream_t *const lz4Stream = LZ4_createStream();
+    zlz4::ZLZ4_stream_t *const lz4Stream = zlz4::ZLZ4_createStream();
     if (!lz4Stream)
     {
         myprintf("GURU LZ4_createStream\n");
         return false;
     }
 
-    const size_t cmpBufBytes = LZ4_COMPRESSBOUND(messageMaxBytes);
+    const size_t cmpBufBytes = ZLZ4_COMPRESSBOUND(messageMaxBytes);
     char *const cmpBuf = (char *)malloc(cmpBufBytes);
     g_allocatedram += cmpBufBytes;
     if (!cmpBuf)
     {
         myprintf("02255: GURU malloc cmpBuf\n");
         seppuku();
-        LZ4_freeStream(lz4Stream);
+        zlz4::ZLZ4_freeStream(lz4Stream);
         return false;
     }
 
@@ -90428,7 +101059,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
         myprintf("02256: GURU malloc inpBuf\n");
         seppuku();
         free(cmpBuf);
-        LZ4_freeStream(lz4Stream);
+        zlz4::ZLZ4_freeStream(lz4Stream);
         return false;
     }
 
@@ -90463,12 +101094,12 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
             myprintf("Buffer overflow inpBuf\n");
             free(inpBuf);
             free(cmpBuf);
-            LZ4_freeStream(lz4Stream);
+            zlz4::ZLZ4_freeStream(lz4Stream);
             seppuku();
             return false;
         }
 
-        const int cmpBytes = LZ4_compress_fast_continue(
+        const int cmpBytes = zlz4::ZLZ4_compress_fast_continue(
             lz4Stream,
             inpPtr,
             cmpBuf,
@@ -90481,7 +101112,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
             myprintf("02258! guru on cmpbytes\n");
             free(inpBuf);
             free(cmpBuf);
-            LZ4_freeStream(lz4Stream);
+            zlz4::ZLZ4_freeStream(lz4Stream);
             seppuku();
             return false;
         }
@@ -90525,7 +101156,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
         myprintf("Buffer overflow inpBuf (final)\n");
         free(inpBuf);
         free(cmpBuf);
-        LZ4_freeStream(lz4Stream);
+        zlz4::ZLZ4_freeStream(lz4Stream);
         return false;
     }
 
@@ -90542,7 +101173,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
         inpBytes += strlen(ratiobuf);
     }
 
-    const int cmpBytes = LZ4_compress_fast_continue(
+    const int cmpBytes = zlz4::ZLZ4_compress_fast_continue(
         lz4Stream,
         inpPtr,
         cmpBuf,
@@ -90555,7 +101186,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
         myprintf("02259! guru on cmpbytes\n");
         free(inpBuf);
         free(cmpBuf);
-        LZ4_freeStream(lz4Stream);
+        zlz4::ZLZ4_freeStream(lz4Stream);
         return false;
     }
 
@@ -90568,7 +101199,7 @@ bool Jidac::fill_ads(string i_filename, int64_t i_startiblock)
 
     free(inpBuf);
     free(cmpBuf);
-    LZ4_freeStream(lz4Stream);
+    zlz4::ZLZ4_freeStream(lz4Stream);
 
     myprintf("02260: ADS: done %s => %s bytes in %s ticks\n",
              migliaia3(listsize),
@@ -90780,6 +101411,17 @@ void Jidac::pc_info()
 	else
 		myprintf("02281: No SHA1/2 (try -debug)\n");
 #endif // corresponds to #ifdef (#ifdef HWSHA2)
+/*
+	cc/gcc/clang without any -O means -O0: everything works, but the
+	hashers (above all the byte-by-byte put() of SHA-1/SHA-256) are 5..10
+	times slower. On OpenBSD 7.9 autotest -all takes 30s with -O3, many
+	minutes without. Better to say so, before someone waits for nothing
+*/
+#if defined(__GNUC__) && !defined(__OPTIMIZE__)
+	color_yellow();
+	myprintf("56465: WARNING: compiled WITHOUT optimizations (no -O): it will be very slow, rebuild with -O3\n");
+	color_restore();
+#endif
 
 	int myproc= numberOfProcessors();
 	if (flaght)
@@ -102504,8 +113146,8 @@ static bool p7m_extract_cf(const uint8_t *d, int dn,
 						break;
 					pos= cs + cl;
 					std::string s(reinterpret_cast<const char *>(d + cs), cl);
-					for (auto &c : s)
-						c= (char)toupper((unsigned char)c);
+					for (size_t k= 0; k < s.size(); k++)
+						s[k]= (char)toupper((unsigned char)s[k]);
 					if (s.size() > 6 && s.substr(0, 6) == "TINIT-")
 						cf= s.substr(6);
 					else
@@ -102773,8 +113415,8 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 	P7MLOG("Signer CF", "%s", cf.c_str());
 
 	std::string expCF= expectedCF;
-	for (auto &c : expCF)
-		c= (char)toupper((unsigned char)c);
+	for (size_t k= 0; k < expCF.size(); k++)
+		expCF[k]= (char)toupper((unsigned char)expCF[k]);
 	if (cf != expCF)
 	{
 		errMsg= "CF signer \"" + cf + "\" != expected \"" + expCF + "\"";
@@ -102911,7 +113553,7 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 	uint8_t saDigest[32];
 	{
 		libzpaq::SHA256 sha;
-		sha.write(reinterpret_cast<const char *>(saHashBuf.data()), (int64_t)saLen);
+		sha.write(reinterpret_cast<const char *>(&saHashBuf[0]), (int64_t)saLen);
 		memcpy(saDigest, sha.result(), 32);
 	}
 
@@ -103017,14 +113659,14 @@ static bool verify_p7m_file(const std::string &filename,
 		return false;
 	}
 	std::vector<uint8_t> buf((size_t)sz);
-	if ((long)fread(buf.data(), 1, (size_t)sz, f) != sz)
+	if ((long)fread(&buf[0], 1, (size_t)sz, f) != sz)
 	{
 		fclose(f);
 		errMsg= "Read error on p7m file";
 		return false;
 	}
 	fclose(f);
-	return verify_p7m_bytes(buf.data(), (int)sz, expectedCF, textContent, errMsg, verbose);
+	return verify_p7m_bytes(&buf[0], (int)sz, expectedCF, textContent, errMsg, verbose);
 }
 
 int Jidac::update()
@@ -103159,8 +113801,8 @@ int Jidac::update()
 	}
 	myprintf("03199: Testing internet version...\n");
 	string linea = p7mContent;
-	while (!linea.empty() && (linea.back() == '\r' || linea.back() == '\n' || linea.back() == ' '))
-		linea.pop_back();
+	while (!linea.empty() && (linea[linea.size() - 1] == '\r' || linea[linea.size() - 1] == '\n' || linea[linea.size() - 1] == ' '))
+		linea.erase(linea.size() - 1);
 	if (flagdebug3)
 		myprintf("03202: p7m content line |%s|\n", linea.c_str());
 
@@ -105418,6 +116060,8 @@ struct TestCase {
     string filename;
     string expected_content;
     string description;
+    /// a constructor, and not {...}: C++98 (gcc 3.4 of ESXi)
+    TestCase(const string& i_f, const string& i_e, const string& i_d) : filename(i_f), expected_content(i_e), description(i_d) {}
 };
 
 int Jidac::checkautotest(string i_path)
@@ -105436,82 +116080,146 @@ int Jidac::checkautotest(string i_path)
     vector<TestCase> test_cases;
     
     // Test base sempre presenti
-    test_cases.push_back({"out01.txt", "NOT renamed files  256", "Extracting pre-computed data"});
-    test_cases.push_back({"out02.txt", "67708591460BCE3BC45AE086A342F9F390AD2913A22639EC7AF3646B7D2AEA78", "Adding and/or extracting data"});
-    test_cases.push_back({"out03.txt", "(all OK)", "Testing with -verify"});
-    test_cases.push_back({"out04.txt", "(all OK)", "Verify"});
-    test_cases.push_back({"out05.txt", "(all OK)", "w (chunked test)"});
-    test_cases.push_back({"out06.txt", "SURE    :       42.727 of       42.727 (stored=decompressed=file on disk)", "p (paranoid test)"});
-    test_cases.push_back({"out07.txt", "GLOBAL SHA256: 7B32DB3F6F0180062773C5A046A2C99D17BE7668202379BA136E7A4D134FFC26", "Extract with different hashes)"});
-    test_cases.push_back({"out08.txt", "GLOBAL SHA256: 5088D26FE31EEE0E04F1569CD4851B6DE4A1CBC00EC56BAC7F390A123A8C1111", "Fixed encrypted -chunk multipart creating/extracting"});
-    test_cases.push_back({"out09.txt", "Files deleted                       42.735", "Fixed -chunk multipart testing"});
-    test_cases.push_back({"out10.txt", "10000.dat", "Fixed -chunk multipart verify"});
-    test_cases.push_back({"out11.txt", "10000.dat", "Folder comparing"});
-    test_cases.push_back({"out12.txt", "(all OK)", "Testbackup for multipart"});
-    test_cases.push_back({"out13.txt", "OK      XXHASH64B : 00000256 of 00000256", "Standard multipart with backup command"});
-    test_cases.push_back({"out14.txt", "== very same bytes 9.472.000", "Extracting/testing single version from multipart"});
-    test_cases.push_back({"out15.txt", "===", "Creating/extracting different hashes"});
-    test_cases.push_back({"out16.txt", "All OK (paranoid test with check against filesystem)", "Paranoid test of different hashes"});
-    test_cases.push_back({"out17.txt", "+              1", "Robocopy of folder"});
-    test_cases.push_back({"out18.txt", "GLOBAL SHA256: 9C443D84B87B678E4506AD5F6A2FC89B83546E286F19998899DC4461BB9F97D0", "Extract multihash"});
-    test_cases.push_back({"out19.txt", "GLOBAL SHA256: 9C443D84B87B678E4506AD5F6A2FC89B83546E286F19998899DC4461BB9F97D0", "Testing that extract is OK (a)"});
-    test_cases.push_back({"out20.txt", "GLOBAL SHA256: 9C443D84B87B678E4506AD5F6A2FC89B83546E286F19998899DC4461BB9F97D0", "Testing that extract is OK (b)"});
-    test_cases.push_back({"out21.txt", "GLOBAL SHA256: EEBFFD8399E88CE05BCFD1AAE65C4A118E57638511AF18255C5A295A6378F437", "Creating & extracting big file"});
-    test_cases.push_back({"out22.txt", "(all OK)", "Testing with sequential algo"});
+    test_cases.push_back(TestCase("out01.txt", "NOT renamed files  256", "Extracting pre-computed data"));
+    test_cases.push_back(TestCase("out02.txt", "67708591460BCE3BC45AE086A342F9F390AD2913A22639EC7AF3646B7D2AEA78", "Adding and/or extracting data"));
+    test_cases.push_back(TestCase("out03.txt", "(all OK)", "Testing with -verify"));
+    test_cases.push_back(TestCase("out04.txt", "(all OK)", "Verify"));
+    test_cases.push_back(TestCase("out05.txt", "(all OK)", "w (chunked test)"));
+    test_cases.push_back(TestCase("out06.txt", "SURE    :       42.727 of       42.727 (stored=decompressed=file on disk)", "p (paranoid test)"));
+    test_cases.push_back(TestCase("out07.txt", "GLOBAL SHA256: 7B32DB3F6F0180062773C5A046A2C99D17BE7668202379BA136E7A4D134FFC26", "Extract with different hashes)"));
+    test_cases.push_back(TestCase("out08.txt", "GLOBAL SHA256: 5088D26FE31EEE0E04F1569CD4851B6DE4A1CBC00EC56BAC7F390A123A8C1111", "Fixed encrypted -chunk multipart creating/extracting"));
+    test_cases.push_back(TestCase("out09.txt", "Files deleted                       42.735", "Fixed -chunk multipart testing"));
+    test_cases.push_back(TestCase("out10.txt", "10000.dat", "Fixed -chunk multipart verify"));
+    test_cases.push_back(TestCase("out11.txt", "10000.dat", "Folder comparing"));
+    test_cases.push_back(TestCase("out12.txt", "(all OK)", "Testbackup for multipart"));
+    test_cases.push_back(TestCase("out13.txt", "OK      XXHASH64B : 00000256 of 00000256", "Standard multipart with backup command"));
+    test_cases.push_back(TestCase("out14.txt", "== very same bytes 9.472.000", "Extracting/testing single version from multipart"));
+    test_cases.push_back(TestCase("out15.txt", "===", "Creating/extracting different hashes"));
+    test_cases.push_back(TestCase("out16.txt", "All OK (paranoid test with check against filesystem)", "Paranoid test of different hashes"));
+    test_cases.push_back(TestCase("out17.txt", "+              1", "Robocopy of folder"));
+    test_cases.push_back(TestCase("out18.txt", "GLOBAL SHA256: 9C443D84B87B678E4506AD5F6A2FC89B83546E286F19998899DC4461BB9F97D0", "Extract multihash"));
+    test_cases.push_back(TestCase("out19.txt", "GLOBAL SHA256: 9C443D84B87B678E4506AD5F6A2FC89B83546E286F19998899DC4461BB9F97D0", "Testing that extract is OK (a)"));
+    test_cases.push_back(TestCase("out20.txt", "GLOBAL SHA256: 9C443D84B87B678E4506AD5F6A2FC89B83546E286F19998899DC4461BB9F97D0", "Testing that extract is OK (b)"));
+    test_cases.push_back(TestCase("out21.txt", "GLOBAL SHA256: EEBFFD8399E88CE05BCFD1AAE65C4A118E57638511AF18255C5A295A6378F437", "Creating & extracting big file"));
+    test_cases.push_back(TestCase("out22.txt", "(all OK)", "Testing with sequential algo"));
     
     // Test aggiuntivi Franzen
     if (g_franzen != "")
     {
         // AES + Franzen Creation
-        test_cases.push_back({"out23.txt", "(all OK)", "Creating archive 2"});
-        test_cases.push_back({"out24.txt", "(all OK)", "Updating archive 2"});
-        test_cases.push_back({"out25.txt", "(all OK)", "Updating archive 2"});
-        test_cases.push_back({"out26.txt", "(all OK)", "Discarded update 2"});
+        test_cases.push_back(TestCase("out23.txt", "(all OK)", "Creating archive 2"));
+        test_cases.push_back(TestCase("out24.txt", "(all OK)", "Updating archive 2"));
+        test_cases.push_back(TestCase("out25.txt", "(all OK)", "Updating archive 2"));
+        test_cases.push_back(TestCase("out26.txt", "(all OK)", "Discarded update 2"));
         
         // AES + Franzen Verify & Decode
-        test_cases.push_back({"out27.txt", "(all OK)", "PP test 2"});
-        test_cases.push_back({"out28.txt", "(all OK)", "Franzen test 2"});
-        test_cases.push_back({"out29.txt", "(all OK)", "Decoding 2"});
-        test_cases.push_back({"out30.txt", "Binary ==", "fc decoding/plain 2"});
+        test_cases.push_back(TestCase("out27.txt", "(all OK)", "PP test 2"));
+        test_cases.push_back(TestCase("out28.txt", "(all OK)", "Franzen test 2"));
+        test_cases.push_back(TestCase("out29.txt", "(all OK)", "Decoding 2"));
+        test_cases.push_back(TestCase("out30.txt", "(all OK)", "t of the decoded .franzen 2"));
         
         // Only Franzen Creation
-        test_cases.push_back({"out31.txt", "(all OK)", "Creating archive 1"});
-        test_cases.push_back({"out32.txt", "(all OK)", "Updating archive 1"});
-        test_cases.push_back({"out33.txt", "(all OK)", "Updating archive 1"});
-        test_cases.push_back({"out34.txt", "(all OK)", "Discarded update 1"});
+        test_cases.push_back(TestCase("out31.txt", "(all OK)", "Creating archive 1"));
+        test_cases.push_back(TestCase("out32.txt", "(all OK)", "Updating archive 1"));
+        test_cases.push_back(TestCase("out33.txt", "(all OK)", "Updating archive 1"));
+        test_cases.push_back(TestCase("out34.txt", "(all OK)", "Discarded update 1"));
         
         // Only Franzen Verify & Decode
-        test_cases.push_back({"out35.txt", "(all OK)", "PP test 1"});
-        test_cases.push_back({"out36.txt", "(all OK)", "Franzen test 1"});
-        test_cases.push_back({"out37.txt", "(all OK)", "Decoding 1"});
-        test_cases.push_back({"out38.txt", "Binary ==", "fc decoding/plain 1"});
+        test_cases.push_back(TestCase("out35.txt", "(all OK)", "PP test 1"));
+        test_cases.push_back(TestCase("out36.txt", "(all OK)", "Franzen test 1"));
+        test_cases.push_back(TestCase("out37.txt", "(all OK)", "Decoding 1"));
+        test_cases.push_back(TestCase("out38.txt", "(all OK)", "t of the decoded .franzen 1"));
         
         // Extraction
-        test_cases.push_back({"out39.txt", "(all OK)", "extract big1 2"});
-        test_cases.push_back({"out40.txt", "(all OK)", "extract big3 2"});
-        test_cases.push_back({"out41.txt", "(all OK)", "extract big3 2"});
-        test_cases.push_back({"out42.txt", "(all OK)", "extract big1 1"});
-        test_cases.push_back({"out43.txt", "(all OK)", "extract big2 1"});
-        test_cases.push_back({"out44.txt", "(all OK)", "extract big3 1"});
+        test_cases.push_back(TestCase("out39.txt", "(all OK)", "extract big1 2"));
+        test_cases.push_back(TestCase("out40.txt", "(all OK)", "extract big3 2"));
+        test_cases.push_back(TestCase("out41.txt", "(all OK)", "extract big3 2"));
+        test_cases.push_back(TestCase("out42.txt", "(all OK)", "extract big1 1"));
+        test_cases.push_back(TestCase("out43.txt", "(all OK)", "extract big2 1"));
+        test_cases.push_back(TestCase("out44.txt", "(all OK)", "extract big3 1"));
         
         // Final multi-file compare
-        test_cases.push_back({"out45.txt", "Binary ==", "fc big1 2"});
-        test_cases.push_back({"out46.txt", "Binary ==", "fc big2 2"});
-        test_cases.push_back({"out47.txt", "Binary ==", "fc big3 2"});
-        test_cases.push_back({"out48.txt", "Binary ==", "fc big1 1"});
-        test_cases.push_back({"out49.txt", "Binary ==", "fc big2 1"});
-        test_cases.push_back({"out50.txt", "Binary ==", "fc big3 1"});
+        test_cases.push_back(TestCase("out45.txt", "Binary ==", "fc big1 2"));
+        test_cases.push_back(TestCase("out46.txt", "Binary ==", "fc big2 2"));
+        test_cases.push_back(TestCase("out47.txt", "Binary ==", "fc big3 2"));
+        test_cases.push_back(TestCase("out48.txt", "Binary ==", "fc big1 1"));
+        test_cases.push_back(TestCase("out49.txt", "Binary ==", "fc big2 1"));
+        test_cases.push_back(TestCase("out50.txt", "Binary ==", "fc big3 1"));
     }
     
     i_path = wintolinuxpath(i_path);
     i_path = includetrailingbackslash(i_path);
+
+    // Hash healing: always there
+    test_cases.push_back(TestCase("out51.txt", "(all OK)", "Attribute-only change, hash read again"));
+    test_cases.push_back(TestCase("out52.txt", "(all OK)", "Verify after attribute-only change"));
+    test_cases.push_back(TestCase("out53.txt", "(all OK)", "-touch on a 7.15 archive"));
+    test_cases.push_back(TestCase("out54.txt", "SHA-3 : 00000003 of 00000003", "Verify after -touch"));
+    test_cases.push_back(TestCase("out55.txt", "0 +added, 0 -removed", "-touch again: nothing to do"));
+    test_cases.push_back(TestCase("out64.txt", "(all OK)", "UTF-8, emoji, % and spaces in names"));
+#ifdef ZPAQLZ4
+    // -m6: LZ4 stored + ZPAQL decoder
+    test_cases.push_back(TestCase("out68.txt", "(all OK)", "-m6 (LZ4) creating, 1.75 GB with dedup"));
+    test_cases.push_back(TestCase("out69.txt", "(all OK)", "-m6 testing (native LZ4 decoder)"));
+    test_cases.push_back(TestCase("out70.txt", "All OK (paranoid test with check against filesystem)", "-m6 paranoid (unzpaq runs the ZPAQL decoder)"));
+    test_cases.push_back(TestCase("out71.txt", "(all OK)", "-m6 chunked test (w)"));
+    test_cases.push_back(TestCase("out72.txt", "(all OK)", "-m6h9 (LZ4 HC) with difficult names"));
+    test_cases.push_back(TestCase("out73.txt", "All OK (paranoid test with check against filesystem)", "-m6h9 paranoid (ZPAQL decoder)"));
+    test_cases.push_back(TestCase("out74.txt", "(all OK)", "-m66h9 big files, 64 MB blocks"));
+    test_cases.push_back(TestCase("out75.txt", "All OK (paranoid test with check against filesystem)", "-m66h9 paranoid (ZPAQL decoder)"));
+#endif
+#ifdef ZPAQLZAV
+    // -m7: LZAV stored + ZPAQL decoder
+    test_cases.push_back(TestCase("out77.txt", "(all OK)", "-m7 (LZAV) creating, 1.75 GB with dedup"));
+    test_cases.push_back(TestCase("out78.txt", "(all OK)", "-m7 testing (native LZAV decoder)"));
+    test_cases.push_back(TestCase("out79.txt", "All OK (paranoid test with check against filesystem)", "-m7 paranoid (unzpaq runs the ZPAQL decoder)"));
+    test_cases.push_back(TestCase("out80.txt", "(all OK)", "-m7h (LZAV hi) names and big files"));
+    test_cases.push_back(TestCase("out81.txt", "All OK (paranoid test with check against filesystem)", "-m7h paranoid (ZPAQL decoder)"));
+#endif
+    // -turbo: the same archive, to the byte
+    test_cases.push_back(TestCase("out83.txt", "(all OK)", "-turbo add (parallel fragmenter)"));
+    test_cases.push_back(TestCase("out84.txt", "Binary ==", "-turbo archive == plain archive (2 versions)"));
+    test_cases.push_back(TestCase("out85.txt", "(all OK)", "-turbo archive testing"));
+#ifdef ZPAQLZAV
+    test_cases.push_back(TestCase("out86.txt", "Binary ==", "-turbo -m7 archive == plain -m7 archive"));
+#endif
+
+///NOSFTPSTART
+    // Mount: only if the script has them (autotest found a working mount)
+    if (fileexists(i_path + "mounttest.txt"))
+    {
+        test_cases.push_back(TestCase("out56.txt", "Mount test: OK", "Mount last version"));
+        test_cases.push_back(TestCase("out57.txt", "Mount test: OK", "Mount every version (-all)"));
+        test_cases.push_back(TestCase("out58.txt", "Mount test: OK", "Mount version 3 (-until)"));
+        test_cases.push_back(TestCase("out59.txt", "Mount test: OK", "Mount encrypted -chunk multipart"));
+        test_cases.push_back(TestCase("out60.txt", "Mount test: OK", "Mount encrypted backup multipart"));
+        test_cases.push_back(TestCase("out61.txt", "Mount test: OK", "Mount the healed archive"));
+        test_cases.push_back(TestCase("out65.txt", "Mount test: OK", "Mount UTF-8, emoji, % and spaces in names"));
+        test_cases.push_back(TestCase("out66.txt", "0 hash OK, 3 size and date only", "Mount a zpaq 7.15 version (no hash)"));
+        test_cases.push_back(TestCase("out67.txt", "Mount test: OK", "Mount big files"));
+#ifdef ZPAQLZ4
+        test_cases.push_back(TestCase("out76.txt", "Mount test: OK", "Mount -m6 (LZ4) archive"));
+#endif
+#ifdef ZPAQLZAV
+        test_cases.push_back(TestCase("out82.txt", "Mount test: OK", "Mount -m7 (LZAV) archive"));
+#endif
+        if (g_franzen != "")
+        {
+            test_cases.push_back(TestCase("out62.txt", "Mount test: OK", "Mount AES + Franzen"));
+            test_cases.push_back(TestCase("out63.txt", "Mount test: OK", "Mount Franzen"));
+        }
+    }
+    else
+        myprintf("56475: No mount tests in this run (no mounttest.txt)\n");
+///NOSFTPEND
+
     myprintf("03368: Checking results (in %Z)\n", i_path.c_str());
     
     int errori = 0;
     for (size_t i = 0; i < test_cases.size(); i++)
     {
         const TestCase& tc = test_cases[i];
-        myprintf("03370: %03d (out%02d.txt) :", (int)i,(int)i+1);
+        myprintf("03370: %03d (%s) :", (int)i, tc.filename.c_str());
         
         bool trovato = grep(i_path + tc.filename, tc.expected_content);
         if (trovato)
@@ -110146,7 +120854,11 @@ int Jidac::extract()
 			myprintf("71376! zip: -to must be a FILE, <<%Z>> looks like a folder\n", tofiles[0].c_str());
 			return 2;
 		}
-		if (flagstdout || flagtest || flagzero || flagparanoid || flagflat || flagramdisk || flaghuge || flagimage || (repack != "") || (g_chunk_size > 0) || (g_backupdir != ""))
+		bool incompatibile= flagstdout || flagtest || flagzero || flagparanoid || flagflat || flagramdisk || flagimage || (repack != "") || (g_chunk_size > 0) || (g_backupdir != "");
+#ifndef ANCIENT
+		incompatibile= incompatibile || flaghuge; /// no -huge in the ANCIENT builds (ESX and NAS are ANCIENT too)
+#endif // corresponds to #ifndef (#ifndef ANCIENT)
+		if (incompatibile)
 		{
 			myprintf("71377! zip: incompatible with -stdout -test -zero -paranoid -flat -ramdisk -huge -image -repack -chunk -backupdir\n");
 			return 2;
@@ -111252,7 +121964,14 @@ int Jidac::extract()
 			compressed entry does not know where it ends until it has ended.
 			dt, ht and block are ready: extractstdout() will not read again
 		*/
+#ifndef ANCIENT
 		return extractstdout(0, "");
+#else
+		/// the sequential engine is not in the ANCIENT builds (ESX and NAS
+		/// are ANCIENT too): a stored .zip is, -deflate is not
+		myprintf("56482! zip -deflate is not available in this build (ANCIENT/ESX/NAS): drop -deflate for a stored .zip\n");
+		return 2;
+#endif // corresponds to #ifndef (#ifndef ANCIENT)
 	}
 	if (flagzip)
 	{
@@ -116096,7 +126815,7 @@ class franztui
 	std::string										filtervisible;
 	bool											tree_mode;
 	std::string										tree_root;
-	std::map<std::string, std::vector<std::string>> cached_children;
+	std::map<std::string, std::vector<std::string> > cached_children;
 	bool											structure_built; // Flag per sapere se abbiamo già costruito l'indice
 	void											build_fast_lookup_structure()
 	{
@@ -116165,7 +126884,7 @@ class franztui
 		}
 
 		// Ordiniamo le sottocartelle per ogni genitore per una visualizzazione pulita
-		for (std::map<std::string, std::vector<std::string>>::iterator it= cached_children.begin(); it != cached_children.end(); ++it)
+		for (std::map<std::string, std::vector<std::string> >::iterator it= cached_children.begin(); it != cached_children.end(); ++it)
 		{
 			std::sort(it->second.begin(), it->second.end());
 		}
@@ -116296,7 +127015,7 @@ class franztui
 			build_fast_lookup_structure();
 
 		// Ricerca O(log N) nella mappa delle cartelle invece che scansione O(N)
-		std::map<std::string, std::vector<std::string>>::iterator it= cached_children.find(folder_path);
+		std::map<std::string, std::vector<std::string> >::iterator it= cached_children.find(folder_path);
 		if (it != cached_children.end())
 		{
 			return !it->second.empty();
@@ -116310,7 +127029,7 @@ class franztui
 			build_fast_lookup_structure();
 
 		// Ricerca O(log N) - Istantaneo
-		std::map<std::string, std::vector<std::string>>::iterator it= cached_children.find(parent_path);
+		std::map<std::string, std::vector<std::string> >::iterator it= cached_children.find(parent_path);
 		if (it != cached_children.end())
 		{
 			return it->second;
@@ -123000,7 +133719,7 @@ int Jidac::oneononehome()
 				myprintf("  DEBUG ONE file[%zu]: %s\n", k, listafile[k].c_str());
 		}
 
-		std::vector<std::pair<std::string, std::string>> risultatohash;
+		std::vector<std::pair<std::string, std::string> > risultatohash;
 		franzparallelhashfiles(g_thechosenhash_str, files_size[i], listafile, true, risultatohash);
 
 		if (flagdebug)
@@ -123013,7 +133732,7 @@ int Jidac::oneononehome()
 
 		// risultatohash contiene: .first = hash, .second = filepath
 		// Crea coppie (path_relativo_lowercase, hash) per ordinamento indipendente dal drive
-		std::vector<std::pair<std::string, std::string>> hashpairs;
+		std::vector<std::pair<std::string, std::string> > hashpairs;
 		for (size_t j= 0; j < risultatohash.size(); j++)
 		{
 			std::string relpath= extractRelativePath(risultatohash[j].second, folderbase);
@@ -123117,7 +133836,7 @@ int Jidac::oneononehome()
 				myprintf("  DEBUG TWO file[%zu]: %s\n", k, listafile[k].c_str());
 		}
 
-		std::vector<std::pair<std::string, std::string>> risultatohash;
+		std::vector<std::pair<std::string, std::string> > risultatohash;
 		franzparallelhashfiles(g_thechosenhash_str, files_size[i], listafile, true, risultatohash);
 
 		if (flagdebug)
@@ -123130,7 +133849,7 @@ int Jidac::oneononehome()
 
 		// risultatohash contiene: .first = hash, .second = filepath
 		// Crea coppie (path_relativo_lowercase, hash) per ordinamento indipendente dal drive
-		std::vector<std::pair<std::string, std::string>> hashpairs;
+		std::vector<std::pair<std::string, std::string> > hashpairs;
 		for (size_t j= 0; j < risultatohash.size(); j++)
 		{
 			std::string relpath= extractRelativePath(risultatohash[j].second, folderbase);
@@ -125405,7 +136124,7 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 					if (flagdebug)
 						myprintf("09526: GC CRITICAL: using LRU eviction");
 
-					std::vector<std::pair<int64_t, int>> lru_list;
+					std::vector<std::pair<int64_t, int> > lru_list;
 					for (std::map<int, string *>::iterator it= ctx.block_cache.begin();
 						 it != ctx.block_cache.end(); ++it)
 					{
@@ -129524,6 +140243,19 @@ int Jidac::add()
 	/// the magic start here
 	if (method == "")
 		method= "1";
+#ifdef ZPAQLZ4
+	/// -m6 and -m6h9 / -m6a8 have 16 MB blocks, like -m1: 64h9. Only -m66...
+	/// gives another size (the block digit comes right after the 6)
+	if (method[0] == '6')
+		if ((method.size() == 1) || (!isdigit(method[1])))
+			method.insert(1, "4");
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+	/// the same for -m7 and -m7h: 16 MB blocks, -m76 for 64 MB
+	if (method[0] == '7')
+		if ((method.size() == 1) || (!isdigit(method[1])))
+			method.insert(1, "4");
+#endif // ZPAQLZAV
 	if (method.size() == 1)
 	{
 		if (method[0] >= '2' && method[0] <= '9')
@@ -129634,18 +140366,41 @@ int Jidac::add()
 				total_xls+= p->second.size;
 				file_xls++;
 			}
-		///	converting old 7.15 archives to zpaqfranz (aka: storing hashes) is not
-		/// trivial. A very quick-and-dirty method is run TWO times
-		/// zpaqfranz a z:\1.zpaq c:\dropbox -touch
-		/// zpaqfranz a z:\1.zpaq c:\dropbox
-		/// space and time wasted, but afterall about 10 SLOCs
-
-		if (flagtouch)
-			p->second.date+= 1; // just a little bit...
 		if (a != dt.end())
 			a->second.data= 1; // keep
+		/// This loop (what to READ) looks at date and size, the one that
+		/// writes the index (what to STORE) at the attribute too. So an
+		/// attribute-only change stores a new version of a file never read,
+		/// with the hash carried over from the previous one (carryoverhash).
+		/// If that hash is not usable (all zeros, written by an older version,
+		/// or of another algorithm) the zero placeholder would be carried on
+		/// forever and v would always say FAILED: read the file again instead.
+		/// Same content => same fragments => no space, just one read.
+		/// The attribute test is the very same of the write loop.
+		///	-touch is the same thing, asked on purpose, for unchanged files:
+		/// 7.15 archives (no hash at all), a different hash algorithm (-sha256...),
+		/// zero hashes written by older versions. It used to fake a date change
+		/// (date+1) on EVERY file: fake dates stored, everything re-read and
+		/// written again, and a second run needed to put the real dates back.
+		/// Now only the files without a usable hash are read, and stored once,
+		/// with their real date (rehash tells the write loop to store them)
+		bool rereadforhash= false;
+		if ((a != dt.end()) && (p->second.date) && (p->second.size > 0) &&
+			(g_franzotype != FRANZO_NONE) && (g_franzotype != FRANZO_CRC_32) &&
+			(p->second.date == a->second.date) && (p->second.size == a->second.size) &&
+			(flagtouch || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr)))
+		{
+			string	 hashvecchio= "";
+			uint32_t crcvecchio = 0;
+			carryoverhash(a, hashvecchio, crcvecchio);
+			rereadforhash	  = (hashvecchio == ""); /// set only if same algorithm and not all zeros
+			p->second.rehash= rereadforhash;
+			if (rereadforhash && flagdebug3)
+				myprintf("02009: no usable hash (%s), reading again %Z\n", flagtouch ? "-touch" : "attribute-only change", filename.c_str());
+		}
 		if ((p->second.forceadd) || ((p->second.date) && (p->first != "") && (p->first[p->first.size() - 1] != '/') &&
 									 (flagforce ||
+									  rereadforhash ||
 									  a == dt.end() ||
 									  ((!(isads(filename))) && (!flagdonotforcexls) && (isxls(filename))) ||
 									  p->second.date != a->second.date ||
@@ -130909,6 +141664,7 @@ int Jidac::add()
 								   || a->second.date != p->second.date												  // date change
 								   || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr) // attr ch. get less bits
 								   || a->second.size != p->second.size												  // size change
+								   || p->second.rehash																  // read only to store its hash
 								   || (p->second.data && a->second.ptr != p->second.ptr)))
 			{
 				if (p->second.pramfile != NULL)
@@ -131560,6 +142316,2870 @@ int Jidac::add()
 	}
 	return errors;
 }
+#ifndef ANCIENT
+/*
+	-turbo, add2(): add() with the fragmenter and the SHA-1 of the fragments
+	spread over several threads, and the hash of the file on one more. add()
+	is not touched: add2() is a copy of it, and only the loop on the data of a
+	plain file differs. Same fragments, same order, same archive, to the byte.
+
+	The fragmenter is serial (its hash carries from one byte to the next) but
+	its state starts fresh at every cut. So a batch is split in pieces, and
+	every piece is cut by its own thread as if a fragment began right there:
+	a guess. The chain of the first piece is the true one (the batch begins
+	on a cut). When the true chain ends a fragment exactly where the chain of
+	the next piece ends one, from there on both start fresh on the same bytes:
+	they are the same chain, and the guess is proven right. If they do not
+	meet, the true chain goes on (serially) until they do. Nothing is trusted
+	that was not proven, so the cuts are always the ones of add()
+*/
+/// files smaller than this go through the loop of add(): below 2 MB -turbo is
+/// slower (up to -25% on 256 KB files), from 4 MB on it is always faster
+#ifndef ZPAQ_TURBOMIN
+#define ZPAQ_TURBOMIN ((int64_t)4 << 20)
+#endif
+struct s_add2frag
+{
+	int64_t		  start; // in the batch
+	int64_t		  len;
+	unsigned	  hits;
+	unsigned char o1[256]; // the order 1 table at the end of the fragment (type analysis)
+	char		  sha1[20];
+};
+struct s_add2scan
+{
+	const unsigned char		*base;
+	int64_t					 from;		  // a cut: the state starts fresh here
+	int64_t					 fine;		  // end of the data of the batch
+	int64_t					 after;		  // stop 'dopo' cuts at or after this (-1: go on to fine)
+	int						 dopo;
+	bool					 chiudi;	  // at fine the open fragment is the last one of the file
+	unsigned				 h_threshold; // 0 = no cut on the content (fragment > 22)
+	int64_t					 minf;
+	int64_t					 maxf;
+	std::vector<s_add2frag> *out;
+	int64_t					 open; // out: where the open fragment begins
+};
+/// the fragmenter of add(): the same hash, the same cuts, the same hits and
+/// o1 table, and the SHA-1 of every fragment while it is still in the cache
+void add2_scan(s_add2scan *i_scan)
+{
+	const unsigned		 HASH_MULT_HIT = 314159265u;
+	const unsigned		 HASH_MULT_MISS= 271828182u;
+	const unsigned char *base		   = i_scan->base;
+	const int64_t		 fine		   = i_scan->fine;
+	const unsigned		 soglia		   = i_scan->h_threshold;
+	const int64_t		 minf		   = i_scan->minf;
+	const int64_t		 maxf		   = i_scan->maxf;
+	int64_t				 pos		   = i_scan->from;
+	int64_t				 inizio		   = pos;
+	int					 passati	   = 0;
+	unsigned			 h			   = 0;
+	unsigned			 hits		   = 0;
+	unsigned			 c1			   = 0;
+	unsigned char		 o1[256];
+	memset(o1, 0, sizeof(o1));
+	bool finito= false;
+	while (!finito)
+	{
+		bool taglio= false;
+		while (pos < fine)
+		{
+			const unsigned uc = base[pos++];
+			const unsigned hit= (uc == o1[c1]);
+			h= (h + uc + 1) * (hit ? HASH_MULT_HIT : HASH_MULT_MISS); /// no jump here: data is random
+			hits+= hit;
+			o1[c1]			= (unsigned char)uc;
+			c1				= uc;
+			const int64_t sz= pos - inizio;
+			if ((h < soglia && sz >= minf) || (sz >= maxf))
+			{
+				taglio= true;
+				break;
+			}
+		}
+		if ((!taglio) && ((!i_scan->chiudi) || (pos == inizio)))
+			break;
+		s_add2frag uno;
+		uno.start= inizio;
+		uno.len	 = pos - inizio;
+		uno.hits = hits;
+		memcpy(uno.o1, o1, sizeof(o1));
+		libzpaq::SHA1 sha1;
+		sha1.write((const char *)base + inizio, uno.len);
+		memcpy(uno.sha1, sha1.result(), 20);
+		i_scan->out->push_back(uno);
+		inizio= pos;
+		h	  = 0;
+		hits  = 0;
+		c1	  = 0;
+		memset(o1, 0, sizeof(o1));
+		if (!taglio)
+			finito= true;
+		else if ((i_scan->after >= 0) && (pos >= i_scan->after))
+			if (++passati >= i_scan->dopo)
+				finito= true;
+	}
+	i_scan->open= inizio;
+}
+ThreadReturn add2_scanthread(void *i_arg)
+{
+	add2_scan((s_add2scan *)i_arg);
+	return 0;
+}
+/// the next batch is read (and goes into the hash of the file) while the
+/// current one is cut and stored. One batch at a time, in order: the hash
+/// of the file sees the bytes in the same order as add()
+struct s_add2readjob
+{
+	Jidac		   *jidac;
+	DTMap::iterator p;
+	FP				in;
+	char		   *buf;
+	int64_t			voglio;
+	bool			hash;
+	int64_t			letti; // out
+	bool			eof;   // out
+};
+ThreadReturn add2_readthread(void *i_arg)
+{
+	s_add2readjob *lavoro= (s_add2readjob *)i_arg;
+	lavoro->letti		 = 0;
+	lavoro->eof			 = false;
+	while (lavoro->letti < lavoro->voglio)
+	{
+		int64_t pezzo= lavoro->voglio - lavoro->letti;
+		if (pezzo > (int64_t)(16 << 20))
+			pezzo= (int64_t)(16 << 20);
+		const int64_t r= (int64_t)fread(lavoro->buf + lavoro->letti, 1, (size_t)pezzo, lavoro->in);
+		if (r <= 0)
+		{
+			lavoro->eof= true;
+			break;
+		}
+		lavoro->letti+= r;
+	}
+	if (lavoro->hash)
+	{
+		int64_t fatto= 0;
+		while (fatto < lavoro->letti) /// updatehash() takes an int
+		{
+			int64_t pezzo= lavoro->letti - fatto;
+			if (pezzo > (int64_t)(1 << 30))
+				pezzo= (int64_t)(1 << 30);
+			lavoro->jidac->updatehash(&lavoro->p, lavoro->buf + fatto, (int)pezzo);
+			fatto+= pezzo;
+		}
+	}
+	return 0;
+}
+int Jidac::add2()
+{
+	string externaloutputfile= "";
+	g_scritti				 = 0;
+	string primalettera		 = "";
+
+	string ffranzotype= decodefranzoffset(g_franzotype);
+	if (flagverify)
+		ffranzotype+= " + CRC-32 by fragments";
+	if (flagverbose)
+		myprintf("01945: Integrity check type: %s\n", ffranzotype.c_str());
+
+	if (controlla_size() != 0)
+		return 2;
+
+	turnonfasttxt();
+
+	if (testparametriadd() != 0)
+		return 2;
+
+	if (gestisciexternal() != 0)
+		return gestisciexternal();
+
+	gestiscithunderbird();
+
+	if (gestisciifexist() != 0)
+		return 2;
+
+	if (gestiscidataset() != 0)
+		return 2;
+
+	const bool archive_exists= exists(subpart(archive, 1).c_str());
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+	// "automagic" check: distinguish .zpaq exists / only .zpaq.franzen exists / nothing exists.
+	// If the .zpaq is missing but a valid .zpaq.franzen is there, this is a franzen-only archive:
+	// never fork a fresh cleartext .zpaq beside it.
+	if ((!index) && (g_chunk_size == 0) && (!g_fakewrite))
+		if ((!archive_exists) || isfranzen(subpart(archive, 1))) // the archive can BE the .franzen
+			if (is_file_franzen(franzenname(subpart(archive, 1))))
+			{
+				string franzenfilename= franzenname(subpart(archive, 1));
+				bool   aestoo		  = is_file_frenzen(franzenfilename);
+				bool   haskey		  = (g_password != NULL) && (g_password[0] != 0);
+				if (aestoo && (!haskey))
+				{
+					myprintf("43804! <<%Z>> is an AES+Franzen archive: -key is required\n", franzenfilename.c_str());
+					return 2;
+				}
+				if ((!aestoo) && haskey)
+				{
+					myprintf("43801! <<%Z>> is a franzen-only archive (no AES): -key cannot be used on it\n", franzenfilename.c_str());
+					myprintf("43803! (delete or rename the .franzen file to start a new AES archive)\n");
+					return 2;
+				}
+				if (g_franzen == "")
+				{
+					color_magenta();
+					if (aestoo)
+						myprintf("43805: AES+Franzen-only archive detected <<%Z>>\n", franzenfilename.c_str());
+					else
+						myprintf("43800: Franzen-only archive detected <<%Z>>\n", franzenfilename.c_str());
+					color_restore();
+					g_franzen= mygetpasswordblind("Enter Franzen password: ");
+					if (g_franzen == "")
+					{
+						myprintf("43802! Franzen password required for franzen-only archive (use -franzen)\n");
+						return 2;
+					}
+				}
+			}
+#endif /// NOSFTPEND
+#endif
+	arcname					 = archive;
+	if (index)
+		arcname= index;
+	header_pos= 0;
+	if (exists(subpart(arcname, 1).c_str()))
+		header_pos= read_archive(NULL, arcname.c_str(), &errors);
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+	else if ((g_chunk_size == 0) && isfranzenonly(subpart(arcname, 1)))
+	{
+		// no cleartext .zpaq: load the index from the .zpaq.franzen (decrypted on the fly)
+		header_pos= read_archive(NULL, arcname.c_str(), &errors);
+	}
+#endif /// NOSFTPEND
+#endif
+
+	arcname= archive;
+
+	if (gestiscicomment() != 0)
+		return 2;
+
+	offset= 0;
+	memset(salt, 0, 32);
+
+	if (g_password)
+	{
+		if (flagdebug3)
+			myprintf("01947: CREATING SALT____________________\n");
+		if (flagdebug4)
+		{
+			myprintf("01948: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+			myprintf("01949: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+			myprintf("01950: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+			myprintf("01951: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+			myprintf("01952: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+			myprintf("01953: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+			myprintf("01954: **** BEWARE SALT NULL BECAUSE -debug4 ****\n");
+		}
+		else
+			libzpaq::random(salt, 32);
+	}
+
+	// Remote archive
+	if (index)
+	{
+		gestisciindex();
+	}
+	// Local single or multi-part archive
+	else
+	{
+		if (gestiscisingleormultipart() != 0)
+			return 2;
+	}
+
+	gestiscimultipart();
+
+	g_header_pos= header_pos;
+	if (flagdebug2)
+		myprintf("01969: header_pos  %s\n", migliaia(g_header_pos));
+
+	if (g_password != NULL)
+		g_crc_getheader= true;
+	else
+		g_crc_getheader= false; // houston, we DO NOT have an header
+
+	if (header_pos == 0)
+		if (g_crc_getheader)
+			g_crc_getheader= false;
+
+	if (g_header_pos > 32)
+		g_crc_getheader= false;
+
+	if (flagdebug2)
+		myprintf("01970: g_crc_getheader %d\n", int(g_crc_getheader));
+
+	if (gestiscitxt() != 0)
+		return 2;
+
+	//////////////////////////////////////////////////
+	/// the magic start here
+	if (method == "")
+		method= "1";
+#ifdef ZPAQLZ4
+	/// -m6 and -m6h9 / -m6a8 have 16 MB blocks, like -m1: 64h9. Only -m66...
+	/// gives another size (the block digit comes right after the 6)
+	if (method[0] == '6')
+		if ((method.size() == 1) || (!isdigit(method[1])))
+			method.insert(1, "4");
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+	/// the same for -m7 and -m7h: 16 MB blocks, -m76 for 64 MB
+	if (method[0] == '7')
+		if ((method.size() == 1) || (!isdigit(method[1])))
+			method.insert(1, "4");
+#endif // ZPAQLZAV
+	if (method.size() == 1)
+	{
+		if (method[0] >= '2' && method[0] <= '9')
+			method+= "6";
+		else
+			method+= "4";
+	}
+	if (strchr("0123456789xs", method[0]) == 0)
+		error("-method must begin with 0..5, x, s");
+	assert(method.size() >= 2);
+	if (method[0] == 's' && index)
+		error("cannot index in streaming mode");
+
+	if (fragment < 0)
+		fragment= 0;
+	const int log_blocksize= 20 + atoi(method.c_str() + 1);
+	if (log_blocksize < 20 || log_blocksize > 31)
+		error("blocksize must be 0..11");
+	const unsigned blocksize   = (1u << log_blocksize) - 4096;
+	const unsigned MAX_FRAGMENT= fragment > 19 || (8128u << fragment) > blocksize - 12
+									 ? blocksize - 12
+									 : 8128u << fragment;
+	const unsigned MIN_FRAGMENT= fragment > 25 || (64u << fragment) > MAX_FRAGMENT
+									 ? MAX_FRAGMENT
+									 : 64u << fragment;
+
+	for (unsigned i= 0; i < block.size(); ++i)
+	{
+		if (method[0] == 's')
+		{
+			if (block[i].usize >= 0)
+				error("cannot update journaling archive in streaming format");
+		}
+		else if (block[i].usize < 0)
+			error("cannot update streaming archive in journaling format");
+	}
+
+	g_bytescanned= 0;
+	g_filescanned= 0;
+	g_worked	 = 0;
+
+	int64_t startscan= mtime();
+	if (!flagimage)
+	{
+		for (unsigned i= 0; i < files.size(); ++i)
+			scandir(true, edt, files[i].c_str(), !flagnorecursion);
+		eol();
+		if (flagverbose)
+		{
+			color_green();
+			myprintf("78752: Scantime %s\n", migliaia(mtime() - startscan));
+			color_restore();
+		}
+	}
+
+#ifdef _WIN32
+	maxfilelength= 0;
+	if (!flaglongpath)
+		for (DTMap::iterator p= edt.begin(); p != edt.end(); ++p)
+		{
+			string filename= rename(p->first);
+			if (filename.size() > maxfilelength)
+				maxfilelength= filename.size();
+		}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+
+	if (gestisciflagimage() != 0)
+		return 2;
+
+	total_done= 0;
+
+	// Sort the files to be added by filename extension and decreasing size
+	int64_t total_xls		= 0;
+	int64_t file_xls		= 0;
+	int		toolongfilenames= 0;
+	int		adsfilenames	= 0;
+	int		utf8names		= 0;
+	int		casecollision	= 0;
+	int		folders			= 0;
+
+	string tempfile= "";
+	manipolalistafile();
+
+	for (DTMap::iterator p= edt.begin(); p != edt.end(); ++p)
+	{
+		string			filename= rename(p->first);
+		DTMap::iterator a		= dt.find(filename);
+		if (isdirectory(filename))
+			folders++;
+		if (strstr(filename.c_str(), ":$DATA"))
+			adsfilenames++;
+		if (filename.length() > 255)
+			toolongfilenames++;
+		if (flagverbose)
+			if (filename != utf8toansi(filename))
+				utf8names++;
+		/// by default ALWAYS force XLS to be re-packed
+		/// this is because sometimes Excel change the metadata (then SHA1 & CRC32)
+		/// WITHOUT touching attr or filesize
+		if (!flagdonotforcexls)
+			if (isxls(filename))
+			{
+				if (flagdebug3)
+				{
+					myprintf("\n");
+					myprintf("02008: ENFORCING XLS/PPT %s\n", filename.c_str());
+				}
+				total_xls+= p->second.size;
+				file_xls++;
+			}
+		if (a != dt.end())
+			a->second.data= 1; // keep
+		/// This loop (what to READ) looks at date and size, the one that
+		/// writes the index (what to STORE) at the attribute too. So an
+		/// attribute-only change stores a new version of a file never read,
+		/// with the hash carried over from the previous one (carryoverhash).
+		/// If that hash is not usable (all zeros, written by an older version,
+		/// or of another algorithm) the zero placeholder would be carried on
+		/// forever and v would always say FAILED: read the file again instead.
+		/// Same content => same fragments => no space, just one read.
+		/// The attribute test is the very same of the write loop.
+		///	-touch is the same thing, asked on purpose, for unchanged files:
+		/// 7.15 archives (no hash at all), a different hash algorithm (-sha256...),
+		/// zero hashes written by older versions. It used to fake a date change
+		/// (date+1) on EVERY file: fake dates stored, everything re-read and
+		/// written again, and a second run needed to put the real dates back.
+		/// Now only the files without a usable hash are read, and stored once,
+		/// with their real date (rehash tells the write loop to store them)
+		bool rereadforhash= false;
+		if ((a != dt.end()) && (p->second.date) && (p->second.size > 0) &&
+			(g_franzotype != FRANZO_NONE) && (g_franzotype != FRANZO_CRC_32) &&
+			(p->second.date == a->second.date) && (p->second.size == a->second.size) &&
+			(flagtouch || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr)))
+		{
+			string	 hashvecchio= "";
+			uint32_t crcvecchio = 0;
+			carryoverhash(a, hashvecchio, crcvecchio);
+			rereadforhash	  = (hashvecchio == ""); /// set only if same algorithm and not all zeros
+			p->second.rehash= rereadforhash;
+			if (rereadforhash && flagdebug3)
+				myprintf("02009: no usable hash (%s), reading again %Z\n", flagtouch ? "-touch" : "attribute-only change", filename.c_str());
+		}
+		if ((p->second.forceadd) || ((p->second.date) && (p->first != "") && (p->first[p->first.size() - 1] != '/') &&
+									 (flagforce ||
+									  rereadforhash ||
+									  a == dt.end() ||
+									  ((!(isads(filename))) && (!flagdonotforcexls) && (isxls(filename))) ||
+									  p->second.date != a->second.date ||
+									  p->second.size != a->second.size)))
+		{
+			total_size+= p->second.size;
+			// Key by first 5 bytes of filename extension, case insensitive
+			int sp= 0; // sortkey byte position
+			for (string::const_iterator q= p->first.begin(); q != p->first.end(); ++q)
+			{
+				uint64_t c= *q & 255;
+				if (c >= 'A' && c <= 'Z')
+					c+= 'a' - 'A';
+				if (c == '/')
+					sp= 0, p->second.data= 0;
+				else if (c == '.')
+					sp= 8, p->second.data= 0;
+				else if (sp > 3)
+					p->second.data+= c << (--sp * 8);
+			}
+			// Key by descending size rounded to 16K
+			int64_t s= p->second.size >> 14;
+			if (s >= (1 << 24))
+				s= (1 << 24) - 1;
+			p->second.data+= (1 << 24) - s - 1;
+
+			vf.push_back(p);
+		}
+	}
+	if (flagdebug)
+		if (menoenne > 0) // zpaqfranz a ... -n 100 show top 10 files  to be added
+		{
+			int dastampare= vf.size();
+			if (menoenne < (unsigned int)dastampare)
+				dastampare= menoenne;
+			for (int i= 0; i < dastampare; i++)
+				myprintf("02010: PRE  %08d sort %19s |%s| |%s|\n", (int)i, migliaia(vf[i]->second.size), vf[i]->second.hexhash.c_str(), vf[i]->first.c_str());
+		}
+
+	gestisciorderbyemenoenne();
+
+	if (((total_size == 0) && (flagimage == false)) && (vf.size() == 0) && (folders == 0) && (removedcount == 0))
+	{
+		myprintf("\n");
+		myprintf("02021: QUIT: total size,file/folder count == zero. Already archived/wrong/inaccessible source?\n");
+		return 0;
+	}
+
+	if (gestiscichunksize() != 0)
+		return 2;
+
+	if (flagdebug3)
+	{
+		unsigned i= 0;
+		for (DTMap::iterator p= edt.begin(); p != edt.end(); ++p)
+		{
+			myprintf("02030: %03d  first %s\n", (int)i, p->first.c_str());
+			myprintf("02031: %03d  date  %s\n", (int)i, migliaia(p->second.date));
+			myprintf("02032: %03d  size  %s\n", (int)i, migliaia(p->second.size)); ///-1
+			myprintf("02033: %03d  attr  %s\n", (int)i, migliaia(p->second.attr));
+			myprintf("02034: %03d  data  %s\n", (int)i, migliaia(p->second.data));
+			myprintf("02035: %03d  writ  %d\n", (int)i, p->second.written);
+			myprintf("02036: %03d  ptrsi %s\n", (int)i, migliaia(p->second.ptr.size()));
+			/// myprintf("02037: %03d  dtv   %s\n",(int)i,migliaia(p->second.dtv.size()));
+			i++;
+		}
+	}
+
+	gestiscistdin();
+
+	if (archive_exists != exists(subpart(archive, 1).c_str()))
+		error("archive access is intermittent");
+
+	if (gestisciwrite() != 0)
+		return 2;
+
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+	// -franzen alone (no -key, no -debug): write only the .zpaq.franzen, no cleartext .zpaq
+	// (covers both creation and incremental append on a franzen-only archive).
+	// -debug writes both files only on CREATION: an existing franzen-only archive stays
+	// franzen-only even with -debug (a partial .zpaq born from an append would be garbage)
+	// with -key too: AES+franzen goes into a single FRENZEN file, no cleartext-side .zpaq
+	// a .franzen archive (a z:/pippo.franzen) is franzen-only by definition: -debug cannot
+	// turn on a cleartext .zpaq, there is no .zpaq name at all
+	g_franzen_zpaq_nowrite= (g_franzen != "") && (isfranzen(arcname) || ((!exists(arcname)) && ((!flagdebug) || is_file_franzen(arcname + ".franzen")))) && (g_chunk_size == 0) && (!g_fakewrite) && (!index);
+#endif /// NOSFTPEND
+#endif
+
+	if (flagdebug2)
+		myprintf("02049: calling open archive %s arcname %s with offset %s\n", archive.c_str(), arcname.c_str(), migliaia(offset));
+
+	OutputArchive out(archive, arcname.c_str(), g_password, salt, offset);
+	if (flagdebug2)
+		myprintf("02050: out on %s\n", arcname.c_str());
+
+	int64_t initial_archive_size= header_pos;
+
+	if (g_chunk_size > 0) // we have multiple output,maybe multiple in too: => sum the filesizes
+	{
+		InputArchive in(archive.c_str());
+		initial_archive_size= in.totalsize();
+		if (flagdebug3)
+			myprintf("02051: After inputarchive in.totalsize() is %s\n", migliaia(initial_archive_size));
+	}
+
+	/// I know, we need something for a "goto-control-c"
+	g_archivefp= out.getthefp();
+
+	out.seek(header_pos, SEEK_SET);
+
+	vector<ThreadID> tid(howmanythreads * 2 - 1);
+
+	ThreadID	wid;
+	CompressJob job(howmanythreads, tid.size(), &out);
+
+	if (g_fakewrite)
+		myprintf("02052: Processing %s (%s) in %s files (%s dirs), %d T ", migliaia(total_size), tohuman(total_size), migliaia2(int(vf.size())), migliaia3(folders), howmanythreads);
+	else
+	{
+		if (flagstdin)
+			myprintf("02053: Stdin ");
+		if (flagimage)
+		{
+			// myprintf("02054: Image ");
+		}
+		else
+
+			myprintf("02055: Add %s %9s%19s (%10s) %dT (%s dirs)",
+					 dateToString(flagutc, date).c_str(), migliaia2(int(vf.size())),
+					 migliaia(total_size), tohuman(total_size), howmanythreads, migliaia3(folders));
+		fflush(stdout);
+	}
+	if (flagverbose)
+		myprintf(": -m%s ", method.c_str());
+	/// myprintf("@ %s ",dateToString(flagutc,date).c_str());
+	if (flagcomment)
+		if (versioncomment.length() > 0)
+			myprintf("<<%s>>", versioncomment.c_str());
+	myprintf("\n");
+	if (casecollision > 0)
+		myprintf("02056: Case collisions       %9s (-fix255)\n", migliaia(casecollision));
+	if (toolongfilenames)
+	{
+#ifdef _WIN32
+		if (!flagvss)
+			if (!flaglongpath)
+				myprintf("02057$ Long filenames (>255) %9s *** WARNING *** (-fix255)\n", migliaia(toolongfilenames));
+#else
+		myprintf("02058: Long filenames (>255) %9s\n", migliaia(toolongfilenames));
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+	}
+	if (utf8names)
+		myprintf("02059: Non-latin (UTF-8)     %9s\n", migliaia(utf8names));
+	if (adsfilenames)
+		myprintf("02060: ADS ($:DATA)          %9s\n", migliaia(adsfilenames));
+
+	/// alpine
+	if (howmanythreads == 1) // houston, we are on ESXi
+	{
+		if (flagdebug5)
+			myprintf("70169: BEWARE MONOTHREAD!\n");
+		if (flagverbose)
+			myprintf("02061: monothread compress\n");
+	}
+	else
+	{
+		if (flagdebug5)
+			myprintf("70166: MULTITHREAD on tid.size() %d\n", tid.size());
+		for (unsigned i= 0; i < tid.size(); ++i)
+			run(tid[i], compressThread, &job);
+		run(wid, writeThread, &job);
+	}
+	// Append in streaming mode. Each file is a separate block. Large files
+	// are split into \blocks of size blocksize.
+	int64_t dedupesize= 0;
+
+	// Adjust date to maintain sequential order
+
+	if (ver.size() && ver.back().lastdate >= date)
+	{
+		const int64_t newdate= decimal_time(unix_time(ver.back().lastdate) + 1);
+		fflush(stdout);
+		fprintf(stderr, "Warning: adjusting date from %s to %s\n",
+				dateToString(flagutc, date).c_str(), dateToString(flagutc, newdate).c_str());
+		assert(newdate > date);
+		date= newdate;
+	}
+
+	HTIndex		   htinv(ht, ht.size() + (total_size >> (10 + fragment)) + vf.size());
+	const unsigned htsize= ht.size();
+	if (flagdebug2)
+		if (flagappend)
+		{
+			myprintf("02063: append cdatasize %s htsize %s\n", migliaia(g_cdatasize), migliaia2(g_htsize));
+			myprintf("02064: g_optional |%s|\n", g_optional.c_str());
+		}
+	if (flagdebug2)
+	{
+		if (g_fakewrite)
+			myprintf("02065: Fake write\n");
+		else
+			myprintf("02066: Real write\n");
+		myprintf("02067: g_cdatasize  %s\n", migliaia(g_cdatasize));
+		myprintf("02068: g_htsize     %s\n", migliaia(g_htsize));
+	}
+	if ((g_optional == "ransomware") && (g_cdatasize > 0) && (g_htsize > 0))
+	{
+		if (flagdebug2)
+			myprintf("02069: append cdatasize %s htsize %s\n", migliaia(g_cdatasize), migliaia2(g_htsize));
+
+		if (flagdebug3)
+			myprintf("02070: writejidacheader 3\n");
+
+		writeJidacHeader(&out, date, g_cdatasize, g_htsize);
+	}
+	else
+	{
+		if (flagdebug3)
+			myprintf("02071: writeJidacheader -1\n");
+
+		if (flagdebug3)
+			myprintf("02072: writejidacheader 4\n");
+		writeJidacHeader(&out, date, -1, htsize);
+	}
+	files_updated= 0;
+	files_added	 = 0;
+
+	const int64_t header_end= out.tell();
+	// Compress until end of last file
+	assert(method != "");
+	StringBuffer		 sb(blocksize + 4096 - 128); // block to compress
+	unsigned			 frags			 = 0;		 // number of fragments in sb
+	unsigned			 redundancy		 = 0;		 // estimated bytes that can be compressed out of sb
+	unsigned			 text			 = 0;		 // number of fragents containing text
+	unsigned			 exe			 = 0;		 // number of fragments containing x86 (exe, dll)
+	const int			 ON				 = 4;		 // number of order-1 tables to save
+	unsigned char		 o1prev[ON * 256]= {0};		 // last ON order 1 predictions
+	libzpaq::Array<char> fragbuf(MAX_FRAGMENT);
+	vector<unsigned>	 blocklist; // list of starting fragments
+	/// int64_t	crckanz=0;
+	// For each file to be added
+
+	if (flagverbose)
+		myprintf("02073: MAX_FRAGMENT %s (%s) MIN %s (%s)\n", migliaia(MAX_FRAGMENT), tohuman(MAX_FRAGMENT), migliaia2(MIN_FRAGMENT), tohuman2(MIN_FRAGMENT));
+	int64_t startstream= mtime();
+
+	if (flagstdin) // larger buffer not good
+		g_ioBUFSIZE= 4096;
+
+	char *buf= (char *)franz_malloc(g_ioBUFSIZE);
+	/// g_allocatedram+=sizeof(g_ioBUFSIZE);
+
+	if (buf == NULL)
+	{
+		myprintf("02074! GURU allocating io buf of size %s\n", g_ioBUFSIZE);
+		seppuku();
+		return 2;
+	}
+	franzfs thefranzfs_header;
+	franzfs thefranzfs_footer;
+	franzfs thefranzfs_meta;
+	franzfs thefranzfs_excluded;
+	franzfs thefranzfs_zeroed;
+	
+	memfilehash= "";
+
+#ifdef _WIN32
+	if (flagimage && (flagvhd || flagntfs))
+	{
+		if (lettera == 0)
+		{
+			myprintf("20515! Letter is not setted!\n");
+			return 2;
+		}
+
+		imager_image 		= "image_" + std::string(1, lettera) + ".fhd";
+		imager_header		= "image_" + std::string(1, lettera) + ".header";
+		imager_footer		= "image_" + std::string(1, lettera) + ".footer";
+		imager_meta	 		= "image_" + std::string(1, lettera) + ".meta";
+		imager_excluded	 	= "image_" + std::string(1, lettera) + ".exclud";
+		imager_zeroed	 	= "image_" + std::string(1, lettera) + ".zeroed";
+
+
+		if (notfiles.size()==0)
+		{
+			imager_excluded="";
+			imager_zeroed="";
+		}
+		if (flagverbose)
+		{
+			color_cyan();
+			myprintf("79013: Data     file name : %s\n", imager_image.c_str());
+			myprintf("79014: Header   file name : %s\n", imager_header.c_str());
+			myprintf("79015: Metadata file name : %s\n", imager_meta.c_str());
+			if (imager_excluded!="")
+				myprintf("79016: Excluded           : %s\n", imager_excluded.c_str());
+			if (imager_zeroed!="")
+				myprintf("79016: Zeroed             : %s\n", imager_zeroed.c_str());
+			color_restore();
+		}
+
+		{
+			thefranzfs_header.init(1);
+			DT &d			 = edt[imager_header];
+			d.creationdate	 = now();
+			d.accessdate	 = now();
+			d.date			 = 0; // if date !=0 ram is filled
+			d.size			 = 1; // fake, we'll init() later
+			d.data			 = 1;
+			d.attr			 = 8311;
+			d.pramfile		 = &thefranzfs_header;
+			d.data			 = 1; // add in every case
+			DTMap::iterator p= edt.find(imager_header);
+			if (p != edt.end())
+				vf.push_back(p);
+		}
+
+		{
+			thefranzfs_footer.init(1);
+			DT &d			 = edt[imager_footer];
+			d.creationdate	 = now();
+			d.accessdate	 = now();
+			d.date			 = 0; // if date !=0 ram is filled
+			d.size			 = 1; // fake, we'll init() later
+			d.data			 = 1;
+			d.attr			 = 8311;
+			d.pramfile		 = &thefranzfs_footer;
+			d.data			 = 1; // add in every case
+			DTMap::iterator p= edt.find(imager_footer);
+			if (p != edt.end())
+				vf.push_back(p);
+		}
+
+		{
+			thefranzfs_meta.init(1);
+			DT &d			 = edt[imager_meta];
+			d.creationdate	 = now();
+			d.accessdate	 = now();
+			d.date			 = 0; // if date !=0 ram is filled
+			d.size			 = 1; // fake, we'll init() later
+			d.data			 = 1;
+			d.attr			 = 8311;
+			d.pramfile		 = &thefranzfs_meta;
+			d.data			 = 1; // add in every case
+			DTMap::iterator p= edt.find(imager_meta);
+			if (p != edt.end())
+				vf.push_back(p);
+		}
+		
+		if (notfiles.size()>0)
+		{
+			thefranzfs_excluded.init(1);
+			DT &d			 = edt[imager_excluded];
+			d.creationdate	 = now();
+			d.accessdate	 = now();
+			d.date			 = 0; // if date !=0 ram is filled
+			d.size			 = 1; // fake, we'll init() later
+			d.data			 = 1;
+			d.attr			 = 8311;
+			d.pramfile		 = &thefranzfs_excluded;
+			d.data			 = 1; // add in every case
+			DTMap::iterator p= edt.find(imager_excluded);
+			if (p != edt.end())
+				vf.push_back(p);
+		}
+		if (notfiles.size()>0)
+		{
+			thefranzfs_zeroed.init(1);
+			DT &d			 = edt[imager_zeroed];
+			d.creationdate	 = now();
+			d.accessdate	 = now();
+			d.date			 = 0; // if date !=0 ram is filled
+			d.size			 = 1; // fake, we'll init() later
+			d.data			 = 1;
+			d.attr			 = 8311;
+			d.pramfile		 = &thefranzfs_zeroed;
+			d.data			 = 1; // add in every case
+			DTMap::iterator p= edt.find(imager_zeroed);
+			if (p != edt.end())
+				vf.push_back(p);
+		}
+		
+	}
+
+	else
+#endif
+		gestisciflagfast();
+
+	///////////////////////////////////////////////////////////////
+	int64_t imagereaded		= 0;
+	int64_t last_update_time= startstream; // -image
+
+	///	ottimizzazione 3b
+	//  Precalculate loop constants
+	const unsigned h_threshold	 = (fragment <= 22) ? (1u << (22 - fragment)) : 0;
+	const bool	   check_boundary= (fragment <= 22);
+	const unsigned HASH_MULT_HIT = 314159265u;
+	const unsigned HASH_MULT_MISS= 271828182u;
+
+	/// -turbo (add2): two batches of a plain file (one is read while the other
+	/// is worked), each one after room for the fragment that is still open at
+	/// the end of the previous batch (less than MAX_FRAGMENT)
+	const int64_t		 TURBOCHUNK= (int64_t)64 << 20;
+	const int64_t		 TURBOROOM = (int64_t)MAX_FRAGMENT + 64;
+	std::vector<char>	 turbobuf[2]; /// allocated at the first big file only
+	std::vector<s_add2frag> turbofrags;
+	turbofrags.reserve(4096);
+	std::vector<s_add2frag> turboextra;
+	int64_t					turbopieces= 0; // -verbose: how the guesses went
+	int64_t					turboserial= 0;
+	int turbothreads= howmanythreads;
+	if (turbothreads < 1)
+		turbothreads= 1;
+	if (turbothreads > 32)
+		turbothreads= 32;
+	std::vector<std::vector<s_add2frag> > turbolists((size_t)turbothreads);
+	for (unsigned fi= 0; fi <= vf.size(); ++fi)
+	{
+		FP				in	  = FPNULL;
+		int				bufptr= 0, buflen= 0; // read pointer and limit
+		DTMap::iterator p;
+		bool			flagmemfile= false;
+
+		if (fi < vf.size())
+		{
+			assert(vf[fi]->second.ptr.size() == 0);
+			p	  = vf[fi];
+			bufptr= buflen= 0;
+			flagmemfile	  = ismemfile(p->first);
+
+			if ((!flagmemfile) && (!flagimage))
+			{
+				if (flagstdin)
+				{
+					in					  = stdin;
+					p->second.expectedsize= (g_stdinsize > 0) ? (int64_t)g_stdinsize : 1;
+					if (g_touch != 0)
+						p->second.date= g_touch;
+				}
+				else
+				{
+					in= myfopen(p->first.c_str(), RB);
+					if (in == FPNULL)
+					{ // skip if not found
+						p->second.date= 0;
+						total_size-= p->second.size;
+						///	Houston, we got an error. Try to figure why re-opening the file (on Windows)
+						/// Microsoft filesystem is so complex, better some help
+						int64_t attrib= 0;
+#ifdef _WIN32
+						attrib= getwinattributes(p->first);
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+						printerr("add", p->first.c_str(), attrib);
+						++errors;
+						continue;
+					}
+					// get expected filesize. Slow down a bit. But I like very much
+					/// if (flagverbose)
+					{
+						fseeko(in, 0, SEEK_END);
+						p->second.expectedsize= ftello(in);
+						fseeko(in, 0, SEEK_SET);
+					}
+				}
+			}
+			p->second.data= 1; // add in every case
+		}
+
+		/// EXPERIMENTAL: just a mockup
+
+		int ultimapercentuale= 0;
+		int ultimotempo		 = 0;
+		// Read fragments
+		int64_t fsize	   = 0; // file size after dedupe
+		int64_t workedsofar= 0;
+		int		blocchi	   = 0;
+		bool	brutalexit = false;
+		
+		/*
+			-turbo: the same work of the loop below, in another order.
+			A plain file is read in batches of 64 MB. Several threads cut the
+			batch into fragments and compute their SHA-1 (see add2_scan: the
+			cuts are exactly the ones below), another one updates the hash of
+			the file. Then every fragment, in order, goes through the very same
+			code of the loop below (elabora: look up, type analysis, block),
+			so the archive is the same, to the byte.
+			stdin, memory files, images, -zero: the loop below, as always.
+			So are small files (less than ZPAQ_TURBOMIN) and a single thread
+			(-t1, NAS, ESXi): there is nothing to gain. Both ways give the same
+			archive, so this choice can only change the speed
+		*/
+		const bool turbo= (fi < vf.size()) && (in != FPNULL) && (!flagmemfile) && (!flagimage) && (!flagstdin) && (!(flagdebug && flagzero)) && (turbothreads > 1) && (p->second.expectedsize >= (int64_t)ZPAQ_TURBOMIN);
+		if (turbo && turbobuf[0].empty())
+		{
+			turbobuf[0].resize((size_t)(TURBOROOM + TURBOCHUNK));
+			turbobuf[1].resize((size_t)(TURBOROOM + TURBOCHUNK));
+		}
+		/// what the loop below does for every fragment, word by word (the data
+		/// come from the batch instead of fragbuf)
+		auto elabora= [&](unsigned fj, int64_t sz, unsigned hits, unsigned char *o1, char *sha1result, unsigned htptr, const char *dati)
+		{
+			/// OK, lets RE-compute CRC-32 of the fragment, and store
+			/// used for debug
+			uint32_t crc= 0;
+			if (flagverify || flagcollision)
+				if (g_franzotype > 0)
+				{
+					crc= crc32_16bytes(dati, (uint32_t)sz);
+					if (htptr)
+					{
+						ht[htptr].crc32	   = crc;
+						ht[htptr].crc32size= sz;
+					}
+				}
+
+			if (htptr == 0)
+			{
+				// Data type analysis - optimized with lookup table
+				int						   text1= 0, exe1= 0;
+				int64_t					   h1		= sz;
+				unsigned char			   o1ct[256]= {0};
+				static const unsigned char dt[256]	= {
+					  160, 80, 53, 40, 32, 26, 22, 20, 17, 16, 14, 13, 12, 11, 10, 10,
+					  9, 8, 8, 8, 7, 7, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5,
+					  4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3,
+					  3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+					  2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+				for (int i= 0; i < 256; ++i)
+				{
+					if (o1ct[o1[i]] < 255)
+						h1-= (sz * dt[o1ct[o1[i]]++]) >> 15;
+					if (o1[i] == ' ' && (isalnum(i) || i == '.' || i == ','))
+						++text1;
+					if (o1[i] && (i < 9 || i == 11 || i == 12 || (i >= 14 && i <= 31) || i >= 240))
+						--text1;
+					if (i >= 192 && i < 240 && o1[i] && (o1[i] < 128 || o1[i] >= 192))
+						--text1;
+					if (o1[i] == 139)
+						++exe1;
+				}
+				text1= (text1 >= 3);
+				exe1 = (exe1 >= 5);
+				if (sz > 0)
+					h1= h1 * h1 / sz;
+				unsigned h2= h1;
+				if (h2 > hits)
+					hits= h2;
+				h2= o1ct[0] * sz / 256;
+				if (h2 > hits)
+					hits= h2;
+				h2= 0;
+				for (int i= 0; i < 256 * ON; ++i)
+					h2+= o1prev[i] == o1[i & 255];
+				h2= h2 * sz / (256 * ON);
+				if (h2 > hits)
+					hits= h2;
+				if (hits > sz)
+					hits= sz;
+
+				bool newblock= false;
+				if (frags > 0 && fj == 0 && fi < vf.size())
+				{
+					const int64_t esize	 = vf[fi]->second.size;
+					const int64_t newsize= sb.size() + esize + (esize >> 14) + 4096 + frags * 4;
+					if (newsize > blocksize / 4 && redundancy < sb.size() / 128)
+						newblock= true;
+					if (newblock)
+					{
+						unsigned ct= 0;
+						for (unsigned i= 0; i < 256 * ON; ++i)
+							if (o1prev[i] && o1prev[i] == o1[i & 255])
+								++ct;
+						if (ct > ON * 2)
+							newblock= false;
+					}
+					if (newsize >= blocksize)
+						newblock= true;
+				}
+				if (sb.size() + sz + 80 + frags * 4 >= blocksize)
+					newblock= true;
+				if (fi == vf.size())
+					newblock= true;
+				if (frags < 1)
+					newblock= false;
+
+				if (flagmemfile && (g_thememfileblock == ""))
+				{
+					newblock= true;
+					if (flagdebug3)
+						myprintf("02082: ht.size()  %08d frags  %08d ht-frags %08d\n", ht.size(), frags, ht.size() - frags);
+					g_thememfileblock  = "jDC" + itos(date, 14) + "d" + itos(ht.size(), 10);
+					g_thememfileblock_h= "jDC" + itos(date, 14) + "h" + itos(ht.size(), 10);
+					if (flagdebug3)
+					{
+						myprintf("\n");
+						myprintf("02083: thememfileblock is %s & %s |%s|\n\n",
+								 g_thememfileblock.c_str(), g_thememfileblock_h.c_str(), vf[fi]->first.c_str());
+					}
+				}
+
+				if (newblock)
+				{
+					assert(frags > 0);
+					assert(frags < ht.size());
+					/// uint64_t theblocksize=0;
+					for (unsigned i= ht.size() - frags; i < ht.size(); ++i)
+					{
+						// theblocksize+=ht[i].usize;
+						puti(sb, ht[i].usize, 4); // list of frag sizes
+					}
+					puti(sb, 0, 4);		// omit first frag ID to make block movable
+					puti(sb, frags, 4); // number of frags
+					string m= method;
+					if (isdigit(method[0]))
+					{
+						int redz= redundancy / (sb.size() / 256 + 1);
+						m+= "," + itos(redz) + "," + itos((exe > frags) * 2 + (text > frags));
+
+						/// m[0]='0';
+					}
+
+					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
+
+					if (flagdebug3)
+						myprintf("02087: operating on %s\n", fn.c_str());
+
+					if (!flagimage)
+						print_progress(total_size, total_done, g_scritti, ultimapercentuale);
+
+					if (method[0] != 'i')
+					{
+						if (howmanythreads > 1)
+						{
+#ifdef _WIN32
+							// kane
+
+							/// if (fi == (vf.size() - 1))
+							if (flagimage && (flagvhd || flagntfs))
+								if (fi > 0)		   /// skip over image file
+									m= "36,207,0"; // packing the .header with method 3
+#endif
+							if (flagdebug2)
+								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
+							job.appendz(sb, fn.c_str(), m);
+						}
+						else
+						{
+							/// on "very strange things" (NAS/ESxi) the -pthread does not work
+							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
+							try
+							{
+								string		 comment= "jDC\x01";
+								StringBuffer my_cj_in;	// uncompressed input
+								StringBuffer my_cj_out; // compressed output
+								my_cj_in.swap(sb);
+								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str());
+								job.csize.push_back(my_cj_out.size());
+								if (job.out && my_cj_out.size() > 0)
+								{
+									assert(my_cj_out.c_str());
+									const char *p= my_cj_out.c_str();
+									int64_t		n= my_cj_out.size();
+									g_scritti+= n; // very rude
+									const int64_t N= 1 << 30;
+									while (n > N)
+									{
+										job.out->write(p, N);
+										p+= N;
+										n-= N;
+									}
+									job.out->write(p, n);
+								}
+							}
+							catch (std::exception &e)
+							{
+								fflush(stdout);
+								g_exec_text= "job error";
+								exit(1);
+							}
+						}
+					}
+					else
+					{ // index: don't compress data
+						job.csize.push_back(sb.size());
+						sb.resize(0);
+					}
+
+					assert(sb.size() == 0);
+					blocklist.push_back(ht.size() - frags); // mark block start
+					frags= redundancy= text= exe= 0;
+					memset(o1prev, 0, sizeof(o1prev));
+				} // newblock
+
+				assert(sz == 0 || fi < vf.size());
+				sb.write(dati, sz);
+				++frags;
+				redundancy+= hits;
+				exe+= exe1 * 4;
+				text+= text1 * 2;
+				if (sz >= MIN_FRAGMENT)
+				{
+					memmove(o1prev, o1prev + 256, 256 * (ON - 1));
+					memcpy(o1prev + 256 * (ON - 1), o1, 256);
+				}
+			}
+
+			if (fi < vf.size())
+			{
+				if (htptr == 0)
+				{
+					htptr= ht.size();
+					ht.push_back(HT(sha1result, sz));
+					htinv.update();
+					fsize+= sz;
+				}
+				vf[fi]->second.ptr.push_back(htptr);
+				/// OK store the crc. Very dirty (to be fixed in future)
+				// crckanz++;
+				/// crc=crc32_16bytes(dati,(uint32_t) sz);
+				uint32_t crc= 0;
+				if (flagverify || flagcollision)
+					if (g_franzotype > 0)
+					{
+						ht[htptr].crc32	   = crc;
+						ht[htptr].crc32size= sz;
+					}
+			}
+
+		};
+		if (turbo)
+		{
+			int64_t		  carry= 0; // the open fragment, from its start (a cut), just before the new data
+			unsigned	  fj   = 0; // fragments of this file, so far
+			bool		  eof  = false;
+			int			  qui  = 0; // the batch being worked
+			s_add2readjob lettura[2];
+			for (int k= 0; k < 2; k++)
+			{
+				lettura[k].jidac = this;
+				lettura[k].p	 = p;
+				lettura[k].in	 = in;
+				lettura[k].buf	 = &turbobuf[k][0] + TURBOROOM;
+				lettura[k].voglio= TURBOCHUNK;
+				lettura[k].hash	 = (g_franzotype > 0);
+				lettura[k].letti = 0;
+				lettura[k].eof	 = false;
+			}
+			ThreadID tidlettura;
+			bool	 leggendo= false;
+			add2_readthread(&lettura[0]); /// the first one: nothing to do meanwhile
+			while (!eof)
+			{
+				if (leggendo)
+				{
+					join(tidlettura);
+#ifdef _WIN32
+					CloseHandle(tidlettura);
+#endif
+					leggendo= false;
+				}
+				const int64_t letti= lettura[qui].letti;
+				eof				   = lettura[qui].eof;
+				/// the next batch, meanwhile (with one thread, as on some NAS
+				/// and ESXi where threads may not work, right now instead)
+				if (!eof)
+				{
+					if (turbothreads > 1)
+					{
+						run(tidlettura, add2_readthread, &lettura[1 - qui]);
+						leggendo= true;
+					}
+					else
+						add2_readthread(&lettura[1 - qui]);
+				}
+				const unsigned char *base= (const unsigned char *)&turbobuf[qui][0] + TURBOROOM - carry;
+				const int64_t		 fine= carry + letti;
+				/// the pieces: at least 1 MB each
+				int pezzi= (int)(fine >> 20);
+				if (pezzi > turbothreads)
+					pezzi= turbothreads;
+				if (pezzi < 1)
+					pezzi= 1;
+				std::vector<int64_t>	inizi((size_t)pezzi + 1);
+				std::vector<s_add2scan> scan((size_t)pezzi);
+				for (int k= 0; k <= pezzi; k++)
+					inizi[k]= fine * k / pezzi;
+				for (int k= 0; k < pezzi; k++)
+				{
+					turbolists[k].clear();
+					scan[k].base		= base;
+					scan[k].from		= inizi[k];
+					scan[k].fine		= fine;
+					scan[k].after		= (k + 1 < pezzi) ? inizi[k + 1] : -1;
+					scan[k].dopo		= 3;
+					scan[k].chiudi		= false;
+					scan[k].h_threshold = h_threshold;
+					scan[k].minf		= MIN_FRAGMENT;
+					scan[k].maxf		= MAX_FRAGMENT;
+					scan[k].out			= &turbolists[k];
+					scan[k].open		= 0;
+				}
+				std::vector<ThreadID> tids((size_t)pezzi);
+				for (int k= 1; k < pezzi; k++)
+					run(tids[k], add2_scanthread, &scan[k]);
+				add2_scan(&scan[0]);
+				for (int k= 1; k < pezzi; k++)
+				{
+					join(tids[k]);
+#ifdef _WIN32
+					CloseHandle(tids[k]);
+#endif
+				}
+				turbopieces+= pezzi;
+				/// the true chain, through the guesses that it proves right
+				turbofrags.clear();
+				int64_t					 e		  = 0; // the last cut of the true chain
+				std::vector<s_add2frag> *cur	  = &turbolists[0];
+				size_t					 idx	  = 0;
+				bool					 finoafine= (pezzi == 1); // cur goes on to the end of the batch
+				int						 prossimo = 1;			  // the next piece to meet
+				while (true)
+				{
+					if (idx >= cur->size())
+					{
+						if (finoafine)
+							break; /// from e on, the open fragment
+						/// no meeting yet: one more fragment of the true chain
+						turboextra.clear();
+						s_add2scan uno;
+						uno.base	   = base;
+						uno.from	   = e;
+						uno.fine	   = fine;
+						uno.after	   = e;
+						uno.dopo	   = 1;
+						uno.chiudi	   = false;
+						uno.h_threshold= h_threshold;
+						uno.minf	   = MIN_FRAGMENT;
+						uno.maxf	   = MAX_FRAGMENT;
+						uno.out		   = &turboextra;
+						uno.open	   = e;
+						add2_scan(&uno);
+						if (turboextra.empty())
+							break; /// end of the batch: from e on, the open fragment
+						turboserial+= turboextra[0].len;
+						cur= &turboextra;
+						idx= 0;
+					}
+					turbofrags.push_back((*cur)[idx++]);
+					e= turbofrags.back().start + turbofrags.back().len;
+					while ((prossimo < pezzi) && (e >= inizi[prossimo]))
+					{
+						std::vector<s_add2frag> &altra= turbolists[prossimo];
+						size_t					 lo	  = 0;
+						size_t					 hi	  = altra.size();
+						while (lo < hi)
+						{
+							const size_t mid= (lo + hi) / 2;
+							if (altra[mid].start < e)
+								lo= mid + 1;
+							else
+								hi= mid;
+						}
+						if ((lo < altra.size()) && (altra[lo].start == e))
+						{ /// they meet: the guess of this piece is the true chain
+							cur		 = &altra;
+							idx		 = lo;
+							finoafine= (prossimo == pezzi - 1);
+							prossimo++;
+						}
+						else if ((prossimo + 1 < pezzi) && (e >= inizi[prossimo + 1]))
+							prossimo++; /// passed over: try the next one
+						else
+							break;
+					}
+				}
+				/// end of the file: the open fragment is the last one. A file with
+				/// no data at all still gets its one empty fragment, as below
+				if (eof)
+				{
+					if (e < fine)
+					{
+						turboextra.clear();
+						s_add2scan coda;
+						coda.base		= base;
+						coda.from		= e;
+						coda.fine		= fine;
+						coda.after		= -1;
+						coda.dopo		= 0;
+						coda.chiudi		= true;
+						coda.h_threshold= h_threshold;
+						coda.minf		= MIN_FRAGMENT;
+						coda.maxf		= MAX_FRAGMENT;
+						coda.out		= &turboextra;
+						coda.open		= e;
+						add2_scan(&coda);
+						for (size_t k= 0; k < turboextra.size(); k++)
+							turbofrags.push_back(turboextra[k]);
+						e= fine;
+					}
+					if ((fj == 0) && turbofrags.empty())
+					{
+						s_add2frag uno;
+						uno.start= 0;
+						uno.len	 = 0;
+						uno.hits = 0;
+						memset(uno.o1, 0, sizeof(uno.o1));
+						libzpaq::SHA1 sha1;
+						memcpy(uno.sha1, sha1.result(), 20);
+						turbofrags.push_back(uno);
+					}
+				}
+				/// and now, in order, exactly what the loop below does
+				const size_t quanti= turbofrags.size();
+				for (size_t k= 0; k < quanti; k++)
+				{
+					s_add2frag &uno= turbofrags[k];
+					total_done+= uno.len;
+					const unsigned htptr= htinv.find(uno.sha1);
+					elabora(fj, uno.len, uno.hits, uno.o1, uno.sha1, htptr, (const char *)base + uno.start);
+					++fj;
+				}
+				/// the open fragment goes just before the data of the next batch
+				carry= eof ? 0 : fine - e;
+				if (carry > 0)
+					memcpy(&turbobuf[1 - qui][0] + TURBOROOM - carry, base + e, (size_t)carry);
+				qui= 1 - qui;
+				if (!flagnoeta)
+					print_progress(total_size, total_done, g_scritti, ultimapercentuale);
+			}
+		}
+		else
+		// OPTIMIZED MAIN LOOP
+
+		for (unsigned fj= 0; true; ++fj)
+		{
+			int64_t		  sz			= 0;   // fragment size;
+			unsigned	  hits			= 0;   // correct prediction count
+			unsigned	  htptr			= 0;   // fragment index
+			char		  sha1result[20]= {0}; // fragment hash
+			unsigned char o1[256]		= {0}; // order 1 context -> predicted byte
+
+			if (fi < vf.size())
+			{
+				int			  c1= 0; // previous byte
+				unsigned	  h = 0; // rolling hash for finding fragment boundaries
+				libzpaq::SHA1 sha1;
+				/// c:\nz\dd if="\\\\.\\c:" bs=1048576 count=100000000000 |c:\zpaqfranz\zpaqfranz a j:\image\prova cimage.img -stdin
+
+				// OPTIMIZED LOOP
+				while (true)
+				{
+					// Buffer filling
+					if (bufptr >= buflen)
+					{
+						bufptr= 0;
+						if (flagimage)
+						{
+#ifdef _WIN32
+							// Windows-specific imaging management
+							if (flagvhd || flagntfs)
+							{
+								if ((imager_zeroed!="") && (vf[fi]->first == imager_zeroed) && (vf[fi]->second.pramfile != NULL))
+								{
+									if (vf[fi]->second.date == 0)
+									{
+										imager.chiudivhd();
+										std::vector<uint8_t> zeroeddarray = imager.getExcludedClustersAsBytes();		
+/*
+										color_cyan();
+										myprintf("zeroeddarray.size() = %zu\n", zeroeddarray.size());
+										if (zeroeddarray.size() >= 4) {
+											uint32_t count;
+											memcpy(&count, zeroeddarray.data(), 4);
+											myprintf("cluster ranges count = %u\n", count);
+										}
+										color_restore();
+										myprintf("\narray_to_ramfile 1\n");
+*/
+
+										int64_t zeroedsize   = array_to_ramfile(zeroeddarray, vf[fi]->second.pramfile);
+										vf[fi]->second.size= zeroedsize;
+												
+										if (flagdebug2)
+										{
+											color_cyan();
+											myprintf("11888: zeroed array size %s\n",migliaia(zeroedsize));
+											color_restore();
+										}
+										vf[fi]->second.date= nowutc();
+									}
+									buflen= vf[fi]->second.pramfile->ramread(g_ioBUFSIZE, buf);
+								}
+								else
+								if ((imager_excluded!="") && (vf[fi]->first == imager_excluded) && (vf[fi]->second.pramfile != NULL))
+								{
+									if (vf[fi]->second.date == 0)
+									{
+										imager.chiudivhd();
+										
+										std::vector<uint8_t> excludedarray = imager.getFilesToDeleteAsBytes();
+										///myprintf("\narray_to_ramfile 2\n");
+										///myprintf("Excluded array size %s\n",migliaia(excludedarray.size()));
+										int64_t excludedsize   = array_to_ramfile(excludedarray, vf[fi]->second.pramfile);
+										vf[fi]->second.size= excludedsize;
+												
+										if (flagdebug2)
+										{
+											color_cyan();
+											myprintf("11888: excluded array size %s\n",migliaia(excludedsize));
+											color_restore();
+										}
+										vf[fi]->second.date= nowutc();
+									}
+									buflen= vf[fi]->second.pramfile->ramread(g_ioBUFSIZE, buf);
+								}
+								else
+									if ((vf[fi]->first == imager_header) && (vf[fi]->second.pramfile != NULL))
+								{
+									if (vf[fi]->second.date == 0)
+									{
+										imager.chiudivhd();
+										const std::vector<uint8_t> &headerarray= imager.getheaderarray();
+										///myprintf("\narray_to_ramfile 3\n");
+
+										g_thememfilelength					   = array_to_ramfile(headerarray, vf[fi]->second.pramfile);
+										if (g_thememfilelength <= 0)
+											myprintf("20696: thememfilelength is not good! [1]\n");
+										vf[fi]->second.size= g_thememfilelength;
+										vf[fi]->second.date= nowutc();
+									}
+									buflen= vf[fi]->second.pramfile->ramread(g_ioBUFSIZE, buf);
+								}
+								else if ((vf[fi]->first == imager_footer) && (vf[fi]->second.pramfile != NULL))
+								{
+									if (vf[fi]->second.date == 0)
+									{
+										imager.chiudivhd();
+										const std::vector<uint8_t> &footerarray= imager.getheaderarray();
+										std::vector<uint8_t>		temp	   = footerarray;
+										if (temp.size() > 512)
+										{
+											temp.resize(512); // reduces vector to first 512 bytes
+											///myprintf("\narray_to_ramfile 4\n");
+
+											array_to_ramfile(temp, vf[fi]->second.pramfile);
+											vf[fi]->second.size= 512;
+											vf[fi]->second.date= nowutc();
+										}
+										else
+											myprintf("20693: footerlen is not good! [1]\n");
+									}
+									buflen= vf[fi]->second.pramfile->ramread(g_ioBUFSIZE, buf);
+								}
+								else if ((vf[fi]->first == imager_meta) && (vf[fi]->second.pramfile != NULL))
+								{
+									if (vf[fi]->second.date == 0)
+									{
+										imager.chiudivhd();
+										std::vector<uint8_t> metaarray;
+										imager.salvametamemory(metaarray);
+										///	color_cyan();
+										/// myprintf("Metaarraysize %d\n",metaarray.size());
+										/// color_restore();
+										///myprintf("\narray_to_ramfile 5\n");
+
+										int64_t metasize   = array_to_ramfile(metaarray, vf[fi]->second.pramfile);
+										vf[fi]->second.size= metasize;
+										vf[fi]->second.date= nowutc(); 
+									}
+									buflen= vf[fi]->second.pramfile->ramread(g_ioBUFSIZE, buf);
+								}
+								else
+								{
+									buflen= handle_vhd_read(buf, g_ioBUFSIZE, flagverbose, &brutalexit, &workedsofar);
+									if (!flagnoeta)
+										print_eta_image("NTFS", 100.0f * total_done / (total_size + 1), total_done, total_size,
+														g_fwritten, startstream, &ultimotempo, &last_update_time);
+								}
+							}
+							else
+							{
+								// Standard imaging Windows
+								buflen= rawimager.prendiraw(buf, g_ioBUFSIZE);
+								imagereaded+= buflen;
+
+								if (!flagnoeta)
+									print_eta_image("raw", 100.0f * imagereaded / (total_size + 1),
+													imagereaded, total_size, g_scritti, startstream,
+													&ultimotempo, &last_update_time);
+							}
+#else
+							// Linux-specific imaging management (DD)
+							int bytesletti= elaboradump(buf, g_ioBUFSIZE);
+							if (bytesletti == -1)
+							{
+								myprintf("\n");
+								myprintf("02932! READ LINUX FAIL!!\n");
+								// c = EOF;
+							}
+							else
+							{
+								buflen= bytesletti;
+								// workedsofar += bytesletti;
+							}
+							if (!flagnoeta)
+								print_eta_image("DD", 100.0f * imagereaded / (total_size + 1),
+												imagereaded, total_size, g_scritti, startstream,
+												&ultimotempo, &last_update_time);
+#endif
+						}
+						else
+						{
+							// Common handling for non-imaging (uguale per Windows e Linux)
+							if (flagmemfile)
+								buflen= thefranzfs.ramread(g_ioBUFSIZE, buf);
+							else if (flagstdin)
+								buflen= fread(buf, 1, g_ioBUFSIZE, stdin);
+							else
+								buflen= fread(buf, 1, g_ioBUFSIZE, in);
+						}
+
+						if (buflen == 0)
+							break; // EOF
+					}
+					if (flagdebug)
+						if (flagzero)
+						{
+							if (flagkill)
+								bufptr= buflen;
+							else
+								memset(buf, 0, buflen);
+						}
+
+					if (brutalexit)
+					{
+						if (flagdebug)
+						{
+							myprintf("************* exit due to brutalexit bufptr buflen %d %d\n", bufptr, buflen);
+							myprintf("blocchi %d %s\n", blocchi, migliaia(workedsofar));
+						}
+
+						break;
+					}
+
+					if (bufptr == 0)
+						if (buflen > 0)
+						{
+							if (g_franzotype > 0)
+								updatehash(&p, buf, buflen);
+							if (!flagnoeta)
+							{
+								if (flagstdin && (g_stdinsize == 0))
+								{
+									total_size+= buflen;
+									int secondi= (mtime() - startstream) / 1000;
+									if (secondi != ultimotempo)
+									{
+										float ratio= 100.0 * g_scritti / (total_size + 1);
+										myprintf("02081: So far in=%10s out=%10s (ratio %8.2f %%) @ %10s /s        \r", tohuman(total_size), tohuman2(g_scritti), ratio, tohuman3(total_size / secondi));
+										fflush(stdout);
+										ultimotempo= secondi;
+									}
+								}
+								else if (flagstdin && (g_stdinsize > 0))
+								{
+									total_size += buflen;
+
+									// Size hint given: we need to fix back total_size before final output
+									const int64_t size_ref   = (total_size > (int64_t)g_stdinsize) ? total_size : g_stdinsize;
+									int           percentuale = (int)(100.0 * total_done / (size_ref + 1)) + 1;
+									if (percentuale != ultimapercentuale)
+									{
+										print_progress((int64_t)size_ref, total_done, g_scritti, ultimapercentuale);
+										ultimapercentuale = percentuale;
+									}
+								}
+								else
+								{
+									if (p->second.expectedsize > 100000000)
+									{
+										int percentuale= (int)(100.0 * p->second.hashedsize / p->second.expectedsize) + 1;
+										int modulo	   = 10;
+										if (p->second.expectedsize > 1000000000)
+											modulo= 1;
+										if (percentuale != ultimapercentuale)
+											if (percentuale % modulo == 0)
+											{
+												print_progress(total_size, total_done, g_scritti, ultimapercentuale);
+												ultimapercentuale= percentuale;
+											}
+									}
+								}
+							}
+						}
+
+					unsigned char *p  = (unsigned char *)buf + bufptr;
+					unsigned char *end= (unsigned char *)buf + buflen;
+
+					// Calcolo chunk sicuro - ottimizzato
+					int remaining= (int)(MAX_FRAGMENT - sz);
+					if (remaining <= 0)
+						break;
+
+					int			   available= (int)(end - p);
+					int			   chunk	= (available < remaining) ? available : remaining;
+					unsigned char *stop		= p + chunk;
+
+					bool fragment_found= false;
+
+					// Unroll manuale per migliori performance
+					while (p + 4 <= stop)
+					{
+						unsigned char uc0= p[0];
+						unsigned char uc1= p[1];
+						unsigned char uc2= p[2];
+						unsigned char uc3= p[3];
+
+						// Processa byte 0
+						unsigned char pred0= o1[c1];
+						h				   = (h + uc0 + 1) * ((uc0 == pred0) ? HASH_MULT_HIT : HASH_MULT_MISS);
+						hits+= (uc0 == pred0);
+						o1[c1]		 = uc0;
+						c1			 = uc0;
+						fragbuf[sz++]= uc0;
+
+						// Check boundary dopo primo byte
+						if (check_boundary && h < h_threshold && sz >= MIN_FRAGMENT)
+						{
+							p+= 1;
+							fragment_found= true;
+							break;
+						}
+
+						// Processa byte 1
+						unsigned char pred1= o1[c1];
+						h				   = (h + uc1 + 1) * ((uc1 == pred1) ? HASH_MULT_HIT : HASH_MULT_MISS);
+						hits+= (uc1 == pred1);
+						o1[c1]		 = uc1;
+						c1			 = uc1;
+						fragbuf[sz++]= uc1;
+
+						if (check_boundary && h < h_threshold && sz >= MIN_FRAGMENT)
+						{
+							p+= 2;
+							fragment_found= true;
+							break;
+						}
+
+						// Processa byte 2
+						unsigned char pred2= o1[c1];
+						h				   = (h + uc2 + 1) * ((uc2 == pred2) ? HASH_MULT_HIT : HASH_MULT_MISS);
+						hits+= (uc2 == pred2);
+						o1[c1]		 = uc2;
+						c1			 = uc2;
+						fragbuf[sz++]= uc2;
+
+						if (check_boundary && h < h_threshold && sz >= MIN_FRAGMENT)
+						{
+							p+= 3;
+							fragment_found= true;
+							break;
+						}
+
+						// Processa byte 3
+						unsigned char pred3= o1[c1];
+						h				   = (h + uc3 + 1) * ((uc3 == pred3) ? HASH_MULT_HIT : HASH_MULT_MISS);
+						hits+= (uc3 == pred3);
+						o1[c1]		 = uc3;
+						c1			 = uc3;
+						fragbuf[sz++]= uc3;
+
+						if (check_boundary && h < h_threshold && sz >= MIN_FRAGMENT)
+						{
+							p+= 4;
+							fragment_found= true;
+							break;
+						}
+
+						p+= 4;
+					}
+
+					// Process remaining bytes (< 4)
+					if (!fragment_found)
+					{
+						while (p < stop)
+						{
+							unsigned char uc= *p++;
+
+							unsigned char pred= o1[c1];
+							if (uc == pred)
+							{
+								h= (h + uc + 1) * HASH_MULT_HIT;
+								++hits;
+							}
+							else
+							{
+								h= (h + uc + 1) * HASH_MULT_MISS;
+							}
+							o1[c1]		 = uc;
+							c1			 = uc;
+							fragbuf[sz++]= uc;
+
+							if (check_boundary && h < h_threshold && sz >= MIN_FRAGMENT)
+							{
+								fragment_found= true;
+								break;
+							}
+						}
+					}
+
+					bufptr= (int)(p - (unsigned char *)buf);
+
+					if (fragment_found || sz >= MAX_FRAGMENT)
+						break;
+				}
+
+				assert(sz <= MAX_FRAGMENT);
+				total_done+= sz;
+
+				if (sz == 0 && fj > 0)
+					break; /// fix alla versione d
+				// SHA1 update in blocco - gia' ottimizzato zpaqfranz
+				sha1.write(&fragbuf[0], sz);
+
+				assert((uint64_t)sz == sha1.usize());
+				memcpy(sha1result, sha1.result(), 20);
+				htptr= htinv.find(sha1result);
+			}
+
+			/// OK, lets RE-compute CRC-32 of the fragment, and store
+			/// used for debug
+			uint32_t crc= 0;
+			if (flagverify || flagcollision)
+				if (g_franzotype > 0)
+				{
+					crc= crc32_16bytes(&fragbuf[0], (uint32_t)sz);
+					if (htptr)
+					{
+						ht[htptr].crc32	   = crc;
+						ht[htptr].crc32size= sz;
+					}
+				}
+
+			if (htptr == 0)
+			{
+				// Data type analysis - optimized with lookup table
+				int						   text1= 0, exe1= 0;
+				int64_t					   h1		= sz;
+				unsigned char			   o1ct[256]= {0};
+				static const unsigned char dt[256]	= {
+					  160, 80, 53, 40, 32, 26, 22, 20, 17, 16, 14, 13, 12, 11, 10, 10,
+					  9, 8, 8, 8, 7, 7, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5,
+					  4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3,
+					  3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+					  2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+					  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+
+				for (int i= 0; i < 256; ++i)
+				{
+					if (o1ct[o1[i]] < 255)
+						h1-= (sz * dt[o1ct[o1[i]]++]) >> 15;
+					if (o1[i] == ' ' && (isalnum(i) || i == '.' || i == ','))
+						++text1;
+					if (o1[i] && (i < 9 || i == 11 || i == 12 || (i >= 14 && i <= 31) || i >= 240))
+						--text1;
+					if (i >= 192 && i < 240 && o1[i] && (o1[i] < 128 || o1[i] >= 192))
+						--text1;
+					if (o1[i] == 139)
+						++exe1;
+				}
+				text1= (text1 >= 3);
+				exe1 = (exe1 >= 5);
+				if (sz > 0)
+					h1= h1 * h1 / sz;
+				unsigned h2= h1;
+				if (h2 > hits)
+					hits= h2;
+				h2= o1ct[0] * sz / 256;
+				if (h2 > hits)
+					hits= h2;
+				h2= 0;
+				for (int i= 0; i < 256 * ON; ++i)
+					h2+= o1prev[i] == o1[i & 255];
+				h2= h2 * sz / (256 * ON);
+				if (h2 > hits)
+					hits= h2;
+				if (hits > sz)
+					hits= sz;
+
+				bool newblock= false;
+				if (frags > 0 && fj == 0 && fi < vf.size())
+				{
+					const int64_t esize	 = vf[fi]->second.size;
+					const int64_t newsize= sb.size() + esize + (esize >> 14) + 4096 + frags * 4;
+					if (newsize > blocksize / 4 && redundancy < sb.size() / 128)
+						newblock= true;
+					if (newblock)
+					{
+						unsigned ct= 0;
+						for (unsigned i= 0; i < 256 * ON; ++i)
+							if (o1prev[i] && o1prev[i] == o1[i & 255])
+								++ct;
+						if (ct > ON * 2)
+							newblock= false;
+					}
+					if (newsize >= blocksize)
+						newblock= true;
+				}
+				if (sb.size() + sz + 80 + frags * 4 >= blocksize)
+					newblock= true;
+				if (fi == vf.size())
+					newblock= true;
+				if (frags < 1)
+					newblock= false;
+
+				if (flagmemfile && (g_thememfileblock == ""))
+				{
+					newblock= true;
+					if (flagdebug3)
+						myprintf("02082: ht.size()  %08d frags  %08d ht-frags %08d\n", ht.size(), frags, ht.size() - frags);
+					g_thememfileblock  = "jDC" + itos(date, 14) + "d" + itos(ht.size(), 10);
+					g_thememfileblock_h= "jDC" + itos(date, 14) + "h" + itos(ht.size(), 10);
+					if (flagdebug3)
+					{
+						myprintf("\n");
+						myprintf("02083: thememfileblock is %s & %s |%s|\n\n",
+								 g_thememfileblock.c_str(), g_thememfileblock_h.c_str(), vf[fi]->first.c_str());
+					}
+				}
+
+				if (newblock)
+				{
+					assert(frags > 0);
+					assert(frags < ht.size());
+					/// uint64_t theblocksize=0;
+					for (unsigned i= ht.size() - frags; i < ht.size(); ++i)
+					{
+						// theblocksize+=ht[i].usize;
+						puti(sb, ht[i].usize, 4); // list of frag sizes
+					}
+					puti(sb, 0, 4);		// omit first frag ID to make block movable
+					puti(sb, frags, 4); // number of frags
+					string m= method;
+					if (isdigit(method[0]))
+					{
+						int redz= redundancy / (sb.size() / 256 + 1);
+						m+= "," + itos(redz) + "," + itos((exe > frags) * 2 + (text > frags));
+
+						/// m[0]='0';
+					}
+
+					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
+
+					if (flagdebug3)
+						myprintf("02087: operating on %s\n", fn.c_str());
+
+					if (!flagimage)
+						print_progress(total_size, total_done, g_scritti, ultimapercentuale);
+
+					if (method[0] != 'i')
+					{
+						if (howmanythreads > 1)
+						{
+#ifdef _WIN32
+							// kane
+
+							/// if (fi == (vf.size() - 1))
+							if (flagimage && (flagvhd || flagntfs))
+								if (fi > 0)		   /// skip over image file
+									m= "36,207,0"; // packing the .header with method 3
+#endif
+							if (flagdebug2)
+								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
+							job.appendz(sb, fn.c_str(), m);
+						}
+						else
+						{
+							/// on "very strange things" (NAS/ESxi) the -pthread does not work
+							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
+							try
+							{
+								string		 comment= "jDC\x01";
+								StringBuffer my_cj_in;	// uncompressed input
+								StringBuffer my_cj_out; // compressed output
+								my_cj_in.swap(sb);
+								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str());
+								job.csize.push_back(my_cj_out.size());
+								if (job.out && my_cj_out.size() > 0)
+								{
+									assert(my_cj_out.c_str());
+									const char *p= my_cj_out.c_str();
+									int64_t		n= my_cj_out.size();
+									g_scritti+= n; // very rude
+									const int64_t N= 1 << 30;
+									while (n > N)
+									{
+										job.out->write(p, N);
+										p+= N;
+										n-= N;
+									}
+									job.out->write(p, n);
+								}
+							}
+							catch (std::exception &e)
+							{
+								fflush(stdout);
+								g_exec_text= "job error";
+								exit(1);
+							}
+						}
+					}
+					else
+					{ // index: don't compress data
+						job.csize.push_back(sb.size());
+						sb.resize(0);
+					}
+
+					assert(sb.size() == 0);
+					blocklist.push_back(ht.size() - frags); // mark block start
+					frags= redundancy= text= exe= 0;
+					memset(o1prev, 0, sizeof(o1prev));
+				} // newblock
+
+				assert(sz == 0 || fi < vf.size());
+				sb.write(&fragbuf[0], sz);
+				++frags;
+				redundancy+= hits;
+				exe+= exe1 * 4;
+				text+= text1 * 2;
+				if (sz >= MIN_FRAGMENT)
+				{
+					memmove(o1prev, o1prev + 256, 256 * (ON - 1));
+					memcpy(o1prev + 256 * (ON - 1), o1, 256);
+				}
+			}
+
+			if (fi < vf.size())
+			{
+				if (htptr == 0)
+				{
+					htptr= ht.size();
+					ht.push_back(HT(sha1result, sz));
+					htinv.update();
+					fsize+= sz;
+				}
+				vf[fi]->second.ptr.push_back(htptr);
+				/// OK store the crc. Very dirty (to be fixed in future)
+				// crckanz++;
+				/// crc=crc32_16bytes(&fragbuf[0],(uint32_t) sz);
+				uint32_t crc= 0;
+				if (flagverify || flagcollision)
+					if (g_franzotype > 0)
+					{
+						ht[htptr].crc32	   = crc;
+						ht[htptr].crc32size= sz;
+					}
+			}
+
+			if (sz == 0)
+				break;
+		}
+
+		if (fi < vf.size())
+		{
+			dedupesize+= fsize;
+			DTMap::iterator p	   = vf[fi];
+			string			newname= rename(p->first.c_str());
+			DTMap::iterator a	   = dt.find(newname);
+			if (a == dt.end() || a->second.date == 0)
+			{
+				p->second.filework= WORK_ADDED;
+				files_added++;
+				if (flagdebug3)
+					myprintf("02089: added newname %s\n", newname.c_str());
+			}
+			else
+			{
+				p->second.filework= WORK_UPDATED;
+				files_updated++;
+				if (flagdebug3)
+					myprintf("02090: $$$$$$$$$$$$$ updated newname %s\n", newname.c_str());
+			}
+
+			print_progress(total_size, total_done, g_scritti, ultimapercentuale);
+			if (!flagmemfile)
+#ifdef _WIN32
+				if ((!flagstdin))
+#else
+				if (!flagstdin)
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+					myfclose(&in);
+		}
+	}
+	assert(sb.size() == 0);
+	if (howmanythreads > 1)
+	{
+		// Wait for jobs to finish, NOT on ESXi
+		job.appendz(sb, 0, ""); // signal end of input
+		for (unsigned i= 0; i < tid.size(); ++i)
+			join(tid[i]);
+		join(wid);
+	}
+
+	salt[0]^= '7' ^ 'z';
+
+	OutputArchive outi(archive, index ? index : "", g_password, salt, 0);
+
+	WriterPair wp;
+	wp.a= &out;
+	if (index)
+		wp.b= &outi;
+
+	if (flagdebug3)
+		myprintf("02091: writejidacheader 5\n");
+
+	writeJidacHeader(&outi, date, 0, htsize);
+	// Append compressed fragment tables to archive
+	cdatasize	= out.tell() - header_end;
+	thecdatasize= out.tellwritten() - header_end;
+	if (flagverbose && (turbopieces > 0))
+		myprintf("65390: -turbo %s pieces, %s bytes cut on the main thread\n", migliaia(turbopieces), migliaia2(turboserial));
+	if (flagdebug3)
+	{
+		myprintf("02092: out.tell      %s\n", migliaia(out.tell()));
+		myprintf("02093: header_end    %s\n", migliaia(header_end));
+		myprintf("02094: cdatasize     %s\n", migliaia(cdatasize));
+		myprintf("02095: thecdatasize  %s\n", migliaia(thecdatasize));
+	}
+	if (g_chunk_size > 0)
+		cdatasize= thecdatasize;
+
+	StringBuffer is;
+	assert(blocklist.size() == job.csize.size());
+	blocklist.push_back(ht.size());
+	for (unsigned i= 0; i < job.csize.size(); ++i)
+	{
+		if (blocklist[i] < blocklist[i + 1])
+		{
+			puti(is, job.csize[i], 4); // compressed size of block
+			for (unsigned j= blocklist[i]; j < blocklist[i + 1]; ++j)
+			{
+				is.write((const char *)ht[j].sha1, 20);
+				puti(is, ht[j].usize, 4);
+			}
+			if (flagfast)
+			{
+				g_thememfilefragend= blocklist[i + 1];
+				/// myprintf("02096: g_themenend  %s\n",migliaia(g_thememfilefragend));
+				string hblockname= ("jDC" + itos(date, 14) + "h" + itos(blocklist[i], 10)).c_str();
+				/// myprintf("02097: hblockname _h  %s  %s @ |%s|\n",hblockname.c_str(),g_thememfileblock_h.c_str(),migliaia(out.tell()));
+				if (hblockname == g_thememfileblock_h)
+				{
+					if (g_thememfilestart_h == 0)
+					{
+						g_thememfilestart_h	 = out.tell();
+						g_thememfilefragstart= blocklist[i];
+					}
+					if (flagdebug3)
+						myprintf("02098: Fastlist %09d %09d _h %s %s\n", g_thememfilefragstart, g_thememfilefragend, migliaia(g_thememfilestart_h), hblockname.c_str());
+				}
+			}
+			libzpaq::compressBlock(&is, &wp, "0", ("jDC" + itos(date, 14) + "h" + itos(blocklist[i], 10)).c_str(), "jDC\x01");
+
+			is.resize(0);
+		}
+	}
+
+#ifdef _WIN32
+	int64_t start_iblock= out.tell();
+#endif				// corresponds to #ifdef (#ifdef _WIN32)
+					// Delete from archive
+	int dtcount= 0; // index block header name
+	removed	   = 0; // count
+
+	if (flagnodelete)
+		myprintf("70125$ -nodelete active, IT IS UP TO YOU TO HANDLE FILENAME COLLISIONS!\n");
+	else
+	{
+		for (DTMap::iterator p= dt.begin(); p != dt.end(); ++p)
+			if (p->second.date && !p->second.data)
+			{
+				puti(is, 0, 8);
+				is.write(p->first.c_str(), p->first.size()); // strlen(p->first.c_str()));
+				is.put(0);
+				++removed;
+				p->second.filework= WORK_REMOVED;
+				if (is.size() > 16000)
+				{
+					libzpaq::compressBlock(&is, &wp, "1", ("jDC" + itos(date) + "i" + itos(++dtcount, 10)).c_str(), "jDC\x01");
+					is.resize(0);
+				}
+			}
+	}
+	int added= 0;
+#ifdef unix
+	int goodmetadata= 0;
+	int badmetadata = 0;
+#endif
+	for (DTMap::iterator p= edt.begin();; ++p)
+	{
+		if (p != edt.end())
+		{
+			string filename	   = rename(p->first);
+			int	   fileaggiunto= p->second.filework;
+
+			if (flagnodelete)
+				if (fileaggiunto == WORK_UPDATED)
+					myprintf("70156! *** UPDATED FILE with -nodelete *** <<%Z>>\n", filename.c_str());
+
+			if (flagdebug3)
+			{
+				if (fileaggiunto == WORK_NONE)
+					myprintf("02099: file ignorato   %d %s\n", fileaggiunto, filename.c_str());
+				else if (fileaggiunto == WORK_ADDED)
+					myprintf("02100: file aggiunto   %d %s\n", fileaggiunto, filename.c_str());
+				else if (fileaggiunto == WORK_UPDATED)
+					myprintf("02101: file aggiornato %d %s\n", fileaggiunto, filename.c_str());
+			}
+			/// Fix longpath on VSS ( reference the addfile() )
+			///	hardcoded, do you like it?
+			/// if (command=='q')
+			if ((flagvss) && (!flagimage))
+				myreplace(filename, g_vss_shadow, g_franzsnap);
+			franzreplace(filename);
+			///			by using FRANZOFFSETV1 we need to cut down the attr during this compare
+			DTMap::iterator a= dt.find(filename);
+			if (p->second.date && (a == dt.end()																	  // new file
+								   || a->second.date != p->second.date												  // date change
+								   || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr) // attr ch. get less bits
+								   || a->second.size != p->second.size												  // size change
+								   || p->second.rehash																  // read only to store its hash
+								   || (p->second.data && a->second.ptr != p->second.ptr)))
+			{
+				if (p->second.pramfile != NULL)
+				{
+					if (flagdebug3)
+						myprintf("02102: ************************MEMFILE FIXING\n");
+					/// filename+=":$DATA";
+				}
+
+				///				we want to strip the path of VLIST
+				if (mypos("VFILE-", filename) > -1)
+				{
+					myprintf("\n");
+#ifdef _WIN32
+					myreplaceall(filename, "\\", "/");
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+					filename= extractfilename(filename);
+					myprintf("02103: We get a VFILE %s\n", filename.c_str());
+				}
+
+				uint32_t currentcrc32= 0;
+				if (flagverify || flagcollision)
+				{
+					for (unsigned i= 0; i < p->second.ptr.size(); ++i)
+						currentcrc32= crc32_combine(currentcrc32, ht[p->second.ptr[i]].crc32, ht[p->second.ptr[i]].crc32size);
+					if (currentcrc32 != p->second.file_crc32)
+						myprintf("02108: SOMETHING WRONG ON %s\n", p->first.c_str());
+				}
+
+				++added;
+				///				date and filename
+				puti(is, p->second.date, 8);
+				is.write(filename.c_str(), filename.size()); // strlen(filename.c_str()));
+				is.put(0);
+
+				string hashtobewritten;
+				string hasherror;
+				string hashname;
+				preparahashtobewritten(filename, p, hashtobewritten, hasherror, hashname,fileaggiunto);
+
+				/// Metadata-only update (typically an attribute change): the file
+				/// was not read, so there is no hash and no CRC-32 for it, and a
+				/// "!ERROR!" placeholder would be stored. But the fragments below
+				/// come from the previous version, so the archived bytes did not
+				/// change at all: carry the previous hash over instead, or v
+				/// (verify) would report this file as FAILED forever.
+				if ((a != dt.end()) && (p->second.data == 0) && (p->second.size > 0) && (p->second.hashedsize == 0))
+				{
+					string	 hashvecchio= hashtobewritten;
+					uint32_t crcvecchio	= p->second.file_crc32;
+					if (carryoverhash(a, hashvecchio, crcvecchio))
+					{
+						if (flagdebug3)
+							myprintf("02121: hash carried over from version %08d <<%Z>>\n", a->second.version, filename.c_str());
+						hashtobewritten		= hashvecchio;
+						p->second.hexhash	= hashvecchio;
+						p->second.file_crc32= crcvecchio;
+						currentcrc32		= crcvecchio; // -verify writes this one
+					}
+					else if (flagverbose)
+						myprintf("02122$ WARN no hash for the metadata-only change of %Z (different algorithm?)\n", filename.c_str());
+				}
+
+				/// myprintf("02119: hastobewritten ............. %s %s |%08X|\n",p->first.c_str(),hashtobewritten.c_str(),p->second.file_crc32);
+
+				struct franz_posix *themetadata= NULL;
+#ifdef unix
+				struct franz_posix metadata;
+				if (flagtar)
+				{
+					if (flagdebug5)
+					{
+						printbar('*');
+						myprintf("79600: Running flagtar, getting posix %Z\n", p->first.c_str());
+					}
+
+					if (savefilemetadata(p->first.c_str(), &metadata) == 0)
+					{
+						if (flagverbose)
+						{
+							color_green();
+							myprintf("79608: GOOD metadata for %Z\n", p->first.c_str());
+							color_restore();
+						}
+						themetadata= &metadata;
+						goodmetadata++;
+					}
+					else
+					{
+						myprintf("79531! Cannot get metadata for %Z\n", p->first.c_str());
+						badmetadata++;
+					}
+				}
+#endif
+
+				if ((flagnoattributes) && (!flag715))
+				{
+#ifdef _WIN32
+					writefranzattr(p, is, p->second.attr, 5, filename, currentcrc32, p->second.file_crc32, hashtobewritten, p->second.creationdate, p->second.accessdate, themetadata, p->second.filework == WORK_ADDED);
+#else
+					writefranzattr(p, is, p->second.attr, 3, filename, currentcrc32, p->second.file_crc32, hashtobewritten, p->second.creationdate, 0, themetadata, p->second.filework == WORK_ADDED);
+#endif
+				}
+				else
+				{
+					if ((p->second.attr & 255) == 'u')
+						writefranzattr(p, is, p->second.attr, 3, filename, currentcrc32, p->second.file_crc32, hashtobewritten, p->second.creationdate, 0, themetadata, p->second.filework == WORK_ADDED);
+					else if ((p->second.attr & 255) == 'w')
+					{
+						/// myprintf("02120: WINDOWS writefranz attr |%s|\n",hashtobewritten.c_str());
+						writefranzattr(p, is, p->second.attr, 5, filename, currentcrc32, p->second.file_crc32, hashtobewritten, p->second.creationdate, p->second.accessdate, themetadata, p->second.filework == WORK_ADDED);
+					}
+					else
+						puti(is, 0, 4); // no attributes
+				}
+
+				if (a == dt.end() || p->second.data)
+					a= p;						   // use new frag pointers
+				puti(is, a->second.ptr.size(), 4); // list of frag pointers
+				for (unsigned i= 0; i < a->second.ptr.size(); ++i)
+					puti(is, a->second.ptr[i], 4);
+			}
+		}
+		else
+		{
+			if (versioncomment.length() > 0)
+			{
+				/// quickly store a fake file (for backward compatibility) with the version comment
+				/// VCOMMENT 00000002 seconda_versione:$DATA
+				string versioni8= myulltoa(ver.size(), 8);
+
+				string fakefile= "VCOMMENT " + versioni8 + " " + versioncomment + ":$DATA"; // hidden windows file
+				puti(is, 0, 8);																// this is the "date". 0 is good, but do not pass paranoid compliance test. damn
+				is.write(fakefile.c_str(), fakefile.size());								/// strlen(fakefile.c_str()));
+				is.put(0);
+				///	puti(is, 0, 4);  // no attributes
+				///	puti(is, 0, 4);  // list of frag pointers
+			}
+		}
+		if (is.size() > 16000 || (is.size() > 0 && p == edt.end()))
+		{
+			libzpaq::compressBlock(&is, &wp, "1",
+								   ("jDC" + itos(date) + "i" + itos(++dtcount, 10)).c_str(), "jDC\x01");
+			is.resize(0);
+		}
+		if (p == edt.end())
+			break;
+	}
+	printbar(' ', false);
+	myprintf("\r");
+
+	if (flagwriteonconsole)
+	{
+		fprintf(stderr, "\r");
+		fprintf(stderr, "                                                                 \r");
+	}
+
+	if (flagfast)
+	{
+		if (flagverbose)
+			myprintf("02121: -fast enabled, creating index!\n");
+		is.resize(0);
+		string franzpointer= "filelistpointer:" + itos(g_thememfilestart) + "|" + itos(g_thememfilelength) + "|" + itos(g_thememfilestart_h) + "|" + itos(g_thememfilefragstart) + "|" + itos(g_thememfilefragend) + "|" + itos(ver.size()) + "|XXHASH:" + memfilehash + "|" + g_thememfileblock;
+		puti(is, 0, 8);
+		is.write(franzpointer.c_str(), franzpointer.size());
+		is.put(0);
+		libzpaq::compressBlock(&is, &wp, "1", ("jDC" + itos(date) + "i" + itos(++dtcount, 10)).c_str(), "jDC\x01");
+		is.resize(0);
+	}
+
+	if (!g_fakewrite)
+		if (!flagstdin)
+		{
+#ifdef unix
+			if (flagtar)
+			{
+				if (badmetadata > 0)
+					color_yellow();
+				myprintf("02123: %s +added, %s -removed, %s good metadata, %s bad metadata.\n", migliaia(added), migliaia2(removed), migliaia3(goodmetadata), migliaia4(badmetadata));
+				color_restore();
+			}
+			else
+#endif
+				myprintf("02122: %s +added, %s -removed.\n", migliaia(added), migliaia2(removed));
+		}
+
+	assert(is.size() == 0);
+
+	outi.close();
+	///int64_t 
+	archive_end= out.tell();
+
+	if (flagdebug3)
+		myprintf("02123: calculated **** %s %s\n", migliaia(cdatasize), migliaia2(htsize));
+
+	if ((g_optional == "ransomware") && (g_cdatasize == 0) && (g_htsize == 0))
+	{
+		if (flagdebug3)
+			myprintf("02124: calculated cdatasize %s  htsize %s\n", migliaia(cdatasize), migliaia2(htsize));
+		g_cdatasize= cdatasize;
+		g_htsize   = htsize;
+	}
+	else
+	{
+		if (flagdebug3)
+			myprintf("02125: writeJidacHeader last cdata %s htsize %s header_pos %s\n", migliaia(cdatasize), migliaia2(htsize), migliaia3(header_pos));
+		/// g_skipsocket=true;
+		/// string avviso="AVVISOOOOOO 42192     ";
+		/// send(g_socket,avviso.c_str(),avviso.size(),0);
+		if (g_chunk_size > 0)
+		{
+			if (flagdebug3)
+				myprintf("02126: fix the jidacheader\n");
+			out.flush(); // this is fundamental!
+			g_write_on_first= true;
+			g_write_on_seek = header_pos;
+			if (g_password != NULL)
+			{
+				if (out.firstchunk)
+				{
+					if (flagdebug3)
+						myprintf("02127: firstchunk cdatasize %s +32 %s\n", migliaia(cdatasize), migliaia2(cdatasize + 32));
+					cdatasize+= 32;
+				}
+			}
+			if (flagdebug3)
+				myprintf("02128: writejidacheader 7 (finale,chunk) header_pos %s cdatasize %s htsize %s\n", migliaia3(header_pos), migliaia(cdatasize), migliaia(htsize));
+			writeJidacHeader(&out, date, cdatasize, htsize);
+		}
+		else
+		{
+			if (flagdebug3)
+			{
+				myprintf("02129: writejidacheader 6 (finale,stand) header_pos %s cdatasize %s htsize %s\n", migliaia3(header_pos), migliaia(cdatasize), migliaia(htsize));
+				myprintf("02130: out.seek SEEK_SET at header_pos %s\n", migliaia(header_pos));
+			}
+			out.seek(header_pos, SEEK_SET);
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+			g_franzen_jidacheader= header_pos;
+#endif /// NOSFTPEND
+#endif
+			writeJidacHeader(&out, date, cdatasize, htsize);
+			if (flagdebug3)
+				myprintf("02131: preflush\n");
+			out.flush(); // this is fundamental!
+			if (flagdebug3)
+				myprintf("02132: postflush\n");
+			out.seek(0, SEEK_END);
+			if (flagdebug3)
+				myprintf("02133: postseek\n");
+		}
+	}
+	archive_size= out.tell();
+
+	out.close();
+
+	if (g_chunk_size > 0)
+	{
+		if (flagdebug3)
+			myprintf("02134: old archive_size %s\n", migliaia(archive_size));
+		archive_size= out.tellwritten();
+		if (flagdebug3)
+			myprintf("02135: new archive_size %s\n", migliaia(archive_size));
+	}
+
+	handlemultiparttrim();
+
+	// Truncate empty update from archive (if not indexed)
+	if (!index)
+	{
+		if (g_chunk_size > 0)
+		{
+			if (flagverbose)
+			{
+				printbar('-');
+				for (unsigned int i= 0; i < out.filepartnames.size(); i++)
+					myprintf("02136: Chunk %08d %21s %s\n", i + 1, migliaia(prendidimensionefile(out.filepartnames[i].c_str())), out.filepartnames[i].c_str());
+				printbar('=');
+			}
+			string thelast= out.lastfilename();
+			myprintf("02137: INFO: The last chunk is: %Z\n", thelast.c_str());
+			if (prendidimensionefile(thelast.c_str()) == 0)
+			{
+				if (delete_file(thelast.c_str()))
+				{
+					myprintf("02138: deleted %Z : no data to be keeped\n", thelast.c_str());
+				}
+				else
+				{
+					color_yellow();
+#ifdef _WIN32
+					myprintf("12451: Cannot delete last <<%s>> because %d\n", thelast.c_str(), GetLastError());
+#else
+					myprintf("12453: Cannot delete last <<%s>>\n", thelast.c_str());
+#endif
+					color_restore();
+				}
+			}
+			else
+			{
+				myprintf("79143: Touching last piece\n");
+				if (!filetouchnow(thelast.c_str()))
+					myprintf("79148! Cannot filetouchnow last piece %Z\n", thelast.c_str());
+			}
+			if (flagdebug3)
+				myprintf("02139: thecdatasize %21s\n", migliaia(thecdatasize));
+		}
+		else // default, not chunked
+		{
+			if (flagdebug3)
+				myprintf("02140: arcname %s\n", arcname.c_str());
+
+			if ((files_added + files_updated + removed) == 0 && archive_end - header_pos == 104) // no update
+				archive_end= header_pos;
+
+			if ((archive_end < archive_size) && (g_chunk_size == 0))
+			{
+				if (archive_end > 0)
+				{
+					
+					if (exists(arcname))
+					{
+						if (flagverbose)
+							myprintf("02141: truncating archive from %s to %s\n", migliaia(archive_size), migliaia2(archive_end));
+						if (truncate(arcname.c_str(), archive_end))
+							printerr("trunc", archive.c_str(), 0);
+					}
+					if (fasttxt != "")
+					{
+						myprintf("02142: Turning off fasttxt due to truncation [archive not changed]\n");
+						flagfasttxt= false; // we do not want to update CRC-32!
+						fasttxt	   = "";
+					}
+
+					///					myprintf("0000000000000000000000000000 %s\n",migliaia(g_starting_zpaqdate));
+					if ((g_starting_zpaqdate > 0) && exists(arcname))
+					{
+						if (flagverbose)
+							myprintf("02143: touching back to %s\n", dateToString(false, g_starting_zpaqdate).c_str());
+						if (!touch(arcname.c_str(), g_starting_zpaqdate, g_starting_zpaqattr))
+							myprintf("02144$ WARNING trouble in touching\n");
+					}
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART					
+					if (g_franzen_filename!="")
+					{
+						if (fileexists(g_franzen_filename))
+						{
+		
+							int64_t newfranzen=prendidimensionefile(g_franzen_filename.c_str());
+							
+							if (newfranzen>g_starting_franzenfile)
+							{
+								
+								if (g_p_franzenfile)
+								{
+									myprintf("22032: Closing g_p_franzenfile\n");
+									g_p_franzenfile->close();
+								}
+							  // ALSO close the thread-local franzcri of the main thread!
+								// It was opened by get_thread_franzenfile() during InputArchive reading
+								cleanup_thread_franzenfile();
+								color_magenta();
+								myprintf("02141: Truncating franzenarchive from %s to %s (- %s)\n", migliaia(newfranzen), migliaia2(g_starting_franzenfile),migliaia3(newfranzen-g_starting_franzenfile));
+								color_restore();
+								if (truncate(g_franzen_filename.c_str(), g_starting_franzenfile))
+									printerr("trunc-franz", g_franzen_filename.c_str(), 0);
+							}
+							
+							if (g_starting_zpaqdate > 0)
+							{
+								if (!touch(g_franzen_filename.c_str(), g_starting_zpaqdate, g_starting_zpaqattr))
+									myprintf("02143$ WARNING trouble in touching franzen\n");
+							}
+						}
+					}
+#endif /// NOSFTPEND
+#endif
+
+				}
+				else if (archive_end == 0)
+				{
+					if (delete_file(arcname.c_str()))
+						if (flagverbose)
+						{
+							myprintf("02145: deleted %Z: no data to be archived\n", arcname.c_str());
+						}
+				}
+			}
+		}
+	}
+	fflush(stdout);
+
+	if (archive_end) // sometimes the unencrypted .zpaq is empty
+	{
+		if (flagverbose)
+			if (total_xls)
+				myprintf("02146: Forced XLS/PPT has included %s bytes in %s files\n", migliaia(total_xls), migliaia2(file_xls));
+
+		int64_t speed= 0;
+		int64_t ticks= mtime() - g_start;
+		if (ticks > 0) // not divide by zero, please
+			speed= (int64_t)(total_size / (ticks / 1000.0));
+
+		int64_t myarchive_end= archive_end;
+
+		string inchunks	  = " ";
+		string intotalsize= "";
+
+		if (g_chunk_size > 0)
+		{
+			inchunks   = "[CKS #" + itos(out.filepartnames.size() + 1) + "]";
+			intotalsize= "[TOT]";
+		}
+		else if (g_flagmultipart)
+		{
+			intotalsize= "[LAST]";
+		}
+		if (g_chunk_size > 0) // we have multiple output
+			if (out.filepartnames.size() > 0)
+			{
+				myarchive_end= 0;
+				for (unsigned int i= 0; i < out.filepartnames.size(); i++)
+				{
+					if (flagdebug3)
+						myprintf("02147: Getting %08d %s\n", i, out.filepartnames[i].c_str());
+					if (fileexists(out.filepartnames[i]))
+						myarchive_end+= prendidimensionefile(out.filepartnames[i].c_str());
+				}
+			}
+		/// myprintf("02148: ZZZ %21s myarchive_end initial_archive_size %s\n",migliaia4(myarchive_end),migliaia(initial_archive_size));
+
+		if (flagverbose)
+		{
+			myprintf("02149:  %21s starting size\n", migliaia(initial_archive_size));
+			myprintf("02150:  %21s data to be added\n", migliaia2(total_size));
+			myprintf("02151:  %21s after deduplication\n", migliaia3(dedupesize));
+			myprintf("02152: +%21s after compression\n", migliaia4(myarchive_end)); //-initial_archive_size),inchunks.c_str());
+			myprintf("02153:  %21s total size %s\n", migliaia5(myarchive_end), inchunks.c_str());
+			myprintf("02154:  Total speed %s/s\n", tohuman(speed));
+			myprintf("02155:  IO buffer %s\n", migliaia6(g_ioBUFSIZE));
+		}
+		else
+		{
+			if (g_fakewrite)
+			{
+				myprintf("\n");
+				myprintf("02156: (%s -> %s) @ %s/s\n", migliaia2(total_size), migliaia3(dedupesize), tohuman(speed));
+			}
+			else
+			{
+				if (g_stdinsize>0)
+					if (total_size>(int64_t)g_stdinsize)
+						total_size-=g_stdinsize;	//fix back the output
+		
+				int64_t global_file_len= prendidimensionefile(g_archive.c_str());
+				if (global_file_len <= 0)
+					global_file_len= myarchive_end;
+				myprintf("\n");
+				if (g_chunk_size > 0) // we have multiple output
+					global_file_len= myarchive_end + initial_archive_size;
+
+				if (files_added + files_updated + removed > 0)
+				{
+					myprintf("02157: %s + (%s -> %s -> %s %s) = %s %s @ %s/s\n",
+							 migliaia(initial_archive_size),
+							 migliaia2(total_size),
+							 migliaia3(dedupesize),
+							 inchunks.c_str(),
+							 migliaia4(myarchive_end),
+							 migliaia5(global_file_len),
+							 intotalsize.c_str(),
+							 tohuman(speed));
+				}
+			}
+		}
+	}
+
+	if (!flagstdin)
+		if (total_size != total_done)
+			if (flagverbose)
+			{
+				printbar('!');
+				int64_t total_size_vf= 0;
+				for (unsigned i= 0; i < vf.size(); i++)
+				{
+					DTMap::iterator p= vf[i];
+					if (p->second.size != p->second.hashedsize)
+						myprintf("02158: exp %15s get %15s %s\n", migliaia(p->second.size), migliaia2(p->second.hashedsize), p->first.c_str());
+					total_size_vf= total_size_vf + p->second.hashedsize;
+				}
+				myprintf("02159: expected total_size %21s\n", migliaia(total_size));
+				myprintf("02160: hashed   total_size %21s\n", migliaia(total_size_vf));
+				printbar('!');
+			}
+
+	if (finalemultiparttmp() != 0)
+		return 2;
+
+	/// do a second copy (ex. to USB)
+	if (errors == 0)
+		if (g_copy != "")
+		{
+			string tobecopied= g_archive;
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+			if (isfranzenonly(g_archive))
+				tobecopied= g_archive + ".franzen"; // franzen-only: the .franzen is the archive
+#endif /// NOSFTPEND
+#endif
+			string filescritto= filecopy(false, false, tobecopied, g_copy, true, false, false, 0);
+			if (filescritto != "")
+				myprintf("02165: Copied <<%s>> to <<%s>>\n", tobecopied.c_str(), filescritto.c_str());
+			else
+				myprintf("02166: ERROR doing -copy from %s to %s\n", tobecopied.c_str(), filescritto.c_str());
+		}
+	if (flagfilelist)
+		if (fileexists(tempfile))
+		{
+			if (flagdebug2)
+				myprintf("02164: deleting tempfile %s\n", tempfile.c_str());
+			delete_file(tempfile.c_str());
+		}
+	gestisciposttest();
+#ifdef ZPAQFULL /// NOSFTPSTART
+	gestiscisfx();
+#endif /// NOSFTPEND
+
+	if (posterrori() != 0)
+		return 2;
+
+#ifdef unix
+	if (flagimage)
+	{
+		chiudidump();
+	}
+#endif
+
+#ifdef _WIN32
+
+	if (flagimage)
+	{
+		rawimager.chiudiraw();
+	}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+
+	if (flagcollision)
+		if (checksha1collision(edt, false) > 0) // we get the crc32 from writefranzattr, so false
+		{
+			if (errors == 0)
+				errors= 1;
+			if (flagcollision)
+				myprintf("02180$ WARNING: some files cannot be restored correctly due to a suspected SHA-1 collision(s).\n");
+		}
+
+	dimensione_garchive= prendidimensionefile(g_archive.c_str());
+#ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+	if (dimensione_garchive <= 0)
+		if (isfranzenonly(g_archive))
+			dimensione_garchive= prendidimensionefile((g_archive + ".franzen").c_str());
+#endif /// NOSFTPEND
+#endif
+
+///	myprintf("dimensione g_archive %s\n",migliaia(dimensione_garchive));
+	gestiscibackupzeta();
+
+	if (gestiscicalcolifinali() != 0)
+		return 2;
+
+	franz_free(buf); // mem leak, but who cares??
+
+	bool isfirstrun= false;
+
+	if (g_password == NULL)
+	{
+		if (header_pos == 0) /// FIRST run
+		{
+			isfirstrun= true;
+			if (flagdebug3)
+				myprintf("02202: setting isfirstrun [1]\n");
+		}
+	}
+	else
+	{
+		if (header_pos == 32)
+		{
+			isfirstrun= true;
+			if (flagdebug3)
+				myprintf("02203: setting isfirstrun (pwd) [2]\n");
+		}
+	}
+
+	if (initialzpaqsize == dimensione_garchive)
+	{
+		isfirstrun= true;
+		if (flagdebug3)
+			myprintf("02204: setting isfirstrun (size) [3]\n");
+	}
+
+	if (flagdebug3)
+	{
+		if (isfirstrun)
+			myprintf("02205: This is the first run\n");
+		else
+			myprintf("02206: This is NOT the first run\n");
+	}
+
+	if (aggiornafasttxt() != 0)
+		return 2;
+
+	rilasciasnapshot();
+
+	///	checksha1collision(dt,true);
+
+#ifdef _WIN32
+	if ((flagads) && (!flagfasttxt))
+		fill_ads(g_archive, start_iblock);
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+
+	gestisciflagstat();
+
+	string temp= "";
+	string temp2;
+	if (files_added > 0)
+	{
+		temp2= migliaia(files_added);
+		temp+= " added +" + temp2;
+	}
+	if (files_updated > 0)
+	{
+		temp2= migliaia(files_updated);
+		temp+= " updated #" + temp2;
+	}
+	if (removed > 0)
+	{
+		temp2= migliaia(removed);
+		temp+= " removed -" + temp2;
+	}
+	if (files_added + files_updated + removed > 0)
+		myprintf("02251: Files%s\n", temp.c_str());
+
+	if (flagignore)
+	{
+		if (errors)
+			myprintf("69706$ resetting errors to 0 due to -ignore from %d\n", errors);
+		errors= 0;
+	}
+	return errors;
+}
+#endif // corresponds to #ifndef (#ifndef ANCIENT)
 #ifdef _WIN32
 bool Jidac::preparavhd(char drive_letter)
 {
@@ -133921,7 +147541,7 @@ bool franzju::comparefrombuffers(const std::wstring					  &volumePath,
 
 	std::vector<pthread_t>							  threads(num_threads);
 	std::vector<ThreadCompareData>					  thread_data(num_threads);
-	std::vector<std::map<std::wstring, FileMetadata>> local_results(num_threads);
+	std::vector<std::map<std::wstring, FileMetadata> > local_results(num_threads);
 
 	int active_threads= 0;
 	for (int t= 0; t < num_threads; t++)
