@@ -15786,6 +15786,7 @@ const std::string& zpaqlz5_bytecode();   /// ZPAQLZ5, definido junto a compressB
 const std::string& zpaqlzma_bytecode();  /// ZPAQLZMA, idem
 const std::string& zpaqflzma2_bytecode(); /// ZPAQFLZMA2, idem
 const std::string& zpaqsnappy_bytecode(); /// ZPAQSNAPPY, idem
+const std::string& zpaqlzav_bytecode();   /// ZPAQLZAV, idem
 // Copy ph, pm from block header
 void PostProcessor::init(int h, int m) {
   state=hsize=0;
@@ -15844,10 +15845,12 @@ int PostProcessor::write(int c) {
           const std::string& bl=zpaqlzma_bytecode();
           const std::string& b2=zpaqflzma2_bytecode();
           const std::string& bs=zpaqsnappy_bytecode();
+          const std::string& bv=zpaqlzav_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
-           || (int(bs.size())==hsize && memcmp(&z.header[z.hbegin], bs.data(), hsize)==0)) {
+           || (int(bs.size())==hsize && memcmp(&z.header[z.hbegin], bs.data(), hsize)==0)
+           || (int(bv.size())==hsize && memcmp(&z.header[z.hbegin], bv.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -19540,6 +19543,160 @@ const std::string& zpaqsnappy_bytecode() {
   return b;
 }
 
+/// ---- ZPAQLZAV: bloques -ma:lzav que CUALQUIER zpaq puede extraer ------------
+/// Decodificador del formato 3 de LZAV (el que escribe la 5.17) en ZPAQL, un byte
+/// por llamada. Lo delicado del formato es el acarreo del offset: los bloques de
+/// literales guardan 2 bits del offset de la PROXIMA referencia, las referencias de
+/// 2 y 3 bytes guardan bits del siguiente en sus bits altos, y despues de un literal
+/// SIEMPRE viene una referencia, que si es de tipo 0 no lleva bytes: su offset es
+/// solo el acarreo. Con eso los offsets pueden ir mucho mas lejos que la ventana
+/// nominal de 2 MB de LZAV, pero nunca antes del principio del bloque: por eso pm
+/// cubre el bloque entero. Entrada: tamano original (4 bytes LE) + el flujo de LZAV;
+/// el tamano es lo que corta, porque LZAV rellena con ceros los flujos chicos.
+/// Verificado con zpaqd 7.15: 22 vectores (11 entradas x los dos niveles). zpaq-std
+/// 2026. CONGELADO, como los demas.
+static const char* const ZPAQLZAV_CUERPO=
+"hcomp\n"
+"  halt\n"
+"pcomp zpaqlzav ;\n"
+"(ZPAQLZAV: decodificador del formato 3 de LZAV, para zpaq-std -ma:lzav. Un byte\n"
+" por llamada. M es la ventana circular: LZAV usa una ventana dinamica, con los\n"
+" bits de acarreo del offset, que puede llegar mucho mas lejos que su ventana\n"
+" nominal de 2 MB, pero nunca antes del principio del bloque; por eso zpaq-std\n"
+" pone pm tal que M cubra el bloque entero.\n"
+" r1 estado, r2 cabecera, r3 cuenta, r4 valor, r5 corrimiento, r6 acarreo cv,\n"
+" r7 corrimiento del acarreo csh, r8 mref-1, r9 tipo de bloque, r10 largo de la\n"
+" copia, r11 offset, r12 = 1 si el bloque anterior fue de literales: despues de\n"
+" un literal SIEMPRE viene una referencia, y una de tipo 0 no lleva bytes de\n"
+" offset, su offset es solo el acarreo. Entrada: tamano original en 4 bytes\n"
+" LE, y el flujo de LZAV: r13 cuenta lo que falta escribir, r14 los bytes del\n"
+" tamano; al llegar a 0 se ignora el resto, que es relleno de LZAV.)\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 2 r=a 3 r=a 4 r=a 5 r=a 6 r=a 7 r=a 8 r=a 9 r=a 10 r=a 11 r=a 12 r=a 13 r=a 14\n"
+"    halt\n"
+"  endif\n"
+"  d=a\n"
+"  a=r 1\n"
+"  a== 9 if\n"
+"    halt\n"
+"  endif\n"
+"  a== 0 ifl\n"
+"    a=d c=r 14 a<<=c c=a a=r 13 a+=c r=a 13\n"
+"    a=r 14 a+= 8 r=a 14\n"
+"    a== 32 if a= 20 r=a 1 endif\n"
+"  elsel\n"
+"  a== 20 ifl\n"
+"    a=d a&= 15 a-- r=a 8\n"
+"    a= 1 r=a 1\n"
+"  elsel\n"
+"  a== 1 ifl\n"
+"    a=d r=a 2\n"
+"    a>>= 4 a&= 3 r=a 9\n"
+"    c=a a=r 12 a== 1 if a= 4 else a=c endif\n"
+"    a== 0 ifl\n"
+"      a= 1 r=a 12\n"
+"      a=d a>>= 6 c=r 7 a<<=c c=a a=r 6 a|=c r=a 6\n"
+"      a=r 7 a+= 2 r=a 7\n"
+"      a=d a&= 15 a== 0 if\n"
+"        a=0 r=a 4 r=a 5 a= 3 r=a 1\n"
+"      else\n"
+"        r=a 3 a= 2 r=a 1\n"
+"      endif\n"
+"    elsel\n"
+"      a=0 r=a 12 r=a 4 r=a 5\n"
+"      a=r 9 r=a 3\n"
+"      a== 0 if a= 7 else a= 4 endif r=a 1\n"
+"    endif\n"
+"  elsel\n"
+"  a== 2 ifl\n"
+"    a=d *b=a out b++\n"
+"    a=r 3 a-- r=a 3\n"
+"    a== 0 if a= 1 r=a 1 endif\n"
+"    a=r 13 a-- r=a 13\n"
+"    a== 0 if a= 9 r=a 1 endif\n"
+"  elsel\n"
+"  a== 3 ifl\n"
+"    a=d a&= 127 c=r 5 a<<=c c=a a=r 4 a+=c r=a 4\n"
+"    a=d a>>= 7 a== 0 ifl\n"
+"      a=r 4 a+= 16 r=a 3 a= 2 r=a 1\n"
+"    elsel\n"
+"      a=r 5 a== 28 ifl\n"
+"        a=r 4 a+= 16 r=a 3 a= 2 r=a 1\n"
+"      elsel\n"
+"        a+= 7 r=a 5\n"
+"      endif\n"
+"    endif\n"
+"  elsel\n"
+"  a== 4 ifl\n"
+"    a=d c=r 5 a<<=c c=a a=r 4 a+=c r=a 4\n"
+"    a=r 5 a+= 8 r=a 5\n"
+"    a=r 3 a-- r=a 3\n"
+"    a== 0 if a= 7 r=a 1 endif\n"
+"  elsel\n"
+"  a== 5 ifl\n"
+"    a=d a&= 127 c=r 5 a<<=c c=a a=r 4 a+=c r=a 4\n"
+"    a=d a>>= 7 a== 0 ifl\n"
+"      a=r 4 a+= 16 d=r 8 a+=d r=a 10 a= 6 r=a 1\n"
+"    elsel\n"
+"      a=r 5 a== 28 ifl\n"
+"        a=r 4 a+= 16 d=r 8 a+=d r=a 10 a= 6 r=a 1\n"
+"      elsel\n"
+"        a+= 7 r=a 5\n"
+"      endif\n"
+"    endif\n"
+"  endif\n"
+"  endif\n"
+"  endif\n"
+"  endif\n"
+"  endif\n"
+"  endif\n"
+"  endif\n"
+"  a=r 1 a== 7 ifl\n"
+"      a=r 4 a<<= 2 c=a a=r 2 a>>= 6 a|=c\n"
+"      c=a\n"
+"      a=r 9 a== 0 if a=0 c=a endif\n"
+"      a=r 9 a== 1 if a=c a<<= 22 a>>= 22 c=a endif\n"
+"      a=r 9 a== 2 if a=c a<<= 17 a>>= 17 c=a endif\n"
+"      a=r 9 a== 3 if a=c a<<= 11 a>>= 11 c=a endif\n"
+"      a=c d=r 7 c=d a<<=c d=r 6 a|=d r=a 11\n"
+"      a=r 9 a== 0 if a=0 r=a 6 r=a 7 endif\n"
+"      a=r 9 a== 1 if a=0 r=a 6 r=a 7 endif\n"
+"      a=r 9 a== 2 if a=r 4 a>>= 13 a&= 7 r=a 6 a= 3 r=a 7 endif\n"
+"      a=r 9 a== 3 if a=r 4 a>>= 19 a&= 31 r=a 6 a= 5 r=a 7 endif\n"
+"      a=r 2 a&= 15 a== 0 ifl\n"
+"        a=0 r=a 4 r=a 5 a= 5 r=a 1\n"
+"      elsel\n"
+"        d=r 8 a+=d r=a 10 a= 6 r=a 1\n"
+"      endif\n"
+"  endif\n"
+"  a=r 1 a== 6 ifl\n"
+"    a=b c=r 11 a-=c c=a\n"
+"    do\n"
+"      a=*c *b=a out b++ c++\n"
+"      a=r 13 a-- r=a 13\n"
+"      a=r 10 a-- r=a 10\n"
+"    a> 0 while\n"
+"    a= 1 r=a 1\n"
+"    a=r 13 a== 0 if a= 9 r=a 1 endif\n"
+"  endif\n"
+"  halt\n"
+"end\n";
+std::string zpaqlzav_config(int pm) {
+  return "comp 0 0 0 "+itos(pm)+" 0\n"+ZPAQLZAV_CUERPO;
+}
+static std::string zpaqlzav_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqlzav_config(24);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqlzav_bytecode() {
+  static const std::string b=zpaqlzav_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -19565,13 +19722,14 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_lzma= strncmp(method_, "zpaqlzma:", 9)==0;
   const bool es_fl2 = strncmp(method_, "zpaqflzma2:", 11)==0;   /// ZPAQFLZMA2, idem
   const bool es_sn  = strncmp(method_, "zpaqsnappy:", 11)==0;   /// ZPAQSNAPPY, pm=16
-  if (es_lzma || es_fl2 || es_sn || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_lzv = strncmp(method_, "zpaqlzav:", 9)==0;      /// ZPAQLZAV, pm = bloque
+  if (es_lzma || es_fl2 || es_sn || es_lzv || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_lzma ? 9 : (es_fl2 || es_sn) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_lzma && !es_fl2 && !es_sn && (pm<16 || pm>24)) || ((es_lzma || es_fl2) && (pm<17 || pm>31))
-        || (es_sn && pm!=16))
+    if (sscanf(method_+((es_lzma || es_lzv) ? 9 : (es_fl2 || es_sn) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && (pm<16 || pm>24)) || ((es_lzma || es_fl2) && (pm<17 || pm>31))
+        || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
     for (int i=0; i<20; ++i) {
@@ -19580,7 +19738,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sha1bin[i]=(char)v;
     }
     const std::string cfg=es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
-                         : es_sn ? zpaqsnappy_config(pm) : zpaqlz5_config(pm);
+                         : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm) : zpaqlz5_config(pm);
     int args[9]={0};
     Compressor co;
     co.setOutput(out);
@@ -56546,7 +56704,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  snappy: ZPAQSNAPPY, Google (very fast, like lz4); opens in any zpaq");
 		scrivi_riga(" ", "  deflate: libdeflate (0=stored, 6=default, 12=best; ~2x faster than zlib)");
 		scrivi_riga(" ", "  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq");
-		scrivi_riga(" ", "  lzav: avaneev LZAV (0=default, 1=hi-ratio; very fast, ~lz4 speed)");
+		scrivi_riga(" ", "  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq");
 		scrivi_riga(" ", "  hs: atomicobject heatshrink (0..2: 2KB/8KB/32KB window; tiny, embedded-grade)");
 		scrivi_riga(" ", "  lzfse: Apple LZFSE (0=default; high ratio on text/structured data)");
 		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
@@ -59727,7 +59885,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	/// caso CLAAS de 46 GB, asi que se hace aparte y con su propia tanda de
 	/// pruebas, no de refilon. Ver el issue #1 (kaitz).
 	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
-	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy")
+	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
@@ -59742,6 +59900,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		/// experimental.
 		const char* zname= (g_ma_algorithm=="lzma") ? "ZPAQLZMA" : (g_ma_algorithm=="lz") ? "ZPAQLZIP"
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
+		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV"
 		                 : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
@@ -65669,6 +65828,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lzma_orig= 0;
 			int64_t fl2p_orig= 0;
 			int64_t snp_orig= 0;
+			int64_t lzv_orig= 0;
 			int64_t liz_orig= 0;
 			int64_t bz2_orig= 0;
 			int64_t bz3_orig= 0;
@@ -65728,6 +65888,12 @@ ThreadReturn decompressThread(void *arg)
 					}
 					/// ZPAQLZ5: los bloques -ma:lz5 nuevos llevan su decodificador y la
 					/// etiqueta "zpaqstd-ma2:" (ver la rama de escritura).
+					auto mlzav2 = cs.find("zpaqstd-ma2:lzav:");
+					if (mlzav2 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + mlzav2 + 17, "%d:%" SCNd64, &lvl, &lzv_orig);
+					}
 					auto msnp = cs.find("zpaqstd-ma2:snappy:");
 					if (msnp != string::npos)
 					{
@@ -65951,6 +66117,30 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = lz5_orig;
+			}
+			// ZPAQLZAV: igual; nativo es lzav_decompress sobre lo que sigue a los 4 bytes.
+			else if (lzv_orig > 0 && (int64_t)out.size() == lzv_orig)
+			{
+				output_size = lzv_orig;
+			}
+			else if (lzv_orig > 0)
+			{
+				if (out.size() < 5)
+					error("31319 lzav decompression failed");
+				const unsigned char* src = (const unsigned char *)out.data();
+				uint64_t hsz = 0;
+				for (int i = 0; i < 4; i++)
+					hsz |= (uint64_t)src[i] << (8 * i);
+				if ((int64_t)hsz != lzv_orig || lzv_orig > 0x7FFFFFFF)
+					error("31319 lzav decompression failed");
+				string decomp2;
+				decomp2.resize(lzv_orig);
+				int lzrc = lzav_decompress((const void *)(src + 4), (void *)&decomp2[0], (int)(out.size() - 4), (int)lzv_orig);
+				if (lzrc != (int)lzv_orig)
+					error("31319 lzav decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = lzv_orig;
 			}
 			// ZPAQSNAPPY: igual; nativo es snappy_uncompress sobre el bloque.
 			else if (snp_orig > 0 && (int64_t)out.size() == snp_orig)
@@ -112086,12 +112276,27 @@ int Jidac::add()
 									int lzsz=(g_ma_level==1)
 										?lzav_compress_hi((const void*)sb.data(),(void*)lzbuf,(int)orig_size,(int)dstCap)
 										:lzav_compress_default((const void*)sb.data(),(void*)lzbuf,(int)orig_size,(int)dstCap);
-									if (lzsz>0&&(int64_t)lzsz<orig_size-16)
+									/// ZPAQLZAV: tamano original (4 bytes) + el flujo de LZAV, con
+									/// su decodificador ZPAQL; pm cubre el bloque entero (los
+									/// offsets de LZAV pueden llegar al principio del bloque).
+									int k=16;
+									while (k<31 && ((int64_t)1<<k)<orig_size) k++;
+									if (lzsz>0&&(int64_t)lzsz+4<orig_size-16&&((int64_t)1<<k)>=orig_size)
 									{
+										libzpaq::SHA1 sh1;
+										sh1.write((const char*)sb.data(), orig_size);
+										const char* r1=sh1.result();
+										char hx[41];
+										for (int q=0; q<20; ++q)
+											snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+										char hd[4];
+										for (int q=0; q<4; q++)
+											hd[q]=(char)((uint64_t)orig_size>>(8*q));
 										sb.reset();
+										sb.write(hd,4);
 										sb.write((const char*)lzbuf,lzsz);
-										m="04,0";
-										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+										m="zpaqlzav:"+itos(k)+":"+itos(orig_size)+":"+hx;
+										ma_comment="zpaqstd-ma2:lzav:"+itos(g_ma_level)+":"+itos(orig_size);
 									}
 									delete[] lzbuf;
 								}

@@ -1,3 +1,27 @@
+### [65.2k-pre29] - 2026-09-24
+
+**`-ma:lzav` opens in any zpaq (ZPAQLZAV).** Nine portable `-ma` switches now.
+
+A decoder for LZAV's format 3 (what 5.17 writes), in ZPAQL, one byte at a time,
+written for zpaq-std. 644 bytes of bytecode; about 100 MB/s in other tools with
+the JIT, 10 MB/s without.
+
+The subtle part of the format is its offset carry: literal blocks hold 2 bits of
+the *next* reference's offset, 2- and 3-byte offsets hold more in their high
+bits, and a reference that follows a literal block may carry no offset bytes at
+all — its offset is the carry alone. That is how LZAV's offsets reach far beyond
+its nominal 2 MB window; they never go before the start of the block, so the
+decoder's window covers the whole block (a foreign zpaq needs the block size in
+memory per thread). The block also holds the original size (4 bytes), because
+LZAV pads small streams with zeros and the size is what stops the decoder.
+
+- **Verified** with zpaq 7.15 on 22 LZAV streams (11 inputs × both levels),
+  checked against a Python port of LZAV's own decoder first.
+- **Compatibility:** every zpaq-std from pre20 on extracts the new blocks
+  (measured on pre20, pre23–pre28); `-ma:lzav` archives written before still
+  extract.
+- The help text and the `00602` notice name it ZPAQLZAV.
+
 ### [65.2k-pre28] - 2026-09-24
 
 **Three more `-ma` codecs open in any zpaq — `flzma2`, `lz` and `snappy` — and

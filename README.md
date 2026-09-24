@@ -44,7 +44,7 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:snappy:N` | Snappy v1.2.1 — **ZPAQSNAPPY** | 1–2 | 1 | Google's, like lz4 but tighter; **opens in any zpaq** |
 | `-ma:deflate:N` | libdeflate v1.26 | 0–12 | 6 | fast deflate/inflate (ebiggers) |
 | `-ma:lz:N` | lzlib v1.16 — **ZPAQLZIP** | 0–9 | 6 | LZMA, BSD-2 lzip stream API; **opens in any zpaq** |
-| `-ma:lzav:N` | LZAV v5.17 (avaneev) | 0–1 | 1 | LZ77, header-only, very fast |
+| `-ma:lzav:N` | LZAV v5.17 (avaneev) — **ZPAQLZAV** | 0–1 | 1 | LZ77, header-only, very fast; **opens in any zpaq** |
 | `-ma:hs:N` | heatshrink v0.4.1 (atomicobject) | 0–2 | 1 | tiny, embedded-grade (2KB/8KB/32KB window) |
 | `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 1 | high ratio on text/structured data (one internal level: 0 and 1 give the same output) |
 | `-ma:bsc:N` | libbsc v3.3.12 (IlyaGrebnov, Apache-2.0) | 1–9 | 3 | BWT/ST + LZP + QLFC, very slow |
@@ -55,7 +55,7 @@ If the external pass produces output larger than `orig - 16` bytes, the original
 
 ### Portability: which `-ma` archives open in other zpaq tools
 
-**`-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz` and `-ma:snappy` are portable.** Their blocks carry their
+**`-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz`, `-ma:snappy` and `-ma:lzav` are portable.** Their blocks carry their
 own decoder, written in ZPAQL — the bytecode language every zpaq implementation
 runs (see [ZPAQLZ5](#zpaqlz5-an--ma-codec-any-zpaq-can-extract) below). **Every
 other `-ma` codec is not**: its payload is compressed by a codec no other
@@ -67,7 +67,7 @@ Measured against the two reference implementations:
 | method | zpaq 7.15 | zpaqfranz 64.8j |
 |---|---|---|
 | `-m0` … `-m5` (native) | extracts correctly | extracts correctly |
-| `lz5` `lz5hc` `lz5f` `lz6` `lzma` `flzma2` `lz` `snappy` | **extracts correctly** | **extracts correctly** |
+| `lz5` `lz5hc` `lz5f` `lz6` `lzma` `flzma2` `lz` `snappy` `lzav` | **extracts correctly** | **extracts correctly** |
 | any other `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
 
 Those `-ma` blocks are deliberately tagged with a **post-processing type that no
@@ -104,6 +104,7 @@ switch stays the same; the name is what the block holds.
 | `-ma:lz` | **ZPAQLZIP** | the same ZPAQLZMA program (lzip's LZMA1, re-wrapped) | 1,998 B | same | 2 × dictionary |
 | `-ma:flzma2` | **ZPAQFLZMA2** | LZMA2, zpaq-std, derived from kaitz's | 2,155 B | 22–40 / 1.6–2.3 MB/s | block + compressed |
 | `-ma:snappy` | **ZPAQSNAPPY** | snappy block, zpaq-std | 307 B | 50–100 / 13 MB/s | 64 KB |
+| `-ma:lzav` | **ZPAQLZAV** | LZAV format 3, zpaq-std | 644 B | ~100 / 10 MB/s | the block |
 
 `lz6` will get its own name when it stops being experimental.
 
@@ -177,7 +178,7 @@ zpaq-std only takes the native shortcut for blocks tagged as its own
 (`zpaqstd-ma2:`): zpaqf's `-m3` blocks carry the very same program, and zpaq-std
 still runs it for them, exactly as before.
 
-#### ZPAQFLZMA2, ZPAQLZIP, ZPAQSNAPPY
+#### ZPAQFLZMA2, ZPAQLZIP, ZPAQSNAPPY, ZPAQLZAV
 
 - **ZPAQFLZMA2** (`-ma:flzma2`): fast-lzma2 writes LZMA2 — LZMA cut into chunks
   of up to 2 MB, each with its own header, which can restart the decoder, change
@@ -196,7 +197,16 @@ still runs it for them, exactly as before.
   Checked also on the cases snappy does not produce but the format allows
   (4-byte offsets, 3- and 4-byte literal lengths).
 
-Archives written by older versions with these three codecs (non-portable, the
+- **ZPAQLZAV** (`-ma:lzav`): LZAV's format 3, decoded one byte at a time. The
+  subtle part is its offset carry: literal blocks hold 2 bits of the *next*
+  reference's offset, 2- and 3-byte offsets hold more in their high bits, and a
+  reference right after a literal block may carry no offset bytes at all — its
+  offset is the carry alone. That lets offsets reach far beyond LZAV's nominal 2 MB
+  window, but never before the start of the block, so the window covers the whole
+  block. The block also holds the original size: LZAV pads small streams with
+  zeros, and the size is what stops the decoder.
+
+Archives written by older versions with these four codecs (non-portable, the
 `zpaqstd-ma:` tag) still extract: zpaq-std keeps both readers.
 
 Portable decoders only make sense for some codecs: a brotli decoder in ZPAQL was
@@ -211,7 +221,7 @@ non-portable codecs the compatibility is one-way, and it is the useful direction
 | | |
 |---|---|
 | new version reading old archives | **yes** — verified over pre9…pre20 × 7 codecs, plus native |
-| old version reading new `-ma` blocks | no — **except the portable codecs** (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`, `snappy`), which every version from pre20 on extracts by running their ZPAQL decoder |
+| old version reading new `-ma` blocks | no — **except the portable codecs** (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`, `snappy`, `lzav`), which every version from pre20 on extracts by running their ZPAQL decoder |
 | old version reading new **native** archives | **yes** — those bytes are unchanged |
 
 In a mixed or appended archive an old version still recovers everything it could
@@ -220,7 +230,7 @@ rule when upgrading is simple: **upgrade the machine that RESTORES before the on
 that compresses.**
 
 **Use `-m0`…`-m5` or a portable `-ma` codec (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`,
-`snappy`) if the archive has to be readable anywhere else.** Raised as
+`snappy`, `lzav`) if the archive has to be readable anywhere else.** Raised as
 issue #1 by kaitz, and the report is correct on the substance (the header,
 however, is unchanged — it is byte-for-byte a standard zpaq header).
 
