@@ -1,3 +1,27 @@
+### [65.2k-pre31] - 2026-09-24
+
+**`-ma:lizard` opens in any zpaq at levels 10–29 (ZPAQLIZARD).** Twelve
+portable `-ma` switches now.
+
+A Lizard 2.1 decoder in ZPAQL, written for zpaq-std, for the two modes without
+Huffman: fastLZ4 (levels 10–19, the default 17 among them) and LIZv1 (20–29,
+with repeated 16-bit offsets, 24-bit offsets and long matches). Each Lizard
+block holds five streams (lengths, 16- and 24-bit offsets, tokens, literals),
+each with its length in front, so the whole block is kept in M and decoded at
+the end. Like ZPAQDEFLATE, the program is generated
+(`compressors/zpaqlizard/gen.py`).
+
+- 1,210 bytes of bytecode; 70–95 MB/s in other tools with the JIT, 10–12 MB/s
+  without.
+- **Verified** with zpaq 7.15 on 110 Lizard streams (11 inputs × levels 10, 12,
+  15, 17, 19, 20, 22, 25, 27, 29), every token class and stored blocks among
+  them.
+- **Levels 30–49** add Huffman and stay non-portable: those blocks keep the old
+  tag and the `00596!` warning, and zpaq 7.15 rejects them cleanly.
+- **Compatibility:** every zpaq-std from pre20 on extracts the new blocks
+  (measured on pre20, pre23–pre30); `-ma:lizard` archives written before still
+  extract.
+
 ### [65.2k-pre30] - 2026-09-24
 
 **`-ma:deflate` and `-ma:hs` open in any zpaq (ZPAQDEFLATE, ZPAQHS).** Eleven
