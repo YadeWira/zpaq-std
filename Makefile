@@ -79,17 +79,8 @@ STRIP   ?= $(CROSS_COMPILE)strip
 PROG    := zpaq-std
 ALTNAME := dir
 SOURCE  := zpaq-std.cpp
-# zpaqfranz embedded LZ4 directly in zpaq-std.cpp inside an #ifdef _WIN32
-# block. On Windows cross-compile that inline copy is the canonical LZ4
-# (it was designed to be compiled alongside the rest of zpaq-std.cpp).
-# On Linux/macOS we use the bundled compressors/lz4/*.c instead. Detect
-# the cross-compile and skip the bundled .c files to avoid duplicate
-# symbol errors on MinGW.
-ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
-  LZ4SRC  :=
-else
-  LZ4SRC  := compressors/lz4/lz4.c compressors/lz4/lz4hc.c
-endif
+# LZ4 and LZAV come from zpaqfranz 65.3, embedded in zpaq-std.cpp (namespaces
+# zlz4 / zlzav). compressors/lz4/ and compressors/lzav/ are gone: one LZ4, one LZAV.
 LZ5SRC  := compressors/lz5/lz5.c compressors/lz5/lz5hc.c
 LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c
 # LZMA SDK (-ma:lzma): single-threaded match finder, see compressors/lzmasdk/LEEME.md
@@ -113,7 +104,6 @@ LIBDEFLATE_X86_SRC  := $(wildcard compressors/libdeflate/lib/x86/*.c)
 LIBDEFLATE_ARM_SRC  := $(wildcard compressors/libdeflate/lib/arm/*.c)
 LZLIBSRC := compressors/lzlib/lzlib.c
 PPMDSRC  := compressors/ppmd/Ppmd7.c compressors/ppmd/Ppmd7Enc.c compressors/ppmd/Ppmd7Dec.c compressors/ppmd/ppmd_wrapper.c
-LZAVSRC  := compressors/lzav/lzav.h
 HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
 ZOPFLISRC :=
@@ -150,7 +140,6 @@ SNAPPYINC := -Icompressors/snappy -Wno-sign-compare
 LIBDEFLATEINC := -Icompressors/libdeflate -Icompressors/libdeflate/lib -Icompressors/libdeflate/lib/x86 -Icompressors/libdeflate/lib/arm
 LZLIBINC := -Icompressors/lzlib
 PPMDINC  := -Icompressors/ppmd
-LZAVINC  := -Icompressors/lzav
 HSINC    := -Icompressors/hs
 LZFSEINC := -Icompressors/lzfse -DNDEBUG -U_FORTIFY_SOURCE
 ZOPFLIINC :=
@@ -315,8 +304,8 @@ LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(LZAVSRC)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(LZAVINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(LZ4SRC) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.

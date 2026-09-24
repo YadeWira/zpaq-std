@@ -1,14 +1,14 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz`.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.3.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **19 bundled, swappable external compression libraries** (23 `-ma` switches) and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **17 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds (23 `-ma` switches) and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
 This is **YadeWira's personal fork**. The new work here is the bundled-compressors architecture: pick the algorithm at archive time, no host setup needed. The base code (the deduplication engine, the journaling archiver) is Franco Corbelli's, derived in turn from Matt Mahoney's public-domain zpaq 7.15. See [CONTRIBUTORS](CONTRIBUTORS) for the full attribution chain.
 
-The application still lives in one ~113,000-line `zpaq-std.cpp`, but it is no longer
+The application still lives in one ~128,000-line `zpaq-std.cpp`, but it is no longer
 strictly single-file: `libdivsufsort/` was lifted out into its own module, and
 `test/testlab/` holds the verification harness.
 
@@ -31,7 +31,7 @@ The killer feature of this fork. You can pick **which external algorithm compres
 
 | Switch | Algorithm | Range | Default | Best for |
 |---|---|---|---|---|
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 v1.10.0 | 1–12 | 9 | speed (fastest) |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 v1.10.0 (zpaqfranz's) — **= `-m6`** | 1–12 | 9 | speed (fastest); **opens in any zpaq** |
 | `-ma:zstd:N` | zstd v1.5.7 | 1–22 | 3 | balanced (general purpose) |
 | `-ma:flzma2:N` | fast-lzma2 v1.0.1 — **ZPAQFLZMA2** | 1–10 | 5 | LZMA2 fast, 2–8× faster than ref; **opens in any zpaq** |
 | `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 v1.5 — **ZPAQLZ5** | 1–15 | 9 | LZ4-compatible, denser; **opens in any zpaq** |
@@ -44,7 +44,7 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:snappy:N` | Snappy v1.2.1 — **ZPAQSNAPPY** | 1–2 | 1 | Google's, like lz4 but tighter; **opens in any zpaq** |
 | `-ma:deflate:N` | libdeflate v1.26 — **ZPAQDEFLATE** | 0–12 | 6 | fast deflate/inflate (ebiggers); **opens in any zpaq** |
 | `-ma:lz:N` | lzlib v1.16 — **ZPAQLZIP** | 0–9 | 6 | LZMA, BSD-2 lzip stream API; **opens in any zpaq** |
-| `-ma:lzav:N` | LZAV v5.17 (avaneev) — **ZPAQLZAV** | 0–1 | 1 | LZ77, header-only, very fast; **opens in any zpaq** |
+| `-ma:lzav:N` | LZAV v5.17 (zpaqfranz's) — **= `-m7`** | 0–1 | 1 | LZ77, very fast; **opens in any zpaq** |
 | `-ma:hs:N` | heatshrink v0.4.1 (atomicobject) — **ZPAQHS** | 0–2 | 1 | tiny, embedded-grade (2KB/8KB/16KB window); **opens in any zpaq** |
 | `-ma:lzfse` | LZFSE (Apple, BSD-3) | 0–1 | 1 | high ratio on text/structured data (one internal level: 0 and 1 give the same output) |
 | `-ma:bsc:N` | libbsc v3.3.12 (IlyaGrebnov, Apache-2.0) | 1–9 | 3 | BWT/ST + LZP + QLFC, very slow |
@@ -55,7 +55,7 @@ If the external pass produces output larger than `orig - 16` bytes, the original
 
 ### Portability: which `-ma` archives open in other zpaq tools
 
-**`-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz`, `-ma:snappy`, `-ma:lzav`, `-ma:deflate`, `-ma:hs` and
+**`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f`, `-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz`, `-ma:snappy`, `-ma:lzav`, `-ma:deflate`, `-ma:hs` and
 `-ma:lizard` (levels 10–29) are portable.** Their blocks carry their
 own decoder, written in ZPAQL — the bytecode language every zpaq implementation
 runs (see [ZPAQLZ5](#zpaqlz5-an--ma-codec-any-zpaq-can-extract) below). **Every
@@ -94,6 +94,12 @@ up, which looks exactly like a corrupt archive. Three things follow:
 
 #### The portable codecs, by name
 
+Since 65.3y-pre32, **`-ma:lz4` and `-ma:lzav` are another way of writing zpaqfranz's
+`-m6` and `-m7`**: the block is byte for byte the same, with zpaqfranz's own ZPAQL
+decoder inside, so zpaqfranz and zpaq-std decode each other's natively.
+`-ma:lz4:1…4` = `-m6aN`, `-ma:lz4:5…12` and `-ma:lz4hc:N` = `-m6hN`,
+`-ma:lz4f:N` = `-m6aN`, `-ma:lzav:0` = `-m7`, `-ma:lzav` = `-m7h`.
+
 Each portable codec is named after the ZPAQL decoder its blocks carry. The
 switch stays the same; the name is what the block holds.
 
@@ -105,7 +111,8 @@ switch stays the same; the name is what the block holds.
 | `-ma:lz` | **ZPAQLZIP** | the same ZPAQLZMA program (lzip's LZMA1, re-wrapped) | 1,998 B | same | 2 × dictionary |
 | `-ma:flzma2` | **ZPAQFLZMA2** | LZMA2, zpaq-std, derived from kaitz's | 2,155 B | 22–40 / 1.6–2.3 MB/s | block + compressed |
 | `-ma:snappy` | **ZPAQSNAPPY** | snappy block, zpaq-std | 307 B | 50–100 / 13 MB/s | 64 KB |
-| `-ma:lzav` | **ZPAQLZAV** | LZAV format 3, zpaq-std | 644 B | ~100 / 10 MB/s | the block |
+| `-ma:lz4` / `lz4hc` / `lz4f` | **= `-m6`** | LZ4, zpaqfranz 65.3 | — | — | 64 KB |
+| `-ma:lzav` | **= `-m7`** | LZAV format 3, zpaqfranz 65.3 | — | — | the block |
 | `-ma:deflate` | **ZPAQDEFLATE** | raw DEFLATE, zpaq-std (puff's method) | 2,898 B | 35–54 / 2.1–2.7 MB/s | block + compressed |
 | `-ma:hs` | **ZPAQHS** | heatshrink, zpaq-std | 265 B | ~64 / 5.8 MB/s | 2–16 KB |
 | `-ma:lizard` 10–29 | **ZPAQLIZARD** | Lizard fastLZ4 + LIZv1, zpaq-std | 1,210 B | 70–95 / 10–12 MB/s | block + compressed |
@@ -201,7 +208,8 @@ still runs it for them, exactly as before.
   Checked also on the cases snappy does not produce but the format allows
   (4-byte offsets, 3- and 4-byte literal lengths).
 
-- **ZPAQLZAV** (`-ma:lzav`): LZAV's format 3, decoded one byte at a time. The
+- **ZPAQLZAV** (`-ma:lzav`, pre29–pre31; since 65.3y-pre32 `-ma:lzav` writes
+  `-m7` instead, and these blocks still extract): LZAV's format 3, decoded one byte at a time. The
   subtle part is its offset carry: literal blocks hold 2 bits of the *next*
   reference's offset, 2- and 3-byte offsets hold more in their high bits, and a
   reference right after a literal block may carry no offset bytes at all — its
@@ -328,11 +336,10 @@ zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
 
 ## No system dependencies
 
-All 19 `-ma` libraries live inside `compressors/`:
+17 of the `-ma` libraries live inside `compressors/` (LZ4 and LZAV are the ones zpaqfranz embeds):
 
 ```
 compressors/
-├── lz4/          2 src +  2 h
 ├── zstd/         1 src +  2 h   (amalgamated)
 ├── fl2/         13 src + 22 h   (fast-lzma2)
 ├── lz5/          2 src +  4 h
@@ -348,7 +355,6 @@ compressors/
 ├── snappy/       4 src +  6 h   (Google, BSD-3; .cc)
 ├── libdeflate/  11 src + 28 h   (ebiggers, MIT)
 ├── lzlib/        7 src +  7 h   (lzip, BSD-2)
-├── lzav/         0 src +  1 h   (header-only)
 ├── hs/           3 src +  5 h   (+ hs_wrapper.c glue)
 ├── lzfse/        7 src +  7 h   (+lzvn helpers)
 ├── bsc/         12 src + 15 h   (+libsais)

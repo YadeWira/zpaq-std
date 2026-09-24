@@ -31,7 +31,7 @@ ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard bzip2 bzip3 bro
 malos=0
 for a in $ALGOS; do
   arch=$OUT/$a.zpaq; rm -f "$arch"
-  timeout 300 "$Z" a "$arch" "$OUT/src" -t1 -ma:$a </dev/null >/dev/null 2>&1
+  timeout 300 "$Z" a "$arch" "$OUT/src" -t1 -ma:$a -timestamp 2026-01-01_00:00:00 </dev/null >/dev/null 2>&1
   # "zpaqstd-ma2:" = bloque que lleva su propio decodificador ZPAQL (ZPAQLZ5).
   # lz6 se etiqueta "zpaqstd-ma2:lz5-lz6:" (formato LZ5, compresor lz6), de ahi
   # el prefijo opcional; "lz5" no calza con "lz5-lz6:".
@@ -39,6 +39,15 @@ for a in $ALGOS; do
   # lz (lzlib) se guarda como el LZMA de adentro del miembro lzip, con la etiqueta
   # de -ma:lzma (ZPAQLZIP): "zpaqstd-ma2:lzma:<nivel>:<tamano>:lzip".
   [ "$a" = lz ] && n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2:lzma:[0-9]+:[0-9]+:lzip")
+  # Desde 65.3y-pre32, lz4/lz4hc/lz4f/lzav SON -m6/-m7 de zpaqfranz: no llevan etiqueta
+  # zpaqstd-ma. La prueba de que corrieron es que el archivo sea byte a byte el de su
+  # -m equivalente (misma fecha fija), con los niveles por defecto de cada uno.
+  case "$a" in lz4|lz4hc) eq="-m6h9";; lz4f) eq="-m6a9";; lzav) eq="-m7h";; *) eq="";; esac
+  if [ -n "$eq" ]; then
+    rm -f "$OUT/eq.zpaq"
+    timeout 300 "$Z" a "$OUT/eq.zpaq" "$OUT/src" -t1 $eq -timestamp 2026-01-01_00:00:00 </dev/null >/dev/null 2>&1
+    n=0; cmp -s "$arch" "$OUT/eq.zpaq" && n=1
+  fi
   rm -rf "$OUT/o"; mkdir -p "$OUT/o"
   timeout 300 "$Z" x "$arch" -to "$OUT/o" -force </dev/null >/dev/null 2>&1
   g=$(find "$OUT/o" -type f -name t.txt -print -quit)
@@ -50,7 +59,7 @@ for a in $ALGOS; do
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav|deflate|hs|lizard)
+  case "$a" in lz4|lz4hc|lz4f|lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav|deflate|hs|lizard)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1

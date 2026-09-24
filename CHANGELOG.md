@@ -1,3 +1,83 @@
+### [65.3y-pre32] - 2026-09-24
+
+**zpaq-std now builds on zpaqfranz 65.3.** Everything upstream added in 65.3
+comes in, and `-ma:lz4` / `-ma:lzav` become another way of writing its new
+`-m6` / `-m7`.
+
+The base is the source of the 65.3 release tag, **65.3y** (the release ships
+no source asset, and its binaries report a later build, 65.3z; when that
+source is published it gets merged too).
+
+#### What comes from 65.3
+
+See [zpaqfranz 65.3](https://github.com/fcorbelli/zpaqfranz/releases/tag/65.3)
+for the details. The main points:
+
+- **`a` is faster**, writing the very same archive (Franco measured 34.4 s →
+  25.3 s on 12.9 GB).
+- **`-turbo`**: the fragmenter and the fragment SHA-1 in parallel; the same
+  archive, faster. Checked here: `-turbo` writes the same archive as without it
+  with `-m1`, `-m7` and `-ma:lzav`.
+- **`-m6` (LZ4) and `-m7` (LZAV)**: fast methods whose blocks carry a ZPAQL
+  decoder, so any zpaq extracts them; zpaqfranz and zpaq-std decode them
+  natively. Levels: `-m6hN` (HC 1–12), `-m6aN` (fast, acceleration N), `-m7h`
+  (LZAV "hi"); the digit after 6/7 is the block size (`-m66`, `-m76`: 64 MB).
+- The hash healing of #282 in upstream's own version (it replaces ours) and a
+  better `-touch`. Checked: a hash poisoned by pre20 heals, a hash-algorithm
+  change re-reads, a clean file does not, an unreadable one still warns.
+- LZ4 1.10 and LZAV 5.17 embedded in their own namespaces (`zlz4`, `zlzav`).
+
+`mount`, `-franzen`, the P7M checks and the other `ZPAQFULL` parts stay out,
+as in upstream's own "open" build (rule 1).
+
+#### `-ma:lz4` and `-ma:lzav` = `-m6` and `-m7`
+
+They are **another way of writing the same thing**: the block is byte for byte
+the one `-m6`/`-m7` write (checked with `cmp` on every mapping), with
+zpaqfranz's ZPAQL decoder inside. So zpaqfranz 65.3 decodes what zpaq-std
+writes natively and vice versa, there is one LZ4 and one LZAV in the binary,
+and compression runs in the normal threads (and with `-turbo`).
+
+| `-ma` | is |
+|---|---|
+| `-ma:lz4:1…4` | `-m6aN` |
+| `-ma:lz4:5…12`, `-ma:lz4` | `-m6hN` (default 9) |
+| `-ma:lz4hc:N` | `-m6hN` |
+| `-ma:lz4f:N` | `-m6aN` |
+| `-ma:lzav:0` | `-m7` |
+| `-ma:lzav:1`, `-ma:lzav` | `-m7h` |
+
+The block size is the one the user's `-m` gives, by upstream's rule.
+`-ma:lz4` archives written before (non-portable) and `-ma:lzav` archives
+written by pre29–pre31 (ZPAQLZAV) still extract. `compressors/lz4/` and
+`compressors/lzav/` are gone, and so is the stripped LZ4 1.9 that Windows used
+— under which, it turns out, `-ma:lz4hc` on Windows was never HC at all.
+
+#### `-turbo` with the other `-ma` codecs
+
+`-turbo` runs `add2()`, upstream's copy of `add()`, which has none of
+zpaq-std's `-ma` branches. So `-turbo` with any `-ma` other than lz4/lzav would
+have written native blocks without a word. Now it says `00605` and runs the
+normal `add`, which keeps the codec.
+
+#### `-silent` / `-innosetup` messages, fixed for real
+
+pre26 made `%Z` print the file name in silent mode, but it was only part of the
+bug. The silent path formatted with a plain `vsnprintf()`, which knows none of
+zpaqfranz's own specifiers: `%K` and `%H` came out literally too (`!= size
+internal %21K external %21K`), and since `%Z` does not consume its argument in
+glibc, the arguments after it were shifted. Now the silent path decodes them
+exactly as the console does: `!= size internal 100.000 external 150.000`.
+
+Diagnosis and fix by **ZF**, working on the clean zpaqfranz fork
+(YadeWira/zpaqfranz), measured on untouched zpaqfranz 65.3y on Linux and
+Windows; it replaces zpaq-std's partial `%Z` rewrite.
+
+#### Also
+
+- The `00590` notice ("mount is disabled in this build") never printed: an
+  extra `#ifdef ZPAQMOUNT` hid it. Fixed.
+
 ### [65.2k-pre31] - 2026-09-24
 
 **`-ma:lizard` opens in any zpaq at levels 10–29 (ZPAQLIZARD).** Twelve
