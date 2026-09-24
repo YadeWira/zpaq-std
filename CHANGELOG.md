@@ -13,7 +13,7 @@ kaitz, who pointed us to it in issue #1.
 - The program zpaq-std compiles is **byte-identical** to the one zpaqf writes.
   Its body is the same for every block size and level; only the `comp` line
   changes (`ph=15` for lc=3 lp=0, `pm` = 2 × the dictionary).
-- About **300 bytes** of bytecode per block. In other tools it decodes at
+- About **2 KB** of bytecode per block (1,998 bytes; pre27 said ~300, a measuring error). In other tools it decodes at
   13–36 MB/s with the ZPAQL JIT and 0.8–2.3 MB/s without, and needs 2 × the
   dictionary per thread (32 MB for a 16 MB block).
 - zpaq-std recognises the program and decodes LZMA natively.

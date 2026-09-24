@@ -141,7 +141,7 @@ decoder written in ZPAQL**, taken unchanged from his
 
 | | |
 |---|---|
-| decoder size | about **300 bytes** per block |
+| decoder size | about **2 KB** per block (1,998 bytes) |
 | decode speed in other tools | **13–36 MB/s** with the ZPAQL JIT, **0.8–2.3 MB/s** without |
 | memory in other tools | 2 × the dictionary, per thread: **32 MB** for a 16 MB block |
 | zpaq-std itself | recognises the decoder byte for byte and decodes LZMA **natively** |
