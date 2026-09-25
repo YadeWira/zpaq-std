@@ -1,3 +1,38 @@
+### [65.3y-pre38] - 2026-09-25
+
+#### `-ma:bzip3` opens in any zpaq (ZPAQBZIP3)
+
+`-ma:bzip3` blocks now carry **ZPAQBZIP3**, a bzip3 decoder written in ZPAQL, so
+zpaq 7.15, zpaqfranz and every zpaq-std from pre20 on extract them. zpaq-std
+decodes them natively with libbz3, as before. That makes **20 of the 23 `-ma`
+switches portable**; only bsc, lzh and ppmd are left. The old blocks
+(`zpaqstd-ma:bzip3`, pre37 and earlier) still extract.
+
+bzip3 is BWT plus a small context-mixing coder: an order-0 table by bit context,
+an order-1 table by the previous byte, and an APM with interpolation, over a
+32-bit arithmetic coder. Two details had to match C exactly:
+
+- the coder's 32×32→64 multiply, which ZPAQL (32-bit registers) cannot do in one
+  step: it is split so no partial product passes 32 bits;
+- the APM's shift of a negative number, which C floors.
+
+After the coder come the inverse BWT (libsais' convention: the sentinel sits in
+the row of the primary index), bzip3's LZP and its run-length step, block by
+block, plus the raw blocks bzip3 writes under 64 bytes.
+
+**2,272 bytes** of bytecode. It is the slowest portable decoder for other tools,
+**~5 MB/s** with the JIT and ~0.2 MB/s without, because every bit goes through
+the model; zpaq-std itself decodes natively. The reader needs 8 MB of H (ph = 21)
+and two block buffers in M.
+
+Checked:
+
+- zpaqd 7.15 on 77 bzip3 streams: 26 inputs × levels 1, 5 and 9 (12 MB at
+  level 1 is 120 blocks of 100 KB), and blocks under 64 bytes.
+- zpaq 7.15, zpaqfranz, pre20 through pre37 and this version extract levels 1
+  and 9 identically, and `t` passes.
+- The help said "BWT+ANS": bzip3 is BWT+CM. Fixed.
+
 ### [65.3y-pre37] - 2026-09-25
 
 #### `-ma:brotli` opens in any zpaq (ZPAQBROTLI)
