@@ -48,7 +48,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:lzfse` | LZFSE (Apple) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
 | `-ma:hs:N` | heatshrink 0.4.1 | 0–2 | 1 | **yes** (ZPAQHS) |
 | `-ma:bzip3:N` | bzip3 1.5.4 | 1–9 | 9 | **yes** (ZPAQBZIP3) |
-| `-ma:bsc:N` | libbsc 3.3.12 | 1–9 | 3 | no |
+| `-ma:bsc:N` | libbsc 3.3.12 | 1–9 | 3 | **yes** (ZPAQBSC) |
 | `-ma:lzh:N` | LZHAM 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
 | `-ma:ppmd:N` | PPMd var.H (7-Zip SDK) | 2–32 (order) | 6 | no |
 
@@ -57,14 +57,14 @@ stays native (no regression).
 
 ### Portability
 
-**21 of the 23 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
+**22 of the 23 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
 zpaqfranz, and every zpaq-std from pre20 on. Their blocks carry their own decoder,
 written in ZPAQL, the bytecode every zpaq implementation runs (the way zpaq's own
 `-m1` works); zpaq-std recognises its decoders and decodes natively, at full speed.
 Details, sizes and speeds of each decoder: **[wiki: Portable codecs](https://github.com/YadeWira/zpaq-std/wiki/Portable-codecs)**.
 
-The other two (`bsc`, `ppmd`) only extract in zpaq-std. zpaq-std
-warns when it writes them (`00596!`), and other tools reject those blocks cleanly
+The other one (`ppmd`) only extracts in zpaq-std. zpaq-std
+warns when it writes it (`00596!`), and other tools reject those blocks cleanly
 (`unknown post processing type`) instead of writing wrong data; they still list
 the archive and extract its native files.
 

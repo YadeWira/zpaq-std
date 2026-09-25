@@ -1,3 +1,34 @@
+### [65.4m-pre41] - 2026-09-25
+
+#### `-ma:bsc` opens in any zpaq (ZPAQBSC)
+
+`-ma:bsc` blocks now carry **ZPAQBSC**, a libbsc decoder written in ZPAQL, so
+zpaq 7.15, zpaqfranz and every zpaq-std from pre20 on extract them. zpaq-std
+decodes them natively with libbsc, as before. That makes **22 of the 23 `-ma`
+switches portable**; only ppmd is left. The old blocks (`zpaqstd-ma:bsc`, pre40
+and earlier) still extract.
+
+zpaq-std calls libbsc without LZP, so a block is the sort transform (ST3, ST4 or
+ST5 by level) and the static QLFC coder: a range coder where every bit is
+predicted by a fixed mix of three adaptive counters, followed by the inverse
+sort transform. A Python reference decoder was written first and checked
+against libbsc; the ZPAQL was then checked against both. Every block carries
+QLFC's two state tables as a fixed 40 KB data prefix (like brotli's
+dictionary); a block that does not win with it stays native.
+
+For other tools the decoder runs at 2-9 MB/s with the ZPAQL JIT (0.3-0.6
+without it), and needs about 12 bytes of memory per byte of the block (192 MB
+for a 16 MB block). zpaq-std decodes natively.
+
+Checked here: 177 bsc streams (59 inputs up to 17.5 MB, ST3/ST4/ST5) decode byte
+for byte with zpaqd 7.15; archives written at levels 1, 4, 7 and 9 extract
+identically with zpaq 7.15, zpaqfranz, pre20, pre30, pre35, pre38, pre39, pre40
+and this build.
+
+Also fixed: libbsc was initialised on first use without a lock, from several
+extraction threads at once. It is now initialised exactly once. The help text
+no longer says `-ma:bsc` uses LZP (zpaq-std never enabled it).
+
 ### [65.4m-pre40] - 2026-09-25
 
 #### `-ma:lzh` opens in any zpaq (ZPAQLZHAM)
