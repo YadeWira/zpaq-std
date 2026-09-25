@@ -1,3 +1,64 @@
+### [65.3y-pre37] - 2026-09-25
+
+#### `-ma:brotli` opens in any zpaq (ZPAQBROTLI)
+
+`-ma:brotli` blocks now carry **ZPAQBROTLI**, a brotli decoder written in ZPAQL for
+zpaq-std **from the specification** (RFC 7932). It does not derive from zpaqlpy's
+decoder, which is GPL-3. zpaq 7.15, zpaqfranz and every zpaq-std from pre20 on
+extract these blocks; zpaq-std decodes them natively with libbrotli, as before.
+That makes **19 of the 23 `-ma` switches portable**; only bzip3, bsc, lzh and ppmd
+are left.
+
+brotli reads prefix codes in many places, and ZPAQL has no subroutines, so the
+program is a **state machine**: one loop, where "calling" the prefix-code reader
+means saving the state to return to. Symbols, literals, copies and dictionary words
+stay inline. It supports:
+
+- every meta-block type, simple and complex prefix codes, and block switching;
+- context maps with RLE and inverse move-to-front, and the four literal context
+  modes;
+- NPOSTFIX/NDIRECT and the distance ring buffer;
+- static-dictionary words with all 121 transforms;
+- any window size.
+
+**9,535 bytes** of bytecode and **40–44 MB/s** with the JIT (2.3–2.5 without);
+zpaqlpy's decoder measured 63 KB and 1.6 MB/s.
+
+Each block carries a **fixed 126 KB data prefix** in front of the stream: the
+122 KB static dictionary, the context table, the transforms and constant tables.
+zpaq-std builds it from libbrotli itself. When the prefix would eat the gain
+(blocks under ~130 KB), the block stays native instead, and is still portable.
+The old `zpaqstd-ma:brotli` blocks (pre36 and earlier) still extract.
+
+Checked:
+
+- zpaqd 7.15 on 182 streams: 22 inputs × qualities 0, 1, 5, 9, 10 and 11, 38 more
+  texts at quality 11, and windows 10, 16 and 24.
+- Hand-made streams for the transforms the encoder never writes (omit first 1–9):
+  libbrotli's own decoder accepts them with the same output. The transform logic
+  also matches libbrotli's in 30,734 cases.
+- zpaq 7.15, zpaqfranz, pre20 through pre35 and this version extract qualities 1
+  and 11 identically, and `t` passes.
+
+#### The warning for `-ma:lz4` / `-ma:lzav` was wrong
+
+Since pre32 `-ma:lz4`, `lz4hc`, `lz4f` and `lzav` write zpaqfranz's `-m6` / `-m7`,
+which any zpaq extracts. `00596!` still said they would "NOT open in any other
+zpaq". They now print `00604` ("is written as -m6 … any zpaq can extract it"), and
+the list of portable options in `00596!` is up to date. Reported by the user.
+
+#### A lighter README
+
+The README went from 560 to 224 lines. Each portable decoder's detail moved to a
+new wiki page,
+[Portable codecs](https://github.com/YadeWira/zpaq-std/wiki/Portable-codecs), and
+the `compressors/` tree and the 32-bit notes moved to
+[Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
+
+The `.zpqs` extension (issue #1) is dropped: with 19 of 23 codecs portable, a
+`.zpaq` written by zpaq-std opens in any zpaq unless one of the four remaining
+codecs is chosen, and those warn.
+
 ### [65.3y-pre36] - 2026-09-25
 
 #### `-ma:zstd` and `-ma:lzfse` open in any zpaq (ZPAQZSTD, ZPAQLZFSE)
