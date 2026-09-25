@@ -1,3 +1,52 @@
+### [65.3y-pre36] - 2026-09-25
+
+#### `-ma:zstd` and `-ma:lzfse` open in any zpaq (ZPAQZSTD, ZPAQLZFSE)
+
+`-ma:zstd` and `-ma:lzfse` blocks now carry their own ZPAQL decoders, so zpaq
+7.15, zpaqfranz and every zpaq-std from pre20 on extract them. zpaq-std
+recognises the programs and decodes natively with libzstd and liblzfse, as
+before. The old blocks (`zpaqstd-ma:zstd`, `zpaqstd-ma:lzfse`, pre35 and
+earlier) still extract.
+
+**ZPAQZSTD** (zstd, RFC 8878) supports:
+
+- raw, RLE and compressed blocks;
+- raw, RLE, Huffman and treeless literals, with 1 or 4 streams;
+- sequences with predefined, RLE, transmitted and repeated FSE tables;
+- the three repeat offsets, including the "offset − 1" case;
+- several frames, skippable frames and the checksum.
+
+The literals' Huff0 and the FSE table code are ZPAQLIZARDH's.
+`compressors/zpaqlizard/huff0.py` was split into pieces so both programs share
+them; ZPAQLIZARDH still comes out byte for byte. **7,505 bytes** (mostly the
+constant tables), **47–70 MB/s** with the JIT, 3.5–4 MB/s without.
+
+**ZPAQLZFSE** (Apple lzfse) is a decoder of its own: lzfse's FSE is not zstd's
+(each symbol gets a contiguous run of states, and the L/M/D decoders read the
+state and extra bits in one pull). It supports:
+
+- the bit-packed block header;
+- the frequency tables with lzfse's fixed prefix code;
+- literals from four interleaved states;
+- L/M/D, with D = 0 repeating the last distance;
+- the LZVN blocks lzfse writes for inputs under 4 KB (every opcode);
+- raw blocks.
+
+**4,931 bytes**, **~48 MB/s** with the JIT, ~3.5 MB/s without.
+
+Both keep the frame or stream in M with the whole output behind it (matches
+look back into it); the reader needs ph = 13.
+
+Checked:
+
+- zpaqd 7.15: 506 zstd frames (23 inputs × levels 1–22), plus a stream of two
+  frames (one with checksum) around a skippable frame; 37 lzfse streams
+  (including cuts around the 4 KB LZVN/FSE threshold, random data and 12 MB).
+- zpaq 7.15, zpaqfranz, pre20 through pre35 and this version extract
+  `-ma:zstd` (levels 3 and 19) and `-ma:lzfse` identically, and `t` passes. A
+  3 KB archive (an LZVN block) opens in all of them too.
+- `suite_ma_corre` now requires zpaq 7.15 to extract both.
+
 ### [65.3y-pre35] - 2026-09-24
 
 #### `-ma:bzip2` opens in any zpaq (ZPAQBZIP2)

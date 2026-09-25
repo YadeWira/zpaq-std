@@ -89,6 +89,30 @@ def FSKIP(e, n):
 
 def FSE_WEIGHTS(e):
     """FSE_decompress de los pesos: r51 bytes desde r52. Deja n en r64."""
+    FSE_NCOUNT(e)
+    FSE_BUILD(e)
+    # el flujo, hacia atras, con dos estados
+    e("a=r 50 a+= 7 a>>= 3 r=a 69 b=r 52 a+=b r=a 46")   # inicio = s + encabezado
+    e("a=r 51 b=r 69 a-=b r=a 69")                       # largo = hs - encabezado
+    INITB(e, 46, 69)
+    READB(e, 53, 85); READB(e, 53, 86)
+    e("a=0 r=a 64")
+    e("do")
+    for (me, otro) in [(85, 86), (86, 85)]:
+        HGET(e, FS, me); e("  r=a 69"); HSET(e, W, 64, 69); e("  a=r 64 a++ r=a 64")
+        HGET(e, FB, me); e("  r=a 68"); READB(e, 68, 61)
+        HGET(e, FN, me); e(f"  b=r 61 a+=b r=a {me}")
+        e("  a=r 42 a> 0 ifl")
+        HGET(e, FS, otro); e("    r=a 69"); HSET(e, W, 64, 69); e("    a=r 64 a++ r=a 64")
+        e("  endif")
+        if me == 85:
+            e("  a=r 42 a== 0 ifl")
+    e("  endif")
+    e("a=r 42 a== 0 while")
+
+def FSE_NCOUNT(e):
+    """FSE_readNCount sobre r51 bytes desde r52: cuentas en H[NC] (sin restar 1),
+    r57 simbolos, r53 tableLog, r50 bits leidos."""
     e("a=0 r=a 50")
     FPEEK(e, 4); e("a=r 60 a+= 5 r=a 53"); FSKIP(e, 4)
     e("a= 1 b=r 53 a<<=b r=a 55 a++ r=a 54 a=r 53 a++ r=a 56")
@@ -151,7 +175,10 @@ def FSE_WEIGHTS(e):
     e("  a=r 54")
     e("a> 1 while")
     e("endif")
-    # tabla de decodificacion (FSE_buildDTable)
+
+def FSE_BUILD(e):
+    """FSE_buildDTable desde H[NC] (r57 simbolos, r53 tableLog) a las tablas cuyas
+    bases estan en r76 (simbolo), r77 (nbBits) y r78 (newState)."""
     e("a= 1 b=r 53 a<<=b r=a 81 a-- r=a 82")
     e("a=0 r=a 66")
     e("do")
@@ -189,24 +216,6 @@ def FSE_WEIGHTS(e):
     e("  b=a a=r 67 a<<=b b=r 81 a-=b r=a 69"); HSET(e, FN, 66, 69)
     e("  a=r 66 a++ r=a 66 b=r 81")
     e("a<b while")
-    # el flujo, hacia atras, con dos estados
-    e("a=r 50 a+= 7 a>>= 3 r=a 69 b=r 52 a+=b r=a 46")   # inicio = s + encabezado
-    e("a=r 51 b=r 69 a-=b r=a 69")                       # largo = hs - encabezado
-    INITB(e, 46, 69)
-    READB(e, 53, 85); READB(e, 53, 86)
-    e("a=0 r=a 64")
-    e("do")
-    for (me, otro) in [(85, 86), (86, 85)]:
-        HGET(e, FS, me); e("  r=a 69"); HSET(e, W, 64, 69); e("  a=r 64 a++ r=a 64")
-        HGET(e, FB, me); e("  r=a 68"); READB(e, 68, 61)
-        HGET(e, FN, me); e(f"  b=r 61 a+=b r=a {me}")
-        e("  a=r 42 a> 0 ifl")
-        HGET(e, FS, otro); e("    r=a 69"); HSET(e, W, 64, 69); e("    a=r 64 a++ r=a 64")
-        e("  endif")
-        if me == 85:
-            e("  a=r 42 a== 0 ifl")
-    e("  endif")
-    e("a=r 42 a== 0 while")
 
 def HUFF(e):
     """Decodifica el flujo Huff0 de r36 bytes en M[r35] a M[r38], r37 bytes."""
@@ -222,6 +231,14 @@ def HUFF(e):
     e("    a=r 87 c=a a=*c c=r 38 *c=a a=c a++ r=a 38 a=r 87 a++ r=a 87 a=r 45 a-- r=a 45")
     e("  a> 0 while")
     e("elsel")
+    HUF_TREE(e)
+    HUF_4STREAMS(e)
+    e("endif")
+    e("endif")
+
+def HUF_TREE(e):
+    """Lee la descripcion del arbol en M[r35] (pesos crudos o con FSE) y arma las
+    tablas canonicas. Deja r87 en el primer byte despues del arbol."""
     e("  a=r 35 c=a a=*c r=a 46 a=r 35 a++ r=a 87")        # r87 = ip despues del byte de encabezado
     e("  a=r 46 a> 127 ifl")                          # pesos crudos de 4 bits
     e("    a-= 127 r=a 64 a=0 r=a 66")
@@ -281,19 +298,9 @@ def HUFF(e):
     HGET(e, CN, 68); e("    r=a 69 a=r 63 b=r 68 a-=b b=a a=r 69 a<<=b b=r 65 a+=b r=a 65")
     e("    a=r 68 a-- r=a 68")
     e("  a> 0 while")
-    # los cuatro subflujos: tabla de saltos de 6 bytes
-    e("  a=r 87 a+= 6 r=a 69 a=0 r=a 66"); HSET(e, SS, 66, 69)
-    for k in range(3):
-        e(f"  a=r 87 a+= {2*k+1} c=a a=*c a<<= 8 c-- a+=*c b=r 69 a+=b r=a 69 a= {k+1} r=a 66"); HSET(e, SS, 66, 69)
-    e("  a=r 35 b=r 36 a+=b r=a 69 a= 4 r=a 66"); HSET(e, SS, 66, 69)
-    e("  a=r 37 a+= 3 a>>= 2 r=a 88")
-    e("  a=0 r=a 89")
-    e("  do")
-    HGET(e, SS, 89); e("    r=a 46 a=r 89 a++ r=a 66"); HGET(e, SS, 66); e("    b=r 46 a-=b r=a 67")
-    INITB(e, 46, 67)
-    e("    a=r 88 r=a 45 a=r 89 a== 3 ifl")
-    e("      a=r 88 a<<= 1 b=r 88 a+=b b=a a=r 37 a-=b r=a 45")
-    e("    endif")
+
+def HUF_SYMBOLS(e):
+    """r45 simbolos del lector hacia atras ya iniciado, a M[r38]."""
     e("    a=r 45 a> 0 ifl")
     e("    do")
     e("      a=0 r=a 43 r=a 44")
@@ -307,7 +314,28 @@ def HUFF(e):
     e("      a=r 45 a-- r=a 45")
     e("    a> 0 while")
     e("    endif")
+
+def HUF_4STREAMS(e):
+    """Los cuatro subflujos de r87 a r35+r36 (tabla de saltos de 6 bytes), r37 simbolos."""
+    e("  a=r 87 a+= 6 r=a 69 a=0 r=a 66"); HSET(e, SS, 66, 69)
+    for k in range(3):
+        e(f"  a=r 87 a+= {2*k+1} c=a a=*c a<<= 8 c-- a+=*c b=r 69 a+=b r=a 69 a= {k+1} r=a 66"); HSET(e, SS, 66, 69)
+    e("  a=r 35 b=r 36 a+=b r=a 69 a= 4 r=a 66"); HSET(e, SS, 66, 69)
+    e("  a=r 37 a+= 3 a>>= 2 r=a 88")
+    e("  a=0 r=a 89")
+    e("  do")
+    HGET(e, SS, 89); e("    r=a 46 a=r 89 a++ r=a 66"); HGET(e, SS, 66); e("    b=r 46 a-=b r=a 67")
+    INITB(e, 46, 67)
+    e("    a=r 88 r=a 45 a=r 89 a== 3 ifl")
+    e("      a=r 88 a<<= 1 b=r 88 a+=b b=a a=r 37 a-=b r=a 45")
+    e("    endif")
+    HUF_SYMBOLS(e)
     e("    a=r 89 a++ r=a 89")
     e("  a< 4 while")
-    e("endif")
-    e("endif")
+
+def HUF_1STREAM(e):
+    """Un solo flujo de r87 a r35+r36, r37 simbolos (zstd, formato de tamano 00)."""
+    e("  a=r 87 r=a 46 a=r 35 b=r 36 a+=b b=r 87 a-=b r=a 67")
+    INITB(e, 46, 67)
+    e("    a=r 37 r=a 45")
+    HUF_SYMBOLS(e)
