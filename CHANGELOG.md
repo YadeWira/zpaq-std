@@ -1,3 +1,29 @@
+### [65.4m-pre40] - 2026-09-25
+
+#### `-ma:lzh` opens in any zpaq (ZPAQLZHAM)
+
+`-ma:lzh` blocks now carry **ZPAQLZHAM**, an LZHAM 1.0 decoder written in ZPAQL,
+so zpaq 7.15, zpaqfranz and every zpaq-std from pre20 on extract them. zpaq-std
+decodes them natively with LZHAM, as before. That makes **21 of the 23 `-ma`
+switches portable**; only bsc and ppmd are left. The old blocks
+(`zpaqstd-ma:lzh`, pre39 and earlier) still extract.
+
+LZHAM is the hardest of the lot to carry: besides the LZ layer (12 states, four
+rep distances, delta literals after a match) and a binary arithmetic coder, it
+has 134 **quasi-adaptive Huffman tables** that rebuild themselves every few
+hundred symbols, and the decoder has to rebuild them exactly as the encoder
+did: the same stable sort by frequency, the same code lengths (polar codes at
+levels 1-3, Moffat-Katajainen Huffman at level 4), the same length limit and the
+same rescaling. A Python reference decoder was written first and checked
+against LZHAM itself; the ZPAQL was then checked against both.
+
+Checked here: 240 LZHAM streams (61 inputs, levels 1-4) decode byte for byte
+with zpaqd 7.15; archives written at every level extract identically with zpaq
+7.15, zpaqfranz, pre20, pre30, pre35, pre38, pre39 and this build.
+
+The help text said level 4 was LZHAM's "uber"; it is "better" (as it always
+was). The level mapping did not change.
+
 ### [65.4m-pre39] - 2026-09-25
 
 **zpaq-std now builds on zpaqfranz 65.4** (the release's own `zpaqfranz.cpp`,

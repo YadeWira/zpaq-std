@@ -24079,6 +24079,7 @@ const std::string& zpaqzstd_bytecode();    /// ZPAQZSTD, idem
 const std::string& zpaqlzfse_bytecode();   /// ZPAQLZFSE, idem
 const std::string& zpaqbrotli_bytecode();  /// ZPAQBROTLI, idem
 const std::string& zpaqbzip3_bytecode();   /// ZPAQBZIP3, idem
+const std::string& zpaqlzham_bytecode();   /// ZPAQLZHAM, idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24163,6 +24164,7 @@ int PostProcessor::write(int c) {
           const std::string& blf=zpaqlzfse_bytecode();
           const std::string& bbr=zpaqbrotli_bytecode();
           const std::string& bb3=zpaqbzip3_bytecode();
+          const std::string& blh=zpaqlzham_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24176,7 +24178,8 @@ int PostProcessor::write(int c) {
            || (int(bzs.size())==hsize && memcmp(&z.header[z.hbegin], bzs.data(), hsize)==0)
            || (int(blf.size())==hsize && memcmp(&z.header[z.hbegin], blf.data(), hsize)==0)
            || (int(bbr.size())==hsize && memcmp(&z.header[z.hbegin], bbr.data(), hsize)==0)
-           || (int(bb3.size())==hsize && memcmp(&z.header[z.hbegin], bb3.data(), hsize)==0)) {
+           || (int(bb3.size())==hsize && memcmp(&z.header[z.hbegin], bb3.data(), hsize)==0)
+           || (int(blh.size())==hsize && memcmp(&z.header[z.hbegin], blh.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -28413,6 +28416,26 @@ const std::string& zpaqbzip3_bytecode() {
   return b;
 }
 
+/// ZPAQLZHAM: LZHAM 1.0 (diccionario de 1 MB) en ZPAQL, para -ma:lzh. Ver
+/// compressors/zpaqlzham/. Guarda el flujo en M y la salida entera detras; los 134
+/// modelos de Huffman cuasi-adaptativos y los binarios en H (ph 17).
+#include "compressors/zpaqlzham/zpaqlzham_body.h"
+std::string zpaqlzham_config(int pm) {
+  return "comp 0 0 17 "+itos(pm)+" 0\n"+ZPAQLZHAM_CUERPO;
+}
+static std::string zpaqlzham_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqlzham_config(26);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqlzham_bytecode() {
+  static const std::string b=zpaqlzham_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -28935,12 +28958,13 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_lzf = strncmp(method_, "zpaqlzfse:", 10)==0;    /// ZPAQLZFSE
   const bool es_bro = strncmp(method_, "zpaqbrotli:", 11)==0;   /// ZPAQBROTLI
   const bool es_bz3 = strncmp(method_, "zpaqbzip3:", 10)==0;    /// ZPAQBZIP3
-  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_lzm = strncmp(method_, "zpaqlzham:", 10)==0;    /// ZPAQLZHAM
+  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh) ? 12 : (es_bz2 || es_lzf || es_bz3) ? 10 : (es_lzma || es_lzv || es_zst) ? 9 : (es_fl2 || es_sn || es_liz || es_bro) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && (pm<16 || pm>24)) || ((es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3) && (pm<17 || pm>31))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm) ? 10 : (es_lzma || es_lzv || es_zst) ? 9 : (es_fl2 || es_sn || es_liz || es_bro) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && (pm<16 || pm>24)) || ((es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm) && (pm<17 || pm>31))
         || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
@@ -28953,7 +28977,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
-                         : es_bz2 ? zpaqbzip2_config(pm) : es_zst ? zpaqzstd_config(pm) : es_lzf ? zpaqlzfse_config(pm) : es_bro ? zpaqbrotli_config(pm) : es_bz3 ? zpaqbzip3_config(pm) : zpaqlz5_config(pm);
+                         : es_bz2 ? zpaqbzip2_config(pm) : es_zst ? zpaqzstd_config(pm) : es_lzf ? zpaqlzfse_config(pm) : es_bro ? zpaqbrotli_config(pm) : es_bz3 ? zpaqbzip3_config(pm) : es_lzm ? zpaqlzham_config(pm) : zpaqlz5_config(pm);
     int args[9]={0};
     Compressor co;
     co.setOutput(out);
@@ -66376,7 +66400,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  hs: ZPAQHS, heatshrink (0..2: 2KB/8KB/16KB window; tiny); opens in any zpaq");
 		scrivi_riga(" ", "  lzfse: ZPAQLZFSE, Apple LZFSE (no levels); opens in any zpaq");
 		scrivi_riga(" ", "  bsc: IlyaGrebnov libbsc (1..9 block-sort + LZP; very slow, high ratio)");
-		scrivi_riga(" ", "  lzh: richgel999 LZHAM (1..4: fastest..uber; LZMA-class, very slow)");
+		scrivi_riga(" ", "  lzh: ZPAQLZHAM, richgel999 LZHAM (1..4: fastest..better, default 4); opens in any zpaq");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -69626,8 +69650,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 	///
 	/// Se evaluo darle otra extension (.zpqs) para que el NOMBRE no mienta. Quedo
 	/// DESCARTADA (2026-09-25): casi todos los -ma llevan ahora su decodificador
-	/// ZPAQL, asi que el .zpaq es honesto por defecto; los pocos que no (bsc, lzh,
-	/// ppmd) avisan con 00596 y los demas zpaq los rechazan limpio. Renombrar
+	/// ZPAQL, asi que el .zpaq es honesto por defecto; los pocos que no (bsc y
+	/// ppmd; lzh hasta pre39) avisan con 00596 y los demas zpaq los rechazan limpio. Renombrar
 	/// ademas rompia multiparte y el indice de backup (el caso CLAAS de 46 GB).
 	/// Ver el issue #1 (kaitz).
 	///
@@ -69643,7 +69667,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	else if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
 	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav"
 	     || g_ma_algorithm=="deflate" || g_ma_algorithm=="hs"
-	     || g_ma_algorithm=="lizard" || g_ma_algorithm=="bzip2" || g_ma_algorithm=="zstd" || g_ma_algorithm=="lzfse" || g_ma_algorithm=="brotli" || g_ma_algorithm=="bzip3")
+	     || g_ma_algorithm=="lizard" || g_ma_algorithm=="bzip2" || g_ma_algorithm=="zstd" || g_ma_algorithm=="lzfse" || g_ma_algorithm=="brotli" || g_ma_algorithm=="bzip3" || g_ma_algorithm=="lzh")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
@@ -69660,7 +69684,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -69677,7 +69701,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		myprintf("00596! -ma:%s: this archive will NOT open in any other zpaq, and older zpaq-std\n"
 		         "       versions may not read it either: upgrade the machine that RESTORES first.\n"
 		         "       For a portable archive use -m0..-m7, or -ma with zstd, brotli, lzma, bzip2, lz5,\n"
-		         "       deflate, lizard, lz4, bzip3... (every -ma codec except bsc, lzh and ppmd)\n",
+		         "       deflate, lizard, lz4, bzip3, lzh... (every -ma codec except bsc and ppmd)\n",
 		         g_ma_algorithm.c_str());
 	}
 
@@ -77309,6 +77333,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lzfp_orig= 0;
 			int64_t brop_orig= 0;
 			int64_t bz3p_orig= 0;
+			int64_t lzhp_orig= 0;
 			int64_t liz_orig= 0;
 			int64_t bz2_orig= 0;
 			int64_t bz3_orig= 0;
@@ -77388,6 +77413,12 @@ ThreadReturn decompressThread(void *arg)
 					{
 						int lvl;
 						sscanf(cs.c_str() + mbz3 + 18, "%d:%" SCNd64, &lvl, &bz3p_orig);
+					}
+					auto mlzh2 = cs.find("zpaqstd-ma2:lzh:");
+					if (mlzh2 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + mlzh2 + 16, "%d:%" SCNd64, &lvl, &lzhp_orig);
 					}
 					auto mbro = cs.find("zpaqstd-ma2:brotli:");
 					if (mbro != string::npos)
@@ -77671,6 +77702,27 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = bz3p_orig;
+			}
+			// ZPAQLZHAM: igual; nativo es lzham_decompress_memory sobre el flujo.
+			else if (lzhp_orig > 0 && (int64_t)out.size() == lzhp_orig)
+			{
+				output_size = lzhp_orig;
+			}
+			else if (lzhp_orig > 0)
+			{
+				string decomp2;
+				decomp2.resize(lzhp_orig);
+				lzham_decompress_params dpar;
+				memset(&dpar,0,sizeof(dpar));
+				dpar.m_struct_size=sizeof(dpar);
+				dpar.m_dict_size_log2=20; /* 1MB dict */
+				size_t lzhout=(size_t)lzhp_orig;
+				lzham_decompress_status_t dstat=lzham_decompress_memory(&dpar,(unsigned char*)&decomp2[0],&lzhout,(const unsigned char*)out.data(),out.size(),NULL);
+				if (dstat!=LZHAM_DECOMP_STATUS_SUCCESS||(int64_t)lzhout!=lzhp_orig)
+					error("31319 lzham decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = lzhp_orig;
 			}
 			// ZPAQBROTLI: igual; nativo es BrotliDecoderDecompress sobre lo que sigue
 			// al prefijo de datos.
@@ -122994,12 +123046,23 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					cpar.m_max_helper_threads=0; /* single-threaded for determinism */
 					size_t out_size=dstCap;
 					lzham_compress_status_t cstat=lzham_compress_memory(&cpar,lzbuf,&out_size,(const lzham_uint8*)sb.data(),(size_t)orig_size,NULL);
-					if (cstat==LZHAM_COMP_STATUS_SUCCESS&&(int64_t)out_size<orig_size-16)
+					/// ZPAQLZHAM: el flujo tal cual, con su decodificador ZPAQL. M guarda el
+					/// flujo, 32 ceros y la salida entera.
+					const int64_t need=(int64_t)out_size+32+orig_size+64;
+					int k=17;
+					while (k<31 && ((int64_t)1<<k)<need) k++;
+					if (cstat==LZHAM_COMP_STATUS_SUCCESS&&(int64_t)out_size<orig_size-16&&((int64_t)1<<k)>=need)
 					{
+						libzpaq::SHA1 sh1;
+						sh1.write((const char*)sb.data(), orig_size);
+						const char* r1=sh1.result();
+						char hx[41];
+						for (int q=0; q<20; ++q)
+							snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
 						sb.reset();
 						sb.write((const char*)lzbuf,(int)out_size);
-						m="04,0";
-						ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+						m="zpaqlzham:"+itos(k)+":"+itos(orig_size)+":"+hx;
+						ma_comment="zpaqstd-ma2:lzh:"+itos(g_ma_level)+":"+itos(orig_size);
 					}
 					delete[] lzbuf;
 				}
