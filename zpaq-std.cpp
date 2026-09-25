@@ -24004,6 +24004,7 @@ const std::string& zpaqlzav_bytecode();   /// ZPAQLZAV, idem
 const std::string& zpaqdeflate_bytecode(); /// ZPAQDEFLATE, idem
 const std::string& zpaqhs_bytecode();      /// ZPAQHS, idem
 const std::string& zpaqlizard_bytecode();  /// ZPAQLIZARD, idem
+const std::string& zpaqlizardh_bytecode(); /// ZPAQLIZARDH (lizard 30-49), idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24082,6 +24083,7 @@ int PostProcessor::write(int c) {
           const std::string& bd=zpaqdeflate_bytecode();
           const std::string& bh=zpaqhs_bytecode();
           const std::string& bz=zpaqlizard_bytecode();
+          const std::string& bzh=zpaqlizardh_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24089,7 +24091,8 @@ int PostProcessor::write(int c) {
            || (int(bv.size())==hsize && memcmp(&z.header[z.hbegin], bv.data(), hsize)==0)
            || (int(bd.size())==hsize && memcmp(&z.header[z.hbegin], bd.data(), hsize)==0)
            || (int(bh.size())==hsize && memcmp(&z.header[z.hbegin], bh.data(), hsize)==0)
-           || (int(bz.size())==hsize && memcmp(&z.header[z.hbegin], bz.data(), hsize)==0)) {
+           || (int(bz.size())==hsize && memcmp(&z.header[z.hbegin], bz.data(), hsize)==0)
+           || (int(bzh.size())==hsize && memcmp(&z.header[z.hbegin], bzh.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -28171,6 +28174,27 @@ const std::string& zpaqlizard_bytecode() {
   return b;
 }
 
+/// ZPAQLIZARDH: lo mismo mas Huff0, para los niveles 30-49 de -ma:lizard. Ver
+/// compressors/zpaqlizard/ (gen.py --huff, huff0.py). Las tablas de Huffman y FSE
+/// van en H (ph 11); los flujos Huffman se decodifican en M detras del comprimido,
+/// asi que pm cubre ademas cuatro flujos de un bloque de Lizard (4 x 128 KB).
+#include "compressors/zpaqlizard/zpaqlizardh_body.h"
+std::string zpaqlizardh_config(int pm) {
+  return "comp 0 0 11 "+itos(pm)+" 0\n"+ZPAQLIZARDH_CUERPO;
+}
+static std::string zpaqlizardh_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqlizardh_config(26);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqlizardh_bytecode() {
+  static const std::string b=zpaqlizardh_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -28687,12 +28711,13 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_dfl = strncmp(method_, "zpaqdeflate:", 12)==0;  /// ZPAQDEFLATE
   const bool es_hs  = strncmp(method_, "zpaqhs:", 7)==0;        /// ZPAQHS, pm = W
   const bool es_liz = strncmp(method_, "zpaqlizard:", 11)==0;   /// ZPAQLIZARD
-  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_lzh = strncmp(method_, "zpaqlizardh:", 12)==0;  /// ZPAQLIZARDH (30-49)
+  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : es_dfl ? 12 : (es_lzma || es_lzv) ? 9 : (es_fl2 || es_sn || es_liz) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && (pm<16 || pm>24)) || ((es_lzma || es_fl2 || es_dfl || es_liz) && (pm<17 || pm>31))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh) ? 12 : (es_lzma || es_lzv) ? 9 : (es_fl2 || es_sn || es_liz) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && (pm<16 || pm>24)) || ((es_lzma || es_fl2 || es_dfl || es_liz || es_lzh) && (pm<17 || pm>31))
         || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
@@ -28704,7 +28729,8 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     const std::string cfg=es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
-                         : es_liz ? zpaqlizard_config(pm) : zpaqlz5_config(pm);
+                         : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
+                         : zpaqlz5_config(pm);
     int args[9]={0};
     Compressor co;
     co.setOutput(out);
@@ -65901,7 +65927,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq");
 		scrivi_riga(" ", "  lz6: EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
-		scrivi_riga(" ", "  lizard: ZPAQLIZARD 10-29 (fastLZ4, LIZv1) opens in any zpaq; 30-49 (+Huffman) not");
+		scrivi_riga(" ", "  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq");
 		scrivi_riga(" ", "  bzip2: BWT+HF (1=fast/100K, 9=best/900K, default 9)");
 		scrivi_riga(" ", "  bzip3: BWT+ANS (level=block_size/100K, 1=fast, 9=best, default 9)");
 		scrivi_riga(" ", "  brotli: Google (0=fast, 11=default, 11=max)");
@@ -69157,7 +69183,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
 	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav"
 	     || g_ma_algorithm=="deflate" || g_ma_algorithm=="hs"
-	     || (g_ma_algorithm=="lizard" && g_ma_level<30))
+	     || g_ma_algorithm=="lizard")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
@@ -69173,7 +69199,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		const char* zname= (g_ma_algorithm=="lzma") ? "ZPAQLZMA" : (g_ma_algorithm=="lz") ? "ZPAQLZIP"
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
-		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? "ZPAQLIZARD"
+		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
 		                 : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
@@ -121451,11 +121477,14 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				int lizsize=Lizard_compress((const char*)sb.data(),lizbuf,(int)orig_size,dstCap,g_ma_level);
 				/// ZPAQLIZARD: los niveles 10-29 (sin Huffman) llevan su decodificador
 				/// ZPAQL: tamano original (4 bytes) + el flujo de Lizard. Los 30-49
-				/// usan Huffman y quedan como antes, no portables.
+				/// (Huffman) llevan ZPAQLIZARDH, que ademas decodifica cada flujo
+				/// Huffman en M: cuatro de hasta 128 KB por bloque de Lizard.
 				int64_t total=(int64_t)lizsize+4;
+				const bool huf=g_ma_level>=30;
+				const int64_t need=orig_size+total+64+(huf ? 4*(int64_t)(LIZARD_BLOCK_SIZE+32) : 0);
 				int k=17;
-				while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
-				if (lizsize>0&&g_ma_level<30&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+				while (k<31 && ((int64_t)1<<k)<need) k++;
+				if (lizsize>0&&total<orig_size-16&&((int64_t)1<<k)>=need)
 				{
 					libzpaq::SHA1 sh1;
 					sh1.write((const char*)sb.data(), orig_size);
@@ -121469,7 +121498,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					sb.reset();
 					sb.write(hd,4);
 					sb.write(lizbuf,lizsize);
-					m="zpaqlizard:"+itos(k)+":"+itos(orig_size)+":"+hx;
+					m=(huf ? "zpaqlizardh:" : "zpaqlizard:")+itos(k)+":"+itos(orig_size)+":"+hx;
 					ma_comment="zpaqstd-ma2:lizard:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
 				else if (lizsize>0&&(int64_t)lizsize<orig_size-16)
