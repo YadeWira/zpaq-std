@@ -1,3 +1,38 @@
+### [65.3y-pre35] - 2026-09-24
+
+#### `-ma:bzip2` opens in any zpaq (ZPAQBZIP2)
+
+`-ma:bzip2` blocks now carry **ZPAQBZIP2**, a bzip2 decoder written in ZPAQL,
+so zpaq 7.15, zpaqfranz and every zpaq-std from pre20 on extract them. zpaq-std
+recognises the program and decodes natively with libbzip2, as before.
+
+bzip2 blocks are not byte-aligned, so the whole stream is kept in M and decoded
+at the end of the segment. Per block:
+
+- the byte map, the selectors (unary + MTF) and the code lengths (deltas);
+- canonical Huffman decoded one bit at a time (the ZPAQDEFLATE method);
+- MTF and RUNA/RUNB;
+- the inverse BWT with a 32-bit `tt[]` in H (libbzip2's fast mode: the byte in
+  the low 8 bits, the pointer above);
+- the final run-length step.
+
+The output goes straight out with OUT. Several blocks and several
+concatenated streams are handled.
+
+**1,964 bytes** of bytecode. It is the slowest portable decoder for other
+tools: **~17 MB/s with the JIT, ~1 MB/s without** (12 MB of text). The reader
+needs 4 MB of H (ph = 20, a 900 KB block).
+
+The old blocks (`zpaqstd-ma:bzip2`, pre34 and earlier) still extract.
+
+Checked:
+
+- zpaqd 7.15 on 198 streams (22 inputs × levels 1–9), on two concatenated
+  streams, and on 12 MB at levels 1, 5 and 9.
+- Levels 1, 5 and 9: zpaq 7.15, zpaqfranz, pre20 through pre34 and this version
+  extract them identically, and `t` passes.
+- `suite_ma_corre` now requires zpaq 7.15 to extract `-ma:bzip2`.
+
 ### [65.3y-pre34] - 2026-09-24
 
 #### `-ma:lizard` levels 30–49 open in any zpaq (ZPAQLIZARDH)

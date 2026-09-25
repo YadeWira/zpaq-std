@@ -38,7 +38,7 @@ The killer feature of this fork. You can pick **which external algorithm compres
 | `-ma:lz6:N` | lz6 (YadeWira, BSD-2), **experimental** | 0–15 | 0 | 0 = fast, low CPU; 1–15 = HC; **opens in any zpaq** |
 | `-ma:lzma:N` | LZMA SDK 26.03 (Igor Pavlov, public domain) — **ZPAQLZMA** | 0–9 | 6 | LZMA ratio, fast extraction; **opens in any zpaq** (ZPAQL decoder by kaitz) |
 | `-ma:lizard:N` | Lizard v2.1 — **ZPAQLIZARD** (10–29), **ZPAQLIZARDH** (30–49) | 10–49 | 17 | LZ4-class with better ratio; 30–49 add Huffman; **opens in any zpaq** |
-| `-ma:bzip2:N` | bzip2 v1.0.8 | 1–9 | 9 | BWT+HF, classic |
+| `-ma:bzip2:N` | bzip2 v1.0.8 — **ZPAQBZIP2** | 1–9 | 9 | BWT+HF, classic; **opens in any zpaq** |
 | `-ma:bzip3:N` | bzip3 v1.5.4 | 1–9 | 9 | BWT+ANS, modern bzip2 successor |
 | `-ma:brotli:N` | brotli v1.2.0 | 0–11 | 11 | Google's compressor (text) |
 | `-ma:snappy:N` | Snappy v1.2.1 — **ZPAQSNAPPY** | 1–2 | 1 | Google's, like lz4 but tighter; **opens in any zpaq** |
@@ -55,8 +55,8 @@ If the external pass produces output larger than `orig - 16` bytes, the original
 
 ### Portability: which `-ma` archives open in other zpaq tools
 
-**`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f`, `-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz`, `-ma:snappy`, `-ma:lzav`, `-ma:deflate`, `-ma:hs` and
-`-ma:lizard` (all levels, 10–49) are portable.** Their blocks carry their
+**`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f`, `-ma:lz5`, `-ma:lz5hc`, `-ma:lz5f`, `-ma:lz6`, `-ma:lzma`, `-ma:flzma2`, `-ma:lz`, `-ma:snappy`, `-ma:lzav`, `-ma:deflate`, `-ma:hs`,
+`-ma:lizard` (all levels, 10–49) and `-ma:bzip2` are portable.** Their blocks carry their
 own decoder, written in ZPAQL — the bytecode language every zpaq implementation
 runs (see [ZPAQLZ5](#zpaqlz5-an--ma-codec-any-zpaq-can-extract) below). **Every
 other `-ma` codec is not**: its payload is compressed by a codec no other
@@ -68,7 +68,7 @@ Measured against the two reference implementations:
 | method | zpaq 7.15 | zpaqfranz 64.8j |
 |---|---|---|
 | `-m0` … `-m5` (native) | extracts correctly | extracts correctly |
-| `lz5` `lz5hc` `lz5f` `lz6` `lzma` `flzma2` `lz` `snappy` `lzav` `deflate` `hs` `lizard` | **extracts correctly** | **extracts correctly** |
+| `lz5` `lz5hc` `lz5f` `lz6` `lzma` `flzma2` `lz` `snappy` `lzav` `deflate` `hs` `lizard` `bzip2` | **extracts correctly** | **extracts correctly** |
 | any other `-ma:algo` | skips the block, `rc=1` | skips the block, `rc≠0` |
 
 Those `-ma` blocks are deliberately tagged with a **post-processing type that no
@@ -116,6 +116,7 @@ switch stays the same; the name is what the block holds.
 | `-ma:deflate` | **ZPAQDEFLATE** | raw DEFLATE, zpaq-std (puff's method) | 2,898 B | 35–54 / 2.1–2.7 MB/s | block + compressed |
 | `-ma:hs` | **ZPAQHS** | heatshrink, zpaq-std | 265 B | ~64 / 5.8 MB/s | 2–16 KB |
 | `-ma:lizard` 10–29 | **ZPAQLIZARD** | Lizard fastLZ4 + LIZv1, zpaq-std | 1,210 B | 70–95 / 10–12 MB/s | block + compressed |
+| `-ma:bzip2` | **ZPAQBZIP2** | bzip2 (libbzip2 1.0.8), zpaq-std | 1,964 B | ~17 / ~1 MB/s | compressed + 4 MB (H) |
 | `-ma:lizard` 30–49 | **ZPAQLIZARDH** | the same + Huff0 (zstd's Huffman), zpaq-std | 3,651 B | 42–102 / 3–8.5 MB/s | block + compressed + 512 KB |
 
 `lz6` will get its own name when it stops being experimental.
@@ -190,7 +191,7 @@ zpaq-std only takes the native shortcut for blocks tagged as its own
 (`zpaqstd-ma2:`): zpaqf's `-m3` blocks carry the very same program, and zpaq-std
 still runs it for them, exactly as before.
 
-#### ZPAQFLZMA2, ZPAQLZIP, ZPAQSNAPPY, ZPAQLZAV, ZPAQDEFLATE, ZPAQHS, ZPAQLIZARD, ZPAQLIZARDH
+#### ZPAQFLZMA2, ZPAQLZIP, ZPAQSNAPPY, ZPAQLZAV, ZPAQDEFLATE, ZPAQHS, ZPAQLIZARD, ZPAQLIZARDH, ZPAQBZIP2
 
 - **ZPAQFLZMA2** (`-ma:flzma2`): fast-lzma2 writes LZMA2 — LZMA cut into chunks
   of up to 2 MB, each with its own header, which can restart the decoder, change
@@ -245,8 +246,19 @@ still runs it for them, exactly as before.
   streams (35 inputs × levels 10–49, plus hand-made RLE streams also checked
   against Lizard's own decoder); pre20 to pre33, zpaqfranz and zpaq 7.15 extract
   levels 30–49 identically.
+- **ZPAQBZIP2** (`-ma:bzip2`): the whole bzip2 stream, as libbzip2 writes it.
+  bzip2 blocks are not byte-aligned, so the stream is kept in M and decoded at
+  the end: the byte map, the selectors (unary + MTF), the code lengths (deltas),
+  canonical Huffman one bit at a time (the ZPAQDEFLATE method), MTF and
+  RUNA/RUNB, the inverse BWT with a 32-bit `tt[]` in H (libbzip2's fast mode:
+  byte below, pointer above), and the final run-length step; the output goes out
+  directly. It needs 4 MB of H in the reader (a 900 KB block). The slowest of
+  the portable decoders for other tools (~17 MB/s with the JIT, ~1 MB/s
+  without); zpaq-std decodes natively. Verified with zpaq 7.15 on 198 streams
+  (22 inputs × levels 1–9), on concatenated streams and on 12 MB at levels 1, 5
+  and 9; pre20 to pre34, zpaqfranz and zpaq 7.15 extract it identically.
 
-Archives written by older versions with these seven codecs (non-portable, the
+Archives written by older versions with these codecs (non-portable, the
 `zpaqstd-ma:` tag) still extract: zpaq-std keeps both readers.
 
 Portable decoders only make sense for some codecs: a brotli decoder in ZPAQL was
@@ -261,7 +273,7 @@ non-portable codecs the compatibility is one-way, and it is the useful direction
 | | |
 |---|---|
 | new version reading old archives | **yes** — verified over pre9…pre20 × 7 codecs, plus native |
-| old version reading new `-ma` blocks | no — **except the portable codecs** (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`, `snappy`, `lzav`, `deflate`, `hs`, `lizard`), which every version from pre20 on extracts by running their ZPAQL decoder |
+| old version reading new `-ma` blocks | no — **except the portable codecs** (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`, `snappy`, `lzav`, `deflate`, `hs`, `lizard`, `bzip2`), which every version from pre20 on extracts by running their ZPAQL decoder |
 | old version reading new **native** archives | **yes** — those bytes are unchanged |
 
 In a mixed or appended archive an old version still recovers everything it could
@@ -270,7 +282,7 @@ rule when upgrading is simple: **upgrade the machine that RESTORES before the on
 that compresses.**
 
 **Use `-m0`…`-m5` or a portable `-ma` codec (`lz5`, `lz6`, `lzma`, `flzma2`, `lz`,
-`snappy`, `lzav`, `deflate`, `hs`, `lizard`) if the archive has to be readable anywhere
+`snappy`, `lzav`, `deflate`, `hs`, `lizard`, `bzip2`) if the archive has to be readable anywhere
 else.** Raised as
 issue #1 by kaitz, and the report is correct on the substance (the header,
 however, is unchanged — it is byte-for-byte a standard zpaq header).
@@ -358,6 +370,7 @@ compressors/
 ├── zpaqlzma/     ZPAQL decoders: kaitz's LZMA1 and ZPAQFLZMA2 (public domain)
 ├── zpaqdeflate/  ZPAQDEFLATE, and gen.py that generates it
 ├── zpaqlizard/   ZPAQLIZARD and ZPAQLIZARDH, and gen.py (+ huff0.py) that generates them
+├── zpaqbzip2/    ZPAQBZIP2, and gen.py that generates it
 ├── lizard/      10 src + 26 h
 ├── bzip2/        7 src +  2 h
 ├── bzip3/        1 src +  4 h
