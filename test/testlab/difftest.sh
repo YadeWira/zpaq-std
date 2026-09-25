@@ -58,7 +58,7 @@ echo "caso,metodo,archA,archB,bit_exacto,A_lee_B,B_lee_A,l_igual,t_igual,resulta
 : > "$LOG"
 printf 'A = %s\nB = %s\ntimestamp fijo = %s\n\n' "$A" "$B" "$TS" | tee -a "$LOG"
 
-norm(){ grep -viE 'zpaq-std-open|^[0-9.]+s \(|Large page|speed|MB/s|@ ' | sed 's/[0-9]\{1,\}\.[0-9]\{2\}s//g'; }
+norm(){ grep -viE 'zpaq-std-open|^Times \(ms\):|^[0-9.]+s \(|Large page|speed|MB/s|@ ' | sed 's/[0-9]\{1,\}\.[0-9]\{2\}s//g'; }
 
 one(){ # caso metodo
   local c="$1" m="$2"

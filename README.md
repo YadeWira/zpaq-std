@@ -1,6 +1,6 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.3.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
 A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **17 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds (23 `-ma` switches) and **zero system dependencies**.
 

@@ -1,3 +1,49 @@
+### [65.4m-pre39] - 2026-09-25
+
+**zpaq-std now builds on zpaqfranz 65.4** (the release's own `zpaqfranz.cpp`,
+65.4m). Everything upstream added comes in; see
+[zpaqfranz 65.4](https://github.com/fcorbelli/zpaqfranz/releases/tag/65.4). The
+main points:
+
+- **Fixed: `-ma` archives with many small, nearly incompressible files could
+  fail to extract** (`31319 flzma2 decompression failed`, also zstd, bzip2, lz5,
+  lizard, lzh...). The archive was always fine; the reader stopped reading such
+  a block too early and handed the codec a truncated stream. Found on a real
+  3 GB archive (10,515 files in 3 `-ma:flzma2:9` blocks), which now extracts
+  and tests clean. zpaq 7.15 and zpaqfranz were never affected (they run the
+  ZPAQL decoder). New `test/testlab/suite_ma_frag.sh` covers it: 7 failures on
+  pre38, 0 now.
+
+- **`l` in a fraction of a second on huge archives** with `-filelist`: the
+  history of the archive is kept inside it. `l` is also about 3 times faster
+  without it. Checked here: the file list is the same with and without
+  `-filelist`.
+- **`-tar`** (*nix): owners, permissions, symlinks, hard links, FIFOs, devices
+  and nanosecond times, stored and given back.
+- **`-turbo N`**: how many threads. Checked here: `-turbo 8` with `-ma` (zstd,
+  bzip3, brotli, lz5) writes the same archive as without `-turbo`.
+- The `-silent` / `-out` / DLL formatter for `%Z %K %H` (#289, found by **ZF**)
+  is now upstream's own `zpaqfranz_vformat`; it replaces the version zpaq-std
+  carried since pre32. zpaq-std keeps its own addition on top: errors and
+  warnings still go to stderr and to the `-innosetup` window when everything
+  else is silent.
+- `x` never writes through a symlink, a FIFO or a device; one temporary folder
+  per user; the Windows ADS file list is gone (`-filelist` replaces it).
+
+#### A hang that the merge would have introduced
+
+zpaq-std's parallel read-ahead (the front-end pool, since pre20) opens every file
+of an `a` with `fopen()`. Under the new `-tar` that **followed symlinks** (storing
+the target's data instead of the link) and, on a **FIFO, waited forever**: the
+`a` never ended. Upstream's `add()` avoids opening those files; the pool did not
+know. Now the pool leaves symlinks, FIFOs and devices to the main thread, as
+upstream does. With `-t1` (no pool) it already worked, which is why it slipped
+past the merge. A new test, `suite_tar.sh`, checks symlinks, hard links, FIFOs,
+permissions and data with 1, 4 and the default threads; the build without the
+fix hangs in 2 of its 3 cases.
+
+The version string is now `65.4m`.
+
 ### [65.3y-pre38] - 2026-09-25
 
 #### `-ma:bzip3` opens in any zpaq (ZPAQBZIP3)
