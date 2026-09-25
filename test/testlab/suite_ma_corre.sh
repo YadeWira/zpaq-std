@@ -11,7 +11,9 @@
 #
 # Lo que mide: sobre texto compresible, cada uno de los 21 switches tiene que
 # (1) dejar su comentario zpaqstd-ma:<algo>: en el archivo -- prueba de que el
-# codec escribio el bloque -- y (2) volver con los bytes exactos.
+# codec escribio el bloque -- y (2) volver con los bytes exactos. Ademas, (3)
+# -turbo (add2, la copia de upstream de add) tiene que dar el MISMO archivo byte
+# a byte: hasta 65.3y-pre33 add2 no tenia ninguna rama -ma.
 #
 #   uso: suite_ma_corre.sh          (usa Z=... o el binario del repo)
 # ============================================================================
@@ -21,7 +23,7 @@ W=/mnt/IA_LAB/agentes/ZPAQ-STD/testlab
 RUN=${RUN:-ma_corre}
 OUT=$W/$RUN; rm -rf "$OUT"; mkdir -p "$OUT/src"
 CSV=$OUT/ma_corre.csv
-echo "codec,marca,ida_vuelta,zpaq715,resultado" > "$CSV"
+echo "codec,marca,ida_vuelta,zpaq715,turbo,resultado" > "$CSV"
 # texto compresible, sin aleatorio: cualquier codec tiene que ganarle al original
 python3 -c "
 import random; random.seed(11); w='alfa beta gamma delta epsilon zeta eta theta iota kappa'.split()
@@ -68,8 +70,11 @@ for a in $ALGOS; do
       [ "$z715" = OK ] || { r=NO-PORTABLE; malos=$((malos+1)); }
     fi ;;
   esac
-  printf '  %-8s marca=%-2s ida_vuelta=%-5s zpaq715=%-5s %s\n' "$a" "$n" "$iv" "$z715" "$r"
-  echo "$a,$n,$iv,$z715,$r" >> "$CSV"
+  rm -f "$OUT/turbo.zpaq"
+  timeout 300 "$Z" a "$OUT/turbo.zpaq" "$OUT/src" -turbo -ma:$a -timestamp 2026-01-01_00:00:00 </dev/null >/dev/null 2>&1
+  tb=OK; cmp -s "$arch" "$OUT/turbo.zpaq" || { tb=DISTINTO; [ "$r" = OK ] && { r=TURBO-DISTINTO; malos=$((malos+1)); }; }
+  printf '  %-8s marca=%-2s ida_vuelta=%-5s zpaq715=%-5s turbo=%-8s %s\n' "$a" "$n" "$iv" "$z715" "$tb" "$r"
+  echo "$a,$n,$iv,$z715,$tb,$r" >> "$CSV"
 done
 nc=$(echo $ALGOS | wc -w)
 echo "--- $nc codecs, $((nc-malos)) corren y vuelven, $malos a revisar ---"

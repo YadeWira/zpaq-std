@@ -1,3 +1,24 @@
+### [65.3y-pre33] - 2026-09-24
+
+#### `-turbo` works with every `-ma` codec
+
+pre32 sent `-turbo` with a `-ma` codec (other than lz4/lzav) through the normal
+`add` with notice `00605`, because `add2()` — upstream's copy of `add()` that
+`-turbo` runs — had none of zpaq-std's `-ma` branches. Now the whole `-ma`
+chain lives in a single function, `ma_comprimir_bloque()`, and `add()` and both
+block flushes of `add2()` call it. `00605` is gone.
+
+Checked: with each of the 23 codecs, `-turbo` writes **byte for byte the same
+archive** as without it (fixed `-timestamp`), on 8.6 MB and on 214 MB in many
+blocks, with `-t1` too; it extracts and `t` passes. `suite_ma_corre` now checks
+this for each codec (a `turbo` column). A negative control — `add2` built
+without the call — gets caught: 19 of 23 marked (lz4/lzav do not go through the
+chain, they are `-m6`/`-m7`).
+
+What `-turbo` speeds up is the fragmenter and the SHA-1, not the codec: with a
+slow codec the gain is small (214 MB: `-ma:lz5` 15.0 s → 14.3 s; `-ma:lzma` and
+`-ma:zstd` about the same).
+
 ### [65.3y-pre32] - 2026-09-24
 
 **zpaq-std now builds on zpaqfranz 65.3.** Everything upstream added in 65.3

@@ -73150,14 +73150,7 @@ int Jidac::doCommand()
 #ifndef ANCIENT
 		else if (flagturbo)
 		{
-			/// add2() es la copia de upstream de add(): no tiene las ramas -ma de
-			/// zpaq-std. Salvo lz4/lzav, que son -m6/-m7, un -ma con -turbo va por
-			/// add(), que lo respeta, en vez de perder el codec sin avisar.
-			if (g_ma_algorithm != "" && !ma_es_alias_m6m7())
-			{
-				myprintf("00605: -turbo ignored with -ma:%s (it runs the normal add)\n", g_ma_algorithm.c_str());
-				return add();
-			}
+			/// add2() llama a ma_comprimir_bloque() como add(): -turbo respeta -ma.
 			return add2(); /// the same archive, faster (see add2)
 		}
 #else
@@ -121251,6 +121244,602 @@ static void ma_alias_m6m7(string& io_method)
 	io_method= nuevo;
 	g_ma_algorithm= "";
 }
+/// La cadena de codecs -ma de zpaq-std, en una funcion: la usan add() y add2()
+/// (-turbo, la copia de upstream de add(), que no tenia ninguna rama -ma). Recibe
+/// el bloque ya armado (datos + lista de fragmentos) y, si el codec gana, lo
+/// reemplaza por su salida y fija el metodo y la etiqueta del comentario.
+static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
+{
+	/// -ma:lz4* y -ma:lzav ya no llegan aca: ma_alias_m6m7() los escribe como -m6 / -m7.
+	if (g_ma_algorithm=="zstd" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=ZSTD_compressBound((size_t)orig_size);
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* zstdbuf=new(std::nothrow) char[dstCap];
+			if (zstdbuf)
+			{
+				size_t zs=ZSTD_compress(zstdbuf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
+				if (!ZSTD_isError(zs)&&zs>0&&(int64_t)zs<orig_size-16)
+				{
+					sb.reset();
+					sb.write(zstdbuf,(int)zs);
+					m="04,0";
+					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] zstdbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="flzma2" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=FL2_compressBound((size_t)orig_size);
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* fl2buf=new(std::nothrow) char[dstCap];
+			if (fl2buf)
+			{
+				size_t fs=FL2_compress(fl2buf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
+				/// ZPAQFLZMA2: el bloque lleva su decodificador LZMA2 en ZPAQL,
+				/// asi que cualquier zpaq lo extrae. Flujo: tamano original (4
+				/// bytes LE) + la salida de FL2_compress tal cual. pm: que entren
+				/// en M la salida entera y detras el flujo.
+				int64_t total=(int64_t)fs+4;
+				int k=17;
+				while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
+				if (!FL2_isError(fs)&&fs>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+				{
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					char hd[4];
+					for (int q=0; q<4; q++)
+						hd[q]=(char)((uint64_t)orig_size>>(8*q));
+					sb.reset();
+					sb.write(hd,4);
+					sb.write(fl2buf,(int)fs);
+					m="zpaqflzma2:"+itos(k)+":"+itos(orig_size)+":"+hx;
+					ma_comment="zpaqstd-ma2:flzma2:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] fl2buf;
+			}
+		}
+	}
+	else if ((g_ma_algorithm=="lz5"||g_ma_algorithm=="lz5hc"||g_ma_algorithm=="lz5f") && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		int dstCap=LZ5_compressBound((int)orig_size);
+		if (dstCap>0&&dstCap<256*1024*1024)
+		{
+			char* lz5buf=new(std::nothrow) char[dstCap];
+			if (lz5buf)
+			{
+				int lz5size=0;
+				if (g_ma_algorithm=="lz5hc")
+					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+				else if (g_ma_algorithm=="lz5f")
+					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+				else if (g_ma_level>=5)
+					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+				else
+					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+				if (lz5size>0&&(int64_t)lz5size<orig_size-16)
+				{
+					/// ZPAQLZ5: el bloque lleva su decodificador ZPAQL, asi que
+					/// cualquier zpaq lo extrae. El SHA-1 del segmento tiene que
+					/// ser el del ORIGINAL: se toma aca, antes de pisar sb.
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int k=0; k<20; ++k)
+						snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
+					sb.reset();
+					sb.write(lz5buf,lz5size);
+					m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
+					/// "zpaqstd-ma2:" y no "zpaqstd-ma:": ninguna version anterior de
+					/// zpaq-std reconoce esta etiqueta, asi que corren el decodificador
+					/// ZPAQL del bloque y listo. Con la etiqueta vieja, pre21-pre23
+					/// descomprimian DOS veces (el ZPAQL y despues LZ5) y fallaban
+					/// con 31319 -- medido. Asi el archivo lo abre toda version.
+					ma_comment="zpaqstd-ma2:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] lz5buf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="lz6" && sb.size()>16)
+	{
+		/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION)
+		/// escribe el MISMO formato de bloque que LZ5 v1.5: es su "perfil
+		/// portable", congelado. Asi que el bloque lleva el mismo decodificador
+		/// ZPAQLZ5 que -ma:lz5, sin un byte distinto. La ventana se limita a 2^22
+		/// (la de ZPAQLZ5): un zpaq ajeno reserva 4 MB por hilo y no 16, a un costo
+		/// medido por lz6 de +0.13% en dickens y +0.75% en samba con el rapido.
+		int64_t orig_size=sb.size();
+		int dstCap=LZ6_compressBound((int)orig_size);
+		if (dstCap>0&&dstCap<256*1024*1024)
+		{
+			char* lz6buf=new(std::nothrow) char[dstCap];
+			if (lz6buf)
+			{
+				int lz6size=0;
+				if (g_ma_level<=0)
+					lz6size=LZ6_compress_fast_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,1,22);
+				else
+					lz6size=LZ6_compress_HC_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,g_ma_level,22);
+				if (lz6size>0&&(int64_t)lz6size<orig_size-16)
+				{
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int k=0; k<20; ++k)
+						snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
+					sb.reset();
+					sb.write(lz6buf,lz6size);
+					m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
+					/// "zpaqstd-ma2:lz5-lz6:" y no "zpaqstd-ma2:lz6:". pre24 toma el atajo
+					/// de ZPAQLZ5 (reconoce el bytecode y NO lo ejecuta) y despues busca
+					/// "zpaqstd-ma2:lz5" en el comentario para decodificar nativo: con
+					/// "lz6" a secas no lo encontraba y devolvia los bytes comprimidos.
+					/// Con este prefijo pre24 decodifica con LZ5_decompress_safe, que lee
+					/// estos bloques igual (medido con los 23 vectores de lz6).
+					ma_comment="zpaqstd-ma2:lz5-lz6:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] lz6buf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="lzma" && sb.size()>16)
+	{
+		/// ZPAQLZMA: LZMA1 del LZMA SDK, con el decodificador ZPAQL de kaitz (zpaqf)
+		/// en cada bloque: cualquier zpaq lo extrae. El flujo es el que ese programa
+		/// lee: 5 bytes de propiedades (lc=3 lp=0 pb=2 + diccionario), 4 del tamano
+		/// original, y el LZMA crudo, sin marca de fin (el tamano dice donde termina).
+		/// El diccionario es la menor potencia de 2 >= el bloque (minimo 64 KB) y
+		/// pm = diccionario x2: en el programa, M guarda la salida entera y detras
+		/// los datos comprimidos, que tienen que caber (por eso lo comprimido tiene
+		/// que ser menor que el diccionario, y lo es: si no, el bloque queda nativo).
+		int64_t orig_size=sb.size();
+		int k=16;
+		while (k<30 && ((int64_t)1<<k)<orig_size) k++;
+		if (((int64_t)1<<k)>=orig_size)
+		{
+			size_t dstCap=(size_t)orig_size+orig_size/3+(1<<16);
+			unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap+9];
+			if (lzbuf)
+			{
+				size_t destLen=dstCap, propsSize=LZMA_PROPS_SIZE;
+				int res=LzmaCompress(lzbuf+9, &destLen, (const unsigned char*)sb.data(), (size_t)orig_size,
+				                     lzbuf, &propsSize, g_ma_level, (unsigned)1<<k, 3, 0, 2, -1, 1);
+				int64_t total=(int64_t)destLen+9;
+				if (res==SZ_OK && propsSize==LZMA_PROPS_SIZE && total<orig_size-16
+				    && total<((int64_t)1<<k) && lzbuf[9]==0)
+				{
+					for (int i=0; i<4; i++)
+						lzbuf[5+i]=(unsigned char)((uint64_t)orig_size>>(8*i));
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					sb.reset();
+					sb.write((const char*)lzbuf,(int)total);
+					m="zpaqlzma:"+itos(k+1)+":"+itos(orig_size)+":"+hx;
+					ma_comment="zpaqstd-ma2:lzma:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] lzbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="lizard" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		int dstCap=Lizard_compressBound((int)orig_size);
+		if (dstCap>0&&dstCap<256*1024*1024)
+		{
+			char* lizbuf=new(std::nothrow) char[dstCap];
+			if (lizbuf)
+			{
+				int lizsize=Lizard_compress((const char*)sb.data(),lizbuf,(int)orig_size,dstCap,g_ma_level);
+				/// ZPAQLIZARD: los niveles 10-29 (sin Huffman) llevan su decodificador
+				/// ZPAQL: tamano original (4 bytes) + el flujo de Lizard. Los 30-49
+				/// usan Huffman y quedan como antes, no portables.
+				int64_t total=(int64_t)lizsize+4;
+				int k=17;
+				while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
+				if (lizsize>0&&g_ma_level<30&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+				{
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					char hd[4];
+					for (int q=0; q<4; q++)
+						hd[q]=(char)((uint64_t)orig_size>>(8*q));
+					sb.reset();
+					sb.write(hd,4);
+					sb.write(lizbuf,lizsize);
+					m="zpaqlizard:"+itos(k)+":"+itos(orig_size)+":"+hx;
+					ma_comment="zpaqstd-ma2:lizard:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				else if (lizsize>0&&(int64_t)lizsize<orig_size-16)
+				{
+					sb.reset();
+					sb.write(lizbuf,lizsize);
+					m="04,0";
+					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] lizbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="bzip2" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		unsigned int dstCap=(unsigned int)(orig_size+orig_size/100+1024);
+		if (dstCap>0&&dstCap<256*1024*1024)
+		{
+			char* bz2buf=new(std::nothrow) char[dstCap];
+			if (bz2buf)
+			{
+				int rc=BZ2_bzBuffToBuffCompress(bz2buf,&dstCap,(char*)sb.data(),(unsigned int)orig_size,g_ma_level,0,0);
+				int bz2size=(int)dstCap;
+				if (rc==BZ_OK&&bz2size>0&&(int64_t)bz2size<orig_size-16)
+				{
+					sb.reset();
+					sb.write(bz2buf,bz2size);
+					m="04,0";
+					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] bz2buf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="bzip3" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=bz3_bound((size_t)orig_size);
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* bz3buf=new(std::nothrow) char[dstCap];
+			if (bz3buf)
+			{
+				/// out_size ENTRA como capacidad del buffer: libbz3.h dice "make
+				/// sure to set out_size to the size of the output buffer", y la
+				/// implementacion devuelve BZ3_ERR_DATA_TOO_BIG si es menor que
+				/// bz3_bound(). Aca estaba en 0, asi que bz3_compress fallaba
+				/// SIEMPRE y el bloque caia al metodo nativo sin avisar:
+				/// -ma:bzip3 no comprimio nunca con bzip3, desde el commit
+				/// inicial. Las pruebas de ida y vuelta pasaban igual, porque
+				/// guardar sin el codec tambien es reversible.
+				size_t bz3out=dstCap;
+				int rc=bz3_compress((uint32_t)(g_ma_level*100000),(const uint8_t*)sb.data(),(uint8_t*)bz3buf,(size_t)orig_size,&bz3out);
+				if (rc==0&&bz3out>0&&(int64_t)bz3out<orig_size-16)
+				{
+					sb.reset();
+					sb.write(bz3buf,(int)bz3out);
+					m="04,0";
+					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] bz3buf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="brotli" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=BrotliEncoderMaxCompressedSize((size_t)orig_size);
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* brotlibuf=new(std::nothrow) char[dstCap];
+			if (brotlibuf)
+			{
+				BROTLI_BOOL rc=BrotliEncoderCompress(g_ma_level,BROTLI_DEFAULT_WINDOW,BROTLI_DEFAULT_MODE,(size_t)orig_size,(const uint8_t*)sb.data(),&dstCap,(uint8_t*)brotlibuf);
+				if (rc==BROTLI_TRUE&&dstCap>0&&(int64_t)dstCap<orig_size-16)
+				{
+					sb.reset();
+					sb.write(brotlibuf,(int)dstCap);
+					m="04,0";
+					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] brotlibuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="snappy" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=snappy_max_compressed_length((size_t)orig_size);
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* snbuf=new(std::nothrow) char[dstCap];
+			if (snbuf)
+			{
+				size_t snsz=dstCap;
+				snappy_status src2=snappy_compress((const char*)sb.data(),(size_t)orig_size,snbuf,&snsz);
+				if (src2==SNAPPY_OK&&snsz>0&&(int64_t)snsz<orig_size-16)
+				{
+					/// ZPAQSNAPPY: el bloque de snappy tal cual, con su
+					/// decodificador ZPAQL: cualquier zpaq lo extrae.
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					sb.reset();
+					sb.write(snbuf,(int)snsz);
+					m="zpaqsnappy:16:"+itos(orig_size)+":"+hx;
+					ma_comment="zpaqstd-ma2:snappy:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] snbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="deflate" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		struct libdeflate_compressor* ldcmp=libdeflate_alloc_compressor(g_ma_level);
+		if (ldcmp)
+		{
+			size_t dstCap=libdeflate_deflate_compress_bound(ldcmp,(size_t)orig_size);
+			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+			{
+				char* ldbuf=new(std::nothrow) char[dstCap];
+				if (ldbuf)
+				{
+					size_t ldsz=libdeflate_deflate_compress(ldcmp,(const void*)sb.data(),(size_t)orig_size,ldbuf,dstCap);
+					/// ZPAQDEFLATE: tamano original (4 bytes) + el deflate crudo, con
+					/// su decodificador ZPAQL; pm para la salida entera y el comprimido.
+					int64_t total=(int64_t)ldsz+4;
+					int k=17;
+					while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
+					if (ldsz>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+					{
+						libzpaq::SHA1 sh1;
+						sh1.write((const char*)sb.data(), orig_size);
+						const char* r1=sh1.result();
+						char hx[41];
+						for (int q=0; q<20; ++q)
+							snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+						char hd[4];
+						for (int q=0; q<4; q++)
+							hd[q]=(char)((uint64_t)orig_size>>(8*q));
+						sb.reset();
+						sb.write(hd,4);
+						sb.write(ldbuf,(int)ldsz);
+						m="zpaqdeflate:"+itos(k)+":"+itos(orig_size)+":"+hx;
+						ma_comment="zpaqstd-ma2:deflate:"+itos(g_ma_level)+":"+itos(orig_size);
+					}
+					delete[] ldbuf;
+				}
+			}
+			libdeflate_free_compressor(ldcmp);
+		}
+	}
+	else if (g_ma_algorithm=="ppmd" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=(size_t)orig_size+(size_t)orig_size/2+4096; // PPMd worst-case headroom
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* pbuf=new(std::nothrow) char[dstCap];
+			if (pbuf)
+			{
+				unsigned order=(unsigned)g_ma_level; if(order<2)order=2; if(order>32)order=32;
+				size_t psz=ppmd_compress((const unsigned char*)sb.data(),(size_t)orig_size,(unsigned char*)pbuf,dstCap,order,64);
+				if (psz>0&&(int64_t)psz<orig_size-16)
+				{
+					sb.reset();
+					sb.write(pbuf,(int)psz);
+					m="04,0";
+					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] pbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="lz" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+			if (lzbuf)
+			{
+				size_t lzsz=0;
+				int lzrc=lzlib_compress_wrapper((const unsigned char*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
+				/// ZPAQLZIP: un miembro lzip es "LZIP" + version + diccionario (6
+				/// bytes), LZMA1 con lc=3 lp=0 pb=2, y 20 bytes de cierre. Se guarda
+				/// solo el LZMA de adentro, con la cabecera que lee el decodificador
+				/// ZPAQLZMA de kaitz (-ma:lzma): el MISMO programa lo extrae en
+				/// cualquier zpaq, y zpaq-std lo decodifica con el LZMA SDK. La
+				/// marca de fin de lzip queda al final y no se lee (el tamano manda).
+				int k=16;
+				while (k<30 && ((int64_t)1<<k)<orig_size) k++;
+				int64_t raw=(int64_t)lzsz-26;
+				int64_t total=raw+9;
+				if (lzrc==0&&lzsz>26&&lzbuf[0]=='L'&&lzbuf[1]=='Z'&&lzbuf[2]=='I'&&lzbuf[3]=='P'
+				    &&lzbuf[6]==0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size&&total<((int64_t)1<<k))
+				{
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					unsigned char hd[9];
+					hd[0]=0x5d;  // lc=3 lp=0 pb=2, fijos en lzip
+					for (int q=0; q<4; q++) hd[1+q]=(unsigned char)(((uint64_t)1<<k)>>(8*q));
+					for (int q=0; q<4; q++) hd[5+q]=(unsigned char)((uint64_t)orig_size>>(8*q));
+					sb.reset();
+					sb.write((const char*)hd,9);
+					sb.write((const char*)lzbuf+6,(int)raw);
+					m="zpaqlzma:"+itos(k+1)+":"+itos(orig_size)+":"+hx;
+					/// "zpaqstd-ma2:lzma:" a proposito: el flujo ES el de -ma:lzma, y
+					/// pre27 (que ya conoce esa etiqueta) lo decodifica nativo. Con otra
+					/// etiqueta, pre27 saltaria el programa (lo reconoce) y no sabria
+					/// que hacer despues. ":lzip" al final dice de donde vino.
+					ma_comment="zpaqstd-ma2:lzma:"+itos(g_ma_level)+":"+itos(orig_size)+":lzip";
+				}
+				delete[] lzbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="hs" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		// heatshrink overhead is small (~1.05x worst case). Bound to inlen + 64 bytes.
+		size_t dstCap=(size_t)orig_size+64;
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024&&orig_size<=(int64_t)0x7FFFFFFF)
+		{
+			unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+			if (lzbuf)
+			{
+				size_t lzsz=0;
+				int lzrc=hs_compress_wrapper((const uint8_t*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
+				/// ZPAQHS: el flujo de hs_wrapper tal cual, con su decodificador
+				/// ZPAQL; pm = la ventana W, que viaja en el primer byte.
+				const int hsw= (lzsz>0) ? (lzbuf[0]&15) : 0;
+				if (lzrc==0&&lzsz>0&&(int64_t)lzsz<orig_size-16&&hsw>=4&&hsw<=15)
+				{
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					sb.reset();
+					sb.write((const char*)lzbuf,(int)lzsz);
+					m="zpaqhs:"+itos(hsw)+":"+itos(orig_size)+":"+hx;
+					ma_comment="zpaqstd-ma2:hs:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] lzbuf;
+			}
+		}
+	}
+	else if (g_ma_algorithm=="lzfse" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
+		{
+			size_t scratch_size=lzfse_encode_scratch_size();
+			size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
+			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+			{
+				unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+				unsigned char* scratch=new(std::nothrow) unsigned char[scratch_size];
+				if (lzbuf&&scratch)
+				{
+					size_t lzsz=lzfse_encode_buffer(lzbuf,dstCap,(const uint8_t*)sb.data(),(size_t)orig_size,scratch);
+					if (lzsz>0&&(int64_t)lzsz<orig_size-16)
+					{
+						sb.reset();
+						sb.write((const char*)lzbuf,(int)lzsz);
+						m="04,0";
+						ma_comment="zpaqstd-ma:"+g_ma_algorithm+":0:"+itos(orig_size);
+					}
+					delete[] lzbuf;
+					delete[] scratch;
+				}
+				else
+				{
+					if (lzbuf) delete[] lzbuf;
+					if (scratch) delete[] scratch;
+				}
+			}
+		}
+	}
+	else if (g_ma_algorithm=="zop" && sb.size()>16)
+	{
+		/* Zopfli was removed in commit <sha> due to a
+		 * KrzYmod-fork vs libdeflate incompatibility (see
+		 * compressors/zopfli/ for the source and the original
+		 * commit message for details). Use -ma:deflate:N
+		 * for a fast deflate alternative. */
+		error("31319 -ma:zop is no longer supported; use -ma:deflate:N instead");
+	}
+	else if (g_ma_algorithm=="bsc" && sb.size()>16)
+	{
+		/* libbsc: block sorting (BWT/ST) + LZP + QLFC coder, very slow.
+		 * levels: 1=fast (ST3), 9=high (ST5) */
+		int64_t orig_size=sb.size();
+		if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
+		{
+			/* bsc_compress needs n + LIBBSC_HEADER_SIZE in output */
+			static int bsc_init_done=0;
+			if (!bsc_init_done) { bsc_init(0); bsc_init_done=1; }
+			size_t dstCap=(size_t)orig_size+1024;
+			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+			{
+				unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+				if (lzbuf)
+				{
+					/* block sorter: ST3=3, ST4=4, ST5=5 (mapped from level 1..9) */
+					int blocksorter=LIBBSC_BLOCKSORTER_ST3+(g_ma_level-1)/3;
+					if (blocksorter>LIBBSC_BLOCKSORTER_ST5) blocksorter=LIBBSC_BLOCKSORTER_ST5;
+					int rc=bsc_compress((const unsigned char*)sb.data(),lzbuf,
+						(int)orig_size,0,0,
+						blocksorter, LIBBSC_DEFAULT_CODER, 0);
+					if (rc>0&&(int64_t)rc<orig_size-16)
+					{
+						sb.reset();
+						sb.write((const char*)lzbuf,rc);
+						m="04,0";
+						ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+					}
+					delete[] lzbuf;
+				}
+			}
+		}
+	}
+	else if (g_ma_algorithm=="lzh" && sb.size()>16)
+	{
+		/* LZHAM: LZMA-class codec, public domain. Very slow.
+		 * levels: 1=fastest, 2=faster, 3=default, 4=uber */
+		int64_t orig_size=sb.size();
+		if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
+		{
+			/* output cap: orig + small overhead, capped at 256MB */
+			size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
+			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+			{
+				unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
+				if (lzbuf)
+				{
+					lzham_compress_params cpar;
+					memset(&cpar,0,sizeof(cpar));
+					cpar.m_struct_size=sizeof(cpar);
+					cpar.m_level=(lzham_compress_level)(LZHAM_COMP_LEVEL_FASTEST+g_ma_level-1);
+					cpar.m_dict_size_log2=20; /* 1MB dict */
+					cpar.m_max_helper_threads=0; /* single-threaded for determinism */
+					size_t out_size=dstCap;
+					lzham_compress_status_t cstat=lzham_compress_memory(&cpar,lzbuf,&out_size,(const lzham_uint8*)sb.data(),(size_t)orig_size,NULL);
+					if (cstat==LZHAM_COMP_STATUS_SUCCESS&&(int64_t)out_size<orig_size-16)
+					{
+						sb.reset();
+						sb.write((const char*)lzbuf,(int)out_size);
+						m="04,0";
+						ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
+					}
+					delete[] lzbuf;
+				}
+			}
+		}
+	}
+
+}
 int Jidac::add()
 {
 	// The 32-bit build is extract-only: heavy compression (large -ma dictionaries,
@@ -122663,597 +123252,9 @@ int Jidac::add()
 												/// m[0]='0';
 					}
 
-					// External compression (LZ4 / zstd)
+					// External compression (-ma: ver ma_comprimir_bloque)
 					string ma_comment;
-					/// -ma:lz4* y -ma:lzav ya no llegan aca: ma_alias_m6m7() los escribe como -m6 / -m7.
-					if (g_ma_algorithm=="zstd" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=ZSTD_compressBound((size_t)orig_size);
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							char* zstdbuf=new(std::nothrow) char[dstCap];
-							if (zstdbuf)
-							{
-								size_t zs=ZSTD_compress(zstdbuf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
-								if (!ZSTD_isError(zs)&&zs>0&&(int64_t)zs<orig_size-16)
-								{
-									sb.reset();
-									sb.write(zstdbuf,(int)zs);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] zstdbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="flzma2" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=FL2_compressBound((size_t)orig_size);
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							char* fl2buf=new(std::nothrow) char[dstCap];
-							if (fl2buf)
-							{
-								size_t fs=FL2_compress(fl2buf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
-								/// ZPAQFLZMA2: el bloque lleva su decodificador LZMA2 en ZPAQL,
-								/// asi que cualquier zpaq lo extrae. Flujo: tamano original (4
-								/// bytes LE) + la salida de FL2_compress tal cual. pm: que entren
-								/// en M la salida entera y detras el flujo.
-								int64_t total=(int64_t)fs+4;
-								int k=17;
-								while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
-								if (!FL2_isError(fs)&&fs>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
-								{
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int q=0; q<20; ++q)
-										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-									char hd[4];
-									for (int q=0; q<4; q++)
-										hd[q]=(char)((uint64_t)orig_size>>(8*q));
-									sb.reset();
-									sb.write(hd,4);
-									sb.write(fl2buf,(int)fs);
-									m="zpaqflzma2:"+itos(k)+":"+itos(orig_size)+":"+hx;
-									ma_comment="zpaqstd-ma2:flzma2:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] fl2buf;
-							}
-						}
-					}
-					else if ((g_ma_algorithm=="lz5"||g_ma_algorithm=="lz5hc"||g_ma_algorithm=="lz5f") && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						int dstCap=LZ5_compressBound((int)orig_size);
-						if (dstCap>0&&dstCap<256*1024*1024)
-						{
-							char* lz5buf=new(std::nothrow) char[dstCap];
-							if (lz5buf)
-							{
-								int lz5size=0;
-								if (g_ma_algorithm=="lz5hc")
-									lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
-								else if (g_ma_algorithm=="lz5f")
-									lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
-								else if (g_ma_level>=5)
-									lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
-								else
-									lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
-								if (lz5size>0&&(int64_t)lz5size<orig_size-16)
-								{
-									/// ZPAQLZ5: el bloque lleva su decodificador ZPAQL, asi que
-									/// cualquier zpaq lo extrae. El SHA-1 del segmento tiene que
-									/// ser el del ORIGINAL: se toma aca, antes de pisar sb.
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int k=0; k<20; ++k)
-										snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
-									sb.reset();
-									sb.write(lz5buf,lz5size);
-									m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
-									/// "zpaqstd-ma2:" y no "zpaqstd-ma:": ninguna version anterior de
-									/// zpaq-std reconoce esta etiqueta, asi que corren el decodificador
-									/// ZPAQL del bloque y listo. Con la etiqueta vieja, pre21-pre23
-									/// descomprimian DOS veces (el ZPAQL y despues LZ5) y fallaban
-									/// con 31319 -- medido. Asi el archivo lo abre toda version.
-									ma_comment="zpaqstd-ma2:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] lz5buf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lz6" && sb.size()>16)
-					{
-						/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION)
-						/// escribe el MISMO formato de bloque que LZ5 v1.5: es su "perfil
-						/// portable", congelado. Asi que el bloque lleva el mismo decodificador
-						/// ZPAQLZ5 que -ma:lz5, sin un byte distinto. La ventana se limita a 2^22
-						/// (la de ZPAQLZ5): un zpaq ajeno reserva 4 MB por hilo y no 16, a un costo
-						/// medido por lz6 de +0.13% en dickens y +0.75% en samba con el rapido.
-						int64_t orig_size=sb.size();
-						int dstCap=LZ6_compressBound((int)orig_size);
-						if (dstCap>0&&dstCap<256*1024*1024)
-						{
-							char* lz6buf=new(std::nothrow) char[dstCap];
-							if (lz6buf)
-							{
-								int lz6size=0;
-								if (g_ma_level<=0)
-									lz6size=LZ6_compress_fast_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,1,22);
-								else
-									lz6size=LZ6_compress_HC_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,g_ma_level,22);
-								if (lz6size>0&&(int64_t)lz6size<orig_size-16)
-								{
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int k=0; k<20; ++k)
-										snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
-									sb.reset();
-									sb.write(lz6buf,lz6size);
-									m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
-									/// "zpaqstd-ma2:lz5-lz6:" y no "zpaqstd-ma2:lz6:". pre24 toma el atajo
-									/// de ZPAQLZ5 (reconoce el bytecode y NO lo ejecuta) y despues busca
-									/// "zpaqstd-ma2:lz5" en el comentario para decodificar nativo: con
-									/// "lz6" a secas no lo encontraba y devolvia los bytes comprimidos.
-									/// Con este prefijo pre24 decodifica con LZ5_decompress_safe, que lee
-									/// estos bloques igual (medido con los 23 vectores de lz6).
-									ma_comment="zpaqstd-ma2:lz5-lz6:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] lz6buf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lzma" && sb.size()>16)
-					{
-						/// ZPAQLZMA: LZMA1 del LZMA SDK, con el decodificador ZPAQL de kaitz (zpaqf)
-						/// en cada bloque: cualquier zpaq lo extrae. El flujo es el que ese programa
-						/// lee: 5 bytes de propiedades (lc=3 lp=0 pb=2 + diccionario), 4 del tamano
-						/// original, y el LZMA crudo, sin marca de fin (el tamano dice donde termina).
-						/// El diccionario es la menor potencia de 2 >= el bloque (minimo 64 KB) y
-						/// pm = diccionario x2: en el programa, M guarda la salida entera y detras
-						/// los datos comprimidos, que tienen que caber (por eso lo comprimido tiene
-						/// que ser menor que el diccionario, y lo es: si no, el bloque queda nativo).
-						int64_t orig_size=sb.size();
-						int k=16;
-						while (k<30 && ((int64_t)1<<k)<orig_size) k++;
-						if (((int64_t)1<<k)>=orig_size)
-						{
-							size_t dstCap=(size_t)orig_size+orig_size/3+(1<<16);
-							unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap+9];
-							if (lzbuf)
-							{
-								size_t destLen=dstCap, propsSize=LZMA_PROPS_SIZE;
-								int res=LzmaCompress(lzbuf+9, &destLen, (const unsigned char*)sb.data(), (size_t)orig_size,
-								                     lzbuf, &propsSize, g_ma_level, (unsigned)1<<k, 3, 0, 2, -1, 1);
-								int64_t total=(int64_t)destLen+9;
-								if (res==SZ_OK && propsSize==LZMA_PROPS_SIZE && total<orig_size-16
-								    && total<((int64_t)1<<k) && lzbuf[9]==0)
-								{
-									for (int i=0; i<4; i++)
-										lzbuf[5+i]=(unsigned char)((uint64_t)orig_size>>(8*i));
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int q=0; q<20; ++q)
-										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-									sb.reset();
-									sb.write((const char*)lzbuf,(int)total);
-									m="zpaqlzma:"+itos(k+1)+":"+itos(orig_size)+":"+hx;
-									ma_comment="zpaqstd-ma2:lzma:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] lzbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lizard" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						int dstCap=Lizard_compressBound((int)orig_size);
-						if (dstCap>0&&dstCap<256*1024*1024)
-						{
-							char* lizbuf=new(std::nothrow) char[dstCap];
-							if (lizbuf)
-							{
-								int lizsize=Lizard_compress((const char*)sb.data(),lizbuf,(int)orig_size,dstCap,g_ma_level);
-								/// ZPAQLIZARD: los niveles 10-29 (sin Huffman) llevan su decodificador
-								/// ZPAQL: tamano original (4 bytes) + el flujo de Lizard. Los 30-49
-								/// usan Huffman y quedan como antes, no portables.
-								int64_t total=(int64_t)lizsize+4;
-								int k=17;
-								while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
-								if (lizsize>0&&g_ma_level<30&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
-								{
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int q=0; q<20; ++q)
-										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-									char hd[4];
-									for (int q=0; q<4; q++)
-										hd[q]=(char)((uint64_t)orig_size>>(8*q));
-									sb.reset();
-									sb.write(hd,4);
-									sb.write(lizbuf,lizsize);
-									m="zpaqlizard:"+itos(k)+":"+itos(orig_size)+":"+hx;
-									ma_comment="zpaqstd-ma2:lizard:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								else if (lizsize>0&&(int64_t)lizsize<orig_size-16)
-								{
-									sb.reset();
-									sb.write(lizbuf,lizsize);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] lizbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="bzip2" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						unsigned int dstCap=(unsigned int)(orig_size+orig_size/100+1024);
-						if (dstCap>0&&dstCap<256*1024*1024)
-						{
-							char* bz2buf=new(std::nothrow) char[dstCap];
-							if (bz2buf)
-							{
-								int rc=BZ2_bzBuffToBuffCompress(bz2buf,&dstCap,(char*)sb.data(),(unsigned int)orig_size,g_ma_level,0,0);
-								int bz2size=(int)dstCap;
-								if (rc==BZ_OK&&bz2size>0&&(int64_t)bz2size<orig_size-16)
-								{
-									sb.reset();
-									sb.write(bz2buf,bz2size);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] bz2buf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="bzip3" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=bz3_bound((size_t)orig_size);
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							char* bz3buf=new(std::nothrow) char[dstCap];
-							if (bz3buf)
-							{
-								/// out_size ENTRA como capacidad del buffer: libbz3.h dice "make
-								/// sure to set out_size to the size of the output buffer", y la
-								/// implementacion devuelve BZ3_ERR_DATA_TOO_BIG si es menor que
-								/// bz3_bound(). Aca estaba en 0, asi que bz3_compress fallaba
-								/// SIEMPRE y el bloque caia al metodo nativo sin avisar:
-								/// -ma:bzip3 no comprimio nunca con bzip3, desde el commit
-								/// inicial. Las pruebas de ida y vuelta pasaban igual, porque
-								/// guardar sin el codec tambien es reversible.
-								size_t bz3out=dstCap;
-								int rc=bz3_compress((uint32_t)(g_ma_level*100000),(const uint8_t*)sb.data(),(uint8_t*)bz3buf,(size_t)orig_size,&bz3out);
-								if (rc==0&&bz3out>0&&(int64_t)bz3out<orig_size-16)
-								{
-									sb.reset();
-									sb.write(bz3buf,(int)bz3out);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] bz3buf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="brotli" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=BrotliEncoderMaxCompressedSize((size_t)orig_size);
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							char* brotlibuf=new(std::nothrow) char[dstCap];
-							if (brotlibuf)
-							{
-								BROTLI_BOOL rc=BrotliEncoderCompress(g_ma_level,BROTLI_DEFAULT_WINDOW,BROTLI_DEFAULT_MODE,(size_t)orig_size,(const uint8_t*)sb.data(),&dstCap,(uint8_t*)brotlibuf);
-								if (rc==BROTLI_TRUE&&dstCap>0&&(int64_t)dstCap<orig_size-16)
-								{
-									sb.reset();
-									sb.write(brotlibuf,(int)dstCap);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] brotlibuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="snappy" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=snappy_max_compressed_length((size_t)orig_size);
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							char* snbuf=new(std::nothrow) char[dstCap];
-							if (snbuf)
-							{
-								size_t snsz=dstCap;
-								snappy_status src2=snappy_compress((const char*)sb.data(),(size_t)orig_size,snbuf,&snsz);
-								if (src2==SNAPPY_OK&&snsz>0&&(int64_t)snsz<orig_size-16)
-								{
-									/// ZPAQSNAPPY: el bloque de snappy tal cual, con su
-									/// decodificador ZPAQL: cualquier zpaq lo extrae.
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int q=0; q<20; ++q)
-										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-									sb.reset();
-									sb.write(snbuf,(int)snsz);
-									m="zpaqsnappy:16:"+itos(orig_size)+":"+hx;
-									ma_comment="zpaqstd-ma2:snappy:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] snbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="deflate" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						struct libdeflate_compressor* ldcmp=libdeflate_alloc_compressor(g_ma_level);
-						if (ldcmp)
-						{
-							size_t dstCap=libdeflate_deflate_compress_bound(ldcmp,(size_t)orig_size);
-							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-							{
-								char* ldbuf=new(std::nothrow) char[dstCap];
-								if (ldbuf)
-								{
-									size_t ldsz=libdeflate_deflate_compress(ldcmp,(const void*)sb.data(),(size_t)orig_size,ldbuf,dstCap);
-									/// ZPAQDEFLATE: tamano original (4 bytes) + el deflate crudo, con
-									/// su decodificador ZPAQL; pm para la salida entera y el comprimido.
-									int64_t total=(int64_t)ldsz+4;
-									int k=17;
-									while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
-									if (ldsz>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
-									{
-										libzpaq::SHA1 sh1;
-										sh1.write((const char*)sb.data(), orig_size);
-										const char* r1=sh1.result();
-										char hx[41];
-										for (int q=0; q<20; ++q)
-											snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-										char hd[4];
-										for (int q=0; q<4; q++)
-											hd[q]=(char)((uint64_t)orig_size>>(8*q));
-										sb.reset();
-										sb.write(hd,4);
-										sb.write(ldbuf,(int)ldsz);
-										m="zpaqdeflate:"+itos(k)+":"+itos(orig_size)+":"+hx;
-										ma_comment="zpaqstd-ma2:deflate:"+itos(g_ma_level)+":"+itos(orig_size);
-									}
-									delete[] ldbuf;
-								}
-							}
-							libdeflate_free_compressor(ldcmp);
-						}
-					}
-					else if (g_ma_algorithm=="ppmd" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=(size_t)orig_size+(size_t)orig_size/2+4096; // PPMd worst-case headroom
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							char* pbuf=new(std::nothrow) char[dstCap];
-							if (pbuf)
-							{
-								unsigned order=(unsigned)g_ma_level; if(order<2)order=2; if(order>32)order=32;
-								size_t psz=ppmd_compress((const unsigned char*)sb.data(),(size_t)orig_size,(unsigned char*)pbuf,dstCap,order,64);
-								if (psz>0&&(int64_t)psz<orig_size-16)
-								{
-									sb.reset();
-									sb.write(pbuf,(int)psz);
-									m="04,0";
-									ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] pbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lz" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-						{
-							unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-							if (lzbuf)
-							{
-								size_t lzsz=0;
-								int lzrc=lzlib_compress_wrapper((const unsigned char*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
-								/// ZPAQLZIP: un miembro lzip es "LZIP" + version + diccionario (6
-								/// bytes), LZMA1 con lc=3 lp=0 pb=2, y 20 bytes de cierre. Se guarda
-								/// solo el LZMA de adentro, con la cabecera que lee el decodificador
-								/// ZPAQLZMA de kaitz (-ma:lzma): el MISMO programa lo extrae en
-								/// cualquier zpaq, y zpaq-std lo decodifica con el LZMA SDK. La
-								/// marca de fin de lzip queda al final y no se lee (el tamano manda).
-								int k=16;
-								while (k<30 && ((int64_t)1<<k)<orig_size) k++;
-								int64_t raw=(int64_t)lzsz-26;
-								int64_t total=raw+9;
-								if (lzrc==0&&lzsz>26&&lzbuf[0]=='L'&&lzbuf[1]=='Z'&&lzbuf[2]=='I'&&lzbuf[3]=='P'
-								    &&lzbuf[6]==0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size&&total<((int64_t)1<<k))
-								{
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int q=0; q<20; ++q)
-										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-									unsigned char hd[9];
-									hd[0]=0x5d;  // lc=3 lp=0 pb=2, fijos en lzip
-									for (int q=0; q<4; q++) hd[1+q]=(unsigned char)(((uint64_t)1<<k)>>(8*q));
-									for (int q=0; q<4; q++) hd[5+q]=(unsigned char)((uint64_t)orig_size>>(8*q));
-									sb.reset();
-									sb.write((const char*)hd,9);
-									sb.write((const char*)lzbuf+6,(int)raw);
-									m="zpaqlzma:"+itos(k+1)+":"+itos(orig_size)+":"+hx;
-									/// "zpaqstd-ma2:lzma:" a proposito: el flujo ES el de -ma:lzma, y
-									/// pre27 (que ya conoce esa etiqueta) lo decodifica nativo. Con otra
-									/// etiqueta, pre27 saltaria el programa (lo reconoce) y no sabria
-									/// que hacer despues. ":lzip" al final dice de donde vino.
-									ma_comment="zpaqstd-ma2:lzma:"+itos(g_ma_level)+":"+itos(orig_size)+":lzip";
-								}
-								delete[] lzbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="hs" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						// heatshrink overhead is small (~1.05x worst case). Bound to inlen + 64 bytes.
-						size_t dstCap=(size_t)orig_size+64;
-						if (dstCap>0&&dstCap<(size_t)256*1024*1024&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-							if (lzbuf)
-							{
-								size_t lzsz=0;
-								int lzrc=hs_compress_wrapper((const uint8_t*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
-								/// ZPAQHS: el flujo de hs_wrapper tal cual, con su decodificador
-								/// ZPAQL; pm = la ventana W, que viaja en el primer byte.
-								const int hsw= (lzsz>0) ? (lzbuf[0]&15) : 0;
-								if (lzrc==0&&lzsz>0&&(int64_t)lzsz<orig_size-16&&hsw>=4&&hsw<=15)
-								{
-									libzpaq::SHA1 sh1;
-									sh1.write((const char*)sb.data(), orig_size);
-									const char* r1=sh1.result();
-									char hx[41];
-									for (int q=0; q<20; ++q)
-										snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-									sb.reset();
-									sb.write((const char*)lzbuf,(int)lzsz);
-									m="zpaqhs:"+itos(hsw)+":"+itos(orig_size)+":"+hx;
-									ma_comment="zpaqstd-ma2:hs:"+itos(g_ma_level)+":"+itos(orig_size);
-								}
-								delete[] lzbuf;
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lzfse" && sb.size()>16)
-					{
-						int64_t orig_size=sb.size();
-						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							size_t scratch_size=lzfse_encode_scratch_size();
-							size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
-							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-							{
-								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-								unsigned char* scratch=new(std::nothrow) unsigned char[scratch_size];
-								if (lzbuf&&scratch)
-								{
-									size_t lzsz=lzfse_encode_buffer(lzbuf,dstCap,(const uint8_t*)sb.data(),(size_t)orig_size,scratch);
-									if (lzsz>0&&(int64_t)lzsz<orig_size-16)
-									{
-										sb.reset();
-										sb.write((const char*)lzbuf,(int)lzsz);
-										m="04,0";
-										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":0:"+itos(orig_size);
-									}
-									delete[] lzbuf;
-									delete[] scratch;
-								}
-								else
-								{
-									if (lzbuf) delete[] lzbuf;
-									if (scratch) delete[] scratch;
-								}
-							}
-						}
-					}
-					else if (g_ma_algorithm=="zop" && sb.size()>16)
-					{
-						/* Zopfli was removed in commit <sha> due to a
-						 * KrzYmod-fork vs libdeflate incompatibility (see
-						 * compressors/zopfli/ for the source and the original
-						 * commit message for details). Use -ma:deflate:N
-						 * for a fast deflate alternative. */
-						error("31319 -ma:zop is no longer supported; use -ma:deflate:N instead");
-					}
-					else if (g_ma_algorithm=="bsc" && sb.size()>16)
-					{
-						/* libbsc: block sorting (BWT/ST) + LZP + QLFC coder, very slow.
-						 * levels: 1=fast (ST3), 9=high (ST5) */
-						int64_t orig_size=sb.size();
-						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							/* bsc_compress needs n + LIBBSC_HEADER_SIZE in output */
-							static int bsc_init_done=0;
-							if (!bsc_init_done) { bsc_init(0); bsc_init_done=1; }
-							size_t dstCap=(size_t)orig_size+1024;
-							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-							{
-								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-								if (lzbuf)
-								{
-									/* block sorter: ST3=3, ST4=4, ST5=5 (mapped from level 1..9) */
-									int blocksorter=LIBBSC_BLOCKSORTER_ST3+(g_ma_level-1)/3;
-									if (blocksorter>LIBBSC_BLOCKSORTER_ST5) blocksorter=LIBBSC_BLOCKSORTER_ST5;
-									int rc=bsc_compress((const unsigned char*)sb.data(),lzbuf,
-										(int)orig_size,0,0,
-										blocksorter, LIBBSC_DEFAULT_CODER, 0);
-									if (rc>0&&(int64_t)rc<orig_size-16)
-									{
-										sb.reset();
-										sb.write((const char*)lzbuf,rc);
-										m="04,0";
-										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-									}
-									delete[] lzbuf;
-								}
-							}
-						}
-					}
-					else if (g_ma_algorithm=="lzh" && sb.size()>16)
-					{
-						/* LZHAM: LZMA-class codec, public domain. Very slow.
-						 * levels: 1=fastest, 2=faster, 3=default, 4=uber */
-						int64_t orig_size=sb.size();
-						if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
-						{
-							/* output cap: orig + small overhead, capped at 256MB */
-							size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
-							if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-							{
-								unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-								if (lzbuf)
-								{
-									lzham_compress_params cpar;
-									memset(&cpar,0,sizeof(cpar));
-									cpar.m_struct_size=sizeof(cpar);
-									cpar.m_level=(lzham_compress_level)(LZHAM_COMP_LEVEL_FASTEST+g_ma_level-1);
-									cpar.m_dict_size_log2=20; /* 1MB dict */
-									cpar.m_max_helper_threads=0; /* single-threaded for determinism */
-									size_t out_size=dstCap;
-									lzham_compress_status_t cstat=lzham_compress_memory(&cpar,lzbuf,&out_size,(const lzham_uint8*)sb.data(),(size_t)orig_size,NULL);
-									if (cstat==LZHAM_COMP_STATUS_SUCCESS&&(int64_t)out_size<orig_size-16)
-									{
-										sb.reset();
-										sb.write((const char*)lzbuf,(int)out_size);
-										m="04,0";
-										ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-									}
-									delete[] lzbuf;
-								}
-							}
-						}
-					}
-
+					ma_comprimir_bloque(sb, m, ma_comment);
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
 
 					if (flagdebug3)
@@ -125257,6 +125258,8 @@ int Jidac::add2()
 						/// m[0]='0';
 					}
 
+					string ma_comment;	/// -turbo tambien con -ma (ver ma_comprimir_bloque)
+					ma_comprimir_bloque(sb, m, ma_comment);
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
 
 					if (flagdebug3)
@@ -125279,7 +125282,10 @@ int Jidac::add2()
 #endif
 							if (flagdebug2)
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
-							job.appendz(sb, fn.c_str(), m);
+							{
+								string mc= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								job.appendz(sb, fn.c_str(), m, mc.c_str());
+							}
 						}
 						else
 						{
@@ -125287,7 +125293,7 @@ int Jidac::add2()
 							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
 							try
 							{
-								string		 comment= "jDC\x01";
+								string		 comment= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
@@ -126091,6 +126097,8 @@ int Jidac::add2()
 						/// m[0]='0';
 					}
 
+					string ma_comment;	/// -turbo tambien con -ma (ver ma_comprimir_bloque)
+					ma_comprimir_bloque(sb, m, ma_comment);
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
 
 					if (flagdebug3)
@@ -126113,7 +126121,10 @@ int Jidac::add2()
 #endif
 							if (flagdebug2)
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
-							job.appendz(sb, fn.c_str(), m);
+							{
+								string mc= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								job.appendz(sb, fn.c_str(), m, mc.c_str());
+							}
 						}
 						else
 						{
@@ -126121,7 +126132,7 @@ int Jidac::add2()
 							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
 							try
 							{
-								string		 comment= "jDC\x01";
+								string		 comment= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
