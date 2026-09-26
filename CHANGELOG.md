@@ -1,3 +1,36 @@
+### [65.4m-pre42] - 2026-09-25
+
+#### `-ma:ppmd` opens in any zpaq (ZPAQPPMD): all 23 `-ma` switches are portable
+
+`-ma:ppmd` blocks now carry **ZPAQPPMD**, a PPMd var.H decoder written in ZPAQL
+(Ppmd7 from the 7-Zip SDK, with 7z's range coder), so zpaq 7.15, zpaqfranz and
+every zpaq-std from pre20 on extract them. zpaq-std decodes them natively, as
+before. With this, **all 23 `-ma` switches write archives that any zpaq
+extracts.** The old blocks (`zpaqstd-ma:ppmd`, pre41 and earlier) still extract.
+
+PPMd was the hardest: its model lives in a heap and its behaviour depends on the
+memory allocator (it compares heap offsets, glues free blocks together and
+restarts the model when the memory runs out). So the decoder reproduces the
+SDK's 64 MB heap byte for byte: the same 12-byte units, free lists,
+GlueFreeBlocks and RestartModel. A Python reference decoder was written first
+and checked against the SDK, including the restart and glue paths (forced with
+small memories); the ZPAQL was then checked against both. The 7z stream has
+neither the model order nor the original size, so a portable block starts with
+a 9-byte header carrying them and the model memory.
+
+For other tools the decoder runs at 0.6-3.5 MB/s with the ZPAQL JIT (0.1-0.2
+without it), and needs 128 MB of memory per block (the 64 MB model plus the
+stream). zpaq-std decodes natively.
+
+Checked here: 213 PPMd streams decode byte for byte with zpaqd 7.15 (49 corpus
+files at orders 2, 6, 16 and 32 with 64 MB; 16 MB blocks, where order 32
+restarts the model 6 times and glues free blocks 12,107 times; and memories
+from 4 KB to 4 MB). Archives written at orders 2, 6, 16 and 32 extract
+identically with zpaq 7.15, zpaqfranz, pre20, pre30, pre35, pre38, pre39,
+pre40, pre41 and this build.
+
+`-ma:ppmd` also gets its missing line in the help (`h voodoo`).
+
 ### [65.4m-pre41] - 2026-09-25
 
 #### `-ma:bsc` opens in any zpaq (ZPAQBSC)

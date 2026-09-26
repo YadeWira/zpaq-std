@@ -50,27 +50,26 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:bzip3:N` | bzip3 1.5.4 | 1–9 | 9 | **yes** (ZPAQBZIP3) |
 | `-ma:bsc:N` | libbsc 3.3.12 | 1–9 | 3 | **yes** (ZPAQBSC) |
 | `-ma:lzh:N` | LZHAM 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
-| `-ma:ppmd:N` | PPMd var.H (7-Zip SDK) | 2–32 (order) | 6 | no |
+| `-ma:ppmd:N` | PPMd var.H (7-Zip SDK) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
 
 If the external pass does not beat the original by more than 16 bytes, the block
 stays native (no regression).
 
 ### Portability
 
-**22 of the 23 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
+**All 23 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
 zpaqfranz, and every zpaq-std from pre20 on. Their blocks carry their own decoder,
 written in ZPAQL, the bytecode every zpaq implementation runs (the way zpaq's own
 `-m1` works); zpaq-std recognises its decoders and decodes natively, at full speed.
 Details, sizes and speeds of each decoder: **[wiki: Portable codecs](https://github.com/YadeWira/zpaq-std/wiki/Portable-codecs)**.
 
-The other one (`ppmd`) only extracts in zpaq-std. zpaq-std
-warns when it writes it (`00596!`), and other tools reject those blocks cleanly
-(`unknown post processing type`) instead of writing wrong data; they still list
-the archive and extract its native files.
+Archives written with `bsc`, `lzh` or `ppmd` by older versions (before pre40–pre42)
+only extract in zpaq-std; other tools reject those blocks cleanly
+(`unknown post processing type`) and still list the archive and extract its native files.
 
-**Upgrading:** new versions read every older archive. Old versions read the
-portable codecs and native blocks, but not the newer non-portable ones — so
-**upgrade the machine that RESTORES before the one that compresses.**
+**Upgrading:** new versions read every older archive, and every zpaq-std from
+pre20 on reads what this version writes (by running the ZPAQL decoders). Only
+archives with the old zpaq-std-only blocks need a new enough version to restore.
 
 ### Example
 
