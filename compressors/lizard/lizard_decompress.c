@@ -172,6 +172,9 @@ FORCE_INLINE int Lizard_decompress_generic(
             memcpy(op, ip, length);
             op += length;
             ip += length;
+            outputSize -= length;   /* zpaq-std: the compressed-block path does this ("outputSize -= res")
+                                       but this one did not, so the next block was bounded by the TOTAL
+                                       size and a damaged stream could write past the end of dest. */
             if ((partialDecoding) && (op >= oexit)) break;
 #ifdef LIZARD_STATS
             uncompr_stream[LIZARD_STREAM_UNCOMPRESSED] += length;

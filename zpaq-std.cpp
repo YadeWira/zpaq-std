@@ -14758,6 +14758,17 @@ bool flagnosort;
 bool flaglast;
 bool flagpakka;
 bool flaginnosetup;
+/// Comentario de un bloque de journaling: termina en "jDC\x01" (spec de zpaq). Los
+/// bloques -ma de zpaq-std pre20..pre43 lo escribian con la etiqueta DETRAS
+/// ("tam jDC\x01 zpaqstd-ma2:..."), y varias lecturas los tomaban por streaming (p,
+/// recuperacion con bloques faltantes o fuera de orden). Desde pre44 la etiqueta va
+/// antes; esto acepta tambien la forma vieja, para los archivos ya escritos.
+static inline bool es_comentario_jdc(const std::string& c)
+{
+	if (c.size() >= 4 && c.compare(c.size() - 4, 4, "jDC\x01") == 0)
+		return true;
+	return c.find("jDC\x01 zpaqstd-ma") != std::string::npos;
+}
 // -pc (preflate/PCF stream recompression) fue QUITADO POR COMPLETO -- encoder y
 // decoder -- y con el se fueron compressors/preflate/ y compressors/zlib/
 // (87 archivos, 2,3 MB). Lo reemplaza -ytool, que detecta mas formatos.
@@ -24199,6 +24210,25 @@ int PostProcessor::write(int c) {
             z.clear();
             state=1;
             break;
+          }
+          /// Un bloque con la etiqueta zpaqstd-ma2: cuyo programa mide EXACTAMENTE lo mismo
+          /// que uno de nuestros decodificadores congelados pero difiere en pocos bytes es
+          /// ese decodificador DANADO (el archivo se corrompio justo en el bytecode). Correrlo
+          /// es correr un programa ZPAQL arbitrario, que puede no terminar nunca: el fuzzing
+          /// de pre43 dio 19 cuelgues asi (ppmd, lzh, bzip2, deflate, lz5, lz6, lzma, zstd),
+          /// todos con el dano dentro del programa. Un decodificador realmente distinto (de
+          /// una version futura) no se rechaza: por regla tiene otra identidad y no cae aca
+          /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano). Si algun dia se deriva uno nuevo de
+          /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
+          {
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6};
+            for (const std::string* k: conocidos) {
+              if (int(k->size())!=hsize) continue;
+              int dif=0;
+              for (int j=0; j<hsize && dif<=32; ++j)
+                if (U8(z.header[z.hbegin+j])!=U8((*k)[j])) ++dif;
+              if (dif<=32) error("damaged ZPAQL decoder in a -ma block (the archive is corrupted)");
+            }
           }
         }
         hsize=(z.cend-2)+z.hend-z.hbegin;
@@ -38944,7 +38974,10 @@ int64_t getfreespace(string i_path)
 		i_path= "./";
 	if (!direxists(i_path))
 	{
-		myprintf("00067! Path does not exists %Z\n", i_path.c_str());
+		/// Solo con -debug: el destino todavia no existe, pero se mide bien (abajo) y
+		/// la extraccion sigue normal. Como "!" (siempre visible) parecia un error.
+		if (flagdebug)
+			myprintf("00067: Path does not exist yet, measuring its nearest existing ancestor %Z\n", i_path.c_str());
 
 		/// Measure the volume that will hold the path once it is created, by
 		/// walking up to the nearest existing ancestor. The old code only
@@ -69070,13 +69103,31 @@ int Jidac::loadparameters(int argc, const char** argv)
 				ma_value=opt.substr(4);
 			else if (i<argc-1 && argv[i+1][0]!='-')
 				ma_value=argv[++i];
+			/// -ma solo, o -ma: vacio, se ignoraba en silencio y quedaba -m1; un nivel que
+			/// no es un numero (-ma:zstd:abc, :-5, :3x) se tomaba con atoi() sin avisar.
+			/// Los dos son errores de tipeo: se dicen y se sale, como con un algoritmo
+			/// desconocido (00563).
+			if (ma_value.empty())
+			{
+				myprintf("00563! -ma needs an algorithm, e.g. -ma:zstd or -ma:zstd:19\n");
+				seppuku(2);
+			}
 			if (!ma_value.empty())
 			{
 				auto p=ma_value.find(':');
 				if (p!=string::npos)
 				{
 					g_ma_algorithm=ma_value.substr(0,p);
-					g_ma_level=atoi(ma_value.substr(p+1).c_str());
+					const string lv=ma_value.substr(p+1);
+					bool num= !lv.empty() && lv.size()<=4;
+					for (size_t q=0; q<lv.size(); ++q)
+						if (!isdigit((unsigned char)lv[q])) num=false;
+					if (!num)
+					{
+						myprintf("00563! -ma:%s: the level must be a number, not '%s'\n", g_ma_algorithm.c_str(), lv.c_str());
+						seppuku(2);
+					}
+					g_ma_level=atoi(lv.c_str());
 				}
 				else
 				{
@@ -69111,7 +69162,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 				 * bare -ma:hs / -ma:lzav defaults are pinned to 1 above so an
 				 * invocation without an explicit level keeps behaving as it
 				 * ships today. */
-				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma")
+				/// brotli, deflate y lz tambien aceptan 0 (brotli calidad 0, deflate 0 = sin
+				/// comprimir, lzlib su nivel 0), que la ayuda documenta; caian en el "<1 -> 1"
+				/// generico y no se podian pedir.
+				if (g_ma_algorithm=="hs" || g_ma_algorithm=="lzav" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
+				 || g_ma_algorithm=="brotli" || g_ma_algorithm=="deflate" || g_ma_algorithm=="lz")
 				{
 					if (g_ma_level<0) g_ma_level=0;
 				}
@@ -69183,6 +69238,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 				else if (g_ma_algorithm=="bzip2"||g_ma_algorithm=="bzip3"||g_ma_algorithm=="lzma")
 				{
 					if (g_ma_level>9) g_ma_level=9;
+				}
+				/// ppmd: el nivel es el orden del modelo, 2..32 (la ayuda y ppmd_compress);
+				/// caia en el "> 15" generico de abajo y 16..32 quedaban en 15.
+				else if (g_ma_algorithm=="ppmd")
+				{
+					if (g_ma_level<2) g_ma_level=2;
+					if (g_ma_level>32) g_ma_level=32;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
 				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lz6"&&g_ma_algorithm!="lzma"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
@@ -71030,7 +71092,7 @@ class JidacBackend : public MountBackend
 							g_mountscan.line(-1, "V%08d  %s files", (int)(nver>0 ? nver-1 : 0), migliaia2((int64_t)live_));
 						comment.s.clear();
 						d.readComment(&comment);
-						if (comment.s.size()<4 || comment.s.compare(comment.s.size()-4, 4, "jDC\x01")!=0)
+						if (!es_comentario_jdc(comment.s))
 						{
 							// Streaming (pre-journaling) segment: no fragment
 							// table, so no random access. Counted, not mounted.
@@ -84125,7 +84187,7 @@ int unz(const char *archive, const char *key)
 			unzverify_utf8(filename.s.c_str());
 			// Test for journaling or streaming block. They cannot be mixed.
 			uint64_t jsize= 0; // journaling block size in comment
-			if (comment.s.size() >= 4 && comment.s.substr(comment.s.size() - 4) == "jDC\x01")
+			if (es_comentario_jdc(comment.s))
 			{
 				// read jsize = uncompressed size from comment as a decimal string
 				unsigned i;
@@ -89396,10 +89458,10 @@ int Jidac::dir(bool flagtreeview)
             myprintf(" pattern %s ", filepattern.c_str());
         else if (onlyfiles.size() > 0)
             myprintf(" pattern %s ", onlyfiles[0].c_str());
-        if (flagverbose)
-            myprintf("\n");
-        else
-            eol();
+        /// Como upstream 65.4: salto de linea. eol() (resto del commit inicial, de un
+        /// zpaqfranz anterior) solo borraba hasta el fin de linea, y la linea de avance
+        /// "Scanned ...\r" quedaba pegada a esta cabecera (dir y tree).
+        myprintf("\n");
     }
     
     // initialize counters
@@ -98406,7 +98468,7 @@ int Jidac::fl_parsepointer(InputArchive &i_in, int64_t i_pos, string &o_payload)
 		if (!d.findFilename(&filename))
 			return -1;
 		d.readComment(&comment);
-		if ((comment.s.size() < 4) || (comment.s.substr(comment.s.size() - 4) != "jDC\x01") || (filename.s.size() != 28) || (filename.s.substr(0, 3) != "jDC"))
+		if ((!es_comentario_jdc(comment.s)) || (filename.s.size() != 28) || (filename.s.substr(0, 3) != "jDC"))
 			return -1;
 		if (filename.s[17] != 'i')
 			return 0;
@@ -99779,7 +99841,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 					d.readComment(&comment);
 					// Test for JIDAC format. Filename is jDC<fdate>[cdhi]<num>
 					// and comment ends with " jDC\x01". Skip d (data) blocks.
-					if (comment.s.size() >= 4 && comment.s.substr(comment.s.size() - 4) == "jDC\x01")
+					if (es_comentario_jdc(comment.s))
 					{
 						if (filename.s.size() != 28 || filename.s.substr(0, 3) != "jDC")
 							error("bad journaling block name");
@@ -101327,7 +101389,7 @@ int64_t Jidac::pakka_read_archive(const char *arc)
 
 				// Test for JIDAC format. Filename is jDC<fdate>[cdhi]<num>
 				// and comment ends with " jDC\x01"
-				if (comment.s.size() >= 4 && usize >= 0 && comment.s.substr(comment.s.size() - 4) == "jDC\x01" && filename.s.size() == 28 && filename.s.substr(0, 3) == "jDC" && strchr("cdhi", filename.s[17]))
+				if (usize >= 0 && es_comentario_jdc(comment.s) && filename.s.size() == 28 && filename.s.substr(0, 3) == "jDC" && strchr("cdhi", filename.s[17]))
 				{
 					// Read the date and number in the filename. Skip over zpaqfranz
 					num	 = 0;
@@ -110023,7 +110085,7 @@ bool Jidac::is_incomplete_trans(const char *arc)
 
 				// Test for JIDAC format. Filename is jDC<fdate>[cdhi]<num>
 				// and comment ends with " jDC\x01"
-				if (comment.s.size() >= 4 && usize >= 0 && comment.s.substr(comment.s.size() - 4) == "jDC\x01" && filename.s.size() == 28 && filename.s.substr(0, 3) == "jDC" && strchr("cdhi", filename.s[17]))
+				if (usize >= 0 && es_comentario_jdc(comment.s) && filename.s.size() == 28 && filename.s.substr(0, 3) == "jDC" && strchr("cdhi", filename.s[17]))
 				{
 					// Read the date and number in the filename. Skip over zpaqfranz
 					num	 = 0;
@@ -119685,7 +119747,7 @@ int Jidac::dump()
 					comment.s= "";
 					d.readComment(&comment);
 
-					if (comment.s.size() >= 4 && comment.s.substr(comment.s.size() - 4) == "jDC\x01")
+					if (es_comentario_jdc(comment.s))
 					{
 						if (filename.s.size() != 28 || filename.s.substr(0, 3) != "jDC")
 							error("bad journaling block name");
@@ -124723,7 +124785,12 @@ int Jidac::add()
 							if (flagdebug2)
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
 							{
-								string mc= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								/// La etiqueta -ma va ANTES de "jDC\x01": el comentario de un bloque de
+								/// journaling tiene que TERMINAR en "jDC\x01" (spec de zpaq; lo exigen el
+								/// verificador p y varias lecturas de zpaqfranz). Hasta pre43 iba despues
+								/// ("tam jDC\x01 zpaqstd-ma2:..."): p lo daba por streaming. Los lectores
+								/// buscan la etiqueta con find(), asi que leen las dos formas.
+								string mc= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
 								job.appendz(sb, fn.c_str(), m, mc.c_str(), prog_blockdata);
 								g_prog_queued+= prog_blockdata;
 							}
@@ -124734,7 +124801,7 @@ int Jidac::add()
 							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
 							try
 							{
-								string		 comment= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								string		 comment= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
@@ -126473,7 +126540,7 @@ int Jidac::add2()
 							if (flagdebug2)
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
 							{
-								string mc= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								string mc= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
 								job.appendz(sb, fn.c_str(), m, mc.c_str());
 							}
 						}
@@ -126483,7 +126550,7 @@ int Jidac::add2()
 							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
 							try
 							{
-								string		 comment= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								string		 comment= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
@@ -127307,7 +127374,7 @@ int Jidac::add2()
 							if (flagdebug2)
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
 							{
-								string mc= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								string mc= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
 								job.appendz(sb, fn.c_str(), m, mc.c_str());
 							}
 						}
@@ -127317,7 +127384,7 @@ int Jidac::add2()
 							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
 							try
 							{
-								string		 comment= ma_comment.empty() ? "jDC\x01" : "jDC\x01 "+ma_comment;
+								string		 comment= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);

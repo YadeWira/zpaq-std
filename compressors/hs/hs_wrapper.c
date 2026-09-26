@@ -151,9 +151,13 @@ int hs_decompress_wrapper(const uint8_t* in, size_t inlen,
 
     size_t produced = 0;
     size_t sunk = 1;
-    /* Safety iteration cap to prevent runaway loops from corrupt data. */
-    const unsigned long MAX_ITER = 1000000UL;
-    unsigned long iter = 0;
+    /* Safety iteration cap to prevent runaway loops from corrupt data. It was a
+     * fixed 1000000, about 2 iterations per 256 input bytes, so zpaq-std could not
+     * read back its own -ma:hs blocks past ~128 MB compressed (found by fuzzing,
+     * 2026-09-26). Every useful iteration consumes input or produces output, so a
+     * cap proportional to both still stops a corrupt stream and never cuts a good one. */
+    const unsigned long long MAX_ITER = 1000000ULL + 2ULL * ((unsigned long long)inlen + (unsigned long long)outcap);
+    unsigned long long iter = 0;
     while (sunk < inlen) {
         if (++iter > MAX_ITER) { heatshrink_decoder_free(hsd); return -1; }
         size_t in_sunk = 0;

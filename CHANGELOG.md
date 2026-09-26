@@ -1,3 +1,39 @@
+### [65.4m-pre44] - 2026-09-26
+
+A round of deep testing (four test agents: damaged archives, every command and
+switch, the `-ma` codecs at their limits, stress and interruptions; plus Windows).
+The bugs that turned out to be zpaqfranz's own (33, reproduced against the
+original 65.4m) were handed to zpaqfranz's side to list and report. These are the
+ones that were zpaq-std's, all fixed here:
+
+- **A damaged `-ma` block could hang `x` and `t` forever.** When the damage fell
+  inside the block's ZPAQL decoder, zpaq-std no longer recognised it and ran it: a
+  corrupted ZPAQL program may never end (19 hangs out of ~4,000 damaged blocks, in
+  ppmd, lzh, bzip2, deflate, lz5, lz6, lzma and zstd). A decoder that is the same
+  size as one of zpaq-std's and differs in a few bytes is now reported as damaged
+  (`damaged ZPAQL decoder in a -ma block`), and the rest of the archive extracts.
+- **`-ma:lizard`: a damaged block could crash zpaq-std** (heap overflow). Lizard's
+  own decoder did not count uncompressed blocks against the output size, so the next
+  block could write past the end. Fixed in the bundled Lizard (one line; valid
+  streams decode as before). zpaqfranz and zpaq 7.15 were not affected (they run the
+  ZPAQL).
+- **`-ma:hs` could not read back its own blocks past ~128 MB compressed**: a fixed
+  iteration cap in zpaq-std's heatshrink wrapper. It now scales with the data.
+- **`-ma` blocks were written with a comment the zpaq format does not expect**
+  (`size jDC\x01 zpaqstd-ma2:...`: a journaling comment must END in `jDC\x01`).
+  Extraction worked everywhere, but the strict tester `p` failed on every `-ma`
+  archive, `dump` could not see the blocks, and recovery of a damaged `-ma`
+  archive was far worse than of a `-m` one (a missing index block: 0 files instead
+  of all of them). The tag now goes before `jDC\x01`, and zpaq-std also accepts the
+  old form, so **archives written by pre20 to pre43 recover as well as `-m` ones
+  now**. Every version from pre20 on, zpaq 7.15 and zpaqfranz read the new form.
+- **`-ma` levels**: `ppmd:16` to `32` were silently capped at 15; `brotli:0`,
+  `deflate:0` and `lz:0` (documented) were silently raised to 1; a level that is
+  not a number (`-ma:zstd:abc`, `:3x`, `:-5`) and a bare `-ma` were accepted
+  without a word. They now do what the help says, or stop with a clear message.
+- `x -to <new folder>` printed `00067! Path does not exists` although it worked;
+  now only with `-debug`. `dir` and `tree` glued their progress line to the header.
+
 ### [65.4m-pre43] - 2026-09-25
 
 #### `-innosetup` is now `-popgui`
