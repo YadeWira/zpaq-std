@@ -166,7 +166,7 @@ static size_t LZ6HC_hash6Ptr(const void* p, U32 h) { return LZ6HC_hash6(MEM_read
 static size_t LZ6HC_hash7(U64 u, U32 h) { return (size_t)((u * prime7bytes) << (64-56) >> (64-h)) ; }
 static size_t LZ6HC_hash7Ptr(const void* p, U32 h) { return LZ6HC_hash7(MEM_read64(p), h); }
 
-static size_t LZ6HC_hashPtr(const void* p, U32 hBits, U32 mls)
+FORCE_INLINE size_t LZ6HC_hashPtr(const void* p, U32 hBits, U32 mls)
 {
     switch(mls)
     {
@@ -239,7 +239,11 @@ FORCE_INLINE size_t LZ6HC_more_profitable(size_t best_off, size_t best_common, s
 *  HC Types
 ***************************************/
 /** from faster to stronger */
-typedef enum { LZ6HC_fast, LZ6HC_price_fast, LZ6HC_lowest_price, LZ6HC_optimal_price, LZ6HC_optimal_price_bt } LZ6HC_strategy;
+/* LZ6HC_row (seq engine only): row-hash match finder + lazy parser, see
+ * LZ6HC_compress_row in lz6hc.c. Appended last so the numeric values of the
+ * other strategies (tuning hook) stay the same; compare strategies by name,
+ * not by order, where row matters. */
+typedef enum { LZ6HC_fast, LZ6HC_price_fast, LZ6HC_lowest_price, LZ6HC_optimal_price, LZ6HC_optimal_price_bt, LZ6HC_row } LZ6HC_strategy;
 
 typedef struct
 {
@@ -285,6 +289,8 @@ struct LZ6HC_Data_s
        entropy coder picks whether to render it as a 1B rep codeword. */
     int (*emitSeq)(void* opaque, size_t lit_len, size_t match_len, size_t offset);
     void* emitOpaque;
+    /* entropy-aware parser prices (seq path only; NULL = codeword bytes) */
+    const struct LZ6HC_seqPrice_s* seqPrice;
 };
 
 /* LZ6HC_match_t is now defined in lz6hc.h (the public header). This
@@ -356,6 +362,52 @@ static const LZ6HC_parameters LZ6HC_defaultParameters[LZ6HC_MAX_CLEVEL+1] =
     // BT insertion overhead exceeds chain walk at searchNum<=64 (L11 -34% on sil40).
 //  {       10,         10, 10,  0,     0,  4,     0,  0, LZ6HC_fast          }, // min values
 //  {       24,         24, 28, 24, 1<<24,  7, 1<<24,  2, LZ6HC_optimal_price }, // max values
+};
+
+/* Seq-engine levels (levels 1-15 without --hc). Kept apart from the frame
+ * codec's table above so the seq ladder can be tuned while the frame HC
+ * codec (the frozen portable profile) keeps its exact output. */
+/* The optimal levels' price pre-parse (LZ6HC_SEQ_PRE_LEVEL): its own row,
+ * so retuning L3 does not move L8-L15. price_fast with a 6-byte hash: its
+ * statistics priced Silesia best among the fast parsers (row-hash and
+ * fast-parser statistics priced it 0.2-0.3 points worse at L12). */
+static const LZ6HC_parameters LZ6HC_seqPreParameters =
+    { MAXD_LOG,   MAXD_LOG, 15, 13,     1,  6,     0,  0, LZ6HC_price_fast       };
+
+static const LZ6HC_parameters LZ6HC_seqParameters[LZ6HC_MAX_CLEVEL+1] =
+{
+    /* Retuned 2026-09-24 as a strictly monotonic ladder (ratio and encode
+     * speed both fall at every step), measured single-core on a Silesia
+     * subset (dickens/samba/osdb/ooffice/xml) with the entropy-priced
+     * optimal parser. Levels 13-15 also re-parse with refined prices
+     * (seq_refine_passes in lz6seq.c): past ~64 searches the depth stops
+     * helping (256..1024 searches gave the same size) and the refinement
+     * passes are what move the ratio. 2026-09-25: L3-L7 retuned from a
+     * sweep of the existing parsers (L3 price_fast; L4-L7 lowest_price
+     * with 6-byte hashes and 1/2/4/8 candidates: every level smaller and no
+     * slower than before). L3-L5 then moved to the row-hash match finder
+     * (LZ6HC_row; SufL = log2 cap of its row slots, FS = lazy depth): up
+     * to 2x faster than lowest_price at the same ratio. The optimal
+     * levels' price pre-parse has its own row (LZ6HC_seqPreParameters).
+     * Full Silesia, L1 -> L15: 33.43% -> 25.45%; AIT 42.40% -> 38.83%;
+     * every step smaller than the one before.
+     * windLog, contentLog,  H, H3,  Snum, SL, SuffL, FS, Strategy                   subset ratio / MB/s */
+    {        0,          0,  0,  0,     0,  0,     0,  0, LZ6HC_fast             }, // level 0 - never used
+    { MAXD_LOG,   MAXD_LOG, 13,  0,     4,  6,     0,  0, LZ6HC_fast             }, // level 1   33.42% / 95
+    { MAXD_LOG,   MAXD_LOG, 13,  0,     2,  6,     0,  0, LZ6HC_fast             }, // level 2   31.95% / 88
+    { MAXD_LOG,   MAXD_LOG, 10,  0,     8,  5,    22,  0, LZ6HC_row              }, // level 3   28.64% / 57
+    { MAXD_LOG,   MAXD_LOG, 10,  0,     8,  5,    22,  1, LZ6HC_row              }, // level 4   28.12% / 45
+    { MAXD_LOG,   MAXD_LOG, 10,  0,    16,  5,    23,  2, LZ6HC_row              }, // level 5   27.71% / 38
+    { MAXD_LOG,   MAXD_LOG, 15, 13,     4,  6,     0,  0, LZ6HC_lowest_price     }, // level 6   27.44% / 17
+    { MAXD_LOG,   MAXD_LOG, 15, 13,     8,  6,     0,  0, LZ6HC_lowest_price     }, // level 7   27.19% / 14
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,     8,  4,    32,  0, LZ6HC_optimal_price_bt }, // level 8   27.07% / 7.1
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,     8,  4,    32,  1, LZ6HC_optimal_price_bt }, // level 9   26.67% / 5.0
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,    16,  4,    48,  1, LZ6HC_optimal_price_bt }, // level 10  25.57% / 3.6
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,    32,  4,    48,  1, LZ6HC_optimal_price_bt }, // level 11  25.39% / 3.3
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,    64,  4,    64,  2, LZ6HC_optimal_price_bt }, // level 12  25.28% / 2.7
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,    64,  4,    64,  2, LZ6HC_optimal_price_bt }, // level 13  25.22% / 1.6  (+1 refine)
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,    64,  4,    64,  2, LZ6HC_optimal_price_bt }, // level 14  25.20% / 1.1  (+2 refine)
+    { MAXD_LOG, MAXD_LOG+1, 23, 16,    64,  4,    64,  2, LZ6HC_optimal_price_bt }, // level 15  25.18% / 0.7  (+3 refine)
 };
 
 

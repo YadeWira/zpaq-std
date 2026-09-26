@@ -43,7 +43,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:deflate:N` | libdeflate 1.26 | 0–12 | 6 | **yes** (ZPAQDEFLATE) |
 | `-ma:lizard:N` | Lizard 2.1 | 10–49 | 17 | **yes** (ZPAQLIZARD, ZPAQLIZARDH) |
 | `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 1.5 | 1–15 | 9 | **yes** (ZPAQLZ5) |
-| `-ma:lz6:N` | lz6, **experimental** | 0–15 | 0 | **yes** (ZPAQLZ5) |
+| `-ma:lz6:N` | lz6, **experimental** | 0–15 | 0 | **yes** (ZPAQLZ6) |
 | `-ma:snappy:N` | Snappy 1.2.1 | 1–2 | 1 | **yes** (ZPAQSNAPPY) |
 | `-ma:lzfse` | LZFSE (Apple) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
 | `-ma:hs:N` | heatshrink 0.4.1 | 0–2 | 1 | **yes** (ZPAQHS) |
@@ -89,9 +89,9 @@ archives written with them.
 
 ---
 
-## Installer progress: `-innosetup`
+## Progress window: `-popgui`
 
-Pass **`-innosetup`** and zpaq-std shows its **own native progress window** while it
+Pass **`-popgui`** and zpaq-std shows its **own native progress window** while it
 works — modelled on 7-Zip's **7zG.exe** and styled like an Inno Setup wizard page: a
 comctl32 v6 progress bar, the operation and percentage in the **title bar**
 (`Compressing... NN%` / `Extracting... NN%`), two columns of stat rows (**Elapsed time,
@@ -105,9 +105,11 @@ Normal console output is silenced.
 
 ```bash
 # e.g. an installer extracting a bundled archive, with a progress window:
-zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -innosetup
+zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -popgui
 ```
 
+- **`-innosetup` still works**: it is the old name of the same switch (up to
+  65.4m-pre42), kept so installers already built with it keep working.
 - **Windows only.** On any other OS the flag is **ignored** — zpaq-std runs exactly as
   if it had not been passed (normal output, nothing silenced).
 - Works for any long operation (`a` compress, `x`/`t` extract, …). No installer

@@ -1,7 +1,13 @@
-lz6 lib/, frozen at commit a8e1b51 (= tag v1.6.4-pre 9614981 + the LZ6_VERSION_RELEASE fix in lz6.h)
+lz6 lib/, frozen at commit 1dd4bec (lz6 master, 2026-09-25: after v1.6.7-pre, with
+the HC binary-tree fix "bounded compare in the binary-tree insert"; before it, HC
+levels 13-15 were O(n^2) on a long repetitive run that does not reach the end of
+the buffer, which every zpaq block is, since it ends with the fragment table).
+Previously frozen at a8e1b51 (v1.6.4-pre). Same output bytes for what zpaq-std uses:
+checked against a8e1b51 on 36 inputs x levels 0-15 at window 22, 64 and 32 bits.
 Source: https://github.com/YadeWira/lz6 (lib/, BSD 2-Clause, see LICENSE)
 Files copied unmodified: lz6.c lz6hc.c lz6.h lz6hc.h lz6common.h mem.h LICENSE
+(lib/entropy/ is not needed: it is lz6's seq engine, which zpaq-std does not use.)
 Used by zpaq-std -ma:lz6 through LZ6_compress_fast_window, LZ6_compress_HC_window
 and LZ6_decompress_safe only. The HC block format is lz6's frozen "portable
-profile" (same raw block format as LZ5 v1.5), decoded by the ZPAQLZ5 program.
+profile" (same raw block format as LZ5 v1.5), decoded by the ZPAQLZ6 program.
 Do not patch these files here: send changes to the lz6 repository.

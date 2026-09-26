@@ -1,3 +1,50 @@
+### [65.4m-pre43] - 2026-09-25
+
+#### `-innosetup` is now `-popgui`
+
+The progress window switch is now **`-popgui`**. **`-innosetup` keeps working**
+as its legacy name (same switch), so installers already built with it need no
+change. The window's buttons lose their heavily rounded, jagged corners: the
+radius was 8 px on a 28 px button, drawn by GDI without anti-aliasing; it is now
+3 px, like Windows 10/11 buttons, and the focus border is drawn inside the
+button instead of being clipped at its edge (checked on Windows 10, light theme).
+The switch's help line said "else print progress %%"; off Windows the switch is
+ignored, and the help now says so.
+
+#### `-ma:lz6` has its own decoder, ZPAQLZ6
+
+Up to pre42, `-ma:lz6` blocks carried ZPAQLZ5, the `-ma:lz5` decoder, because lz6's
+portable profile is the same LZ5 v1.5 block format. Now lz6 has its own program,
+**ZPAQLZ6**, as a precaution: lz5 and lz6 no longer share a decoder, so if either
+ever needs a new one the other is not touched. Nothing changes for users: the
+blocks are the same, archives still open in any zpaq, and old `-ma:lz6` archives
+(tag `zpaqstd-ma2:lz5-lz6:`) still extract.
+
+ZPAQLZ6 decodes exactly what ZPAQLZ5 decodes. Its bytecode had to be different:
+pre24 to pre42 recognise ZPAQLZ5 byte for byte and skip running it, and with a tag
+they do not know they would have returned the compressed bytes. With a bytecode
+they do not know, they run the ZPAQL and get the data right. The only change is in
+the match copy loop (it counts with another register); the speed is the same
+(measured, with and without the JIT).
+
+Checked here: lz6's 23 test vectors (fast and HC, windows 2^16 to 2^24) decode
+identically with ZPAQLZ6 and ZPAQLZ5 in zpaqd 7.15; archives written at levels 0,
+1, 9 and 12 extract identically with zpaq 7.15, zpaqfranz, pre20, pre24, pre25,
+pre27, pre30, pre35, pre39, pre42 and this build; pre42's `-ma:lz6` archives
+extract with this build.
+
+#### `-ma:lz6:13`–`15` no longer crawl on repetitive data
+
+Levels 13 to 15 could take minutes on a block with a long repetitive run: 1 MB
+of a repeated pattern took about 26 s at `-ma:lz6:15` (0.02 s at 12), and 9.8 MB
+more than half an hour. It was in lz6's optimal parser, and only showed up in
+zpaq-std because every zpaq block ends with its fragment table, so the run never
+reaches the end of the buffer. Found here and reported to lz6, which fixed it;
+the vendored lz6 goes from a8e1b51 to **1dd4bec**. That block now takes 0.23 s.
+**The output is byte-identical**: checked against a8e1b51 on 36 inputs at levels
+0 to 15, 64 and 32 bits (576 cases), so archives do not change. lz6 v1.6.4 to
+this commit write the same bytes for what `-ma:lz6` uses.
+
 ### [65.4m-pre42] - 2026-09-25
 
 #### `-ma:ppmd` opens in any zpaq (ZPAQPPMD): all 23 `-ma` switches are portable

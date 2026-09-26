@@ -24089,6 +24089,7 @@ const std::string& zpaqbzip3_bytecode();   /// ZPAQBZIP3, idem
 const std::string& zpaqlzham_bytecode();   /// ZPAQLZHAM, idem
 const std::string& zpaqbsc_bytecode();     /// ZPAQBSC, idem
 const std::string& zpaqppmd_bytecode();    /// ZPAQPPMD, idem
+const std::string& zpaqlz6_bytecode();     /// ZPAQLZ6, idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24176,6 +24177,7 @@ int PostProcessor::write(int c) {
           const std::string& blh=zpaqlzham_bytecode();
           const std::string& bbs=zpaqbsc_bytecode();
           const std::string& bpp=zpaqppmd_bytecode();
+          const std::string& bl6=zpaqlz6_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24192,7 +24194,8 @@ int PostProcessor::write(int c) {
            || (int(bb3.size())==hsize && memcmp(&z.header[z.hbegin], bb3.data(), hsize)==0)
            || (int(blh.size())==hsize && memcmp(&z.header[z.hbegin], blh.data(), hsize)==0)
            || (int(bbs.size())==hsize && memcmp(&z.header[z.hbegin], bbs.data(), hsize)==0)
-           || (int(bpp.size())==hsize && memcmp(&z.header[z.hbegin], bpp.data(), hsize)==0)) {
+           || (int(bpp.size())==hsize && memcmp(&z.header[z.hbegin], bpp.data(), hsize)==0)
+           || (int(bl6.size())==hsize && memcmp(&z.header[z.hbegin], bl6.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -28501,6 +28504,26 @@ const std::string& zpaqppmd_bytecode() {
   return b;
 }
 
+/// ZPAQLZ6: el decodificador propio de -ma:lz6 (desde pre43; antes llevaba ZPAQLZ5).
+/// Mismo formato de bloque que LZ5 v1.5 (el perfil portable de lz6), otro bytecode:
+/// ver compressors/zpaqlz6/. Ventana = M = 2^pm, en la cabecera.
+#include "compressors/zpaqlz6/zpaqlz6_body.h"
+std::string zpaqlz6_config(int pm) {
+  return "comp 0 0 0 "+itos(pm)+" 0\n"+ZPAQLZ6_CUERPO;
+}
+static std::string zpaqlz6_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqlz6_config(22);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqlz6_bytecode() {
+  static const std::string b=zpaqlz6_compilar();
+  return b;
+}
+
 // Compress from in to out in 1 segment in 1 block using the algorithm
 // descried in method. If method begins with a digit then choose
 // a method depending on type. Save filename and comment
@@ -29026,7 +29049,8 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_lzm = strncmp(method_, "zpaqlzham:", 10)==0;    /// ZPAQLZHAM
   const bool es_bsc = strncmp(method_, "zpaqbsc:", 8)==0;       /// ZPAQBSC (ph sale de orig)
   const bool es_ppm = strncmp(method_, "zpaqppmd:", 9)==0;      /// ZPAQPPMD
-  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_lz6 = strncmp(method_, "zpaqlz6:", 8)==0;       /// ZPAQLZ6 (como ZPAQLZ5: pm 16..24)
+  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
@@ -29044,7 +29068,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
-                         : es_bz2 ? zpaqbzip2_config(pm) : es_zst ? zpaqzstd_config(pm) : es_lzf ? zpaqlzfse_config(pm) : es_bro ? zpaqbrotli_config(pm) : es_bz3 ? zpaqbzip3_config(pm) : es_lzm ? zpaqlzham_config(pm) : es_bsc ? zpaqbsc_config(zpaqbsc_ph((int64_t)orig), pm) : es_ppm ? zpaqppmd_config(pm) : zpaqlz5_config(pm);
+                         : es_bz2 ? zpaqbzip2_config(pm) : es_zst ? zpaqzstd_config(pm) : es_lzf ? zpaqlzfse_config(pm) : es_bro ? zpaqbrotli_config(pm) : es_bz3 ? zpaqbzip3_config(pm) : es_lzm ? zpaqlzham_config(pm) : es_bsc ? zpaqbsc_config(zpaqbsc_ph((int64_t)orig), pm) : es_ppm ? zpaqppmd_config(pm) : es_lz6 ? zpaqlz6_config(pm) : zpaqlz5_config(pm);
     int args[9]={0};
     Compressor co;
     co.setOutput(out);
@@ -63388,7 +63412,7 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 		SetBkColor(dc, g_inno_bg);
 		return (LRESULT)(g_inno_brush ? g_inno_brush : (HBRUSH)(COLOR_BTNFACE + 1));
 	}
-	if (m == WM_DRAWITEM)   // flat, rounded, Inno-style owner-drawn buttons
+	if (m == WM_DRAWITEM)   // flat owner-drawn buttons, slightly rounded corners
 	{
 		DRAWITEMSTRUCT* d= (DRAWITEMSTRUCT*)l;
 		if (d->CtlType == ODT_STATIC && d->hwndItem == g_inno_marq)
@@ -63431,10 +63455,20 @@ static LRESULT CALLBACK inno_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 			HDC  dc= d->hDC;
 			RECT r = d->rcItem;
 			FillRect(dc, &r, g_inno_brush);   // clear the rounded corners to window bg
+			/// Radio de 3 px (elipse 6x6), como los botones de Windows 10/11. Era
+			/// 16x16 (8 px) en un boton de 28 px de alto: GDI no suaviza los arcos y
+			/// las esquinas quedaban escalonadas y "forzadas". Borde siempre de 1 px;
+			/// el foco agrega una segunda linea de acento hacia adentro (un lapiz de
+			/// 2 px va centrado en el contorno y se recortaba en los bordes).
 			HBRUSH fb= CreateSolidBrush(face);
-			HPEN   pen= CreatePen(PS_SOLID, focused ? 2 : 1, border);
+			HPEN   pen= CreatePen(PS_SOLID, 1, focused ? INNO_ACCENT : border);
 			HGDIOBJ of= SelectObject(dc, fb), op= SelectObject(dc, pen);
-			RoundRect(dc, r.left, r.top, r.right - 1, r.bottom - 1, 16, 16);
+			RoundRect(dc, r.left, r.top, r.right, r.bottom, 6, 6);
+			if (focused)
+			{
+				SelectObject(dc, GetStockObject(NULL_BRUSH));
+				RoundRect(dc, r.left + 1, r.top + 1, r.right - 1, r.bottom - 1, 4, 4);
+			}
 			SelectObject(dc, of); SelectObject(dc, op);
 			DeleteObject(fb); DeleteObject(pen);
 			char txt[40]; GetWindowTextA(d->hwndItem, txt, sizeof(txt));
@@ -63537,7 +63571,7 @@ static DWORD WINAPI inno_gui_thread(LPVOID)
 		g_inno_marq= CreateWindowExA(0, "STATIC", "", WS_CHILD | SS_OWNERDRAW,
 			M, 150, CW - 2 * M, 22, g_inno_wnd, NULL, hi, NULL);
 	// Buttons right-aligned to the same right margin; owner-drawn (WM_DRAWITEM) as
-	// flat rounded rects, with "Background" getting the accent border (the default).
+	// flat, slightly rounded rects; the focused one gets the accent border.
 	const int btnW= 90, btnH= 28, btnY= 190, btnGap= 10;
 	g_inno_btn_cancel= CreateWindowExA(0, "BUTTON", "Cancel",
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
@@ -66454,7 +66488,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  zstd: ZPAQZSTD, levels 1..22 (1=fast, 3=default, 22=max); opens in any zpaq");
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
 		scrivi_riga(" ", "  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq");
-		scrivi_riga(" ", "  lz6: EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
+		scrivi_riga(" ", "  lz6: ZPAQLZ6, EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
 		scrivi_riga(" ", "  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq");
 		scrivi_riga(" ", "  bzip2: ZPAQBZIP2, BWT+HF (1=fast/100K, 9=best/900K, default 9); opens in any zpaq");
@@ -68147,7 +68181,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagnojit,			"-nojit",				"Do not use JIT",									"");
 	g_programflags.add(&flagturbo,			"-turbo",				"Faster add: parallel fragmenter (same archive)",	"");
 	
-	g_programflags.add(&flaginnosetup,		"-innosetup",			"Show a native GUI progress window (Windows); else print progress %%",	"");
+	/// -popgui es el nombre desde pre43; -innosetup queda como alias heredado (los
+	/// instaladores ya publicados lo pasan): los dos prenden el mismo flag.
+	g_programflags.add(&flaginnosetup,		"-popgui",				"Show a native GUI progress window (Windows); elsewhere it is ignored",	"");
+	g_programflags.add(&flaginnosetup,		"-innosetup",			"Legacy name of -popgui (still works)",	"");
 
 
 	for (int i=0; i<argc; i++)
@@ -69745,14 +69782,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 		/// conserva. Una continuacion sangrada 7 espacios solo queda alineada
 		/// detras de un "!"; detras de un ":" queda desfasada. Por eso aca: una
 		/// sola linea con ":", o varias con "!".
-		/// El nombre del decodificador que viaja en cada bloque. lz6 usa el de LZ5
-		/// (mismo formato de bloque); tendra nombre propio cuando deje de ser
-		/// experimental.
+		/// El nombre del decodificador que viaja en cada bloque. lz6 tiene el suyo,
+		/// ZPAQLZ6, desde pre43 (hasta pre42 usaba ZPAQLZ5, mismo formato de bloque).
 		const char* zname= (g_ma_algorithm=="lzma") ? "ZPAQLZMA" : (g_ma_algorithm=="lz") ? "ZPAQLZIP"
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -77570,6 +77606,13 @@ ThreadReturn decompressThread(void *arg)
 					{
 						int lvl;
 						sscanf(cs.c_str() + m6 + 20, "%d:%" SCNd64, &lvl, &lz6_orig);
+					}
+					/// ZPAQLZ6 (desde pre43): misma ruta nativa, LZ6_decompress_safe.
+					auto m6b = cs.find("zpaqstd-ma2:lz6:");
+					if (m6b != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + m6b + 16, "%d:%" SCNd64, &lvl, &lz6_orig);
 					}
 					auto m5b = cs.find("zpaqstd-ma2:lz5");
 					if (m5b != string::npos && m6 == string::npos)
@@ -122653,8 +122696,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 	{
 		/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION)
 		/// escribe el MISMO formato de bloque que LZ5 v1.5: es su "perfil
-		/// portable", congelado. Asi que el bloque lleva el mismo decodificador
-		/// ZPAQLZ5 que -ma:lz5, sin un byte distinto. La ventana se limita a 2^22
+		/// portable", congelado. Hasta pre42 el bloque llevaba el decodificador
+		/// ZPAQLZ5 de -ma:lz5; desde pre43 lleva el suyo, ZPAQLZ6 (mismo formato,
+		/// otro bytecode, ver compressors/zpaqlz6/). La ventana se limita a 2^22
 		/// (la de ZPAQLZ5): un zpaq ajeno reserva 4 MB por hilo y no 16, a un costo
 		/// medido por lz6 de +0.13% en dickens y +0.75% en samba con el rapido.
 		int64_t orig_size=sb.size();
@@ -122679,14 +122723,14 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 						snprintf(hx+2*k, 3, "%02x", (unsigned)(unsigned char)r1[k]);
 					sb.reset();
 					sb.write(lz6buf,lz6size);
-					m="zpaqlz5:22:"+itos(orig_size)+":"+hx;
-					/// "zpaqstd-ma2:lz5-lz6:" y no "zpaqstd-ma2:lz6:". pre24 toma el atajo
-					/// de ZPAQLZ5 (reconoce el bytecode y NO lo ejecuta) y despues busca
-					/// "zpaqstd-ma2:lz5" en el comentario para decodificar nativo: con
-					/// "lz6" a secas no lo encontraba y devolvia los bytes comprimidos.
-					/// Con este prefijo pre24 decodifica con LZ5_decompress_safe, que lee
-					/// estos bloques igual (medido con los 23 vectores de lz6).
-					ma_comment="zpaqstd-ma2:lz5-lz6:"+itos(g_ma_level)+":"+itos(orig_size);
+					m="zpaqlz6:22:"+itos(orig_size)+":"+hx;
+					/// Hasta pre42: ZPAQLZ5 con la etiqueta "zpaqstd-ma2:lz5-lz6:" (pre24
+					/// toma el atajo de ZPAQLZ5 por el bytecode y despues busca
+					/// "zpaqstd-ma2:lz5" en el comentario; con "lz6" a secas devolvia los
+					/// bytes comprimidos). Con ZPAQLZ6 el bytecode es OTRO: ninguna version
+					/// vieja lo reconoce, todas corren el ZPAQL, y la etiqueta puede ser la
+					/// propia. Los bloques "lz5-lz6" se siguen leyendo.
+					ma_comment="zpaqstd-ma2:lz6:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
 				delete[] lz6buf;
 			}
