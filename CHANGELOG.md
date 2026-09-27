@@ -1,3 +1,26 @@
+### [65.4m-pre45] - 2026-09-27
+
+#### New codec: `-ma:uflzma2` (experimental)
+
+- **`-ma:uflzma2:N`** compresses with [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2)
+  1.5.1, a fork of Conor McCarthy's fast-lzma2 (most of the code is his). Its output
+  is standard LZMA2, byte for byte the same as fast-lzma2 1.0.1 at levels 1 to 10;
+  level **11** also picks lc/lp/pb per block (3/0/2, 4/0/1 or 1/2/2). Levels 1–11,
+  default 5. It is a codec of its own, next to `-ma:flzma2`, which stays on
+  fast-lzma2.
+- Its blocks carry their own ZPAQL decoder, **ZPAQUFLZMA2**, so they open in any
+  zpaq: zpaq 7.15, zpaqfranz, and every zpaq-std from pre20 on. It is ZPAQFLZMA2's
+  program with one more instruction, which gives uflzma2 a decoder of its own: the
+  LZMA2 walk already reads the properties of every chunk, so every lc/lp/pb
+  (lc+lp up to 4) decodes. zpaq-std decodes natively, with ultra-fast-lzma2's
+  assembler decoder on x86_64.
+- **Experimental**: its encoder may still change between releases; what an archive
+  already holds does not.
+- The two libraries share internal symbol names, so ultra-fast-lzma2 is linked into
+  one relocatable object with only its `UF2_*` API left global.
+- The README now lists the experimental codecs (lz6, uflzma2, and zpaqfranz's LZ4
+  and LZAV) in a table of their own.
+
 ### [65.4m-pre44] - 2026-09-26
 
 A round of deep testing (four test agents: damaged archives, every command and

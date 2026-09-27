@@ -19664,6 +19664,7 @@ extern "C" {
 extern "C" {
 #endif
 #include "compressors/fl2/fast-lzma2.h"
+#include "compressors/uflzma2/uf-lzma2.h"  /// -ma:uflzma2 (ultra-fast-lzma2)
 #ifdef __cplusplus
 }
 #endif
@@ -24101,6 +24102,7 @@ const std::string& zpaqlzham_bytecode();   /// ZPAQLZHAM, idem
 const std::string& zpaqbsc_bytecode();     /// ZPAQBSC, idem
 const std::string& zpaqppmd_bytecode();    /// ZPAQPPMD, idem
 const std::string& zpaqlz6_bytecode();     /// ZPAQLZ6, idem
+const std::string& zpaquflzma2_bytecode(); /// ZPAQUFLZMA2, idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24189,6 +24191,7 @@ int PostProcessor::write(int c) {
           const std::string& bbs=zpaqbsc_bytecode();
           const std::string& bpp=zpaqppmd_bytecode();
           const std::string& bl6=zpaqlz6_bytecode();
+          const std::string& bu2=zpaquflzma2_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24206,7 +24209,8 @@ int PostProcessor::write(int c) {
            || (int(blh.size())==hsize && memcmp(&z.header[z.hbegin], blh.data(), hsize)==0)
            || (int(bbs.size())==hsize && memcmp(&z.header[z.hbegin], bbs.data(), hsize)==0)
            || (int(bpp.size())==hsize && memcmp(&z.header[z.hbegin], bpp.data(), hsize)==0)
-           || (int(bl6.size())==hsize && memcmp(&z.header[z.hbegin], bl6.data(), hsize)==0)) {
+           || (int(bl6.size())==hsize && memcmp(&z.header[z.hbegin], bl6.data(), hsize)==0)
+           || (int(bu2.size())==hsize && memcmp(&z.header[z.hbegin], bu2.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -24218,10 +24222,10 @@ int PostProcessor::write(int c) {
           /// de pre43 dio 19 cuelgues asi (ppmd, lzh, bzip2, deflate, lz5, lz6, lzma, zstd),
           /// todos con el dano dentro del programa. Un decodificador realmente distinto (de
           /// una version futura) no se rechaza: por regla tiene otra identidad y no cae aca
-          /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano). Si algun dia se deriva uno nuevo de
+          /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano, ZPAQUFLZMA2 de ZPAQFLZMA2 tambien). Si algun dia se deriva uno nuevo de
           /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
           {
-            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6};
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2};
             for (const std::string* k: conocidos) {
               if (int(k->size())!=hsize) continue;
               int dif=0;
@@ -27927,6 +27931,27 @@ const std::string& zpaqflzma2_bytecode() {
   return b;
 }
 
+/// ZPAQUFLZMA2: el decodificador propio de -ma:uflzma2 (ultra-fast-lzma2). Es el
+/// programa de ZPAQFLZMA2 con una instruccion mas, que le da otro tamano: el mismo
+/// formato LZMA2, con cualquier lc/lp/pb (el nivel 11 los elige por entrada).
+/// Ver compressors/zpaqlzma/zpaquflzma2_body.h.
+#include "compressors/zpaqlzma/zpaquflzma2_body.h"
+std::string zpaquflzma2_config(int pm) {
+  return "comp 0 0 15 "+itos(pm)+" 0\n"+ZPAQUFLZMA2_CUERPO;
+}
+static std::string zpaquflzma2_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaquflzma2_config(25);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaquflzma2_bytecode() {
+  static const std::string b=zpaquflzma2_compilar();
+  return b;
+}
+
 /// ---- ZPAQSNAPPY: bloques -ma:snappy que CUALQUIER zpaq puede extraer --------
 /// Decodificador del bloque crudo de snappy (el de snappy_compress: varint del
 /// largo + etiquetas) en ZPAQL, un byte por llamada, sin guardar el bloque. M es la
@@ -29080,12 +29105,13 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_bsc = strncmp(method_, "zpaqbsc:", 8)==0;       /// ZPAQBSC (ph sale de orig)
   const bool es_ppm = strncmp(method_, "zpaqppmd:", 9)==0;      /// ZPAQPPMD
   const bool es_lz6 = strncmp(method_, "zpaqlz6:", 8)==0;       /// ZPAQLZ6 (como ZPAQLZ5: pm 16..24)
-  if (es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_uf2 = strncmp(method_, "zpaquflzma2:", 12)==0;  /// ZPAQUFLZMA2 (como ZPAQFLZMA2)
+  if (es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
         || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
@@ -29094,7 +29120,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
+    const std::string cfg=es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
@@ -66520,6 +66546,8 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lz4: auto (1-4 fast, 5-12 HC). lz4hc: always HC. lz4f: always fast");
 		scrivi_riga(" ", "  zstd: ZPAQZSTD, levels 1..22 (1=fast, 3=default, 22=max); opens in any zpaq");
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
+		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2, EXPERIMENTAL. ultra-fast-lzma2 (1..11, 5=default;");
+		scrivi_riga(" ", "    11 also picks lc/lp/pb per block); opens in any zpaq");
 		scrivi_riga(" ", "  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq");
 		scrivi_riga(" ", "  lz6: ZPAQLZ6, EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
@@ -69134,6 +69162,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					g_ma_algorithm=ma_value;
 					if (g_ma_algorithm=="zstd") g_ma_level=3;
 					else if (g_ma_algorithm=="flzma2") g_ma_level=5;
+					else if (g_ma_algorithm=="uflzma2") g_ma_level=5;
 					else if (g_ma_algorithm=="lizard") g_ma_level=17;
 					else if (g_ma_algorithm=="brotli") g_ma_level=11;
 					else if (g_ma_algorithm=="snappy") g_ma_level=1;
@@ -69180,6 +69209,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					int fmax=FL2_maxCLevel();
 					if (g_ma_level>fmax) g_ma_level=fmax;
+				}
+				/// uflzma2: 1..10 como fast-lzma2; 11 busca ademas lc/lp/pb por bloque.
+				else if (g_ma_algorithm=="uflzma2")
+				{
+					int umax=UF2_maxCLevel();
+					if (g_ma_level>umax) g_ma_level=umax;
 				}
 				else if (g_ma_algorithm=="lizard")
 				{
@@ -69247,7 +69282,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_level>32) g_ma_level=32;
 				}
 				else if (g_ma_level>15) g_ma_level=15;
-				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lz6"&&g_ma_algorithm!="lzma"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd")
+				if (g_ma_algorithm!="lz4"&&g_ma_algorithm!="lz4hc"&&g_ma_algorithm!="lz4f"&&g_ma_algorithm!="zstd"&&g_ma_algorithm!="flzma2"&&g_ma_algorithm!="lz5"&&g_ma_algorithm!="lz5hc"&&g_ma_algorithm!="lz5f"&&g_ma_algorithm!="lz6"&&g_ma_algorithm!="lzma"&&g_ma_algorithm!="lizard"&&g_ma_algorithm!="bzip2"&&g_ma_algorithm!="bzip3"&&g_ma_algorithm!="brotli"&&g_ma_algorithm!="snappy"&&g_ma_algorithm!="deflate"&&g_ma_algorithm!="lz"&&g_ma_algorithm!="lzav"&&g_ma_algorithm!="hs"&&g_ma_algorithm!="lzfse"&&g_ma_algorithm!="bsc"&&g_ma_algorithm!="lzh"&&g_ma_algorithm!="ppmd"&&g_ma_algorithm!="uflzma2")
 				{
 					/* error() throws std::runtime_error, and nothing catches it
 					 * this early in argument parsing: it reached terminate() and
@@ -69255,7 +69290,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					 * message. Print the list and exit cleanly instead. */
 					myprintf("00563! Unknown -ma: algorithm '%s'\n", g_ma_algorithm.c_str());
 					myprintf("00563! Valid: lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard bzip2 bzip3\n");
-					myprintf("00563!        brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd\n");
+					myprintf("00563!        brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd uflzma2\n");
 					seppuku(2);
 				}
 			}
@@ -69834,7 +69869,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	else if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
 	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav"
 	     || g_ma_algorithm=="deflate" || g_ma_algorithm=="hs"
-	     || g_ma_algorithm=="lizard" || g_ma_algorithm=="bzip2" || g_ma_algorithm=="zstd" || g_ma_algorithm=="lzfse" || g_ma_algorithm=="brotli" || g_ma_algorithm=="bzip3" || g_ma_algorithm=="lzh" || g_ma_algorithm=="bsc" || g_ma_algorithm=="ppmd")
+	     || g_ma_algorithm=="lizard" || g_ma_algorithm=="bzip2" || g_ma_algorithm=="zstd" || g_ma_algorithm=="lzfse" || g_ma_algorithm=="brotli" || g_ma_algorithm=="bzip3" || g_ma_algorithm=="lzh" || g_ma_algorithm=="bsc" || g_ma_algorithm=="ppmd" || g_ma_algorithm=="uflzma2")
 	    && ((command=='a') || (command=='Z')))
 	{
 		/// ZPAQLZ5: estos bloques llevan su propio decodificador ZPAQL.
@@ -69850,7 +69885,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -69858,6 +69893,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 		if (g_ma_algorithm=="lz6")
 			myprintf("00603! lz6 is EXPERIMENTAL: its compression and levels may change in future\n"
 			         "       releases. Archives already written stay readable (frozen block format)\n");
+		/// uflzma2 tambien: lo que puede cambiar es el compresor; el bloque es LZMA2.
+		if (g_ma_algorithm=="uflzma2")
+			myprintf("00603! uflzma2 is EXPERIMENTAL: its compression and levels may change in future\n"
+			         "       releases. Archives already written stay readable (standard LZMA2)\n");
 	}
 	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{
@@ -77489,6 +77528,7 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lz6_orig= 0;
 			int64_t lzma_orig= 0;
 			int64_t fl2p_orig= 0;
+			int64_t uf2p_orig= 0;  /// ZPAQUFLZMA2
 			int64_t snp_orig= 0;
 			int64_t lzv_orig= 0;
 			int64_t dfl_orig= 0;
@@ -77653,6 +77693,14 @@ ThreadReturn decompressThread(void *arg)
 					{
 						int lvl;
 						sscanf(cs.c_str() + mfl2p + 19, "%d:%" SCNd64, &lvl, &fl2p_orig);
+					}
+					/// ZPAQUFLZMA2: la etiqueta no contiene "zpaqstd-ma2:flzma2:" (la u va
+					/// antes de flzma2), asi que ninguna version vieja la toma por flzma2.
+					auto muf2 = cs.find("zpaqstd-ma2:uflzma2:");
+					if (muf2 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + muf2 + 20, "%d:%" SCNd64, &lvl, &uf2p_orig);
 					}
 					auto mlzma = cs.find("zpaqstd-ma2:lzma:");
 					if (mlzma != string::npos)
@@ -78163,6 +78211,31 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = fl2p_orig;
+			}
+			// ZPAQUFLZMA2: igual que ZPAQFLZMA2, con UF2_decompress (y su decodificador en
+			// ensamblador en x86_64 y ARM64).
+			else if (uf2p_orig > 0 && (int64_t)out.size() == uf2p_orig)
+			{
+				output_size = uf2p_orig;
+			}
+			else if (uf2p_orig > 0)
+			{
+				if (out.size() < 6)
+					error("31319 uflzma2 decompression failed");
+				const unsigned char* src = (const unsigned char *)out.data();
+				uint64_t hsz = 0;
+				for (int i = 0; i < 4; i++)
+					hsz |= (uint64_t)src[i] << (8 * i);
+				if ((int64_t)hsz != uf2p_orig)
+					error("31319 uflzma2 decompression failed");
+				string decomp2;
+				decomp2.resize(uf2p_orig);
+				size_t r2 = UF2_decompress(&decomp2[0], (size_t)uf2p_orig, (const char *)src + 4, out.size() - 4);
+				if (UF2_isError(r2) || (int64_t)r2 != uf2p_orig)
+					error("31319 uflzma2 decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = uf2p_orig;
 			}
 			// ZPAQLZMA: si corrio el ZPAQL (otro programa, o sin atajo) la salida ya es el
 			// original; si no, LZMA nativo: 5 bytes de propiedades, 4 de tamano, LZMA crudo.
@@ -122708,6 +122781,42 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					ma_comment="zpaqstd-ma2:flzma2:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
 				delete[] fl2buf;
+			}
+		}
+	}
+	/// ZPAQUFLZMA2: como flzma2, con ultra-fast-lzma2 (un hilo por bloque, como
+	/// FL2_compress: la salida depende de la cantidad de hilos).
+	else if (g_ma_algorithm=="uflzma2" && sb.size()>16)
+	{
+		int64_t orig_size=sb.size();
+		size_t dstCap=UF2_compressBound((size_t)orig_size);
+		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
+		{
+			char* uf2buf=new(std::nothrow) char[dstCap];
+			if (uf2buf)
+			{
+				size_t fs=UF2_compress(uf2buf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
+				int64_t total=(int64_t)fs+4;
+				int k=17;
+				while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
+				if (!UF2_isError(fs)&&fs>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+				{
+					libzpaq::SHA1 sh1;
+					sh1.write((const char*)sb.data(), orig_size);
+					const char* r1=sh1.result();
+					char hx[41];
+					for (int q=0; q<20; ++q)
+						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+					char hd[4];
+					for (int q=0; q<4; q++)
+						hd[q]=(char)((uint64_t)orig_size>>(8*q));
+					sb.reset();
+					sb.write(hd,4);
+					sb.write(uf2buf,(int)fs);
+					m="zpaquflzma2:"+itos(k)+":"+itos(orig_size)+":"+hx;
+					ma_comment="zpaqstd-ma2:uflzma2:"+itos(g_ma_level)+":"+itos(orig_size);
+				}
+				delete[] uf2buf;
 			}
 		}
 	}

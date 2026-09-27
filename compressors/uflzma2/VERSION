@@ -1,0 +1,22 @@
+ultra-fast-lzma2 v1.5.1 (tag v1.5.1, commit a19bae2, 2026-09-27): e97d737 plus the
+version bump. e97d737 fixes the 32-bit Windows crash of 1.5.0 (hardware CRC run
+on threads Windows creates without realigning the stack); do not go back to 1.5.0.
+Source: https://github.com/YadeWira/ultra-fast-lzma2, a fork of Conor McCarthy's
+fast-lzma2 (most of the code is his). Dual licensed BSD / GPLv2; zpaq-std uses it
+under the BSD license, see LICENSE.
+Files copied unmodified: the library's *.c and *.h, lzma_dec_x86_64.S and
+lzma_dec_arm64.S (the LZMA SDK's assembler decoders, public domain), LICENSE.
+(Not copied: the MASM lzma_dec_x86_64.asm, bench/, dll/, fuzzer/, test/, tools/.)
+
+Used by zpaq-std -ma:uflzma2 through UF2_compress, UF2_compressBound,
+UF2_maxCLevel and UF2_decompress only; blocks carry the ZPAQUFLZMA2 decoder.
+Built next to compressors/fl2 (fast-lzma2 1.0.1, -ma:flzma2): the two share
+internal symbol names (LZMA2_*, RMF_*, xxhash...), so the Makefile links this
+library into one relocatable object (ld -r) and renames every global symbol but
+UF2_* with a ufl2_ prefix (objcopy --redefine-syms, the list taken from nm).
+Making them local instead, as the library's bench/lzbench/add_uflzma2.py does,
+works on Linux but not on Windows x64: the COMDAT ".refptr.price_table" section
+both libraries carry is kept once for the two, and uf-lzma2 crashed.
+The assembler decoder is linked on x86_64 (MS_x64_CALL=1 on Windows) and ARM64,
+with -DLZMA2_DEC_OPT; 32-bit builds use the C decoder.
+Do not patch these files here: send changes to the ultra-fast-lzma2 repository.

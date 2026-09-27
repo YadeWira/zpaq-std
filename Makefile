@@ -94,6 +94,26 @@ ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
 else
   FL2SRC  := compressors/fl2/fl2_common.c compressors/fl2/fl2_compress.c compressors/fl2/fl2_decompress.c compressors/fl2/fl2_pool.c compressors/fl2/fl2_threading.c compressors/fl2/lzma2_dec.c compressors/fl2/lzma2_enc.c compressors/fl2/radix_bitpack.c compressors/fl2/radix_mf.c compressors/fl2/radix_struct.c compressors/fl2/range_enc.c compressors/fl2/dict_buffer.c compressors/fl2/util.c
 endif
+# ultra-fast-lzma2 (-ma:uflzma2), next to fast-lzma2 (-ma:flzma2): see
+# compressors/uflzma2/VERSION. The two share internal symbol names, so this one is
+# linked into one relocatable object with every symbol but UF2_* renamed.
+# Its assembler LZMA decoder goes in on x86_64 (Microsoft x64 calling convention
+# on Windows) and ARM64; 32-bit builds use its C decoder.
+UFL2SRC := $(wildcard compressors/uflzma2/*.c)
+UFL2MACH := $(shell $(CC) -dumpmachine 2>/dev/null)
+UFL2ASM :=
+UFL2ASFLAGS :=
+ifneq (,$(findstring x86_64,$(UFL2MACH)))
+  UFL2ASM := compressors/uflzma2/lzma_dec_x86_64.o
+  ifneq (,$(findstring mingw,$(UFL2MACH)))
+    UFL2ASFLAGS := -DMS_x64_CALL=1
+  else
+    UFL2ASFLAGS := -DMS_x64_CALL=0
+  endif
+endif
+ifneq (,$(findstring aarch64,$(UFL2MACH)))
+  UFL2ASM := compressors/uflzma2/lzma_dec_arm64.o
+endif
 LIZSRC  := compressors/lizard/lizard_compress.c compressors/lizard/lizard_decompress.c compressors/lizard/entropy/entropy_common.c compressors/lizard/entropy/debug.c compressors/lizard/entropy/fse_compress.c compressors/lizard/entropy/fse_decompress.c compressors/lizard/entropy/hist.c compressors/lizard/entropy/huf_compress.c compressors/lizard/entropy/huf_decompress.c
 BZIP2SRC := compressors/bzip2/blocksort.c compressors/bzip2/bzlib.c compressors/bzip2/compress.c compressors/bzip2/crctable.c compressors/bzip2/decompress.c compressors/bzip2/huffman.c compressors/bzip2/randtable.c
 BZIP3SRC := compressors/bzip3/libbz3.c
@@ -118,6 +138,7 @@ LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp c
 
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
+UFL2INC := -Icompressors/uflzma2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE $(if $(UFL2ASM),-DLZMA2_DEC_OPT)
 LZ5INC  := -Icompressors/lz5
 LZ6INC  := -Icompressors/lz6
 LZMAINC := -Icompressors/lzmasdk -DZ7_ST
@@ -274,6 +295,8 @@ all: build
 build: $(PROG)
 
 FL2OBJ := $(FL2SRC:.c=.o)
+UFL2OBJ := $(UFL2SRC:.c=.o) $(UFL2ASM)
+UFL2BUNDLE := compressors/uflzma2/uflzma2-bundle.o
 LZ5OBJ := $(LZ5SRC:.c=.o)
 LZ6OBJ := $(LZ6SRC:.c=.o)
 LZMAOBJ := $(LZMASRC:.c=.o)
@@ -304,8 +327,8 @@ LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -320,6 +343,24 @@ libdivsufsort/%.o: libdivsufsort/%.cpp
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@
+
+compressors/uflzma2/%.o: compressors/uflzma2/%.c
+	$(CC) $(ZPAQ_CFLAGS) $(UFL2INC) -c $< -o $@
+
+compressors/uflzma2/%.o: compressors/uflzma2/%.S
+	$(CC) $(UFL2ASFLAGS) -c $< -o $@
+
+# Every global symbol of the bundle except the UF2_* API is RENAMED with a ufl2_
+# prefix (the list comes from nm, so it follows the library). Making them local
+# with objcopy --keep-global-symbol, as the library's lzbench recipe does, is not
+# enough on Windows x64: gcc reaches extern data through COMDAT ".refptr.<name>"
+# sections, and the PE linker keeps ONE COMDAT per name for both libraries, so
+# uf-lzma2 read fast-lzma2's price table and crashed at levels 2 and up.
+$(UFL2BUNDLE): $(UFL2OBJ)
+	$(CROSS_COMPILE)ld -r -o $@.tmp $^
+	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n !~ /^_?UF2_/) print n" ufl2_"n}' > $@.syms
+	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
+	$(RM) $@.tmp $@.syms
 
 compressors/lz5/%.o: compressors/lz5/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZ5INC) -c $< -o $@
