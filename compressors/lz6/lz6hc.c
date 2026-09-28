@@ -176,13 +176,18 @@ static int LZ6_alloc_mem_HC_wl(LZ6HC_Data_Structure* ctx, int compressionLevel,
         if (widened > ctx->params.hashLog) ctx->params.hashLog = widened;
     }
 
-    ctx->hashTable = (U32*) malloc(sizeof(U32)*(((size_t)1 << ctx->params.hashLog3)+((size_t)1 << ctx->params.hashLog)));
+    /* calloc, not malloc: the parsers read table entries before writing
+     * them, so recycled heap memory made HC output depend on whatever the
+     * previous allocation left there (valid but non-deterministic: level 2
+     * differed by 3 bytes when levels 0-15 ran in one process; zpaq-std).
+     * Large tables come from fresh zero pages anyway, so this is free. */
+    ctx->hashTable = (U32*) calloc(((size_t)1 << ctx->params.hashLog3)+((size_t)1 << ctx->params.hashLog), sizeof(U32));
     if (!ctx->hashTable)
         return 0;
 
     ctx->hashTable3 = ctx->hashTable + ((size_t)1 << ctx->params.hashLog);
 
-    ctx->chainTable = (U32*) malloc(sizeof(U32)*((size_t)1 << ctx->params.contentLog));
+    ctx->chainTable = (U32*) calloc((size_t)1 << ctx->params.contentLog, sizeof(U32));
     if (!ctx->chainTable)
     {
         FREEMEM(ctx->hashTable);
@@ -232,7 +237,8 @@ void LZ6HC_reset_mem(LZ6HC_Data_Structure* ctx)
     /* the fast / price_fast strategies never read the chain table: leave
      * it untouched (a large unwritten allocation costs no page faults;
      * zeroing it was ~20% of level-2 encode time on 10-50 MB inputs) */
-    if (ctx->params.strategy >= LZ6HC_lowest_price && ctx->params.strategy != LZ6HC_row)
+    if (ctx->params.strategy >= LZ6HC_lowest_price && ctx->params.strategy != LZ6HC_row
+        && ctx->params.strategy != LZ6HC_fast1)
         MEM_INIT(ctx->chainTable, 0, sizeof(U32) * ((size_t)1 << ctx->params.contentLog));
 }
 
@@ -1263,6 +1269,15 @@ int LZ6HC_seqLevelIsOptimal(int level)
 #endif
     return LZ6HC_seqParameters[level].strategy == LZ6HC_optimal_price
         || LZ6HC_seqParameters[level].strategy == LZ6HC_optimal_price_bt;
+}
+
+int LZ6HC_seqFast1Params(int level, unsigned* hashLog, unsigned* hashBytes, unsigned* windowLog)
+{
+    if (level < 1 || level > LZ6HC_MAX_CLEVEL) return 0;
+    const LZ6HC_parameters* p = &LZ6HC_seqParameters[level];
+    if (p->strategy != LZ6HC_fast1) return 0;
+    *hashLog = p->hashLog; *hashBytes = p->searchLength; *windowLog = p->sufficientLength;
+    return 1;
 }
 
 void LZ6HC_setSeqPrice(void* state, const LZ6HC_seqPrice* sp)
@@ -2450,14 +2465,40 @@ static int LZ6HC_compress_generic (void* ctxvoid, const char* source, char* dest
 
 int LZ6_sizeofStateHC(void) { return sizeof(LZ6HC_Data_Structure); }
 
+/* The whole input as one literal run: a valid block that always fits in
+ * LZ6_compressBound (n + n/255 + 2 bytes at most). */
+static int LZ6HC_literalsOnly(const char* src, char* dst, int n)
+{
+    BYTE* op = (BYTE*)dst;
+    int lastRun = n;
+    if (lastRun >= (int)RUN_MASK) {
+        *op++ = (BYTE)(RUN_MASK << ML_BITS);
+        lastRun -= RUN_MASK;
+        for (; lastRun > 254; lastRun -= 255) *op++ = 255;
+        *op++ = (BYTE)lastRun;
+    } else *op++ = (BYTE)(lastRun << ML_BITS);
+    memcpy(op, src, (size_t)n);
+    op += n;
+    return (int)(op - (BYTE*)dst);
+}
+
+/* The price parsers (levels 10-15) can emit MORE than LZ6_compressBound
+ * on data LZ cannot compress (3-byte matches that cost more than the
+ * literals: +4.4% on 16 MB of random base64). So the output is always
+ * bounds-checked; with a buffer of at least the bound, an attempt that
+ * does not fit is replaced by the literal-only block, which does -- the
+ * bound stays a guarantee. (It used to pick an unchecked mode there and
+ * write past the buffer; inherited from LZ5 1.5, reported by zpaq-std.)
+ * The checks never change a parse decision: fitting output is identical. */
 int LZ6_compress_HC_extStateHC (void* state, const char* src, char* dst, int srcSize, int maxDstSize)
 {
     if (((size_t)(state)&(sizeof(void*)-1)) != 0) return 0;   /* Error : state is not aligned for pointers (32 or 64 bits) */
     LZ6HC_init ((LZ6HC_Data_Structure*)state, (const BYTE*)src);
-    if (maxDstSize < LZ6_compressBound(srcSize))
-        return LZ6HC_compress_generic (state, src, dst, srcSize, maxDstSize, limitedOutput);
-    else
-        return LZ6HC_compress_generic (state, src, dst, srcSize, maxDstSize, noLimit);
+    {
+        const int r = LZ6HC_compress_generic (state, src, dst, srcSize, maxDstSize, limitedOutput);
+        if (r > 0 || maxDstSize < LZ6_compressBound(srcSize)) return r;
+        return LZ6HC_literalsOnly(src, dst, srcSize);
+    }
 }
 
 
@@ -2676,10 +2717,12 @@ static int LZ6_compressHC_continue_generic (LZ6HC_Data_Structure* ctxPtr,
 
 int LZ6_compress_HC_continue (LZ6_streamHC_t* LZ6_streamHCPtr, const char* source, char* dest, int inputSize, int maxOutputSize)
 {
-    if (maxOutputSize < LZ6_compressBound(inputSize))
-        return LZ6_compressHC_continue_generic ((LZ6HC_Data_Structure*)LZ6_streamHCPtr, source, dest, inputSize, maxOutputSize, limitedOutput);
-    else
-        return LZ6_compressHC_continue_generic ((LZ6HC_Data_Structure*)LZ6_streamHCPtr, source, dest, inputSize, maxOutputSize, noLimit);
+    /* always bounds-checked, see LZ6_compress_HC_extStateHC. The stream
+     * state has already advanced over the block, and a literal block is
+     * consistent with it (the decoder gets the same bytes). */
+    const int r = LZ6_compressHC_continue_generic ((LZ6HC_Data_Structure*)LZ6_streamHCPtr, source, dest, inputSize, maxOutputSize, limitedOutput);
+    if (r > 0 || maxOutputSize < LZ6_compressBound(inputSize)) return r;
+    return LZ6HC_literalsOnly(source, dest, inputSize);
 }
 
 

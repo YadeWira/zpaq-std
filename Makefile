@@ -139,10 +139,15 @@ LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp c
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
 UFL2INC := -Icompressors/uflzma2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE $(if $(UFL2ASM),-DLZMA2_DEC_OPT)
-LZ5INC  := -Icompressors/lz5
+# LZ5_RESET_MEM / LIZARD_RESET_MEM: the libraries' own switches that reset their
+# hash/chain tables (hash 0, chain 0x01) before compressing. Without them the tables come from malloc
+# and the parsers read entries before writing them (valgrind: 44 and 101 reads of
+# uninitialised memory), so the OUTPUT depended on what the heap held: valid, but
+# not deterministic. Measured cost: none (slightly faster).
+LZ5INC  := -Icompressors/lz5 -DLZ5_RESET_MEM
 LZ6INC  := -Icompressors/lz6
 LZMAINC := -Icompressors/lzmasdk -DZ7_ST
-LIZINC  := -Icompressors/lizard -Icompressors/lizard/entropy
+LIZINC  := -Icompressors/lizard -Icompressors/lizard/entropy -DLIZARD_RESET_MEM
 BZIP2INC := -Icompressors/bzip2
 # bzip2 uses glibc fortify symbols (__fprintf_chk/__assert_fail) not
 # in MinGW. Disable fortify per-file in the bzip2 sources.
@@ -371,7 +376,11 @@ compressors/lz6/%.o: compressors/lz6/%.c
 compressors/lzmasdk/%.o: compressors/lzmasdk/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZMAINC) -c $< -o $@
 
-compressors/lizard/%.o: compressors/lizard/%.c compressors/lizard/entropy/%.c
+# Static pattern rule. The old "compressors/lizard/%.o: compressors/lizard/%.c
+# compressors/lizard/entropy/%.c" asked for BOTH files, which no object has, so it
+# never matched: make fell back to its built-in rule, and Lizard (all 9 files) was
+# built from the first commit on with plain "cc -c": no -O3 and no LIZINC.
+$(LIZOBJ): %.o: %.c
 	$(CC) $(ZPAQ_CFLAGS) $(LIZINC) -c $< -o $@
 
 # Static pattern rules (specific files only, to avoid generic %.o:%.c match)

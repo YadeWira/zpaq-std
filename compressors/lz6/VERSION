@@ -1,8 +1,13 @@
-lz6 lib/, frozen at commit 1dd4bec (lz6 master, 2026-09-25: after v1.6.7-pre, with
-the HC binary-tree fix "bounded compare in the binary-tree insert"; before it, HC
-levels 13-15 were O(n^2) on a long repetitive run that does not reach the end of
-the buffer, which every zpaq block is, since it ends with the fragment table).
-Previously frozen at a8e1b51 (v1.6.4-pre). Same output bytes for what zpaq-std uses:
+lz6 lib/, frozen at commit 52076b2 (lz6 master, 2026-09-27), with two HC fixes
+found through zpaq-std: c483e96 "never write past the output buffer" (the HC
+parsers could write more than LZ6_compressBound on data LZ cannot compress: 732 KB
+past a 16 MB buffer) and 52076b2 "calloc the match-finder tables" (the parsers read
+uninitialised table entries, so the output depended on the heap). Same output as a
+fresh process with 1dd4bec whenever it fits (checked: 41 inputs x 9 levels, with
+zpaq-std's limit). The other commits since 1dd4bec touch lz6's seq engine only.
+Previously frozen at 1dd4bec (2026-09-25, the HC binary-tree fix: before it, HC
+levels 13-15 were O(n^2) on a long repetitive run that does not reach the end of the
+buffer, which every zpaq block is), and before that at a8e1b51 (v1.6.4-pre). Same output bytes for what zpaq-std uses:
 checked against a8e1b51 on 36 inputs x levels 0-15 at window 22, 64 and 32 bits.
 Source: https://github.com/YadeWira/lz6 (lib/, BSD 2-Clause, see LICENSE)
 Files copied unmodified: lz6.c lz6hc.c lz6.h lz6hc.h lz6common.h mem.h LICENSE

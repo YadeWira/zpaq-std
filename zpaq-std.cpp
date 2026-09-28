@@ -122830,14 +122830,20 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			if (lz5buf)
 			{
 				int lz5size=0;
+				/// El tope que se le pasa es el ORIGINAL, no LZ5_compressBound: LZ5 solo
+				/// controla la salida si el tope es menor que el bound, y sus parsers HC
+				/// (nivel 9 en adelante) NO respetan el bound: con datos que LZ no puede
+				/// comprimir (16 MB de base64) escribian hasta 732 KB despues del buffer
+				/// (heap corrupto, abort de 'a'). Una salida >= original no sirve igual.
+				const int lz5lim=(int)(orig_size-17);
 				if (g_ma_algorithm=="lz5hc")
-					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
 				else if (g_ma_algorithm=="lz5f")
-					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
 				else if (g_ma_level>=5)
-					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
 				else
-					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,dstCap,g_ma_level);
+					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
 				if (lz5size>0&&(int64_t)lz5size<orig_size-16)
 				{
 					/// ZPAQLZ5: el bloque lleva su decodificador ZPAQL, asi que
@@ -122880,10 +122886,13 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			if (lz6buf)
 			{
 				int lz6size=0;
+				/// Tope = original, no el bound: el mismo defecto que LZ5 (ver arriba),
+				/// en los niveles HC 10 en adelante.
+				const int lz6lim=(int)(orig_size-17);
 				if (g_ma_level<=0)
-					lz6size=LZ6_compress_fast_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,1,22);
+					lz6size=LZ6_compress_fast_window((const char*)sb.data(),lz6buf,(int)orig_size,lz6lim,1,22);
 				else
-					lz6size=LZ6_compress_HC_window((const char*)sb.data(),lz6buf,(int)orig_size,dstCap,g_ma_level,22);
+					lz6size=LZ6_compress_HC_window((const char*)sb.data(),lz6buf,(int)orig_size,lz6lim,g_ma_level,22);
 				if (lz6size>0&&(int64_t)lz6size<orig_size-16)
 				{
 					libzpaq::SHA1 sh1;

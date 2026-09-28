@@ -1,3 +1,35 @@
+### [65.4m-pre46] - 2026-09-27
+
+- **`-ma:lz5` and `-ma:lz6` could corrupt memory and abort `a`** on data that LZ
+  cannot compress, a whole block at a time (measured with 16 MB of base64 of random
+  bytes). The HC parsers of LZ5 1.5 (level 9 on, and 9 is `-ma:lz5`'s default) and
+  lz6 (level 10 on) can write MORE than their own `compressBound()`, up to 732 KB
+  past the buffer; they only check the output limit when it is below that bound, and
+  zpaq-std gave them exactly the bound. `a` died with `free(): invalid size`,
+  `double free` or a segfault. zpaq-std now gives them the original size as the
+  limit (an output that large is useless anyway), so they stop and the block stays
+  native. Same output bytes as before, except for lz6 level 2 on some inputs, where
+  lz6 parses slightly differently with the limit on (a few bytes smaller; it
+  decodes the same). The bug itself is lz6's and LZ5's; it was reported to lz6.
+  In every case measured `a` aborted instead of writing the archive. If an older
+  version did finish an `-ma:lz5` / `-ma:lz6` archive of such data, `t` checks it:
+  it recomputes the SHA-1 of every fragment, so memory damaged by the overflow would
+  show up there.
+- A new test, `suite_ma_hostil.sh`, covers it: under AddressSanitizer, every `-ma`
+  codec on data LZ cannot compress. Only lz5 and lz6 overflowed.
+- **`-ma:lz5` and `-ma:lizard` output depended on the state of the heap.** Their
+  hash/chain tables come from `malloc` and the parsers read entries before writing
+  them (valgrind: every `-ma` codec checked; only Lizard, LZ5 and lz6's HC levels
+  did this). The output was always valid, but the same input could compress to
+  different bytes. They are now built with the libraries' own `LZ5_RESET_MEM` /
+  `LIZARD_RESET_MEM`, which reset the tables first. lz6 fixed both bugs on its
+  side (bundled lz6 moves from 1dd4bec to 52076b2), with the same output as before
+  whenever it fits.
+- **`-ma:lizard` was built without optimisation**, since the first release: its
+  Makefile rule never matched, so make used its built-in rule (plain `cc -c`, no
+  `-O3`). It is now 1.8x faster at level 10 and 3.4x at levels 29 and 49, with the
+  same output.
+
 ### [65.4m-pre45] - 2026-09-27
 
 #### New codec: `-ma:uflzma2` (experimental)
