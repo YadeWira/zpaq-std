@@ -1,3 +1,23 @@
+### [65.4m-pre47] - 2026-09-30
+
+#### New codec: `-ma:kanzi` (experimental)
+
+- **`-ma:kanzi:N`** compresses with [kanzi](https://github.com/flanglet/kanzi-cpp)
+  2.6.0 by Frederic Langlet (Apache 2.0). Levels **1** (LZX) and **2** (DNA + LZ +
+  Huffman, the default), the two that have a ZPAQL decoder so far; a higher level
+  says so (`00605`) and uses 2. On 3.86 MB of text, level 2 gives 16.9% and level 1
+  19.3%, both in a few hundredths of a second.
+- Its blocks carry their own ZPAQL decoder, **ZPAQKANZI**, written for kanzi's
+  bitstream 7: every block type (normal, raw copy, transformed copy) and every
+  combination of skipped transforms, Huffman with 4 interleaved streams, LZX with
+  repeat distances, and all of DNA's packings. zpaq 7.15, zpaqfranz and every
+  zpaq-std from pre20 on extract them (25-73 MB/s with JIT); zpaq-std decodes
+  natively.
+- **Experimental**: kanzi's format changes about once a year (bitstream 6 in 2.4.0,
+  7 in 2.6.0), so this copy stays pinned; a later format comes in with a new ZPAQL
+  decoder next to this one. What an archive already holds does not change.
+- More levels (5-6, BWT with ANS/FPAQ, next) come when they have their decoder.
+
 ### [65.4m-pre46] - 2026-09-27
 
 - **`-ma:lz5` and `-ma:lz6` could corrupt memory and abort `a`** on data that LZ

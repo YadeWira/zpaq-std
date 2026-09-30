@@ -1,0 +1,16 @@
+kanzi 2.6.0 (tag 2.6.0, commit 2d17ca0, 2026-09-26), bitstream format 7.
+Source: https://github.com/flanglet/kanzi-cpp (Frederic Langlet), Apache License 2.0,
+see LICENSE. Files copied unmodified: the library under src/ (bitstream, entropy,
+io, transform, util and the top-level sources), not the app, the tests or the C API.
+kanzi_zpaqstd.cpp / kanzi_zpaqstd.h are zpaq-std's own wrapper, not part of kanzi.
+
+Used by zpaq-std -ma:kanzi, EXPERIMENTAL, levels 1 (LZX) and 2 (DNA+LZ, Huffman)
+only: the levels ZPAQKANZI (compressors/zpaqkanzi/) decodes, so every block opens in
+any zpaq. More levels come when they have a ZPAQL decoder of their own.
+
+kanzi's format changes about once a year (bitstream 6 in 2.4.0, 7 in 2.6.0), and its
+CM/TPAQ entropy (levels 7-9) changed in 2.5.0 without a new bitstream number
+(measured: 2.5.x reads a 2.4.0 level-7 stream into wrong bytes, 2.6.0 rejects it).
+So this copy stays pinned: a later kanzi comes in
+with a new ZPAQL decoder of its own, next to this one.
+Do not patch these files here.

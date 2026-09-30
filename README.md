@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **18 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds (24 `-ma` switches) and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **19 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds (25 `-ma` switches) and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -59,6 +59,7 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default | Opens in any zpaq |
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
+| `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet): 1 = LZX, 2 = DNA + LZ + Huffman. Its other levels come as they get a ZPAQL decoder | 1–2 | 2 | **yes** (ZPAQKANZI) |
 | `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.5.1 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
 | `-ma:lzav:N` | LZAV 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
@@ -68,7 +69,7 @@ stays native (no regression).
 
 ### Portability
 
-**All 24 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
+**All 25 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
 zpaqfranz, and every zpaq-std from pre20 on. Their blocks carry their own decoder,
 written in ZPAQL, the bytecode every zpaq implementation runs (the way zpaq's own
 `-m1` works); zpaq-std recognises its decoders and decodes natively, at full speed.
@@ -217,7 +218,7 @@ tools that measure different things:
 | `os_msgs.sh A B` | destination shapes and the numbered messages — bare relative name, nonexistent chain, UTF-8, long paths, symlinks, unwritable directories, `-append` on an existing archive |
 | `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
 
-`suite_*.sh` add round-trip sweeps over all 24 `-ma` codecs, every command, and
+`suite_*.sh` add round-trip sweeps over all 25 `-ma` codecs, every command, and
 corruption/robustness cases; the corpus, golden archives and reference binaries
 live outside the repo, with their sha256 manifests committed.
 

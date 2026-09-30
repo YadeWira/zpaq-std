@@ -30,7 +30,7 @@ python3 -c "
 import random; random.seed(11); w='alfa beta gamma delta epsilon zeta eta theta iota kappa'.split()
 open('$OUT/src/t.txt','w').write(' '.join(random.choice(w) for _ in range(120000)))"
 REF=$(sha256sum < "$OUT/src/t.txt" | cut -d' ' -f1)
-ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard lizard:45 bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd uflzma2 uflzma2:11"
+ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard lizard:45 bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd uflzma2 uflzma2:11 kanzi kanzi:1"
 malos=0
 for a in $ALGOS; do
   arch=$OUT/$a.zpaq; rm -f "$arch"

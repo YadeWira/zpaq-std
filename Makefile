@@ -127,6 +127,10 @@ PPMDSRC  := compressors/ppmd/Ppmd7.c compressors/ppmd/Ppmd7Enc.c compressors/ppm
 HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decoder.c compressors/hs/hs_wrapper.c
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
 ZOPFLISRC :=
+# kanzi 2.6.0 (-ma:kanzi, levels 1-2), plus zpaq-std's C wrapper kanzi_zpaqstd.cpp:
+# see compressors/kanzi/VERSION. C++, in namespace kanzi.
+KANZISRC := $(wildcard compressors/kanzi/*.cpp compressors/kanzi/bitstream/*.cpp compressors/kanzi/entropy/*.cpp compressors/kanzi/io/*.cpp compressors/kanzi/transform/*.cpp compressors/kanzi/util/*.cpp)
+KANZIINC := -Icompressors/kanzi
 BSCSRC   := compressors/bsc/bwt/libsais/libsais.c compressors/bsc/libbsc/libbsc.cpp compressors/bsc/lzp/lzp.cpp compressors/bsc/coder/coder.cpp compressors/bsc/coder/qlfc/qlfc.cpp compressors/bsc/coder/qlfc/qlfc_model.cpp compressors/bsc/bwt/bwt.cpp compressors/bsc/st/st.cpp compressors/bsc/adler32/adler32.cpp compressors/bsc/platform/platform.cpp compressors/bsc/filters/preprocessing.cpp compressors/bsc/filters/detectors.cpp
 # lzham threading: pthreads on Unix, Win32 on Windows cross-compile
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
@@ -331,9 +335,10 @@ HSOBJ    := $(HSSRC:.c=.o)
 LZFSEOBJ := $(LZFSESRC:.c=.o)
 ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
+KANZIOBJ := $(KANZISRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -434,6 +439,9 @@ $(LZFSEOBJ): compressors/lzfse/%.o: compressors/lzfse/%.c
 # bsc (libbsc): block sorting lossless compression. C++ library, all .cpp files.
 $(BSCOBJ): compressors/bsc/%.o: compressors/bsc/%.cpp
 	$(CXX) $(ZPAQ_CXXFLAGS) $(BSCINC) -c $< -o $@
+
+$(KANZIOBJ): compressors/kanzi/%.o: compressors/kanzi/%.cpp
+	$(CXX) $(ZPAQ_CXXFLAGS) $(KANZIINC) -c $< -o $@
 
 # LZHAM (richgel999): LZMA-class codec. C++ library, all .cpp files.
 $(LZHAMOBJ): compressors/lzham/%.o: compressors/lzham/%.cpp
