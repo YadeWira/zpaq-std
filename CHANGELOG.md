@@ -1,3 +1,52 @@
+### [65.4m-pre51] - 2026-10-01
+
+#### `-ma:kanzi`: level 7
+
+- **`-ma:kanzi:7`** (LZP + TEXT + UTF + BWT + LZP, CM): exactly kanzi's own level 7.
+  On 10 MB of English text (dickens) it gives 22.1%; in the same run level 6 gives
+  22.5% and level 5 23.7%. Levels 1 to 7 are all available now; 8-9 still say so
+  (`00605`) and use 7.
+- Its blocks carry a new ZPAQL decoder, **ZPAQKANZI7**, so they open in any zpaq. It
+  decodes CM (kanzi's binary context-mixing coder: order-0 and order-1 counters with
+  a run flag and an adaptive probability map, behind the 56-bit binary arithmetic
+  decoder), LZP, BWT, UTF and TEXT, every block type and every combination of skipped
+  transforms. In zpaq 7.15 it runs at 4-7 MB/s with JIT; zpaq-std decodes natively.
+- Written from a Python reference that was checked against kanzi's decoder (99
+  streams), then verified with zpaq 7.15 on 114 streams: 99 inputs, among them an
+  18 MB block, plus 15 blocks rebuilt to exercise other combinations of skipped
+  transforms, all checked with kanzi's own decoder.
+
+#### Fixed: `-ma:kanzi` levels 5 and 6 with blocks over 16 MB
+
+- With a method that makes blocks larger than 16 MB (`-m5` makes 64 MB blocks), a
+  `-ma:kanzi:5` or `-ma:kanzi:6` archive could not be extracted by another zpaq:
+  zpaq 7.15 stopped with a checksum failure. zpaq-std always extracted it (it decodes
+  natively), and with the default method blocks stay under 16 MB, so the default case
+  was not affected.
+- The cause was in ZPAQKANZI5 (since pre48): its BWT inverse packs a position and a
+  byte into one 32-bit word, which only holds 2^24 positions.
+- Levels 5 and 6 now write a new decoder, **ZPAQKANZI5B**: ZPAQKANZI5 with the BWT
+  inverse of ZPAQKANZI7, which keeps the position alone and rebuilds the bytes from
+  the first column. ZPAQKANZI5 stays frozen and recognised, so archives written since
+  pre48 keep extracting in zpaq-std as before; blocks over 16 MB written by pre48-pre50
+  still open only in zpaq-std.
+- Verified with zpaq 7.15 on 212 streams, blocks of 18 and 20 MB among them, and
+  `-m5` archives of 63 MB blocks at levels 5, 6 and 7, all identical.
+
+#### `-catpaqmode`: real progress, once a second
+
+- `-catpaqmode` (the telemetry for a GUI: `@SPK@EXT@` / `@SPK@PRG@` lines) printed
+  about one line per run. Its numbers came from the console progress, which moves
+  only when a file is read (`a`) or when a whole block is done (`x`, `t`).
+- A ticker now prints one line a second:
+  - for `a`, from what has really been compressed, as the `-innosetup` window does;
+  - for `x` and `t`, from how far each block's decoding has got, out of what the
+    blocks to decode hold.
+  The percentage never goes back, and nothing is printed below 1,000,000 bytes done.
+- The `@DEC@DEC@` line is now `@SPK@DEC@`, as documented. Its total is the archive
+  size, and its time field no longer reads an uninitialised clock (it printed huge
+  negative numbers).
+
 ### [65.4m-pre50] - 2026-10-01
 
 #### `-ma:kanzi`: levels 3 and 4

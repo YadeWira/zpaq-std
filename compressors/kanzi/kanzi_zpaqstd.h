@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Compresses src[0..n) at level 1 to 6 into dst: kanzi's headerless stream (one
+/* Compresses src[0..n) at level 1 to 7 into dst: kanzi's headerless stream (one
    thread, no checksum, a single kanzi block). Returns its size, or 0 on failure or
    if it does not fit in dstcap. */
 size_t kanzi_zs_compress(const void* src, size_t n, void* dst, size_t dstcap, int level);

@@ -24105,6 +24105,8 @@ const std::string& zpaquflzma2_bytecode(); /// ZPAQUFLZMA2, idem
 const std::string& zpaqkanzi_bytecode();   /// ZPAQKANZI, idem
 const std::string& zpaqkanzi5_bytecode();  /// ZPAQKANZI5, idem
 const std::string& zpaqkanzi3_bytecode();  /// ZPAQKANZI3, idem
+const std::string& zpaqkanzi7_bytecode();  /// ZPAQKANZI7, idem
+const std::string& zpaqkanzi5b_bytecode(); /// ZPAQKANZI5B, idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24195,6 +24197,8 @@ int PostProcessor::write(int c) {
           const std::string& bkz=zpaqkanzi_bytecode();
           const std::string& bk5=zpaqkanzi5_bytecode();
           const std::string& bk3=zpaqkanzi3_bytecode();
+          const std::string& bk7=zpaqkanzi7_bytecode();
+          const std::string& bk5b=zpaqkanzi5b_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24216,7 +24220,9 @@ int PostProcessor::write(int c) {
            || (int(bu2.size())==hsize && memcmp(&z.header[z.hbegin], bu2.data(), hsize)==0)
            || (int(bkz.size())==hsize && memcmp(&z.header[z.hbegin], bkz.data(), hsize)==0)
            || (int(bk5.size())==hsize && memcmp(&z.header[z.hbegin], bk5.data(), hsize)==0)
-           || (int(bk3.size())==hsize && memcmp(&z.header[z.hbegin], bk3.data(), hsize)==0)) {
+           || (int(bk3.size())==hsize && memcmp(&z.header[z.hbegin], bk3.data(), hsize)==0)
+           || (int(bk7.size())==hsize && memcmp(&z.header[z.hbegin], bk7.data(), hsize)==0)
+           || (int(bk5b.size())==hsize && memcmp(&z.header[z.hbegin], bk5b.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -24231,7 +24237,7 @@ int PostProcessor::write(int c) {
           /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano, ZPAQUFLZMA2 de ZPAQFLZMA2 tambien). Si algun dia se deriva uno nuevo de
           /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
           {
-            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3};
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b};
             for (const std::string* k: conocidos) {
               if (int(k->size())!=hsize) continue;
               int dif=0;
@@ -28055,6 +28061,59 @@ const std::string& zpaqkanzi3_bytecode() {
   return b;
 }
 
+/// ZPAQKANZI5B: ZPAQKANZI5 con la BWT de ZPAQKANZI7 (sin el limite de 2^24 posiciones
+/// de ZPAQKANZI5, que no abria en otro zpaq los bloques de mas de 16 MB). Los niveles
+/// 5 y 6 lo escriben desde pre51; ZPAQKANZI5 sigue reconocido para lo ya escrito. Mismo
+/// bloque, mismo ph (zpaqkanzi5_ph) y mismo pm.
+#include "compressors/zpaqkanzi/zpaqkanzi5b_body.h"
+std::string zpaqkanzi5b_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI5B_CUERPO;
+}
+static std::string zpaqkanzi5b_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqkanzi5b_config(25, 25);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqkanzi5b_bytecode() {
+  static const std::string b=zpaqkanzi5b_compilar();
+  return b;
+}
+
+/// ZPAQKANZI7: el decodificador de -ma:kanzi nivel 7 (LZP+TEXT+UTF+BWT+LZP, CM). Ver
+/// compressors/zpaqkanzi/. Mismo bloque que ZPAQKANZI5 (con el diccionario estatico).
+/// H: las tablas chicas, los contadores de CM y el hash de LZP debajo de 2^18 y arriba
+/// el arreglo de la BWT inversa o las tablas de TEXT; pm lo fija el compresor.
+#include "compressors/zpaqkanzi/zpaqkanzi7_body.h"
+int zpaqkanzi7_ph(int64_t orig) {
+  const int64_t bs=zpaqkanzi5_bs(orig), blk=zpaqkanzi5_blk(orig);
+  int lg=0; while (((int64_t)2<<lg)<=bs/8) lg++;
+  if (lg<13) lg=13;
+  if (lg>26) lg=26;
+  const int64_t bwt=blk+blk/2+512+16, txt=3*((int64_t)1<<19)+((int64_t)1<<lg)+16;
+  const int64_t need=((int64_t)1<<18)+(bwt>txt ? bwt : txt)+64;
+  int ph=19;
+  while (ph<31 && ((int64_t)1<<ph)<need) ph++;
+  return ph;
+}
+std::string zpaqkanzi7_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI7_CUERPO;
+}
+static std::string zpaqkanzi7_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqkanzi7_config(25, 25);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqkanzi7_bytecode() {
+  static const std::string b=zpaqkanzi7_compilar();
+  return b;
+}
+
 /// ---- ZPAQSNAPPY: bloques -ma:snappy que CUALQUIER zpaq puede extraer --------
 /// Decodificador del bloque crudo de snappy (el de snappy_compress: varint del
 /// largo + etiquetas) en ZPAQL, un byte por llamada, sin guardar el bloque. M es la
@@ -29212,12 +29271,14 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_knz = strncmp(method_, "zpaqkanzi:", 10)==0;    /// ZPAQKANZI
   const bool es_kz5 = strncmp(method_, "zpaqkanzi5:", 11)==0;   /// ZPAQKANZI5 (ph sale de orig)
   const bool es_kz3 = strncmp(method_, "zpaqkanzi3:", 11)==0;   /// ZPAQKANZI3 (idem)
-  if (es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_kz7 = strncmp(method_, "zpaqkanzi7:", 11)==0;   /// ZPAQKANZI7 (idem)
+  const bool es_k5b = strncmp(method_, "zpaqkanzi5b:", 12)==0;  /// ZPAQKANZI5B (idem)
+  if (es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro || es_kz5 || es_kz3) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2 || es_k5b) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro || es_kz5 || es_kz3 || es_kz7) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_k5b && !es_kz7 && !es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
         || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
@@ -29226,7 +29287,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=es_kz3 ? zpaqkanzi3_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
+    const std::string cfg=es_k5b ? zpaqkanzi5b_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
@@ -64184,6 +64245,132 @@ uint32_t Jidac::sanitizzawindows()
 /*
 	section: progress
 */
+/// -catpaqmode: the telemetry for a GUI (@SPK@PRG@ / @SPK@EXT@) comes from a ticker
+/// thread, once a second, not from print_progress(): that one runs only when a
+/// block is DONE (x, t) or a file is READ (a), so a GUI got one line per run.
+///   a     done = read - what is still waiting to be compressed (g_prog_*), as
+///         the -innosetup window does
+///   x, t  done = bytes decompressed inside the blocks, counted while they are
+///         decoded (g_cpq_xdone), out of what the blocks to decode hold
+///         (g_cpq_xtotal)
+/// print_progress() only leaves its numbers here. Percentage and done never go
+/// back. Nothing is printed below 1,000,000 bytes done, as before.
+std::atomic<int64_t> g_cpq_ts(0), g_cpq_td(0), g_cpq_xtotal(0), g_cpq_xdone(0);
+std::atomic<int>     g_cpq_iperc(0);
+static volatile bool g_cpq_started= false;
+static volatile bool g_cpq_stop   = false;
+static ThreadID      g_cpq_tid;
+static void cpq_emit()
+{
+	static int64_t lasttd= 0;
+	static int     lastpct= 0;
+	int64_t ts, td;
+	const int64_t xt= g_cpq_xtotal.load();
+	if (xt > 0)
+	{
+		ts= xt;
+		td= g_cpq_xdone.load();
+	}
+	else
+	{
+		ts= g_cpq_ts.load();
+		td= g_cpq_td.load();
+		if (command == 'a')
+		{
+			int64_t pend= (g_prog_queued.load() - g_prog_cm.load()) + g_prog_sbpend.load();
+			if (pend > 0)
+				td-= pend;
+		}
+	}
+	if (ts <= 0)
+		return;
+	if (td < 0)
+		td= 0;
+	if (td > ts)
+		td= ts;
+	if (td < lasttd)
+		td= lasttd;
+	if (td < 1000000)
+		return;
+	lasttd= td;
+	int pct= (int)(td * 100.0 / (ts + 0.5));
+	if (pct < lastpct)
+		pct= lastpct;
+	lastpct= pct;
+	int64_t el= mtime() - g_start;
+	if (el < 1)
+		el= 1;
+	double eta= 0.001 * el * (ts - td) / (td + 1.0);
+	if (eta > 2147483647.0)
+		eta= 2147483647.0;
+	if (flagpakka)
+		printf("@SPK@PRG@%d@%lld@%lld@%d\n", g_cpq_iperc.load(), (long long)td, (long long)ts, (int)eta);
+	else
+		printf("@SPK@EXT@%d@%lld@%lld@%d@%d\n", pct, (long long)td, (long long)ts, (int)eta, g_cpq_iperc.load());
+	fflush(stdout);
+}
+static void cpq_sleep_ms(int i_ms)
+{
+#ifdef _WIN32
+	Sleep(i_ms);
+#else
+	usleep(i_ms * 1000);
+#endif
+}
+static ThreadReturn cpq_thread(void*)
+{
+	while (!g_cpq_stop)
+	{
+		for (int i= 0; i < 20 && !g_cpq_stop; i++)
+			cpq_sleep_ms(50);
+		if (!g_cpq_stop)
+			cpq_emit();
+	}
+	return 0;
+}
+static void cpq_stop()
+{
+	if (!g_cpq_started)
+		return;
+	g_cpq_stop= true;
+	join(g_cpq_tid);
+}
+/// x, t: how much of the block is done, added to g_cpq_xdone as it grows: the
+/// bytes decoded so far (capped at what the block holds for the files) or, if
+/// more, the share of the compressed block already read. Methods with a
+/// post-processor (BWT, -ma) give their output only at the end of the block,
+/// so for them only the input moves; it stops at 99% until the block is done.
+static inline void cpq_count(size_t i_have, unsigned i_need, int64_t &io_counted, int64_t i_read= -1, int64_t i_bsize= 0)
+{
+	if (!flagcatpaqmode)
+		return;
+	int64_t z= (int64_t)i_have;
+	if (z > (int64_t)i_need)
+		z= i_need;
+	if (i_read > 0 && i_bsize > 0)
+	{
+		double f= (double)i_read / (double)i_bsize;
+		if (f > 0.99)
+			f= 0.99;
+		const int64_t zi= (int64_t)(f * i_need);
+		if (zi > z)
+			z= zi;
+	}
+	if (z > io_counted)
+	{
+		g_cpq_xdone+= z - io_counted;
+		io_counted= z;
+	}
+}
+void cpq_start()
+{
+	if (!flagcatpaqmode || g_cpq_started)
+		return;
+	g_cpq_started= true;
+	run(g_cpq_tid, cpq_thread, NULL);
+	atexit(cpq_stop);
+}
+
 void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale)
 {
     static int64_t ultimi_secondi     = 0;
@@ -64192,6 +64379,16 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
     // Parameter validation
     if (td > ts)
         td = ts;
+
+    // CATPAQ MODE: the ticker prints (see cpq_emit); here we only leave the numbers.
+    if (flagcatpaqmode)
+    {
+        g_cpq_ts= ts;
+        g_cpq_td= td;
+        g_cpq_iperc= i_percentuale;
+        cpq_start();
+        return;
+    }
 
     // INNOSETUP MODE: emit ONLY the integer progress percentage (0..100), one per line,
     // flushed, and only when it changes. Nothing else reaches stdout (flagsilent mutes the
@@ -64238,25 +64435,6 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
         return; // Reasonable limit per ETA (circa 4 giorni)
 
     int percentuale = (int)(td * 100.0 / (ts + 0.5));
-
-    // CATPAQ MODE: emette telemetria strutturata su stdout e ritorna.
-    // @SPK@PRG@ = pakka/add  (percentuale per-file + dati globali)
-    // @SPK@EXT@ = x/t        (percentuale globale diretta td/ts)
-    if (flagcatpaqmode)
-    {
-        if (secondi != ultimi_secondi)
-        {
-            ultimi_secondi = secondi;
-            if (flagpakka)
-                printf("@SPK@PRG@%d@%lld@%lld@%d\n",
-                       i_percentuale, (long long)td, (long long)ts, (int)eta);
-            else
-                printf("@SPK@EXT@%d@%lld@%lld@%d@%d\n",
-                       percentuale, (long long)td, (long long)ts, (int)eta, i_percentuale);
-            fflush(stdout);
-        }
-        return;
-    }
 
     if (flagpakka)
     {
@@ -66650,9 +66828,9 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
 		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2, EXPERIMENTAL. ultra-fast-lzma2 (1..11, 5=default;");
 		scrivi_riga(" ", "    11 also picks lc/lp/pb per block); opens in any zpaq");
-		scrivi_riga(" ", "  kanzi: ZPAQKANZI(3,5), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
+		scrivi_riga(" ", "  kanzi: ZPAQKANZI(3,5,7), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
 		scrivi_riga(" ", "    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,");
-		scrivi_riga(" ", "    6=TEXT+BWT+FPAQ); opens in any zpaq");
+		scrivi_riga(" ", "    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM); opens in any zpaq");
 		scrivi_riga(" ", "  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq");
 		scrivi_riga(" ", "  lz6: ZPAQLZ6, EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
@@ -69323,15 +69501,15 @@ int Jidac::loadparameters(int argc, const char** argv)
 					int umax=UF2_maxCLevel();
 					if (g_ma_level>umax) g_ma_level=umax;
 				}
-				/// kanzi: 1 a 6 (los niveles con decodificador ZPAQL: ZPAQKANZI, ZPAQKANZI3,
-				/// ZPAQKANZI5); se avisa si se pide otro, porque kanzi tiene 0..9 y un nivel
-				/// mayor no es un error de tipeo.
+				/// kanzi: 1 a 7 (los niveles con decodificador ZPAQL: ZPAQKANZI, ZPAQKANZI3,
+				/// ZPAQKANZI5, ZPAQKANZI7); se avisa si se pide otro, porque kanzi tiene 0..9 y
+				/// un nivel mayor no es un error de tipeo.
 				else if (g_ma_algorithm=="kanzi")
 				{
-					if (g_ma_level>6)
+					if (g_ma_level>7)
 					{
-						myprintf("00605! -ma:kanzi:%d: only levels 1 to 6 are available for now (they open in any zpaq); using 6\n", g_ma_level);
-						g_ma_level=6;
+						myprintf("00605! -ma:kanzi:%d: only levels 1 to 7 are available for now (they open in any zpaq); using 7\n", g_ma_level);
+						g_ma_level=7;
 					}
 				}
 				else if (g_ma_algorithm=="lizard")
@@ -70003,7 +70181,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=5 ? "ZPAQKANZI5" : g_ma_level>=3 ? "ZPAQKANZI3" : "ZPAQKANZI") : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=7 ? "ZPAQKANZI7" : g_ma_level>=5 ? "ZPAQKANZI5B" : g_ma_level>=3 ? "ZPAQKANZI3" : "ZPAQKANZI") : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -77568,6 +77746,21 @@ static int64_t g_last_progress_time= 0;
 #endif
 
 // Decompress blocks in a job until none are READY
+/// -catpaqmode, x and t: what the blocks to decode hold for the files (the same
+/// output_size each thread computes), added up before the threads start.
+void cpq_blocks_total(const vector<Block> &i_block, const vector<HT> &i_ht)
+{
+	if (!flagcatpaqmode)
+		return;
+	int64_t t= 0;
+	for (unsigned i= 0; i < i_block.size(); ++i)
+		for (unsigned j= 0; j < i_block[i].size; ++j)
+			if (i_block[i].start + j < i_ht.size())
+				t+= i_ht[i_block[i].start + j].usize;
+	g_cpq_xtotal+= t;
+	cpq_start();
+}
+
 ThreadReturn decompressThread(void *arg)
 {
 	ExtractJob &job		 = *(ExtractJob *)arg;
@@ -77622,6 +77815,7 @@ ThreadReturn decompressThread(void *arg)
 			assert(job.jd.ht[b.start + j].usize >= 0);
 			output_size+= job.jd.ht[b.start + j].usize;
 		}
+		int64_t cpq_contado= 0; // -catpaqmode: bytes of this block already in g_cpq_xdone
 		// Decompress
 		double mem= 0; // how much memory used to decompress
 		try
@@ -77815,9 +78009,7 @@ ThreadReturn decompressThread(void *arg)
 					}
 				}
 				while ((ma_leer_todo || out.size() < output_size) && d.decompress(1 << 14))
-				{
-					//		myprintf("|");
-				};
+					cpq_count(out.size(), output_size, cpq_contado, in.tell() - b.offset, b.bsize);
 				if (!flagimage)
 				{
 					lock(job.mutex);
@@ -78281,6 +78473,7 @@ ThreadReturn decompressThread(void *arg)
 				}
 				++b.extracted;
 			}
+			cpq_count(output_size, output_size, cpq_contado); // a -ma block is decoded after the loop
 		}
 		// If out of memory, let another thread try
 		catch (std::bad_alloc &e)
@@ -78292,6 +78485,7 @@ ThreadReturn decompressThread(void *arg)
 			b.state	   = Block::READY;
 			b.extracted= 0;
 			out.resize(0);
+			g_cpq_xdone-= cpq_contado; // another thread does it again
 			release(job.mutex);
 			return 0;
 		}
@@ -78305,6 +78499,7 @@ ThreadReturn decompressThread(void *arg)
 					 jobNumber, b.start + b.extracted, b.start + b.size - 1,
 					 migliaia(b.offset), e.what());
 			release(job.mutex);
+			cpq_count(output_size, output_size, cpq_contado); // skipped counts as done
 			continue;
 		}
 
@@ -78855,6 +79050,7 @@ ThreadReturn decompressthreadramdisk(void *arg)
 			assert(job.jd.ht[b.start + j].usize >= 0);
 			output_size+= job.jd.ht[b.start + j].usize;
 		}
+		int64_t cpq_contado= 0; // -catpaqmode: bytes of this block already in g_cpq_xdone
 		// Decompress
 		double mem= 0; // how much memory used to decompress
 		try
@@ -78879,7 +79075,7 @@ ThreadReturn decompressthreadramdisk(void *arg)
 			{
 				d.readComment();
 				while (out.size() < output_size && d.decompress(1 << 14))
-					;
+					cpq_count(out.size(), output_size, cpq_contado, in.tell() - b.offset, b.bsize);
 				if (!flagimage)
 				{
 					lock(job.mutex);
@@ -78929,6 +79125,7 @@ ThreadReturn decompressthreadramdisk(void *arg)
 					q+= job.jd.ht[j].usize;
 				++b.extracted;
 			}
+			cpq_count(output_size, output_size, cpq_contado); // a -ma block is decoded after the loop
 		}
 		// If out of memory, let another thread try
 		catch (std::bad_alloc &e)
@@ -78940,6 +79137,7 @@ ThreadReturn decompressthreadramdisk(void *arg)
 			b.state	   = Block::READY;
 			b.extracted= 0;
 			out.resize(0);
+			g_cpq_xdone-= cpq_contado; // another thread does it again
 			release(job.mutex);
 			return 0;
 		}
@@ -78950,6 +79148,7 @@ ThreadReturn decompressthreadramdisk(void *arg)
 			fflush(stdout);
 			myprintf("00709: Job %d: skipping [%u..%u] at %1.0f: %s\n", jobNumber, b.start + b.extracted, b.start + b.size - 1, b.offset + 0.0, e.what());
 			release(job.mutex);
+			cpq_count(output_size, output_size, cpq_contado); // skipped counts as done
 			continue;
 		}
 		// Write the files in dt that point to this block
@@ -85417,6 +85616,7 @@ int Jidac::test()
 	} // end for
 	///	dimtotalefile=job.total_size;
 	myprintf("01405: To be checked %s (%s) in %s files (%d threads)\n", migliaia(job.total_size), tohuman(job.total_size), migliaia2(total_files), howmanythreads);
+	cpq_blocks_total(job.jd.block, job.jd.ht);
 	vector<ThreadID> tid(howmanythreads);
 	if (howmanythreads == 1)
 	{
@@ -93735,6 +93935,7 @@ int Jidac::extractqueue2(int i_chunk, int i_chunksize, int64_t i_windowoffset, i
 	if (flagverbose)
 		myprintf("02496: Chunk %03d/%03d %21s bytes (%s) in %s files by %d threads\n", i_chunk + 1, i_chunksize, migliaia(job.total_size), tohuman(job.total_size), migliaia2(total_files), howmanythreads);
 	int64_t			 startextract= mtime();
+	cpq_blocks_total(job.jd.block, job.jd.ht);
 	vector<ThreadID> tid(howmanythreads);
 	for (unsigned i= 0; i < tid.size(); ++i)
 		if (flagramdisk)
@@ -99658,7 +99859,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 				if (flagcatpaqmode) 
                 {
                     int64_t i_lavorati = in.tell();
-                    int64_t i_totali = list_g_dimensione;
+                    int64_t i_totali = list_g_dimensione > 0 ? list_g_dimensione : expectedfilesize; // set only by pakka
                     if (i_totali <= 0) i_totali = 1; 
                     
                     int percentuale = (int)((i_lavorati * 100.0) / i_totali);
@@ -99668,12 +99869,12 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
                     if (percentuale > last_dec_percent) 
                     {
                         int eta = 0;
-                        int64_t elapsed = mtime() - list_global_start;
+                        int64_t elapsed = mtime() - g_start; // list_global_start too
                         if (i_lavorati > 0) {
                             eta = (int)(((double)elapsed * (i_totali - i_lavorati) / i_lavorati) / 1000.0);
                         }
                         
-                        printf("@DEC@DEC@%d@%lld@%lld@%d\n", percentuale, (long long)i_lavorati, (long long)i_totali, eta);
+                        printf("@SPK@DEC@%d@%lld@%lld@%d\n", percentuale, (long long)i_lavorati, (long long)i_totali, eta);
                         fflush(stdout); 
                         last_dec_percent = percentuale; 
                     }
@@ -109302,6 +109503,7 @@ int Jidac::extract()
 	}
 #endif
 
+	cpq_blocks_total(job.jd.block, job.jd.ht);
 	if (howmanythreads == 1)
 	{
 		if (flagverbose)
@@ -122587,10 +122789,10 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				/// cabecera, y M guarda la entrada y dos buffers de max(blk, pre+512)+64;
 				/// en el nivel 4 (ROLZ) ZPAQKANZI3 usa ademas 4 mas y la tabla f2s de ANS
 				/// (256 << 15); el nivel 3 no los toca
-				const bool k5=(g_ma_level>=5), k3=(g_ma_level==3)||(g_ma_level==4);
-				int64_t total=(int64_t)fs+5+((k5||k3) ? libzpaq::ZPAQKANZI_DICT_LEN : 0);
+				const bool k5=(g_ma_level==5)||(g_ma_level==6), k3=(g_ma_level==3)||(g_ma_level==4), k7=(g_ma_level==7);
+				int64_t total=(int64_t)fs+5+((k5||k3||k7) ? libzpaq::ZPAQKANZI_DICT_LEN : 0);
 				int64_t need=total+32+orig_size+orig_size/2+2048+32+orig_size+64;
-				if (k5||k3)
+				if (k5||k3||k7)
 				{
 					int64_t lin=(int64_t)kanzi_zs_first_pre(kzbuf,fs)+512;
 					const int64_t blk=libzpaq::zpaqkanzi5_blk(orig_size);
@@ -122614,10 +122816,10 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					hd[4]=(char)g_ma_level;
 					sb.reset();
 					sb.write(hd,5);
-					if (k5||k3)
+					if (k5||k3||k7)
 						sb.write(libzpaq::ZPAQKANZI_DICT,libzpaq::ZPAQKANZI_DICT_LEN);
 					sb.write(kzbuf,(int)fs);
-					m=std::string(k5 ? "zpaqkanzi5:" : k3 ? "zpaqkanzi3:" : "zpaqkanzi:")+itos(k)+":"+itos(orig_size)+":"+hx;
+					m=std::string(k7 ? "zpaqkanzi7:" : k5 ? "zpaqkanzi5b:" : k3 ? "zpaqkanzi3:" : "zpaqkanzi:")+itos(k)+":"+itos(orig_size)+":"+hx;
 					ma_comment="zpaqstd-ma2:kanzi:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
 				delete[] kzbuf;
