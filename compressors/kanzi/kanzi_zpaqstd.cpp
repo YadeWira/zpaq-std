@@ -1,7 +1,7 @@
 /*
   zpaq-std's C wrapper around kanzi (github.com/flanglet/kanzi-cpp), for -ma:kanzi.
-  Not part of kanzi. Levels 1 and 2 only: the ones ZPAQKANZI decodes (see
-  compressors/zpaqkanzi/). The stream is kanzi's own, without its stream header
+  Not part of kanzi. Levels 1 and 2 (decoded by ZPAQKANZI) and 5 and 6 (ZPAQKANZI5),
+  see compressors/zpaqkanzi/. The stream is kanzi's own, without its stream header
   (headerless): the level travels in zpaq-std's block header instead.
 */
 #include <sstream>
@@ -12,8 +12,11 @@
 #include "kanzi_zpaqstd.h"
 using namespace kanzi;
 
-static const char* const KZ_TR[3] = { "NONE", "LZX", "DNA+LZ" };
-static const char* const KZ_EN[3] = { "NONE", "NONE", "HUFFMAN" };
+/* kanzi's own levels (BlockCompressor::getTransformAndCodec); 3, 4, 7-9 unused */
+static const char* const KZ_TR[7] = { "NONE", "LZX", "DNA+LZ", "", "",
+    "TEXT+UTF+BWT+RANK+ZRLT", "TEXT+UTF+BWT+SRT+ZRLT" };
+static const char* const KZ_EN[7] = { "NONE", "NONE", "HUFFMAN", "", "", "ANS0", "FPAQ" };
+static bool kz_level_ok(int level) { return (level == 1) || (level == 2) || (level == 5) || (level == 6); }
 static const int KZ_BITSTREAM = 7;          /* kanzi 2.6.0, frozen in ZPAQKANZI */
 
 static int kz_blocksize(size_t n)
@@ -26,7 +29,7 @@ static int kz_blocksize(size_t n)
 
 extern "C" size_t kanzi_zs_compress(const void* src, size_t n, void* dst, size_t dstcap, int level)
 {
-    if ((level < 1) || (level > 2) || (n == 0) || (n >= (size_t(1) << 30)))
+    if (!kz_level_ok(level) || (n == 0) || (n >= (size_t(1) << 30)))
         return 0;
     try {
         std::ostringstream os;
@@ -53,7 +56,7 @@ extern "C" size_t kanzi_zs_compress(const void* src, size_t n, void* dst, size_t
 
 extern "C" int kanzi_zs_decompress(const void* src, size_t srclen, void* dst, size_t n, int level)
 {
-    if ((level < 1) || (level > 2))
+    if (!kz_level_ok(level))
         return 1;
     try {
         std::istringstream is(std::string(static_cast<const char*>(src), srclen));
@@ -73,4 +76,30 @@ extern "C" int kanzi_zs_decompress(const void* src, size_t srclen, void* dst, si
     catch (...) {
         return 1;
     }
+}
+
+/* Length of the entropy-decoded data of the first block (kanzi's preTransformLength),
+   read from the block header; 0 if the stream does not start with a block. zpaq-std
+   uses it to size M for ZPAQKANZI5. */
+extern "C" size_t kanzi_zs_first_pre(const void* src, size_t srclen)
+{
+    const unsigned char* p = static_cast<const unsigned char*>(src);
+    size_t pos = 0;
+    auto bits = [&](int n) -> unsigned long long {
+        unsigned long long v = 0;
+        for (int i = 0; i < n; i++, pos++) {
+            if ((pos >> 3) >= srclen) return 0;
+            v = (v << 1) | ((p[pos >> 3] >> (7 - (pos & 7))) & 1);
+        }
+        return v;
+    };
+    const int lr = 3 + int(bits(5));
+    if ((lr > 40) || (bits(lr) == 0))
+        return 0;
+    const unsigned mode = unsigned(bits(8));
+    const bool copy = (mode & 0x80) != 0;
+    if ((copy && (mode & 0x10)) || (!copy && (mode & 0x10)))
+        bits(8);
+    const int dsz = 1 + int((mode >> 5) & 3);
+    return size_t(bits(8 * dsz));
 }

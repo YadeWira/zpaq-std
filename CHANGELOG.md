@@ -1,3 +1,29 @@
+### [65.4m-pre48] - 2026-10-01
+
+#### `-ma:kanzi`: levels 5 and 6
+
+- **`-ma:kanzi:5`** (TEXT + UTF + BWT + RANK + ZRLT, ANS0) and **`-ma:kanzi:6`** (TEXT +
+  UTF + BWT + SRT + ZRLT, FPAQ): exactly kanzi's own levels 5 and 6, its English word
+  dictionary (TEXT) and UTF-8 alias transform included. On 10 MB of English text
+  (dickens) they give 23.4% and 22.3%; level 2 gives 38.7%. Levels 3, 4 and 7-9 still
+  say so (`00605`) and use the nearest available one.
+- Their blocks carry a new ZPAQL decoder, **ZPAQKANZI5**, so they open in any zpaq.
+  Levels 1-2 keep ZPAQKANZI, untouched.
+- ZPAQKANZI5 decodes:
+  - both variants of kanzi's TEXT transform: the 1024-word static dictionary, which
+    travels as a 5,487-byte data prefix in each block, plus the dynamic dictionary,
+    rebuilt with kanzi's hash, its slot handling and its expansions;
+  - UTF, BWT (with its chunk indexes), RANK, SRT and ZRLT;
+  - order-0 rANS with 4 states, and FPAQ with its 56-bit range coder;
+  - every block type and every combination of skipped transforms.
+- It runs at 2.6-12 MB/s with JIT in other tools. Memory there is large: the BWT
+  inverse needs 4 bytes per byte of block, so a 16 MB block takes about 192 MB (H
+  128 MB + M 64 MB) in another zpaq. zpaq-std decodes natively.
+- Written from a Python reference that was checked against kanzi's decoder (156
+  streams), then verified with zpaq 7.15 on 194 streams: 78 inputs x 2 levels, plus 38
+  blocks rebuilt to exercise other combinations of skipped transforms and a
+  one-symbol ANS chunk, all checked with kanzi's own decoder.
+
 ### [65.4m-pre47] - 2026-09-30
 
 #### New codec: `-ma:kanzi` (experimental)
