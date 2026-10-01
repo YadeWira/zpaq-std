@@ -24107,6 +24107,7 @@ const std::string& zpaqkanzi5_bytecode();  /// ZPAQKANZI5, idem
 const std::string& zpaqkanzi3_bytecode();  /// ZPAQKANZI3, idem
 const std::string& zpaqkanzi7_bytecode();  /// ZPAQKANZI7, idem
 const std::string& zpaqkanzi5b_bytecode(); /// ZPAQKANZI5B, idem
+const std::string& zpaqkanzi8_bytecode();  /// ZPAQKANZI8, idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24199,6 +24200,7 @@ int PostProcessor::write(int c) {
           const std::string& bk3=zpaqkanzi3_bytecode();
           const std::string& bk7=zpaqkanzi7_bytecode();
           const std::string& bk5b=zpaqkanzi5b_bytecode();
+          const std::string& bk8=zpaqkanzi8_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24222,7 +24224,8 @@ int PostProcessor::write(int c) {
            || (int(bk5.size())==hsize && memcmp(&z.header[z.hbegin], bk5.data(), hsize)==0)
            || (int(bk3.size())==hsize && memcmp(&z.header[z.hbegin], bk3.data(), hsize)==0)
            || (int(bk7.size())==hsize && memcmp(&z.header[z.hbegin], bk7.data(), hsize)==0)
-           || (int(bk5b.size())==hsize && memcmp(&z.header[z.hbegin], bk5b.data(), hsize)==0)) {
+           || (int(bk5b.size())==hsize && memcmp(&z.header[z.hbegin], bk5b.data(), hsize)==0)
+           || (int(bk8.size())==hsize && memcmp(&z.header[z.hbegin], bk8.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -24237,7 +24240,7 @@ int PostProcessor::write(int c) {
           /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano, ZPAQUFLZMA2 de ZPAQFLZMA2 tambien). Si algun dia se deriva uno nuevo de
           /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
           {
-            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b};
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b,&bk8};
             for (const std::string* k: conocidos) {
               if (int(k->size())!=hsize) continue;
               int dif=0;
@@ -28082,6 +28085,74 @@ const std::string& zpaqkanzi5b_bytecode() {
   return b;
 }
 
+/// ZPAQKANZI8: el decodificador de -ma:kanzi niveles 8 (EXE+RLT+TEXT+UTF+DNA, TPAQ) y
+/// 9 (lo mismo con TPAQX). Ver compressors/zpaqkanzi/. Mismo bloque que ZPAQKANZI5
+/// (con el diccionario estatico). TPAQ dimensiona sus tablas con el tamano del bloque
+/// de kanzi y con el de su entrada (preTransformLength); TPAQX las hace 4 veces mas
+/// grandes. H: tablas chicas debajo de 2^17 y arriba, mientras dura la entropia, los
+/// hashes, los mezcladores y SSE1 de TPAQ (despues, las tablas de TEXT); ph sale del
+/// tamano original con la cota de preTransformLength de ZPAQKANZI5. M: la entrada, dos
+/// buffers y las tablas de bytes de TPAQ; pm lo fija el compresor con el valor exacto.
+#include "compressors/zpaqkanzi/zpaqkanzi8_body.h"
+static int64_t zpaqkanzi8_pow2floor(int64_t x) {
+  int64_t p=1;
+  while (p*2<=x) p*=2;
+  return p;
+}
+int zpaqkanzi8_ph(int64_t orig, int level) {
+  const int64_t bs=zpaqkanzi5_bs(orig), blk=zpaqkanzi5_blk(orig);
+  const int xf=(level==9) ? 2 : 0;
+  const int64_t pre=blk+blk/2+512;
+  int64_t hs=(pre<((int64_t)1<<26)) ? pre*16 : ((int64_t)1<<30);
+  if (hs>((int64_t)16<<20)) hs=(int64_t)16<<20;
+  hs=zpaqkanzi8_pow2floor(hs)<<xf;
+  if (hs>((int64_t)1<<30)) hs=(int64_t)1<<30;
+  int lm=8;
+  if (pre>=((int64_t)1<<20)) lm=11;
+  if (pre>=((int64_t)4<<20)) lm=13;
+  if (pre>=((int64_t)8<<20)) lm=14;
+  if (pre>=((int64_t)16<<20)) lm=15;
+  if (pre>=((int64_t)32<<20)) lm=16;
+  const int64_t mixers=((int64_t)1<<(lm+xf))*19, sse1=((int64_t)(xf ? 65536 : 256))*33;
+  const int64_t tpaq=hs+mixers+sse1;
+  int lg=0; while (((int64_t)2<<lg)<=bs/8) lg++;
+  if (lg<13) lg=13;
+  if (lg>26) lg=26;
+  if (level==9) lg++;
+  const int64_t txt=3*((int64_t)1<<19)+((int64_t)1<<lg)+16;
+  const int64_t need=((int64_t)1<<17)+(tpaq>txt ? tpaq : txt)+64;
+  int ph=20;
+  while (ph<31 && ((int64_t)1<<ph)<need) ph++;
+  return ph;
+}
+/// M de TPAQ detras de los dos buffers: historia, small0, small1 y big
+int64_t zpaqkanzi8_mtables(int64_t orig, int level) {
+  const int64_t bs=zpaqkanzi5_bs(orig);
+  const int xf=(level==9) ? 2 : 0;
+  int ls=22;
+  if (bs>=((int64_t)1<<20)) ls=24;
+  if (bs>=((int64_t)4<<20)) ls=26;
+  if (bs>=((int64_t)16<<20)) ls=27;
+  if (bs>=((int64_t)64<<20)) ls=28;
+  const int64_t buf=zpaqkanzi8_pow2floor(bs<((int64_t)64<<20) ? bs : ((int64_t)64<<20));
+  return buf+((int64_t)1<<16)+((int64_t)1<<24)+((int64_t)1<<(ls+xf));
+}
+std::string zpaqkanzi8_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI8_CUERPO;
+}
+static std::string zpaqkanzi8_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqkanzi8_config(25, 25);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqkanzi8_bytecode() {
+  static const std::string b=zpaqkanzi8_compilar();
+  return b;
+}
+
 /// ZPAQKANZI7: el decodificador de -ma:kanzi nivel 7 (LZP+TEXT+UTF+BWT+LZP, CM). Ver
 /// compressors/zpaqkanzi/. Mismo bloque que ZPAQKANZI5 (con el diccionario estatico).
 /// H: las tablas chicas, los contadores de CM y el hash de LZP debajo de 2^18 y arriba
@@ -29273,12 +29344,14 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_kz3 = strncmp(method_, "zpaqkanzi3:", 11)==0;   /// ZPAQKANZI3 (idem)
   const bool es_kz7 = strncmp(method_, "zpaqkanzi7:", 11)==0;   /// ZPAQKANZI7 (idem)
   const bool es_k5b = strncmp(method_, "zpaqkanzi5b:", 12)==0;  /// ZPAQKANZI5B (idem)
-  if (es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_kz8 = strncmp(method_, "zpaqkanzi8:", 11)==0;   /// ZPAQKANZI8, nivel 8
+  const bool es_kz9 = strncmp(method_, "zpaqkanzi9:", 11)==0;   /// ZPAQKANZI8, nivel 9 (ph mayor)
+  if (es_kz8 || es_kz9 || es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2 || es_k5b) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro || es_kz5 || es_kz3 || es_kz7) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_k5b && !es_kz7 && !es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2 || es_k5b) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro || es_kz5 || es_kz3 || es_kz7 || es_kz8 || es_kz9) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_kz8 && !es_kz9 && !es_k5b && !es_kz7 && !es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_kz8 || es_kz9 || es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
         || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
@@ -29287,7 +29360,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=es_k5b ? zpaqkanzi5b_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
+    const std::string cfg=(es_kz8||es_kz9) ? zpaqkanzi8_config(zpaqkanzi8_ph((int64_t)orig, es_kz9 ? 9 : 8), pm) : es_k5b ? zpaqkanzi5b_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
@@ -66828,9 +66901,10 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
 		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2, EXPERIMENTAL. ultra-fast-lzma2 (1..11, 5=default;");
 		scrivi_riga(" ", "    11 also picks lc/lp/pb per block); opens in any zpaq");
-		scrivi_riga(" ", "  kanzi: ZPAQKANZI(3,5,7), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
+		scrivi_riga(" ", "  kanzi: ZPAQKANZI(3,5B,7,8), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
 		scrivi_riga(" ", "    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,");
-		scrivi_riga(" ", "    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM); opens in any zpaq");
+		scrivi_riga(" ", "    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);");
+		scrivi_riga(" ", "    opens in any zpaq (8-9: slow and large memory there)");
 		scrivi_riga(" ", "  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq");
 		scrivi_riga(" ", "  lz6: ZPAQLZ6, EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
@@ -69501,15 +69575,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 					int umax=UF2_maxCLevel();
 					if (g_ma_level>umax) g_ma_level=umax;
 				}
-				/// kanzi: 1 a 7 (los niveles con decodificador ZPAQL: ZPAQKANZI, ZPAQKANZI3,
-				/// ZPAQKANZI5, ZPAQKANZI7); se avisa si se pide otro, porque kanzi tiene 0..9 y
-				/// un nivel mayor no es un error de tipeo.
+				/// kanzi: 1 a 9, todos con decodificador ZPAQL (ZPAQKANZI, ZPAQKANZI3,
+				/// ZPAQKANZI5B, ZPAQKANZI7, ZPAQKANZI8); un nivel mayor se avisa y usa 9.
 				else if (g_ma_algorithm=="kanzi")
 				{
-					if (g_ma_level>7)
+					if (g_ma_level>9)
 					{
-						myprintf("00605! -ma:kanzi:%d: only levels 1 to 7 are available for now (they open in any zpaq); using 7\n", g_ma_level);
-						g_ma_level=7;
+						myprintf("00605! -ma:kanzi:%d: kanzi's levels are 1 to 9; using 9\n", g_ma_level);
+						g_ma_level=9;
 					}
 				}
 				else if (g_ma_algorithm=="lizard")
@@ -70181,7 +70254,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=7 ? "ZPAQKANZI7" : g_ma_level>=5 ? "ZPAQKANZI5B" : g_ma_level>=3 ? "ZPAQKANZI3" : "ZPAQKANZI") : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=8 ? "ZPAQKANZI8" : g_ma_level>=7 ? "ZPAQKANZI7" : g_ma_level>=5 ? "ZPAQKANZI5B" : g_ma_level>=3 ? "ZPAQKANZI3" : "ZPAQKANZI") : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -122789,16 +122862,19 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				/// cabecera, y M guarda la entrada y dos buffers de max(blk, pre+512)+64;
 				/// en el nivel 4 (ROLZ) ZPAQKANZI3 usa ademas 4 mas y la tabla f2s de ANS
 				/// (256 << 15); el nivel 3 no los toca
-				const bool k5=(g_ma_level==5)||(g_ma_level==6), k3=(g_ma_level==3)||(g_ma_level==4), k7=(g_ma_level==7);
-				int64_t total=(int64_t)fs+5+((k5||k3||k7) ? libzpaq::ZPAQKANZI_DICT_LEN : 0);
+				const bool k5=(g_ma_level==5)||(g_ma_level==6), k3=(g_ma_level==3)||(g_ma_level==4), k7=(g_ma_level==7), k8=(g_ma_level>=8);
+				int64_t total=(int64_t)fs+5+((k5||k3||k7||k8) ? libzpaq::ZPAQKANZI_DICT_LEN : 0);
 				int64_t need=total+32+orig_size+orig_size/2+2048+32+orig_size+64;
-				if (k5||k3||k7)
+				if (k5||k3||k7||k8)
 				{
 					int64_t lin=(int64_t)kanzi_zs_first_pre(kzbuf,fs)+512;
 					const int64_t blk=libzpaq::zpaqkanzi5_blk(orig_size);
 					if (lin<blk) lin=blk;
 					const bool rolz=(g_ma_level==4);
 					need=total+128+(rolz ? 6 : 2)*(lin+64)+(rolz ? ((int64_t)256<<15) : 0)+64;
+					/// 8/9 (ZPAQKANZI8): las tablas de bytes de TPAQ detras de los buffers
+					if (k8)
+						need+=libzpaq::zpaqkanzi8_mtables(orig_size, g_ma_level);
 				}
 				int k=17;
 				while (k<31 && ((int64_t)1<<k)<need) k++;
@@ -122816,10 +122892,10 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					hd[4]=(char)g_ma_level;
 					sb.reset();
 					sb.write(hd,5);
-					if (k5||k3||k7)
+					if (k5||k3||k7||k8)
 						sb.write(libzpaq::ZPAQKANZI_DICT,libzpaq::ZPAQKANZI_DICT_LEN);
 					sb.write(kzbuf,(int)fs);
-					m=std::string(k7 ? "zpaqkanzi7:" : k5 ? "zpaqkanzi5b:" : k3 ? "zpaqkanzi3:" : "zpaqkanzi:")+itos(k)+":"+itos(orig_size)+":"+hx;
+					m=std::string(k8 ? (g_ma_level==9 ? "zpaqkanzi9:" : "zpaqkanzi8:") : k7 ? "zpaqkanzi7:" : k5 ? "zpaqkanzi5b:" : k3 ? "zpaqkanzi3:" : "zpaqkanzi:")+itos(k)+":"+itos(orig_size)+":"+hx;
 					ma_comment="zpaqstd-ma2:kanzi:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
 				delete[] kzbuf;

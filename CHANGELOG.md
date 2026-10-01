@@ -1,3 +1,28 @@
+### [65.4m-pre52] - 2026-10-01
+
+#### `-ma:kanzi`: levels 8 and 9, the last ones
+
+- **`-ma:kanzi:8`** (EXE + RLT + TEXT + UTF + DNA, TPAQ) and **`-ma:kanzi:9`** (the same
+  with TPAQX): exactly kanzi's own levels 8 and 9. All of kanzi's levels, 1 to 9, are
+  available now, and every one opens in any zpaq.
+- On 10 MB of English text (dickens) they give 21.8% and 21.3%; in the same run level
+  7 gives 22.1%, and zpaq's `-m5` 20.6% while taking about 10 times longer to
+  compress.
+- Their blocks carry a new ZPAQL decoder, **ZPAQKANZI8**, for both levels. It
+  decodes TPAQ, kanzi's PAQ8-style context-mixing coder: bit histories in hashed
+  context slots (orders 0 to 3, a sparse context and a word/record context, plus one
+  more for TPAQX), a match model, a neural mixer of 8 inputs and one or two adaptive
+  probability maps. It also decodes RLT, EXE, TEXT, UTF and DNA, every block type and
+  every combination of skipped transforms.
+- **Slow and large in other zpaqs.** zpaq 7.15 decodes them at about 1 MB/s with
+  JIT. A 16 MB block needs about 400 MB of memory at level 8 and 1.5 GB at level 9,
+  because TPAQ sizes its tables from the block and TPAQX makes them 4 times larger.
+  zpaq-std decodes natively.
+- Written from a Python reference that was checked against kanzi's decoder, then
+  verified with zpaq 7.15 on 222 streams: 99 inputs x levels 8 and 9, plus 24 blocks
+  rebuilt to exercise other combinations of skipped transforms, all checked with
+  kanzi's own decoder.
+
 ### [65.4m-pre51] - 2026-10-01
 
 #### `-ma:kanzi`: level 7

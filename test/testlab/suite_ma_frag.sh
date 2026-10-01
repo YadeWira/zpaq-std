@@ -31,7 +31,7 @@ for i in range(4000):
     open(f'{d}/{i:05d}.bin','wb').write(random.randbytes(n)+b'\0'*6)
 PY
 mal=0
-for alg in flzma2 zstd lz4 brotli bzip2 bzip3 lzma lz deflate snappy lz5 lz6 lizard lzfse hs lzav bsc lzh ppmd uflzma2 kanzi kanzi:3 kanzi:4 kanzi:5 kanzi:7; do
+for alg in flzma2 zstd lz4 brotli bzip2 bzip3 lzma lz deflate snappy lz5 lz6 lizard lzfse hs lzav bsc lzh ppmd uflzma2 kanzi kanzi:3 kanzi:4 kanzi:5 kanzi:7 kanzi:8 kanzi:9; do
   rm -rf "$OUT/a.zpaq" "$OUT/x"
   "$Z" a "$OUT/a.zpaq" "$OUT/in" -ma:$alg >/dev/null 2>&1
   tf=$("$Z" t "$OUT/a.zpaq" 2>&1 | grep -c "decompression failed\|skipping")
