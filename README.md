@@ -75,13 +75,16 @@ written in ZPAQL, the bytecode every zpaq implementation runs (the way zpaq's ow
 `-m1` works); zpaq-std recognises its decoders and decodes natively, at full speed.
 Details, sizes and speeds of each decoder: **[wiki: Portable codecs](https://github.com/YadeWira/zpaq-std/wiki/Portable-codecs)**.
 
-Archives written with `bsc`, `lzh` or `ppmd` by older versions (before pre40–pre42)
-only extract in zpaq-std; other tools reject those blocks cleanly
-(`unknown post processing type`) and still list the archive and extract its native files.
+**The old `-ma` format is no longer read.** Before the ZPAQL decoders, `-ma` blocks
+carried no decoder (zpaq-std's own post-processing type and a `zpaqstd-ma:` tag). Every
+codec wrote that up to pre23, and some until they became portable (bsc, lzh and ppmd
+until pre40–pre42). From pre49 on, zpaq-std stops with
+`31320 old -ma block format, no longer supported`; use zpaq-std pre48 or older for
+those archives. No other zpaq ever read them.
 
-**Upgrading:** new versions read every older archive, and every zpaq-std from
-pre20 on reads what this version writes (by running the ZPAQL decoders). Only
-archives with the old zpaq-std-only blocks need a new enough version to restore.
+**Upgrading:** new versions read every archive made with ZPAQL decoders and every
+native one, and every zpaq-std from pre20 on reads what this version writes (by
+running the ZPAQL decoders).
 
 ### Example
 

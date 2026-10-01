@@ -21978,14 +21978,13 @@ private:
 //////////////////////// Compressor //////////////////////////
 class Compressor {
 public:
-  Compressor(): enc(z), in(0), state(INIT), verify(false), mablock(false), prog(0), progcred(0) {}
+  Compressor(): enc(z), in(0), state(INIT), verify(false), prog(0), progcred(0) {}
   /// Marca ESTE bloque como portador de carga -ma. Cambia un solo byte: el tipo
   /// de post-proceso pasa de 0 (PASS) a 2, que ningun zpaq conoce, asi que en
   /// vez de copiar los bytes comprimidos y morir con un hash que no cuadra,
   /// dicen "unknown post processing type" y saltean el bloque. Se marca POR
   /// BLOQUE, nunca global: si se marca el indice tambien, el listado ajeno sale
   /// mal (probado: "N fragments have unknown size" y la cuenta de archivos mal).
-  void setMaBlock(bool v) {mablock=v;}
   /// -innosetup: suma a *p cada tramo de entrada ya comprimido (ver g_prog_cm)
   void setProgress(std::atomic<int64_t>* p) {prog=p; progcred=0;}
   int64_t progressCredited() const {return progcred;}
@@ -22012,7 +22011,6 @@ public:
   void endBlock();
   int stat(int x) {return enc.stat(x);}
 private:
-  bool mablock;  /// este bloque lleva carga -ma (ver setMaBlock)
   std::atomic<int64_t>* prog;  /// contador de avance, o NULL
   int64_t progcred;            /// lo que este bloque ya sumo a *prog
   ZPAQL z, pz;  // model and test postprocessor
@@ -24137,11 +24135,9 @@ int PostProcessor::write(int c) {
     case 0:  // initial state
       if (c<0) error("Unexpected EOS");
       state=c+1;  // 1=PASS, 2=PROG
-      /// 2 = nuestro marcador de bloque -ma. Los datos van crudos igual que en
-      /// PASS, asi que se trata como PASS; lo que lo distingue es que un zpaq
-      /// ajeno NO lo conoce y corta con un error nombrado. Aceptar el 2 ademas
-      /// del 0 es lo que deja leer todos los -ma escritos hasta hoy.
-      if (c==2) state=1;
+      /// 2 = el marcador del formato -ma viejo (sin decodificador ZPAQL, hasta
+      /// pre48): ya no se lee.
+      if (c==2) error("31320 old -ma block format, no longer supported");
       if (state>2) error("unknown post processing type");
       if (state==1) z.clear();
       break;
@@ -24988,10 +24984,8 @@ void Compressor::postProcess(const char* pcomp, int len) {
       pz.initp();
   }
   else
-    /// 0 = PASS (sin post-proceso). 2 = PASS igual, pero marcado como nuestro:
-    /// los datos van crudos y el codec se resuelve leyendo el comentario
-    /// "zpaqstd-ma:". Un zpaq ajeno rechaza el 2 con un mensaje que se entiende.
-    enc.compress(mablock ? 2 : 0);
+    /// 0 = PASS. (El 2, marcador del formato -ma viejo, ya no se escribe.)
+    enc.compress(0);
   state=SEG2;
 }
 // Compress n bytes, or to EOF if n < 0
@@ -29420,10 +29414,6 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   co.startBlock(config.c_str(), args, &pcomp_cmd);
   std::string cs=itos(n);
   if (comment) cs=cs+" "+comment;
-  /// El propio comentario dice si este bloque lleva carga -ma. Es el unico
-  /// lugar con el dato exacto y por bloque: marcar por la global g_ma_algorithm
-  /// alcanzaria tambien a los bloques de indice, que NO llevan carga externa.
-  co.setMaBlock(comment && strstr(comment, "zpaqstd-ma:")!=NULL);
   co.startSegment(filename, cs.c_str());
   co.setProgress(prog);
   if (args[1]>=1 && args[1]<=7 && args[1]!=4) {  // LZ77 or BWT
@@ -62287,7 +62277,7 @@ int unzPostProcessor::write(int c) {
     case 0:  // initial state
       if (c<0) unzerror("Unexpected EOS");
       state=c+1;  // 1=PASS, 2=PROG
-      if (c==2) state=1;  /// marcador de bloque -ma; ver la nota en PostProcessor
+      if (c==2) unzerror("31320 old -ma block format, no longer supported");
       if (state>2) unzerror("unknown post processing type");
       if (state==1) z.clear();
       break;
@@ -77616,9 +77606,6 @@ ThreadReturn decompressThread(void *arg)
 				error("archive block not found");
 			if (mem > job.maxMemory)
 				job.maxMemory= mem;
-			int64_t lz4_orig= 0;
-			int64_t zstd_orig= 0;
-			int64_t fl2_orig= 0;
 			int64_t lz5_orig= 0;
 			int64_t lz6_orig= 0;
 			int64_t lzma_orig= 0;
@@ -77638,20 +77625,6 @@ ThreadReturn decompressThread(void *arg)
 			int64_t lzhp_orig= 0;
 			int64_t bscp_orig= 0;
 			int64_t ppmp_orig= 0;
-			int64_t liz_orig= 0;
-			int64_t bz2_orig= 0;
-			int64_t bz3_orig= 0;
-			int64_t brotli_orig= 0;
-			int64_t snappy_orig= 0;
-			int64_t libdeflate_orig= 0;
-			int64_t lzlib_orig= 0;
-			int64_t lzav_orig= 0;
-			int64_t lzfse_orig= 0;
-			int64_t bsc_orig= 0;
-			int64_t lzh_orig= 0;
-			int64_t ppmd_orig= 0;
-			int		ppmd_lvl= 6;
-			int64_t hs_orig= 0;
 			/// Bloque -ma con decodificacion nativa: lo que sale del segmento es el
 			/// flujo COMPRIMIDO, no el original. output_size cuenta bytes del original
 			/// (solo los fragmentos que se necesitan, sin la tabla de fragmentos del
@@ -77666,44 +77639,12 @@ ThreadReturn decompressThread(void *arg)
 				if (cmt.size() > 0)
 				{
 					string cs((const char *)cmt.data(), cmt.size());
+					/// Formato -ma viejo (anterior a los decodificadores ZPAQL, etiqueta "zpaqstd-ma:"):
+					/// ya no se lee desde pre49. "zpaqstd-ma2:" no contiene "zpaqstd-ma:".
+					if (cs.find("zpaqstd-ma:") != string::npos)
+						error("31320 old -ma block format, no longer supported");
 					if (cs.find("zpaqstd-ma") != string::npos)
 						ma_leer_todo= true;
-					auto mp = cs.find("zpaqstd-ma:lz4");
-					if (mp != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mp + 14;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz4_orig);
-					}
-					auto mz = cs.find("zpaqstd-ma:zstd");
-					if (mz != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mz + 15;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &zstd_orig);
-					}
-					auto mf = cs.find("zpaqstd-ma:flzma2");
-					if (mf != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mf + 17;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &fl2_orig);
-					}
-					auto m5 = cs.find("zpaqstd-ma:lz5");
-					if (m5 != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + m5 + 14;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz5_orig);
-					}
 					/// ZPAQLZ5: los bloques -ma:lz5 nuevos llevan su decodificador y la
 					/// etiqueta "zpaqstd-ma2:" (ver la rama de escritura).
 					auto mliz2 = cs.find("zpaqstd-ma2:lizard:");
@@ -77835,122 +77776,6 @@ ThreadReturn decompressThread(void *arg)
 						if (*p == ':')
 							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lz5_orig);
 					}
-					auto ml = cs.find("zpaqstd-ma:lizard");
-					if (ml != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + ml + 16;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &liz_orig);
-					}
-					auto mb = cs.find("zpaqstd-ma:bzip2");
-					if (mb != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mb + 15;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &bz2_orig);
-					}
-					auto mb3 = cs.find("zpaqstd-ma:bzip3");
-					if (mb3 != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mb3 + 15;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &bz3_orig);
-					}
-					auto mbr = cs.find("zpaqstd-ma:brotli");
-					if (mbr != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mbr + 16;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &brotli_orig);
-					}
-					auto msn = cs.find("zpaqstd-ma:snappy");
-					if (msn != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + msn + 17;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &snappy_orig);
-					}
-					auto mld = cs.find("zpaqstd-ma:deflate");
-					if (mld != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mld + 18;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &libdeflate_orig);
-					}
-					auto mppmd = cs.find("zpaqstd-ma:ppmd");
-						if (mppmd != string::npos)
-						{
-							const char* pp = cs.c_str() + mppmd + 15; // strlen("zpaqstd-ma:ppmd")
-							while (*pp && *pp != ':') pp++;
-							if (*pp == ':')
-								sscanf(pp + 1, "%d:%" SCNd64, &ppmd_lvl, &ppmd_orig);
-						}
-						auto mlz = cs.find("zpaqstd-ma:lz:");
-					if (mlz != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mlz + 13;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzlib_orig);
-					}
-					auto mlzv = cs.find("zpaqstd-ma:lzav");
-					if (mlzv != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mlzv + 14;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzav_orig);
-					}
-					auto mlfs = cs.find("zpaqstd-ma:lzfse");
-					if (mlfs != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mlfs + 15;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzfse_orig);
-					}
-					auto mbsc = cs.find("zpaqstd-ma:bsc");
-					if (mbsc != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mbsc + 13;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &bsc_orig);
-					}
-					auto mlzh = cs.find("zpaqstd-ma:lzh");
-					if (mlzh != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mlzh + 13;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &lzh_orig);
-					}
-					auto mhs = cs.find("zpaqstd-ma:hs");
-					if (mhs != string::npos)
-					{
-						int lvl;
-						const char* p = cs.c_str() + mhs + 13;
-						while (*p && *p != ':') p++;
-						if (*p == ':')
-							sscanf(p + 1, "%d:%" SCNd64, &lvl, &hs_orig);
-					}
 				}
 				while ((ma_leer_todo || out.size() < output_size) && d.decompress(1 << 14))
 				{
@@ -77966,49 +77791,12 @@ ThreadReturn decompressThread(void *arg)
 					break;
 				d.readSegmentEnd();
 			}
-			// LZ4 decompress segment data if compressed externally
-			if (lz4_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(lz4_orig);
-				int r2 = zlz4::ZLZ4_decompress_safe((const char *)out.data(), &decomp2[0], (int)out.size(), (int)lz4_orig);
-
-				if (r2 != lz4_orig)
-					error("31319 LZ4 decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = lz4_orig;
-			}
-			// zstd decompress segment data if compressed externally
-			else if (zstd_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(zstd_orig);
-				size_t r2 = ZSTD_decompress(&decomp2[0], (size_t)zstd_orig, (const char *)out.data(), out.size());
-				if (ZSTD_isError(r2) || (int64_t)r2 != zstd_orig)
-					error("31319 zstd decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = zstd_orig;
-			}
-			// flzma2 decompress segment data if compressed externally
-			else if (fl2_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(fl2_orig);
-				size_t r2 = FL2_decompress(&decomp2[0], (size_t)fl2_orig, (const char *)out.data(), out.size());
-				if (FL2_isError(r2) || (int64_t)r2 != fl2_orig)
-					error("31319 flzma2 decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = fl2_orig;
-			}
 			// LZ5 decompress segment data if compressed externally
 			/// ZPAQLZ5: si el bloque trae un decodificador que NO es el nuestro (el atajo
 			/// no aplico y se ejecuto el ZPAQL), la salida ya es el original: no se vuelve
 			/// a descomprimir. En un bloque sin decodificador el LZ5 siempre es al menos
 			/// 16 bytes mas chico que el original, asi que nunca coincide por accidente.
-			else if (lz5_orig > 0 && (int64_t)out.size() == lz5_orig)
+			if (lz5_orig > 0 && (int64_t)out.size() == lz5_orig)
 			{
 				output_size = lz5_orig;
 			}
@@ -78407,184 +78195,17 @@ ThreadReturn decompressThread(void *arg)
 				output_size = lz6_orig;
 			}
 			// Lizard decompress segment data if compressed externally
-			else if (liz_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(liz_orig);
-				int r2 = Lizard_decompress_safe((const char *)out.data(), &decomp2[0], (int)out.size(), (int)liz_orig);
-				if (r2 != (int)liz_orig)
-					error("31319 Lizard decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = liz_orig;
-			}
 			// bzip2 decompress segment data if compressed externally
-			else if (bz2_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(bz2_orig);
-				unsigned int dstLen=(unsigned int)bz2_orig;
-				int rc=BZ2_bzBuffToBuffDecompress(&decomp2[0],&dstLen,(char*)out.data(),(unsigned int)out.size(),0,0);
-				if (rc!=BZ_OK||(int64_t)dstLen!=bz2_orig)
-					error("31319 bzip2 decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = bz2_orig;
-			}
 			// bzip3 decompress segment data if compressed externally
-			else if (bz3_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(bz3_orig);
-				size_t bz3out=(size_t)bz3_orig;
-				int rc=bz3_decompress((const uint8_t*)out.data(),(uint8_t*)&decomp2[0],out.size(),&bz3out);
-				if (rc!=0||(int64_t)bz3out!=bz3_orig)
-					error("31319 bzip3 decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = bz3_orig;
-			}
 			// brotli decompress segment data if compressed externally
-			else if (brotli_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(brotli_orig);
-				size_t dstLen=(size_t)brotli_orig;
-				BROTLI_BOOL rc=BrotliDecoderDecompress(out.size(),(const uint8_t*)out.data(),&dstLen,(uint8_t*)&decomp2[0]);
-				if (rc!=BROTLI_TRUE||(int64_t)dstLen!=brotli_orig)
-					error("31319 brotli decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = brotli_orig;
-			}
 			// snappy decompress segment data if compressed externally
-			else if (snappy_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(snappy_orig);
-				size_t dstLen=(size_t)snappy_orig;
-				snappy_status src2=snappy_uncompress((const char*)out.data(),out.size(),&decomp2[0],&dstLen);
-				if (src2!=SNAPPY_OK||(int64_t)dstLen!=snappy_orig)
-					error("31319 snappy decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = snappy_orig;
-			}
 			// libdeflate decompress segment data if compressed externally
-			else if (libdeflate_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(libdeflate_orig);
-				size_t dstLen=0;
-				struct libdeflate_decompressor* lddcmp=libdeflate_alloc_decompressor();
-				if (lddcmp)
-				{
-					libdeflate_result ldr=libdeflate_deflate_decompress(lddcmp,(const void*)out.data(),out.size(),(void*)&decomp2[0],(size_t)libdeflate_orig,&dstLen);
-					libdeflate_free_decompressor(lddcmp);
-					if (ldr!=LIBDEFLATE_SUCCESS||(int64_t)dstLen!=libdeflate_orig)
-						error("31319 libdeflate decompression failed");
-					out.reset();
-					out.write(decomp2.data(), decomp2.size());
-					output_size = libdeflate_orig;
-				}
-				else
-					error("31319 libdeflate decompressor alloc failed");
-			}
 			// lzlib decompress segment data if compressed externally
-			else if (ppmd_orig > 0)
-				{
-					string decomp2;
-					decomp2.resize(ppmd_orig);
-					unsigned order= (unsigned)ppmd_lvl; if (order < 2) order= 2; if (order > 32) order= 32;
-					int ok= ppmd_decompress((const unsigned char*)out.data(), out.size(),
-											decomp2.empty() ? (unsigned char*)0 : (unsigned char*)&decomp2[0],
-											(size_t)ppmd_orig, order, 64);
-					if (!ok)
-						error("31319 ppmd decompression failed");
-					out.reset();
-					out.write(decomp2.data(), decomp2.size());
-					output_size = ppmd_orig;
-				}
-			else if (lzlib_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(lzlib_orig);
-				size_t dstLen=0;
-				int lzrc=lzlib_decompress_wrapper((const unsigned char*)out.data(),out.size(),(unsigned char*)&decomp2[0],(size_t)lzlib_orig,&dstLen);
-				if (lzrc!=0||(int64_t)dstLen!=lzlib_orig)
-					error("31319 lzlib decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = lzlib_orig;
-			}
 			// lzav decompress segment data if compressed externally
-			else if (lzav_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(lzav_orig);
-				int lzrc=zlzav::lzav_decompress((const void*)out.data(),(void*)&decomp2[0],(int)out.size(),(int)lzav_orig);
-				if (lzrc<0||(int64_t)lzrc!=lzav_orig)
-					error("31319 lzav decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = lzav_orig;
-			}
 			// lzfse decompress segment data if compressed externally
-			else if (lzfse_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(lzfse_orig);
-				size_t produced=lzfse_decode_buffer((uint8_t*)&decomp2[0],(size_t)lzfse_orig,(const uint8_t*)out.data(),out.size(),NULL);
-				if (produced!=(size_t)lzfse_orig)
-					error("31319 lzfse decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = lzfse_orig;
-			}
 			// bsc decompress segment data if compressed externally
-			else if (bsc_orig > 0)
-			{
-				bsc_init_una_vez();
-				string decomp2;
-				decomp2.resize(bsc_orig);
-				int rc=bsc_decompress((const unsigned char*)out.data(),(int)out.size(),(unsigned char*)&decomp2[0],(int)bsc_orig,0);
-				if (rc<0)
-					error("31319 bsc decompression failed");
-				/* bsc_decompress returns LIBBSC_NO_ERROR (0) on success;
-				 * the actual decompressed size is bsc_orig. */
-				out.reset();
-				out.write(decomp2.data(),(int)bsc_orig);
-				output_size = bsc_orig;
-			}
 			// lzham decompress segment data if compressed externally
-			else if (lzh_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(lzh_orig);
-				lzham_decompress_params dpar;
-				memset(&dpar,0,sizeof(dpar));
-				dpar.m_struct_size=sizeof(dpar);
-				dpar.m_dict_size_log2=20; /* 1MB dict */
-				lzham_decompress_status_t dstat=lzham_decompress_memory(&dpar,(unsigned char*)&decomp2[0],(size_t*)&lzh_orig,(const unsigned char*)out.data(),out.size(),NULL);
-				if (dstat!=LZHAM_DECOMP_STATUS_SUCCESS)
-					error("31319 lzham decompression failed");
-				out.reset();
-				out.write(decomp2.data(),(int)lzh_orig);
-				output_size = lzh_orig;
-			}
 			// heatshrink decompress segment data if compressed externally
-			else if (hs_orig > 0)
-			{
-				string decomp2;
-				decomp2.resize(hs_orig);
-				size_t produced=0;
-				int lzrc=hs_decompress_wrapper((const uint8_t*)out.data(),out.size(),(uint8_t*)&decomp2[0],(size_t)hs_orig,&produced);
-				if (lzrc!=0||(int64_t)produced!=hs_orig)
-					error("31319 heatshrink decompression failed");
-				out.reset();
-				out.write(decomp2.data(), decomp2.size());
-				output_size = hs_orig;
-			}
 			if (out.size() < output_size)
 			{
 				lock(job.mutex);
@@ -123174,13 +122795,8 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					m=(huf ? "zpaqlizardh:" : "zpaqlizard:")+itos(k)+":"+itos(orig_size)+":"+hx;
 					ma_comment="zpaqstd-ma2:lizard:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
-				else if (lizsize>0&&(int64_t)lizsize<orig_size-16)
-				{
-					sb.reset();
-					sb.write(lizbuf,lizsize);
-					m="04,0";
-					ma_comment="zpaqstd-ma:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+itos(orig_size);
-				}
+				/// Si no entra en M (bloques enormes), el bloque queda nativo: ya no hay
+				/// formato -ma sin decodificador ZPAQL (el viejo "zpaqstd-ma:", hasta pre48).
 				delete[] lizbuf;
 			}
 		}

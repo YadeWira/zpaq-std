@@ -1,3 +1,20 @@
+### [65.4m-pre49] - 2026-10-01
+
+#### The old `-ma` format is no longer read
+
+- Before the ZPAQL decoders, `-ma` blocks carried no decoder: zpaq-std's own
+  post-processing type 2 and a `zpaqstd-ma:` tag, readable only by zpaq-std. Every
+  codec wrote that up to pre23, and some until they became portable (bsc, lzh and ppmd
+  until pre40–pre42). zpaq-std now stops on them with
+  `31320 old -ma block format, no longer supported`; zpaq-std pre48 or older still
+  reads them.
+- The code that read them is gone: 17 tag readers and 16 native decode paths.
+- The last path that could still write that format is gone too: a Lizard block too
+  large for its ZPAQL decoder's memory now stays a native zpaq block.
+- Archives with ZPAQL decoders (`zpaqstd-ma2:`) and native ones are not affected.
+- Test lab: the golden archives that hold old-format `-ma` blocks are now expected
+  failures. All 145 stop with 31320, and every native golden archive passes.
+
 ### [65.4m-pre48] - 2026-10-01
 
 #### `-ma:kanzi`: levels 5 and 6
