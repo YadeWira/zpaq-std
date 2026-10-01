@@ -1,3 +1,30 @@
+### [65.4m-pre50] - 2026-10-01
+
+#### `-ma:kanzi`: levels 3 and 4
+
+- **`-ma:kanzi:3`** (TEXT + UTF + PACK + MM + LZX, Huffman) and **`-ma:kanzi:4`** (TEXT +
+  UTF + EXE + PACK + MM + ROLZ, no entropy coder): exactly kanzi's own levels 3 and 4.
+  On 10 MB of English text (dickens) they give 30.8% and 27.4%; in the same run level
+  2 gives 38.9% and level 5 23.7%. Levels 1 to 6 are all available now; 7-9 still say
+  so (`00605`) and use 6.
+- Their blocks carry a new ZPAQL decoder, **ZPAQKANZI3**, so they open in any zpaq.
+  ZPAQKANZI and ZPAQKANZI5 are untouched. The block is the same as for levels 5-6,
+  with kanzi's static dictionary as a data prefix.
+- ZPAQKANZI3 decodes:
+  - TEXT (kanzi's word dictionary), UTF, PACK (the alias codec) and LZX;
+  - MM (kanzi's FSD codec): delta and xor, plain and bucketed;
+  - EXE: the x86 and ARM64 branch filters;
+  - ROLZ (ROLZCodec1): match length 3, 4 or 7, both kinds of keys, literals with
+    order-0 or order-1 ANS, and 16 MB chunks;
+  - every block type and every combination of skipped transforms.
+- It runs at 13-39 MB/s with JIT in zpaq 7.15. Memory in another zpaq for a 16 MB
+  block: about 96 MB for level 3 (M 64 MB + H 32 MB) and 160 MB for level 4 (M 128
+  MB + H 32 MB). zpaq-std decodes natively.
+- Written from a Python reference that was checked against kanzi's decoder (198
+  streams), then verified with zpaq 7.15 on 210 streams: 99 inputs x 2 levels, plus 12
+  blocks rebuilt to exercise other combinations of skipped transforms and FSD's xor
+  modes, which kanzi's encoder never writes, all checked with kanzi's own decoder.
+
 ### [65.4m-pre49] - 2026-10-01
 
 #### The old `-ma` format is no longer read

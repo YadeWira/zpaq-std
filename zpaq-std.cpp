@@ -24104,6 +24104,7 @@ const std::string& zpaqlz6_bytecode();     /// ZPAQLZ6, idem
 const std::string& zpaquflzma2_bytecode(); /// ZPAQUFLZMA2, idem
 const std::string& zpaqkanzi_bytecode();   /// ZPAQKANZI, idem
 const std::string& zpaqkanzi5_bytecode();  /// ZPAQKANZI5, idem
+const std::string& zpaqkanzi3_bytecode();  /// ZPAQKANZI3, idem
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24193,6 +24194,7 @@ int PostProcessor::write(int c) {
           const std::string& bu2=zpaquflzma2_bytecode();
           const std::string& bkz=zpaqkanzi_bytecode();
           const std::string& bk5=zpaqkanzi5_bytecode();
+          const std::string& bk3=zpaqkanzi3_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24213,7 +24215,8 @@ int PostProcessor::write(int c) {
            || (int(bl6.size())==hsize && memcmp(&z.header[z.hbegin], bl6.data(), hsize)==0)
            || (int(bu2.size())==hsize && memcmp(&z.header[z.hbegin], bu2.data(), hsize)==0)
            || (int(bkz.size())==hsize && memcmp(&z.header[z.hbegin], bkz.data(), hsize)==0)
-           || (int(bk5.size())==hsize && memcmp(&z.header[z.hbegin], bk5.data(), hsize)==0)) {
+           || (int(bk5.size())==hsize && memcmp(&z.header[z.hbegin], bk5.data(), hsize)==0)
+           || (int(bk3.size())==hsize && memcmp(&z.header[z.hbegin], bk3.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -24228,7 +24231,7 @@ int PostProcessor::write(int c) {
           /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano, ZPAQUFLZMA2 de ZPAQFLZMA2 tambien). Si algun dia se deriva uno nuevo de
           /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
           {
-            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5};
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3};
             for (const std::string* k: conocidos) {
               if (int(k->size())!=hsize) continue;
               int dif=0;
@@ -28019,6 +28022,39 @@ const std::string& zpaqkanzi5_bytecode() {
   return b;
 }
 
+/// ZPAQKANZI3: el decodificador de -ma:kanzi niveles 3 (TEXT+UTF+PACK+MM+LZX, Huffman)
+/// y 4 (TEXT+UTF+EXE+PACK+MM+ROLZ, sin entropia). Ver compressors/zpaqkanzi/. Mismo
+/// bloque que ZPAQKANZI5 (con el diccionario estatico). H: las tablas chicas (ROLZ y
+/// ANS de orden 1 incluidos) debajo de 2^19 y arriba las de TEXT o las coincidencias
+/// de ROLZ (65536 << 4 palabras); pm lo fija el compresor.
+#include "compressors/zpaqkanzi/zpaqkanzi3_body.h"
+int zpaqkanzi3_ph(int64_t orig) {
+  const int64_t bs=zpaqkanzi5_bs(orig);
+  int lg=0; while (((int64_t)2<<lg)<=bs/8) lg++;
+  if (lg<13) lg=13;
+  if (lg>26) lg=26;
+  const int64_t rolz=(int64_t)1<<20, txt=3*((int64_t)1<<19)+((int64_t)1<<lg)+16;
+  const int64_t need=((int64_t)1<<19)+(rolz>txt ? rolz : txt)+64;
+  int ph=20;
+  while (ph<31 && ((int64_t)1<<ph)<need) ph++;
+  return ph;
+}
+std::string zpaqkanzi3_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI3_CUERPO;
+}
+static std::string zpaqkanzi3_compilar() {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  const std::string cfg=zpaqkanzi3_config(25, 25);
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqkanzi3_bytecode() {
+  static const std::string b=zpaqkanzi3_compilar();
+  return b;
+}
+
 /// ---- ZPAQSNAPPY: bloques -ma:snappy que CUALQUIER zpaq puede extraer --------
 /// Decodificador del bloque crudo de snappy (el de snappy_compress: varint del
 /// largo + etiquetas) en ZPAQL, un byte por llamada, sin guardar el bloque. M es la
@@ -29175,12 +29211,13 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_uf2 = strncmp(method_, "zpaquflzma2:", 12)==0;  /// ZPAQUFLZMA2 (como ZPAQFLZMA2)
   const bool es_knz = strncmp(method_, "zpaqkanzi:", 10)==0;    /// ZPAQKANZI
   const bool es_kz5 = strncmp(method_, "zpaqkanzi5:", 11)==0;   /// ZPAQKANZI5 (ph sale de orig)
-  if (es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
+  const bool es_kz3 = strncmp(method_, "zpaqkanzi3:", 11)==0;   /// ZPAQKANZI3 (idem)
+  if (es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro || es_kz5) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm) ? 9 : (es_fl2 || es_sn || es_liz || es_bro || es_kz5 || es_kz3) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
         || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
@@ -29189,7 +29226,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
+    const std::string cfg=es_kz3 ? zpaqkanzi3_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
@@ -66613,8 +66650,9 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
 		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2, EXPERIMENTAL. ultra-fast-lzma2 (1..11, 5=default;");
 		scrivi_riga(" ", "    11 also picks lc/lp/pb per block); opens in any zpaq");
-		scrivi_riga(" ", "  kanzi: ZPAQKANZI(5), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
-		scrivi_riga(" ", "    default; 5=TEXT+BWT+ANS, 6=TEXT+BWT+FPAQ); opens in any zpaq");
+		scrivi_riga(" ", "  kanzi: ZPAQKANZI(3,5), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
+		scrivi_riga(" ", "    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,");
+		scrivi_riga(" ", "    6=TEXT+BWT+FPAQ); opens in any zpaq");
 		scrivi_riga(" ", "  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq");
 		scrivi_riga(" ", "  lz6: ZPAQLZ6, EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq");
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
@@ -69230,7 +69268,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					if (g_ma_algorithm=="zstd") g_ma_level=3;
 					else if (g_ma_algorithm=="flzma2") g_ma_level=5;
 					else if (g_ma_algorithm=="uflzma2") g_ma_level=5;
-					/// kanzi: 2 (DNA+LZ con Huffman); solo 1 y 2 tienen decodificador ZPAQL.
+					/// kanzi: 2 (DNA+LZ con Huffman).
 					else if (g_ma_algorithm=="kanzi") g_ma_level=2;
 					else if (g_ma_algorithm=="lizard") g_ma_level=17;
 					else if (g_ma_algorithm=="brotli") g_ma_level=11;
@@ -69285,16 +69323,15 @@ int Jidac::loadparameters(int argc, const char** argv)
 					int umax=UF2_maxCLevel();
 					if (g_ma_level>umax) g_ma_level=umax;
 				}
-				/// kanzi: 1 y 2 por ahora (los niveles que ZPAQKANZI decodifica); se avisa si
-				/// se pide otro, porque kanzi tiene 0..9 y un nivel mayor no es un error de tipeo.
+				/// kanzi: 1 a 6 (los niveles con decodificador ZPAQL: ZPAQKANZI, ZPAQKANZI3,
+				/// ZPAQKANZI5); se avisa si se pide otro, porque kanzi tiene 0..9 y un nivel
+				/// mayor no es un error de tipeo.
 				else if (g_ma_algorithm=="kanzi")
 				{
-					/// 1, 2, 5 y 6: los que tienen decodificador ZPAQL (ZPAQKANZI, ZPAQKANZI5)
-					if ((g_ma_level==3)||(g_ma_level==4)||(g_ma_level>6))
+					if (g_ma_level>6)
 					{
-						const int usar=(g_ma_level==3) ? 2 : (g_ma_level==4) ? 5 : 6;
-						myprintf("00605! -ma:kanzi:%d: only levels 1, 2, 5 and 6 are available for now (they open in any zpaq); using %d\n", g_ma_level, usar);
-						g_ma_level=usar;
+						myprintf("00605! -ma:kanzi:%d: only levels 1 to 6 are available for now (they open in any zpaq); using 6\n", g_ma_level);
+						g_ma_level=6;
 					}
 				}
 				else if (g_ma_algorithm=="lizard")
@@ -69966,7 +70003,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=5 ? "ZPAQKANZI5" : "ZPAQKANZI") : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=5 ? "ZPAQKANZI5" : g_ma_level>=3 ? "ZPAQKANZI3" : "ZPAQKANZI") : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -78120,7 +78157,7 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 kanzi decompression failed");
 				string decomp2;
 				decomp2.resize(knzp_orig);
-				const size_t kzpre = (src[4] >= 5) ? 5 + (size_t)libzpaq::ZPAQKANZI_DICT_LEN : 5;   /// 5/6 llevan el diccionario
+				const size_t kzpre = (src[4] >= 3) ? 5 + (size_t)libzpaq::ZPAQKANZI_DICT_LEN : 5;   /// 3 a 6 llevan el diccionario
 				if ((out.size() < kzpre) || (kanzi_zs_decompress(src + kzpre, out.size() - kzpre, &decomp2[0], (size_t)knzp_orig, src[4]) != 0))
 					error("31319 kanzi decompression failed");
 				out.reset();
@@ -122546,17 +122583,20 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			if (kzbuf)
 			{
 				size_t fs=kanzi_zs_compress(sb.data(),(size_t)orig_size,kzbuf,dstCap,g_ma_level);
-				/// niveles 5/6 (ZPAQKANZI5): el diccionario va detras de la cabecera, y M
-				/// guarda la entrada y dos buffers de max(blk, pre+512)+64
-				const bool k5=(g_ma_level>=5);
-				int64_t total=(int64_t)fs+5+(k5 ? libzpaq::ZPAQKANZI_DICT_LEN : 0);
+				/// niveles 3 a 6 (ZPAQKANZI3, ZPAQKANZI5): el diccionario va detras de la
+				/// cabecera, y M guarda la entrada y dos buffers de max(blk, pre+512)+64;
+				/// en el nivel 4 (ROLZ) ZPAQKANZI3 usa ademas 4 mas y la tabla f2s de ANS
+				/// (256 << 15); el nivel 3 no los toca
+				const bool k5=(g_ma_level>=5), k3=(g_ma_level==3)||(g_ma_level==4);
+				int64_t total=(int64_t)fs+5+((k5||k3) ? libzpaq::ZPAQKANZI_DICT_LEN : 0);
 				int64_t need=total+32+orig_size+orig_size/2+2048+32+orig_size+64;
-				if (k5)
+				if (k5||k3)
 				{
 					int64_t lin=(int64_t)kanzi_zs_first_pre(kzbuf,fs)+512;
 					const int64_t blk=libzpaq::zpaqkanzi5_blk(orig_size);
 					if (lin<blk) lin=blk;
-					need=total+128+2*(lin+64)+64;
+					const bool rolz=(g_ma_level==4);
+					need=total+128+(rolz ? 6 : 2)*(lin+64)+(rolz ? ((int64_t)256<<15) : 0)+64;
 				}
 				int k=17;
 				while (k<31 && ((int64_t)1<<k)<need) k++;
@@ -122574,10 +122614,10 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					hd[4]=(char)g_ma_level;
 					sb.reset();
 					sb.write(hd,5);
-					if (k5)
+					if (k5||k3)
 						sb.write(libzpaq::ZPAQKANZI_DICT,libzpaq::ZPAQKANZI_DICT_LEN);
 					sb.write(kzbuf,(int)fs);
-					m=std::string(k5 ? "zpaqkanzi5:" : "zpaqkanzi:")+itos(k)+":"+itos(orig_size)+":"+hx;
+					m=std::string(k5 ? "zpaqkanzi5:" : k3 ? "zpaqkanzi3:" : "zpaqkanzi:")+itos(k)+":"+itos(orig_size)+":"+hx;
 					ma_comment="zpaqstd-ma2:kanzi:"+itos(g_ma_level)+":"+itos(orig_size);
 				}
 				delete[] kzbuf;
