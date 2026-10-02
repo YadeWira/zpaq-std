@@ -14,6 +14,8 @@ import sys, os
 out = []
 def e(s): out.append(s)
 STAGE = int(os.environ.get('STAGE', '-1'))
+# KZROBUST=1: la version robusta ante datos danados (pre54); sin ella sale el programa congelado
+ROBUST = os.environ.get('KZROBUST') == '1'
 DLEN = 5487
 
 _next = [1]
@@ -506,10 +508,12 @@ def UTF():
     FOR(II, T2, lambda: (MG(SRC, I, T4), MS(DST, J, T4), INC(I), INC(J)))
     def emit(areg):
         HG(H_UVAL, areg, T6); HG(H_ULEN, areg, T7)
+        if ROBUST: e(f"a=r {T7} a> 0 ifl")      # indice danado fuera de la tabla: largo 0
         e("do")
         e(f"a=r {T6} a&= 255 r=a {T4}"); MS(DST, J, T4); INC(J)
         e(f"a=r {T6} a>>= 8 r=a {T6} a=r {T7} a-- r=a {T7} a> 0")
         e("while")
+        if ROBUST: e("endif")
     e(f"a=r {I} b=r {T5} a<b ifl")
     e("do")
     MG(SRC, I, T1); INC(I)
@@ -573,10 +577,12 @@ def STATICDICT():                # una vez: palabras de M[5..5+DLEN) a H_SPTR/SL
     def hs():
         HG(H_SPTR, II, T5); HG(H_SLEN, II, T6)
         SET(T4, 0x7FEB352D)
+        if ROBUST: e(f"a=r {T6} a> 0 ifl")      # diccionario danado: menos de 1024 palabras
         e("do")
         e(f"a=r {T5} c=a a=*c r=a {T7}"); HASHSTEP(T4, T7); INC(T5)
         e(f"a=r {T6} a-- r=a {T6} a> 0")
         e("while")
+        if ROBUST: e("endif")
         HS(H_SHASH, II, T4)
     FORK(II, 1024, hs)
 
@@ -738,10 +744,12 @@ def TEXT():
     e(f"    a=0 r=a {WRUN} a=r {I} a-- r=a {ANCHOR}")
     e("  endif")
     e(f"  a=r {J} r=a {T5}")
+    if ROBUST: e(f"  a=r {T3} a> 0 ifl")     # largo 0 (dato danado): no copia, como el memcpy de kanzi
     e("  do")
     e(f"    a=r {T4} c=a a=*c r=a {T8}"); MS(DST, J, T8); INC(T4); INC(J)
     e(f"    a=r {T3} a-- r=a {T3} a> 0")
     e("  while")
+    if ROBUST: e("  endif")
     e(f"  a=r {DST} b=r {T5} a+=b c=a a=*c b=r {T6} a^=b *c=a")
     e("elsel")
     e(f"  a=r {VAR} a== 2 ifl a=r {X} a== 15 ifl a= 1 elsel a=0 endif elsel a=0 endif")

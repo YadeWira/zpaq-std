@@ -48,6 +48,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:bsc:N` | libbsc 3.3.12 | 1–9 | 3 | **yes** (ZPAQBSC) |
 | `-ma:lzh:N` | LZHAM 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
 | `-ma:ppmd:N` | PPMd var.H (7-Zip SDK) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
+| `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet), kanzi's own levels: 1 = LZX, 2 = DNA + LZ + Huffman, 3 = TEXT + UTF + PACK + MM + LZX with Huffman, 4 = TEXT + UTF + EXE + PACK + MM + ROLZ, 5 = TEXT + UTF + BWT + RANK + ZRLT with ANS, 6 = the same with SRT and FPAQ, 7 = LZP + TEXT + UTF + BWT + LZP with CM, 8 = EXE + RLT + TEXT + UTF + DNA with TPAQ, 9 = the same with TPAQX (8–9 are slow and need a lot of memory in other zpaqs) | 1–9 | 2 | **yes** (ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B) |
 
 #### Experimental
 
@@ -59,7 +60,6 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default | Opens in any zpaq |
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
-| `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet), kanzi's own levels: 1 = LZX, 2 = DNA + LZ + Huffman, 3 = TEXT + UTF + PACK + MM + LZX with Huffman, 4 = TEXT + UTF + EXE + PACK + MM + ROLZ, 5 = TEXT + UTF + BWT + RANK + ZRLT with ANS, 6 = the same with SRT and FPAQ, 7 = LZP + TEXT + UTF + BWT + LZP with CM, 8 = EXE + RLT + TEXT + UTF + DNA with TPAQ, 9 = the same with TPAQX (8–9 are slow and need a lot of memory in other zpaqs) | 1–9 | 2 | **yes** (ZPAQKANZI, ZPAQKANZI3, ZPAQKANZI5B, ZPAQKANZI7, ZPAQKANZI8) |
 | `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.5.1 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
 | `-ma:lzav:N` | LZAV 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |

@@ -21,7 +21,7 @@ assert re.search(pat, src5, re.S | re.M)
 src = re.sub(pat, lambda m: bwt7, src5, count=1, flags=re.S | re.M)
 a = 'e("pcomp zpaqkanzi5 ;")'
 assert src.count(a) == 1
-src = src.replace(a, 'e("pcomp zpaqkanzi5b ;")')
+src = src.replace(a, 'e("pcomp zpaqkanzi5c ;")' if os.environ.get('KZROBUST') == '1' else 'e("pcomp zpaqkanzi5b ;")')
 a = '(ZPAQKANZI5: decodificador de kanzi 2.6.0'
 assert src.count(a) == 1
 src = src.replace(a, '(ZPAQKANZI5B: ZPAQKANZI5 con la BWT sin limite de 16 MB. Decodificador de kanzi 2.6.0')

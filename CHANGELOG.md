@@ -1,3 +1,55 @@
+### [65.4m-pre54] - 2026-10-01
+
+#### Fixed: damaged kanzi archives could take minutes to fail in other zpaqs
+
+- Every `-ma:kanzi` block carries its own ZPAQL decoder, so any zpaq can extract
+  it. Fuzzing that path with zpaq 7.15 (1,350 archives with flipped bits in the
+  block data, 150 per level) gave 296 extractions that ran past 2 minutes instead of
+  reporting the damage: 57 to 119 of 150 at levels 3, 4 and 5, one at level 2.
+- The cause was loops whose count comes from the block. With damaged data the count
+  could start at 0, so the loop ran about 4 billion times before the checksum
+  caught the result:
+  - TEXT copied a dictionary entry of length 0;
+  - TEXT's static dictionary hashed an empty word when damage left fewer than
+    1024 words;
+  - UTF read a length from outside its table;
+  - DNA read an alphabet size of 0;
+  - Huffman accepted a code length above 12 and filled its table about 2 billion
+    times. That is now an error, as in kanzi.
+- New blocks carry new decoders with those loops guarded: **ZPAQKANZI1B** (levels
+  1–2), **ZPAQKANZI3B** (3–4), **ZPAQKANZI5C** (5–6), **ZPAQKANZI7B** (7) and
+  **ZPAQKANZI8B** (8–9). Intact data never made any of those counts 0, so they
+  decode exactly what the previous decoders do, which stay frozen and recognised
+  for the archives that already carry them.
+- zpaq-std itself was not affected: it decodes kanzi natively and reported the same
+  damaged archives at once.
+
+#### `-ma:kanzi` is no longer experimental
+
+- kanzi stays pinned at 2.6.0. Its levels 1 to 9 are kanzi's own, and every
+  block carries a decoder that any zpaq can run, so the warning
+  `00603! kanzi is EXPERIMENTAL` is gone.
+
+#### Checked
+
+- Fuzzing the new decoders with zpaq 7.15: 2,700 archives, 300 per level, now
+  flipping bits anywhere in the block data, including the header and the static
+  dictionary. Every one either reported the damage or extracted correctly (21 flips
+  had no effect). 0 extractions over 2 minutes, 0 crashes, 0 wrong output
+  without an error.
+- With intact data, the new decoders on the streams that checked the old ones, with
+  zpaqd 7.15: 118 at levels 1–2, 210 at 3–4, 210 at 5–6, 114 at 7, 222 at 8–9. All
+  identical to the input, except two at levels 5–6 that a test-name collision makes
+  fail with the old decoder too.
+- Large blocks: six inputs of about 70 MB at levels 1 to 9, with default and `-m5`
+  blocks, extracted by zpaq 7.15 and by zpaq-std: 108/108 identical.
+- Windows 7 x64 and x86, with the release binaries: kanzi levels 1 to 9 and 9 with
+  `-m5`; `t` and `x` pass on everything, all 40 extractions with identical sha256.
+  Archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre53 and
+  pre54 (40/40). pre53 reads pre54 archives by running the decoder in the block.
+- Full test battery: every suite has 0 cases to review; `suite_ma_hostil` 25/25;
+  golden archives: 0 unexpected failures; `difftest` against pre53: 0 divergences.
+
 ### [65.4m-pre53] - 2026-10-01
 
 #### The 32-bit Windows build compresses again

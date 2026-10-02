@@ -6,7 +6,9 @@
 # M: la entrada desde 0; 32 ceros; A (salida de la entropia) en AB; B (salida de LZ)
 # en BB = AB + pre + 32. La salida va con out.
 # H: T (tabla de Huffman, 4096 palabras), SIZE, CNT, ORD, IDX2, MAP.
-import sys
+import sys, os
+# KZROBUST=1: la version robusta ante datos danados (pre54); sin ella sale el programa congelado
+ROBUST = os.environ.get('KZROBUST') == '1'
 out = []
 def e(s): out.append(s)
 
@@ -120,6 +122,7 @@ def HUFFMAN():                # A[0..PRE) desde el flujo
     e(f"          a=r {CUR} b=r {T4} a+=b r=a {CUR}")
     e("        endif")
     e("      endif")
+    if ROBUST: e(f"      a=r {CUR} a-- a> 11 ifl error endif")   # largo 1..12, como kanzi
     HSETK(HSIZE, S, CUR)
     INC(II); e(f"      a=r {II} b=r {K} a<b")
     e("    while")
@@ -351,12 +354,14 @@ def DNA():                    # M[SRC..+LEN) -> out
     INC(II); e(f"    a=r {II} a> 255")
     e("  until")
     e(f"  a=r {DN} r=a {KK}")
+    if ROBUST: e(f"  a=r {KK} a> 0 ifl")     # DN = 0 (dato danado)
     e("  do")
     e(f"    a=r {SI} a+= 2 r=a {T1}"); MB(SRC, T1); e(f"    r=a {T3}")            # simbolo
     MB(SRC, SI); e(f"    r=a {T1}"); INC(SI); MB(SRC, SI); e(f"    a<<= 8 b=r {T1} a+=b r=a {T1}"); INC(SI); INC(SI)
     e(f"    a= 2 a<<= 16 b=r {T1} a+=b r=a {T1}"); HSETK(HMAP, T3, T1)
     e(f"    a=r {KK} a-- r=a {KK} a> 0")
     e("  while")
+    if ROBUST: e("  endif")
     e(f"  a=r {SI} b=r {SEND} a<b ifl")
     e("    do")
     MB(SRC, SI); e(f"      r=a {T1}"); INC(SI); HGETK(HMAP, T1, V)
@@ -370,7 +375,7 @@ def DNA():                    # M[SRC..+LEN) -> out
 # ---------------------------------------------------------------------------
 e("hcomp")
 e("halt")
-e("pcomp zpaqkanzi ;")
+e("pcomp zpaqkanzi1b ;" if ROBUST else "pcomp zpaqkanzi ;")
 e("""(ZPAQKANZI: decodificador de kanzi 2.6.0, bitstream 7 sin cabecera, niveles 1 LZX
  y 2 DNA+LZ con Huffman, en ZPAQL, para zpaq-std -ma:kanzi. zpaq-std, 2026.
  Guarda el flujo en M y lo decodifica al final.)""")

@@ -24108,6 +24108,11 @@ const std::string& zpaqkanzi3_bytecode();  /// ZPAQKANZI3, idem
 const std::string& zpaqkanzi7_bytecode();  /// ZPAQKANZI7, idem
 const std::string& zpaqkanzi5b_bytecode(); /// ZPAQKANZI5B, idem
 const std::string& zpaqkanzi8_bytecode();  /// ZPAQKANZI8, idem
+const std::string& zpaqkanzi1b_bytecode(); /// pre54: los de kanzi robustos, idem
+const std::string& zpaqkanzi3b_bytecode();
+const std::string& zpaqkanzi5c_bytecode();
+const std::string& zpaqkanzi7b_bytecode();
+const std::string& zpaqkanzi8b_bytecode();
 #ifdef ZPAQLZ4
 bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
@@ -24201,6 +24206,11 @@ int PostProcessor::write(int c) {
           const std::string& bk7=zpaqkanzi7_bytecode();
           const std::string& bk5b=zpaqkanzi5b_bytecode();
           const std::string& bk8=zpaqkanzi8_bytecode();
+          const std::string& bk1r=zpaqkanzi1b_bytecode();
+          const std::string& bk3r=zpaqkanzi3b_bytecode();
+          const std::string& bk5r=zpaqkanzi5c_bytecode();
+          const std::string& bk7r=zpaqkanzi7b_bytecode();
+          const std::string& bk8r=zpaqkanzi8b_bytecode();
           if ((int(bc.size())==hsize && memcmp(&z.header[z.hbegin], bc.data(), hsize)==0)
            || (int(bl.size())==hsize && memcmp(&z.header[z.hbegin], bl.data(), hsize)==0)
            || (int(b2.size())==hsize && memcmp(&z.header[z.hbegin], b2.data(), hsize)==0)
@@ -24225,7 +24235,12 @@ int PostProcessor::write(int c) {
            || (int(bk3.size())==hsize && memcmp(&z.header[z.hbegin], bk3.data(), hsize)==0)
            || (int(bk7.size())==hsize && memcmp(&z.header[z.hbegin], bk7.data(), hsize)==0)
            || (int(bk5b.size())==hsize && memcmp(&z.header[z.hbegin], bk5b.data(), hsize)==0)
-           || (int(bk8.size())==hsize && memcmp(&z.header[z.hbegin], bk8.data(), hsize)==0)) {
+           || (int(bk8.size())==hsize && memcmp(&z.header[z.hbegin], bk8.data(), hsize)==0)
+           || (int(bk1r.size())==hsize && memcmp(&z.header[z.hbegin], bk1r.data(), hsize)==0)
+           || (int(bk3r.size())==hsize && memcmp(&z.header[z.hbegin], bk3r.data(), hsize)==0)
+           || (int(bk5r.size())==hsize && memcmp(&z.header[z.hbegin], bk5r.data(), hsize)==0)
+           || (int(bk7r.size())==hsize && memcmp(&z.header[z.hbegin], bk7r.data(), hsize)==0)
+           || (int(bk8r.size())==hsize && memcmp(&z.header[z.hbegin], bk8r.data(), hsize)==0)) {
             z.clear();
             state=1;
             break;
@@ -24240,7 +24255,7 @@ int PostProcessor::write(int c) {
           /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano, ZPAQUFLZMA2 de ZPAQFLZMA2 tambien). Si algun dia se deriva uno nuevo de
           /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
           {
-            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b,&bk8};
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bzs,&blf,&bbr,&bb3,&blh,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b,&bk8,&bk1r,&bk3r,&bk5r,&bk7r,&bk8r};
             for (const std::string* k: conocidos) {
               if (int(k->size())!=hsize) continue;
               int dif=0;
@@ -28185,6 +28200,60 @@ const std::string& zpaqkanzi7_bytecode() {
   return b;
 }
 
+/// pre54: los decodificadores de kanzi robustos ante datos danados (KZROBUST=1 en los
+/// generadores). Con datos sanos decodifican lo mismo que los anteriores; con un bloque
+/// danado, otro zpaq tardaba minutos en vez de dar error: bucles cuya cuenta sale del
+/// bloque y que con datos danados arrancaban en 0 (2^32 vueltas: TEXT, su diccionario,
+/// UTF, DNA) o en 2^31 (Huffman con un largo > 12, que ahora es error como en kanzi).
+/// Mismos ph/pm. Los anteriores quedan congelados y reconocidos para lo ya escrito.
+#include "compressors/zpaqkanzi/zpaqkanzi1b_body.h"
+#include "compressors/zpaqkanzi/zpaqkanzi3b_body.h"
+#include "compressors/zpaqkanzi/zpaqkanzi5c_body.h"
+#include "compressors/zpaqkanzi/zpaqkanzi7b_body.h"
+#include "compressors/zpaqkanzi/zpaqkanzi8b_body.h"
+std::string zpaqkanzi1b_config(int pm) {
+  return "comp 0 0 13 "+itos(pm)+" 0\n"+ZPAQKANZI1B_CUERPO;
+}
+std::string zpaqkanzi3b_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI3B_CUERPO;
+}
+std::string zpaqkanzi5c_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI5C_CUERPO;
+}
+std::string zpaqkanzi7b_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI7B_CUERPO;
+}
+std::string zpaqkanzi8b_config(int ph, int pm) {
+  return "comp 0 0 "+itos(ph)+" "+itos(pm)+" 0\n"+ZPAQKANZI8B_CUERPO;
+}
+static std::string zpaqkanzi_robusto_compilar(const std::string& cfg) {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  Compiler c(cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqkanzi1b_bytecode() {
+  static const std::string b=zpaqkanzi_robusto_compilar(zpaqkanzi1b_config(25));
+  return b;
+}
+const std::string& zpaqkanzi3b_bytecode() {
+  static const std::string b=zpaqkanzi_robusto_compilar(zpaqkanzi3b_config(25, 25));
+  return b;
+}
+const std::string& zpaqkanzi5c_bytecode() {
+  static const std::string b=zpaqkanzi_robusto_compilar(zpaqkanzi5c_config(25, 25));
+  return b;
+}
+const std::string& zpaqkanzi7b_bytecode() {
+  static const std::string b=zpaqkanzi_robusto_compilar(zpaqkanzi7b_config(25, 25));
+  return b;
+}
+const std::string& zpaqkanzi8b_bytecode() {
+  static const std::string b=zpaqkanzi_robusto_compilar(zpaqkanzi8b_config(25, 25));
+  return b;
+}
+
 /// ---- ZPAQSNAPPY: bloques -ma:snappy que CUALQUIER zpaq puede extraer --------
 /// Decodificador del bloque crudo de snappy (el de snappy_compress: varint del
 /// largo + etiquetas) en ZPAQL, un byte por llamada, sin guardar el bloque. M es la
@@ -29360,7 +29429,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=(es_kz8||es_kz9) ? zpaqkanzi8_config(zpaqkanzi8_ph((int64_t)orig, es_kz9 ? 9 : 8), pm) : es_k5b ? zpaqkanzi5b_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
+    const std::string cfg=(es_kz8||es_kz9) ? zpaqkanzi8b_config(zpaqkanzi8_ph((int64_t)orig, es_kz9 ? 9 : 8), pm) : es_k5b ? zpaqkanzi5c_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7b_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3b_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi1b_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
@@ -66901,7 +66970,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
 		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2, EXPERIMENTAL. ultra-fast-lzma2 (1..11, 5=default;");
 		scrivi_riga(" ", "    11 also picks lc/lp/pb per block); opens in any zpaq");
-		scrivi_riga(" ", "  kanzi: ZPAQKANZI(3,5B,7,8), EXPERIMENTAL. kanzi 2.6.0 (1=LZX, 2=DNA+LZ+Huffman,");
+		scrivi_riga(" ", "  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, pinned (1=LZX, 2=DNA+LZ+Huffman,");
 		scrivi_riga(" ", "    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,");
 		scrivi_riga(" ", "    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);");
 		scrivi_riga(" ", "    opens in any zpaq (8-9: slow and large memory there)");
@@ -69575,8 +69644,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 					int umax=UF2_maxCLevel();
 					if (g_ma_level>umax) g_ma_level=umax;
 				}
-				/// kanzi: 1 a 9, todos con decodificador ZPAQL (ZPAQKANZI, ZPAQKANZI3,
-				/// ZPAQKANZI5B, ZPAQKANZI7, ZPAQKANZI8); un nivel mayor se avisa y usa 9.
+				/// kanzi: 1 a 9, todos con decodificador ZPAQL (desde pre54 ZPAQKANZI1B, 3B,
+				/// 5C, 7B y 8B); un nivel mayor se avisa y usa 9.
 				else if (g_ma_algorithm=="kanzi")
 				{
 					if (g_ma_level>9)
@@ -70254,7 +70323,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=8 ? "ZPAQKANZI8" : g_ma_level>=7 ? "ZPAQKANZI7" : g_ma_level>=5 ? "ZPAQKANZI5B" : g_ma_level>=3 ? "ZPAQKANZI3" : "ZPAQKANZI") : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=8 ? "ZPAQKANZI8B" : g_ma_level>=7 ? "ZPAQKANZI7B" : g_ma_level>=5 ? "ZPAQKANZI5C" : g_ma_level>=3 ? "ZPAQKANZI3B" : "ZPAQKANZI1B") : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
@@ -70266,10 +70335,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		if (g_ma_algorithm=="uflzma2")
 			myprintf("00603! uflzma2 is EXPERIMENTAL: its compression and levels may change in future\n"
 			         "       releases. Archives already written stay readable (standard LZMA2)\n");
-		/// kanzi: el compresor y los niveles pueden cambiar; el bloque lleva su decodificador.
-		if (g_ma_algorithm=="kanzi")
-			myprintf("00603! kanzi is EXPERIMENTAL: its compression and levels may change in future\n"
-			         "       releases. Archives already written stay readable (frozen decoder)\n");
 	}
 	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{

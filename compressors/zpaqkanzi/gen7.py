@@ -17,6 +17,8 @@ import sys, os, re
 out = []
 def e(s): out.append(s)
 STAGE = int(os.environ.get('STAGE', '-1'))
+# KZROBUST=1: la version robusta ante datos danados (pre54); sin ella sale el programa congelado
+ROBUST = os.environ.get('KZROBUST') == '1'
 DLEN = 5487
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -315,7 +317,7 @@ def DEBUGSTOP(k):
 # ----------------------------------------------------------------- principal
 e("hcomp")
 e("halt")
-e("pcomp zpaqkanzi7 ;")
+e("pcomp zpaqkanzi7b ;" if ROBUST else "pcomp zpaqkanzi7 ;")
 e("""(ZPAQKANZI7: decodificador de kanzi 2.6.0, bitstream 7 sin cabecera, nivel 7
  LZP+TEXT+UTF+BWT+LZP con CM, en ZPAQL, para zpaq-std -ma:kanzi. zpaq-std, 2026.
  Guarda la entrada en M y decodifica al final. La entrada lleva el diccionario
