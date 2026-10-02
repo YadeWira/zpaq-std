@@ -138,11 +138,24 @@ zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -popgui
   (`/VERYSILENT`) install never hangs. The exit code is unchanged: the
   installer should still check it.
 
+### For GUIs: `pakka` and `-catpaqmode`
+
+Two interfaces, inherited from zpaqfranz, are meant for programs that drive zpaq-std:
+
+- **`pakka archive.zpaq`** lists an archive in a form that is easy to parse (the
+  version list, then 4 lines per item: version, date, size, name).
+- **`-catpaqmode`** turns progress into telemetry, one `@SPK@EXT@` / `@SPK@PRG@` line
+  a second, with the real percentage, bytes done, total and remaining time: when
+  adding it follows what has been compressed, when extracting or testing how far
+  each block's decoding has got.
+
+The formats are in the [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#for-guis-pakka-and--catpaqmode).
+
 ---
 
 ## No system dependencies
 
-All 17 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
+All 19 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
 zpaqfranz), together with the ZPAQL decoders and the scripts that generate them.
 No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`: just `make`, and **no
 flag needs anything installed on the host**. The tree, and the optional `mount`
