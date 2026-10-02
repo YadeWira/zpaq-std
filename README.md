@@ -207,7 +207,8 @@ On FreeBSD/OpenBSD/NetBSD use `gmake`.
 
 The classic 7z-style verbs:
 - `a` archive files into the .zpaq
-- `x` extract (optionally `-until N` to pick a version, `-to dir/`)
+- `x` extract (optionally `-until N` to pick a version, `-to dir/`; with a wildcard
+  pattern such as `"/data/*"`, `-to` replaces its literal part, also in `a`)
 - `l` list contents of a version
 - `i` show all versions and their stats
 - `c` compare / verify
