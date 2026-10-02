@@ -32,22 +32,22 @@ each block**, without installing anything — everything is bundled under `compr
 
 | Switch | Library | Levels | Default | Opens in any zpaq |
 |---|---|---|---|---|
-| `-ma:zstd:N` | zstd 1.5.7 | 1–22 | 3 | **yes** (ZPAQZSTD) |
-| `-ma:brotli:N` | brotli 1.2.0 | 0–11 | 11 | **yes** (ZPAQBROTLI) |
-| `-ma:lzma:N` | LZMA SDK 26.03 | 0–9 | 6 | **yes** (ZPAQLZMA, decoder by kaitz) |
-| `-ma:flzma2:N` | fast-lzma2 1.0.1 | 1–10 | 5 | **yes** (ZPAQFLZMA2) |
-| `-ma:lz:N` | lzlib 1.16 | 0–9 | 6 | **yes** (ZPAQLZIP) |
-| `-ma:bzip2:N` | bzip2 1.0.8 | 1–9 | 9 | **yes** (ZPAQBZIP2) |
-| `-ma:deflate:N` | libdeflate 1.26 | 0–12 | 6 | **yes** (ZPAQDEFLATE) |
-| `-ma:lizard:N` | Lizard 2.1 | 10–49 | 17 | **yes** (ZPAQLIZARD, ZPAQLIZARDH) |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | LZ5 1.5 | 1–15 | 9 | **yes** (ZPAQLZ5) |
-| `-ma:snappy:N` | Snappy 1.2.1 | 1–2 | 1 | **yes** (ZPAQSNAPPY) |
-| `-ma:lzfse` | LZFSE (Apple) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
-| `-ma:hs:N` | heatshrink 0.4.1 | 0–2 | 1 | **yes** (ZPAQHS) |
-| `-ma:bzip3:N` | bzip3 1.5.4 | 1–9 | 9 | **yes** (ZPAQBZIP3) |
-| `-ma:bsc:N` | libbsc 3.3.12 | 1–9 | 3 | **yes** (ZPAQBSC) |
-| `-ma:lzh:N` | LZHAM 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
-| `-ma:ppmd:N` | PPMd var.H (7-Zip SDK) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
+| `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 | **yes** (ZPAQZSTD) |
+| `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.0 | 0–11 | 11 | **yes** (ZPAQBROTLI) |
+| `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.03 | 0–9 | 6 | **yes** (ZPAQLZMA, decoder by kaitz) |
+| `-ma:flzma2:N` | [fast-lzma2](https://github.com/conor42/fast-lzma2) 1.0.1 | 1–10 | 5 | **yes** (ZPAQFLZMA2) |
+| `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 | **yes** (ZPAQLZIP) |
+| `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 | **yes** (ZPAQBZIP2) |
+| `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 | **yes** (ZPAQDEFLATE) |
+| `-ma:lizard:N` | [Lizard](https://github.com/inikep/lizard) 2.1 | 10–49 | 17 | **yes** (ZPAQLIZARD, ZPAQLIZARDH) |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | [LZ5](https://github.com/inikep/lizard/tree/v1.5) 1.5 (now Lizard) | 1–15 | 9 | **yes** (ZPAQLZ5) |
+| `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.2.1 | 1–2 | 1 | **yes** (ZPAQSNAPPY) |
+| `-ma:lzfse` | [LZFSE](https://github.com/lzfse/lzfse) (Apple) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
+| `-ma:hs:N` | [heatshrink](https://github.com/atomicobject/heatshrink) 0.4.1 | 0–2 | 1 | **yes** (ZPAQHS) |
+| `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.4 | 1–9 | 9 | **yes** (ZPAQBZIP3) |
+| `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.3.12 | 1–9 | 3 | **yes** (ZPAQBSC) |
+| `-ma:lzh:N` | [LZHAM](https://github.com/richgel999/lzham_codec) 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
+| `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet), kanzi's own levels: 1 = LZX, 2 = DNA + LZ + Huffman, 3 = TEXT + UTF + PACK + MM + LZX with Huffman, 4 = TEXT + UTF + EXE + PACK + MM + ROLZ, 5 = TEXT + UTF + BWT + RANK + ZRLT with ANS, 6 = the same with SRT and FPAQ, 7 = LZP + TEXT + UTF + BWT + LZP with CM, 8 = EXE + RLT + TEXT + UTF + DNA with TPAQ, 9 = the same with TPAQX (8–9 are slow and need a lot of memory in other zpaqs) | 1–9 | 2 | **yes** (ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B) |
 
 #### Experimental
@@ -61,8 +61,8 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
 | `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.5.1 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | LZ4 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
-| `-ma:lzav:N` | LZAV 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
+| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
 
 If the external pass does not beat the original by more than 16 bytes, the block
 stays native (no regression).
