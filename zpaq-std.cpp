@@ -67571,6 +67571,22 @@ string Jidac::rename(string name)
 		const int n= name.size();
 		for (unsigned i= 0; i < files.size() && i < tofiles.size(); ++i)
 		{
+			/// Un argumento con comodines (dir/carpeta/* , dir/*.txt) nunca era prefijo
+			/// literal de los nombres que expande, asi que -to se ignoraba en silencio y
+			/// quedaba la ruta completa. Si el nombre cae en el patron, se reemplaza la
+			/// parte literal (hasta la ultima / antes del primer comodin) por el destino.
+			if (iswildcards(files[i]))
+			{
+				if (!ispath(files[i].c_str(), name.c_str()))
+					continue;
+				const size_t w= files[i].find_first_of("*?");
+				const size_t s= files[i].rfind('/', w);
+				const int	 pn= (s == string::npos) ? 0 : (int)s + 1;
+				if (pn > n)
+					continue;
+				const string dest= (tofiles[i] == "") ? "" : includetrailingbackslash(tofiles[i]);
+				return dest + name.substr(pn);
+			}
 			const int fn= files[i].size();
 			if (fn <= n && files[i] == name.substr(0, fn))
 				return tofiles[i] + name.substr(fn);

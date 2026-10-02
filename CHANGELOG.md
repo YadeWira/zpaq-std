@@ -1,3 +1,37 @@
+### [65.4m-pre55] - 2026-10-01
+
+#### Fixed: `-to` was ignored when a file argument had wildcards
+
+- zpaq maps a name to its `-to` destination by replacing the file argument as a
+  literal prefix. A pattern such as `dir/carpeta/*` or `C:\dir\carpeta\*.txt` is
+  never a literal prefix of the names it matches, so `-to` was silently skipped.
+  This comes from zpaq 7.15 and zpaqfranz:
+  - `a archive "dir/carpeta/*" -to carpeta/` stored the full path instead of
+    `carpeta/...`, with no warning;
+  - `x archive "dir/data/*" -to restore/` extracted to the stored path instead of
+    `restore/`. With `-force` it **overwrote the original files**.
+- Now, when an argument has `*` or `?` and a name matches the pattern, the literal
+  part of the pattern (up to the last `/` before the first wildcard) is replaced
+  by the `-to` destination, with a `/` between them. Without wildcards, or without
+  `-to`, nothing changes.
+
+  | command | before | now |
+  |---|---|---|
+  | `a "dir/carpeta/*" -to carpeta/` | full path | `carpeta/a.txt`, `carpeta/sub/b.txt` |
+  | `a "dir/carpeta/*.txt" -to x/` | full path | `x/a.txt` |
+  | `x "data/*" -to restore/ -force` | overwrote the originals | extracts to `restore/` |
+
+- zpaqfranz 65.6i and later refuse that `x` command with `71386!` instead; `a`
+  still ignores `-to` there.
+
+#### Checked
+
+- Linux, and Windows 7 x64 and x86: with `\` and `/` and with the pattern in a
+  different case from the folder on disk.
+- Five new cases in `suite_glob`: four fail with pre54 and all pass now.
+- Full test battery: every suite has 0 cases to review; golden archives: 0
+  unexpected failures; `difftest` against pre54: 0 divergences.
+
 ### [65.4m-pre54] - 2026-10-01
 
 #### Fixed: damaged kanzi archives could take minutes to fail in other zpaqs
