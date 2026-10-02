@@ -5,6 +5,7 @@
   compressors/zpaqkanzi/. The stream is kanzi's own, without its stream header
   (headerless): the level travels in zpaq-std's block header instead.
 */
+#include <cstring>
 #include <sstream>
 #include <string>
 #include <exception>
@@ -75,6 +76,14 @@ extern "C" int kanzi_zs_decompress(const void* src, size_t srclen, void* dst, si
         const bool fin = ci.gcount() == 0;
         ci.close();
         return (ok && fin) ? 0 : 1;
+    }
+    /* out of memory is not bad data: kanzi's decoding task turns std::bad_alloc into
+       an IOException that keeps its what(), so look at both */
+    catch (const std::bad_alloc&) {
+        return 2;
+    }
+    catch (const std::exception& e) {
+        return (strstr(e.what(), "bad_alloc") != nullptr) ? 2 : 1;
     }
     catch (...) {
         return 1;

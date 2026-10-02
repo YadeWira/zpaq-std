@@ -172,8 +172,8 @@ make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (MinGW-w64)
 ```
 
 The Windows build is a self-contained `zpaq-std.exe` that runs on a clean Windows
-7+ box. **32-bit builds are extract-only** (they extract, list and test; create
-archives with a 64-bit build). More in the
+7+ box. The 32-bit Windows build compresses with at most 2 threads and is
+large-address-aware (4 GB of address space on 64-bit Windows). More in the
 [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 
 ---

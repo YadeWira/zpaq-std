@@ -236,6 +236,11 @@ ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   # (the stamp and the checksum derived from it) and no longer compare bit-exact.
   # See SOURCE_DATE_EPOCH below: the strip step rewrites the header too.
   ZPAQ_WIN_LIBS += -Wl,--no-insert-timestamp
+  # 32-bit Windows: large-address-aware, so the 32-bit build gets 4 GB of address
+  # space on 64-bit Windows (2 GB without it) when it compresses.
+  ifneq (,$(findstring i686,$(CROSS_COMPILE)))
+    ZPAQ_WIN_LIBS += -Wl,--large-address-aware
+  endif
   # RT_MANIFEST resource: enables Common-Controls v6 (themed/visual-styled progress
   # bar) for the -innosetup GUI window. Built with windres for the Windows target.
   WINRES := win/manifest_res.o

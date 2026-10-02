@@ -78423,7 +78423,14 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(knzp_orig);
 				const size_t kzpre = (src[4] >= 3) ? 5 + (size_t)libzpaq::ZPAQKANZI_DICT_LEN : 5;   /// 3 a 6 llevan el diccionario
-				if ((out.size() < kzpre) || (kanzi_zs_decompress(src + kzpre, out.size() - kzpre, &decomp2[0], (size_t)knzp_orig, src[4]) != 0))
+				if (out.size() < kzpre)
+					error("31319 kanzi decompression failed");
+				const int kzrc = kanzi_zs_decompress(src + kzpre, out.size() - kzpre, &decomp2[0], (size_t)knzp_orig, src[4]);
+				/// sin memoria (TPAQX con bloques grandes en 32 bits): bad_alloc, para que el
+				/// bloque vuelva a la cola y lo haga otro hilo cuando este libere la suya
+				if (kzrc == 2)
+					throw std::bad_alloc();
+				if (kzrc != 0)
 					error("31319 kanzi decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -123566,14 +123573,14 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 }
 int Jidac::add()
 {
-	// The 32-bit build is extract-only: heavy compression (large -ma dictionaries,
-	// -pc loading whole files into RAM, the cross-file prefetch pool) does not fit a
-	// ~2 GB address space reliably. Create/modify archives with the 64-bit build;
-	// the 32-bit build can still extract, list and test. (sizeof(void*)==4 => 32-bit.)
-	if (sizeof(void *) == 4)
+	/// 32-bit build: it compresses again (it was extract-only from 64.7g-pre15 to
+	/// 65.4m-pre52), with at most 2 threads -- the cap numberOfProcessors() already
+	/// applies, now also over an explicit -t -- so two blocks in flight fit its
+	/// address space (4 GB on 64-bit Windows: the .exe is large-address-aware).
+	if (sizeof(void *) == 4 && howmanythreads > 2)
 	{
-		myprintf("65000: compression is not supported on the 32-bit build. Use the 64-bit zpaq-std to create or modify archives (this build extracts, lists and tests).\n");
-		return 2;
+		myprintf("65000: 32-bit build: compressing with 2 threads (asked for %d)\n", howmanythreads);
+		howmanythreads= 2;
 	}
 	string externaloutputfile= "";
 	g_scritti				 = 0;

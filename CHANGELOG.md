@@ -1,3 +1,34 @@
+### [65.4m-pre53] - 2026-10-01
+
+#### The 32-bit Windows build compresses again
+
+- From 64.7g-pre15 to pre52 the x86 build was extract-only: `a` stopped with
+  `65000: compression is not supported on the 32-bit build`. It creates and updates
+  archives again, with every method.
+- Two limits keep it inside a 32-bit address space:
+  - it compresses with **at most 2 threads**, also when `-t` asks for more
+    (`65000: 32-bit build: compressing with 2 threads`);
+  - the `.exe` is now **large-address-aware**, so on 64-bit Windows it gets 4 GB of
+    address space instead of 2.
+- The measured worst case per thread is about 1.2 GB (`-ma:lz5:15`), then
+  `-ma:kanzi:9` with 64 MB blocks and `-m5`. Of the reasons for the old limit,
+  `-pc` is gone since pre14 and the prefetch pool already had a smaller cap on
+  32 bits.
+- Checked on Windows 7 with the 32-bit build, on 118 MB of data (two 63 MB blocks
+  in flight with `-m5`): `-m1` to `-m5` and 25 `-ma` codecs at their top levels,
+  each with default and `-m5` blocks, extracted again by the same build and
+  identical by sha256. The heaviest seven ran again limited to 2 GB of address
+  space, as on 32-bit Windows, with the same result.
+
+#### Fixed: running out of memory while decoding kanzi was reported as bad data
+
+- When kanzi's native decoder ran out of memory, zpaq-std said `31319 kanzi
+  decompression failed` and skipped the block. It happened on the 32-bit build
+  with 2 GB of address space, decoding two `-ma:kanzi:9` blocks of 64 MB at once.
+- Now it is treated as out of memory: the block goes back to the queue and another
+  thread decodes it once memory is free, as zpaq-std already did for its own
+  blocks. The archive was never damaged.
+
 ### [65.4m-pre52] - 2026-10-01
 
 #### `-ma:kanzi`: levels 8 and 9, the last ones
