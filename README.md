@@ -251,4 +251,6 @@ See [CONTRIBUTORS](CONTRIBUTORS) for full attributions.
 
 ## License
 
-MIT (see `LICENSE` and `COPYING`). Third-party libraries in `compressors/` keep their original licenses (BSD, Apache 2.0, etc.).
+MIT (see `LICENSE` and `COPYING`). Third-party libraries in `compressors/` keep their original licenses (BSD, MIT, Apache 2.0, LGPL-3.0 for bzip3, public domain), each in its folder.
+
+[`THIRD-PARTY-LICENSES.txt`](THIRD-PARTY-LICENSES.txt) lists everything from other authors that the release binaries contain, with the full text of each license. It is attached to every release; redistribute it with the binaries. `python3 tools/third_party_licenses.py > THIRD-PARTY-LICENSES.txt` rebuilds it.
