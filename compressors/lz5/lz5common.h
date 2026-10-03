@@ -83,6 +83,18 @@ extern "C" {
 #define MFLIMIT (WILDCOPYLENGTH+MINMATCH)
 static const int LZ5_minLength = (MFLIMIT+1);
 
+/* The largest output any LZ5 parser can produce for isize input bytes.
+ * LZ5_compressBound() is LZ4's bound and does not hold for LZ5: a 3-byte match
+ * with a 24-bit offset takes 4 output bytes, and on base64 or audio some parsers
+ * do expand past it (by up to ~4% at levels 9-13 on 16 MB of base64). Every
+ * sequence turns at least MINMATCH input bytes into at most one byte more than
+ * that - a token and a 3-byte offset - plus run-length bytes (one per 255, and
+ * one when a run starts), and the last literals add a constant. So the output
+ * stays under isize + isize/MINMATCH + isize/128 + 64. The compressors skip
+ * their output checks only when dst is at least this big; below it they check
+ * every write and return 0 rather than write past dst. */
+#define LZ5_WORST_OUTPUT(isize) ((size_t)(isize) + (size_t)(isize)/MINMATCH + (size_t)(isize)/128 + 64)
+
 #define KB *(1 <<10)
 #define MB *(1 <<20)
 #define GB *(1U<<30)
@@ -142,6 +154,33 @@ static const int LZ5_minLength = (MFLIMIT+1);
 #include "mem.h" // MEM_read
 #include "lz5.h" // LZ5HC_MAX_CLEVEL
 
+
+/* Encode a whole block as a single run of literals. That is always a valid
+ * block, and it never takes more than isize + isize/255 + 2 bytes, which
+ * LZ5_compressBound() covers. It is the fallback for a parser whose output did
+ * not fit in maxDstSize: some parsers expand incompressible-looking data (by up
+ * to ~4% on base64), and with this the documented guarantee - compression
+ * succeeds whenever maxDstSize >= LZ5_compressBound(srcSize) - holds, and the
+ * block comes out smaller than the expanded attempt would have been.
+ * Returns the compressed size, or 0 if even this does not fit. */
+FORCE_INLINE int LZ5_encodeLiteralBlock(const char* src, int isize, char* dst, int maxDstSize)
+{
+    BYTE* op = (BYTE*)dst;
+    const size_t run = (size_t)isize;
+    const size_t need = 1 + (run >= RUN_MASK ? 1 + (run - RUN_MASK) / 255 : 0) + run;
+    if (isize < 0 || maxDstSize < 0 || need > (size_t)maxDstSize) return 0;
+    if (run >= RUN_MASK) {
+        size_t len = run - RUN_MASK;
+        *op++ = (BYTE)(RUN_MASK << ML_BITS);
+        for (; len >= 255; len -= 255) *op++ = 255;
+        *op++ = (BYTE)len;
+    } else {
+        *op++ = (BYTE)(run << ML_BITS);
+    }
+    memcpy(op, src, run);
+    return (int)need;
+}
+
     
 static const U32 prime4bytes = 2654435761U;
 static const U64 prime5bytes = 889523592379ULL;
@@ -151,6 +190,11 @@ static const U32 prime3bytes = 506832829U;
 static const U64 prime6bytes = 227718039650203ULL;
 static const U64 prime7bytes = 58295818150454627ULL;
 
+/* hashLog3 == 0 means "no 3-byte hash table" (compression levels 1..3).
+ * LZ5HC_hash3(u, 0) evaluates `(u * prime3bytes) << 8 >> 32`, and a 32-bit
+ * shift by 32 is undefined behaviour : on x86 the count is masked to 5 bits,
+ * yielding a huge index and an out-of-bounds write. Callers must therefore
+ * guard every hashTable3 access with `hashLog3 != 0`. */
 static U32 LZ5HC_hash3(U32 u, U32 h) { return (u * prime3bytes) << (32-24) >> (32-h) ; }
 static size_t LZ5HC_hash3Ptr(const void* ptr, U32 h) { return LZ5HC_hash3(MEM_read32(ptr), h); }
 
@@ -302,9 +346,9 @@ static const LZ5HC_parameters LZ5HC_defaultParameters[LZ5HC_MAX_CLEVEL+1] =
 {
     /* windLog, contentLog,  H, H3,  Snum, SL, SuffL, FS, Strategy */
     {        0,          0,  0,  0,     0,  0,     0,  0, LZ5HC_fast             }, // level 0 - never used
-    { MAXD_LOG,   MAXD_LOG, 13,  0,     4,  6,     0,  0, LZ5HC_fast             }, // level 1
-    { MAXD_LOG,   MAXD_LOG, 13,  0,     2,  6,     0,  0, LZ5HC_fast             }, // level 2
-    { MAXD_LOG,   MAXD_LOG, 13,  0,     1,  5,     0,  0, LZ5HC_fast             }, // level 3
+    { MAXD_LOG,   MAXD_LOG, 13,  0,   4,  6,     0,  0, LZ5HC_fast             }, // level 1
+    { MAXD_LOG,   MAXD_LOG, 17,  0,   4,  6,     0,  0, LZ5HC_fast             }, // level 2
+    { MAXD_LOG,   MAXD_LOG, 17,  13,   4,  6,     0,  0, LZ5HC_fast             }, // level 3
     { MAXD_LOG,   MAXD_LOG, 14, 13,     1,  4,     0,  0, LZ5HC_price_fast       }, // level 4
     { MAXD_LOG,   MAXD_LOG, 17, 13,     1,  4,     0,  0, LZ5HC_price_fast       }, // level 5
     { MAXD_LOG,   MAXD_LOG, 15, 13,     1,  4,     0,  0, LZ5HC_lowest_price     }, // level 6
@@ -312,7 +356,7 @@ static const LZ5HC_parameters LZ5HC_defaultParameters[LZ5HC_MAX_CLEVEL+1] =
     { MAXD_LOG,   MAXD_LOG, 19, 16,     1,  4,     0,  0, LZ5HC_lowest_price     }, // level 8
     { MAXD_LOG,   MAXD_LOG, 23, 16,     3,  4,     0,  0, LZ5HC_lowest_price     }, // level 9
     { MAXD_LOG,   MAXD_LOG, 23, 16,     8,  4,     0,  0, LZ5HC_lowest_price     }, // level 10
-    { MAXD_LOG,   MAXD_LOG, 23, 16,     8,  4,    12,  0, LZ5HC_optimal_price    }, // level 11
+    { MAXD_LOG,   MAXD_LOG, 23, 16,     6,  4,    32,  0, LZ5HC_optimal_price    }, // level 11
     { MAXD_LOG,   MAXD_LOG, 23, 16,     8,  4,    64,  0, LZ5HC_optimal_price    }, // level 12
     { MAXD_LOG, MAXD_LOG+1, 23, 16,     8,  4,    64,  1, LZ5HC_optimal_price_bt }, // level 13
     { MAXD_LOG, MAXD_LOG+1, 23, 16,   128,  4,    64,  1, LZ5HC_optimal_price_bt }, // level 14

@@ -80,7 +80,7 @@ typedef enum { full = 0, partial = 1 } earlyEnd_directive;
 **************************************/
 int LZ5_versionNumber (void) { return LZ5_VERSION_NUMBER; }
 int LZ5_compressBound(int isize)  { return LZ5_COMPRESSBOUND(isize); }
-int LZ5_sizeofState() { return LZ5_STREAMSIZE; }
+int LZ5_sizeofState(void) { return LZ5_STREAMSIZE; }
 
 
 
@@ -160,8 +160,12 @@ FORCE_INLINE int LZ5_compress_generic(
     const BYTE* lowLimit;
     const BYTE* const lowRefLimit = ip - dictPtr->dictSize;
     const BYTE* const dictionary = dictPtr->dictionary;
-    const BYTE* const dictEnd = dictionary + dictPtr->dictSize;
-    const size_t dictDelta = dictEnd - (const BYTE*)source;
+    /* dictionary is NULL in the noDict case : adding dictSize (0) to it, and
+     * subtracting it from source below, are both undefined behaviour. Both
+     * values are only ever read on the usingExtDict path, where dictionary is
+     * guaranteed non-NULL by the caller. */
+    const BYTE* const dictEnd = (dictionary == NULL) ? NULL : dictionary + dictPtr->dictSize;
+    const size_t dictDelta = (dictionary == NULL) ? 0 : (size_t)(dictEnd - (const BYTE*)source);
     const BYTE* anchor = (const BYTE*) source;
     const BYTE* const iend = ip + inputSize;
     const BYTE* const mflimit = iend - MFLIMIT;
@@ -240,7 +244,9 @@ FORCE_INLINE int LZ5_compress_generic(
         }
 
         /* Catch up */
-        while ((ip>anchor) && (match+refDelta > lowLimit) && (unlikely(ip[-1]==match[refDelta-1]))) { ip--; match--; }
+        /* refDelta is size_t : writing match[refDelta-1] would underflow it to
+         * SIZE_MAX when refDelta is 0. Offset the pointer first instead. */
+        while ((ip>anchor) && (match+refDelta > lowLimit) && (unlikely(ip[-1]==(match+refDelta)[-1]))) { ip--; match--; }
 
         {
             /* Encode Literal length */
@@ -329,14 +335,25 @@ _next_match:
                 ip += MINMATCH + matchLength;
             }
 
-            if ((outputLimited) && (unlikely(op + (1 + LASTLITERALS) + (matchLength>>8) > olimit)))
-                return 0;    /* Check output limit */
+            /* The match length is emitted as a run of 0xFF bytes followed by a
+             * final byte. Checking olimit before each write is exact; the
+             * historical (matchLength>>8) estimate could underestimate the
+             * byte count by up to 5 on very long matches, overflowing dst when
+             * the caller sized it exactly. */
             if (matchLength>=ML_MASK)
             {
+                if ((outputLimited) && (unlikely(op + 2 > olimit))) return 0;   /* Check output limit */
                 *token += ML_MASK;
                 matchLength -= ML_MASK;
-                for (; matchLength >= 510 ; matchLength-=510) { *op++ = 255; *op++ = 255; }
-                if (matchLength >= 255) { matchLength-=255; *op++ = 255; }
+                for (; matchLength >= 510 ; matchLength-=510) {
+                    if ((outputLimited) && (unlikely(op + 2 > olimit))) return 0;
+                    *op++ = 255; *op++ = 255;
+                }
+                if (matchLength >= 255) {
+                    if ((outputLimited) && (unlikely(op + 2 > olimit))) return 0;
+                    matchLength-=255; *op++ = 255;
+                }
+                if ((outputLimited) && (unlikely(op + 1 > olimit))) return 0;
                 *op++ = (BYTE)matchLength;
             }
             else *token += (BYTE)(matchLength);
@@ -406,7 +423,13 @@ int LZ5_compress_fast_extState(void* state, const char* source, char* dest, int 
     LZ5_resetStream((LZ5_stream_t*)state);
     if (acceleration < 1) acceleration = ACCELERATION_DEFAULT;
 
-    if (maxOutputSize >= LZ5_compressBound(inputSize))
+    /* Reject negative sizes explicitly. LZ5_compress_generic() computes
+     * iend = ip + inputSize and olimit = op + maxOutputSize, so a negative
+     * value would place both limits before the start of the buffer. */
+    if (inputSize < 0) return 0;
+    if (maxOutputSize < 0) return 0;
+
+    if ((size_t)maxOutputSize >= LZ5_WORST_OUTPUT(inputSize))   /* not LZ5_compressBound: see LZ5_WORST_OUTPUT */
     {
         if (inputSize < LZ5_64Klimit)
             return LZ5_compress_generic(state, source, dest, inputSize, 0, notLimited, byU16,                        noDict, noDictIssue, acceleration);
@@ -415,10 +438,16 @@ int LZ5_compress_fast_extState(void* state, const char* source, char* dest, int 
     }
     else
     {
+        int result;
         if (inputSize < LZ5_64Klimit)
-            return LZ5_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, byU16,                        noDict, noDictIssue, acceleration);
+            result = LZ5_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, byU16,                        noDict, noDictIssue, acceleration);
         else
-            return LZ5_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, MEM_64bits() ? byU32 : byPtr, noDict, noDictIssue, acceleration);
+            result = LZ5_compress_generic(state, source, dest, inputSize, maxOutputSize, limitedOutput, MEM_64bits() ? byU32 : byPtr, noDict, noDictIssue, acceleration);
+        /* did not fit, but the caller gave LZ5_compressBound(): store the block
+         * as literals, which always fits that (see LZ5_encodeLiteralBlock) */
+        if (result == 0 && inputSize > 0 && maxOutputSize >= LZ5_compressBound(inputSize))
+            result = LZ5_encodeLiteralBlock(source, inputSize, dest, maxOutputSize);
+        return result;
     }
 }
 
@@ -679,7 +708,10 @@ static int LZ5_compress_destSize_extState (void* state, const char* src, char* d
 {
     LZ5_resetStream((LZ5_stream_t*)state);
 
-    if (targetDstSize >= LZ5_compressBound(*srcSizePtr))   /* compression success is guaranteed */
+    if ((*srcSizePtr) < 0) return 0;
+    if (targetDstSize < 0) return 0;
+
+    if ((size_t)targetDstSize >= LZ5_WORST_OUTPUT(*srcSizePtr))   /* compression success is guaranteed */
     {
         return LZ5_compress_fast_extState(state, src, dst, *srcSizePtr, targetDstSize, 1);
     }
@@ -795,9 +827,14 @@ static void LZ5_renormDictT(LZ5_stream_t_internal* LZ5_dict, const BYTE* src)
 int LZ5_compress_fast_continue (LZ5_stream_t* LZ5_stream, const char* source, char* dest, int inputSize, int maxOutputSize, int acceleration)
 {
     LZ5_stream_t_internal* streamPtr = (LZ5_stream_t_internal*)LZ5_stream;
-    const BYTE* const dictEnd = streamPtr->dictionary + streamPtr->dictSize;
+    /* dictionary is NULL before the first block, and NULL + 0 is undefined
+     * behaviour (UBSan reports it). Every use below compares the same way
+     * against NULL as it did against NULL + 0. */
+    const BYTE* const dictEnd = (streamPtr->dictionary == NULL) ? NULL : streamPtr->dictionary + streamPtr->dictSize;
 
     const BYTE* smallest = (const BYTE*) source;
+    if (inputSize < 0) return 0;
+    if (maxOutputSize < 0) return 0;
     if (streamPtr->initCheck) return 0;   /* Uninitialized structure detected */
     if ((streamPtr->dictSize>0) && (smallest>dictEnd)) smallest = dictEnd;
     LZ5_renormDictT(streamPtr, smallest);
@@ -823,6 +860,8 @@ int LZ5_compress_fast_continue (LZ5_stream_t* LZ5_stream, const char* source, ch
             result = LZ5_compress_generic(LZ5_stream, source, dest, inputSize, maxOutputSize, limitedOutput, byU32, withPrefix64k, dictSmall, acceleration);
         else
             result = LZ5_compress_generic(LZ5_stream, source, dest, inputSize, maxOutputSize, limitedOutput, byU32, withPrefix64k, noDictIssue, acceleration);
+        if (result == 0 && inputSize > 0 && maxOutputSize >= LZ5_compressBound(inputSize))   /* see LZ5_encodeLiteralBlock */
+            result = LZ5_encodeLiteralBlock(source, inputSize, dest, maxOutputSize);
         streamPtr->dictSize += (U32)inputSize;
         streamPtr->currentOffset += (U32)inputSize;
         return result;
@@ -835,6 +874,8 @@ int LZ5_compress_fast_continue (LZ5_stream_t* LZ5_stream, const char* source, ch
             result = LZ5_compress_generic(LZ5_stream, source, dest, inputSize, maxOutputSize, limitedOutput, byU32, usingExtDict, dictSmall, acceleration);
         else
             result = LZ5_compress_generic(LZ5_stream, source, dest, inputSize, maxOutputSize, limitedOutput, byU32, usingExtDict, noDictIssue, acceleration);
+        if (result == 0 && inputSize > 0 && maxOutputSize >= LZ5_compressBound(inputSize))   /* see LZ5_encodeLiteralBlock */
+            result = LZ5_encodeLiteralBlock(source, inputSize, dest, maxOutputSize);
         streamPtr->dictionary = (const BYTE*)source;
         streamPtr->dictSize = (U32)inputSize;
         streamPtr->currentOffset += (U32)inputSize;
@@ -848,7 +889,7 @@ int LZ5_compress_forceExtDict (LZ5_stream_t* LZ5_dict, const char* source, char*
 {
     LZ5_stream_t_internal* streamPtr = (LZ5_stream_t_internal*)LZ5_dict;
     int result;
-    const BYTE* const dictEnd = streamPtr->dictionary + streamPtr->dictSize;
+    const BYTE* const dictEnd = (streamPtr->dictionary == NULL) ? NULL : streamPtr->dictionary + streamPtr->dictSize;   /* NULL + 0 is UB */
 
     const BYTE* smallest = dictEnd;
     if (smallest > (const BYTE*) source) smallest = (const BYTE*) source;
@@ -867,9 +908,10 @@ int LZ5_compress_forceExtDict (LZ5_stream_t* LZ5_dict, const char* source, char*
 int LZ5_saveDict (LZ5_stream_t* LZ5_dict, char* safeBuffer, int dictSize)
 {
     LZ5_stream_t_internal* dict = (LZ5_stream_t_internal*) LZ5_dict;
-	const BYTE* previousDictEnd = dict->dictionary + dict->dictSize;
-	if (!dict->dictionary)
+    const BYTE* previousDictEnd;
+    if (!dict->dictionary)
         return 0;
+    previousDictEnd = dict->dictionary + dict->dictSize;   /* only once it is known not to be NULL */
 
     if ((U32)dictSize > LZ5_DICT_SIZE) dictSize = LZ5_DICT_SIZE;   /* useless to define a dictionary > LZ5_DICT_SIZE */
     if ((U32)dictSize > dict->dictSize) dictSize = dict->dictSize;
@@ -918,7 +960,9 @@ FORCE_INLINE int LZ5_decompress_generic(
     BYTE* oexit = op + targetOutputSize;
     const BYTE* const lowLimit = lowPrefix - dictSize;
 
-    const BYTE* const dictEnd = (const BYTE*)dictStart + dictSize;
+    /* dictStart is NULL when there is no dictionary (noDict) : adding 0 to a
+     * null pointer is undefined behaviour, even though the result is unused. */
+    const BYTE* const dictEnd = (dictStart == NULL) ? NULL : (const BYTE*)dictStart + dictSize;
     const unsigned dec32table[] = {4, 1, 2, 1, 4, 4, 4, 4};
     const int dec64table[] = {0, 0, 0, -1, 0, 1, 2, 3};
 
@@ -976,26 +1020,44 @@ FORCE_INLINE int LZ5_decompress_generic(
 
         /* copy literals */
         cpy = op+length;
-        if (((endOnInput) && ((cpy>(partialDecoding?oexit:oend-WILDCOPYLENGTH)) || (ip+length>iend-(0+1+LASTLITERALS))) )
+        /* MEM_wildCopy moves 8 bytes at a time, so it reads up to 7 bytes past the
+         * literals (8 when there are none). The end-of-block test used to leave only
+         * 1+LASTLITERALS input bytes after them, so near the end of the input the
+         * wide copy read past it - by up to 2 bytes, on valid streams too (a
+         * literal-free repeat-offset sequence right before the final 6-byte tail).
+         * The test now reserves WILDCOPYLENGTH bytes, which keeps a single compare
+         * on the hot path; inside it, literals that are not the last ones of the
+         * block get an exact copy and decoding carries on. */
+        if (((endOnInput) && ((cpy>(partialDecoding?oexit:oend-WILDCOPYLENGTH)) || (ip+length>iend-WILDCOPYLENGTH)) )
             || ((!endOnInput) && (cpy>oend-WILDCOPYLENGTH)))
         {
-            if (partialDecoding)
+            if (likely((endOnInput) && (cpy <= (partialDecoding?oexit:oend-WILDCOPYLENGTH)) && (ip+length <= iend-(0+1+LASTLITERALS))))
             {
-                if (cpy > oend) goto _output_error;                           /* Error : write attempt beyond end of output buffer */
-                if ((endOnInput) && (ip+length > iend)) goto _output_error;   /* Error : read attempt beyond end of input buffer */
+                while (op < cpy) *op++ = *ip++;   /* close to the input end, but not the last literals */
             }
             else
             {
-                if ((!endOnInput) && (cpy != oend)) goto _output_error;       /* Error : block decoding must stop exactly there */
-                if ((endOnInput) && ((ip+length != iend) || (cpy > oend))) goto _output_error;   /* Error : input must be consumed */
+                if (partialDecoding)
+                {
+                    if (cpy > oend) goto _output_error;                           /* Error : write attempt beyond end of output buffer */
+                    if ((endOnInput) && (ip+length > iend)) goto _output_error;   /* Error : read attempt beyond end of input buffer */
+                }
+                else
+                {
+                    if ((!endOnInput) && (cpy != oend)) goto _output_error;       /* Error : block decoding must stop exactly there */
+                    if ((endOnInput) && ((ip+length != iend) || (cpy > oend))) goto _output_error;   /* Error : input must be consumed */
+                }
+                memcpy(op, ip, length);
+                ip += length;
+                op += length;
+                break;     /* Necessarily EOF, due to parsing restrictions */
             }
-            memcpy(op, ip, length);
-            ip += length;
-            op += length;
-            break;     /* Necessarily EOF, due to parsing restrictions */
         }
-        MEM_wildCopy(op, ip, cpy);
-        ip += length; op = cpy;
+        else
+        {
+            MEM_wildCopy(op, ip, cpy);
+            ip += length; op = cpy;
+        }
 
         /* get offset */
 #if 0
@@ -1010,24 +1072,25 @@ FORCE_INLINE int LZ5_decompress_generic(
                 {    offset = MEM_readLE24(ip); ip+=3; }
                 break;
         }
-#else 
-        if (token>>7)
+#else
+        if (token >> 7)
         {
+            /* 10-bit offset: the most common class on the fast levels and well
+             * predicted, so it keeps a branch - an indexed table load here only
+             * adds latency to the input pointer. */
             offset = *ip + (((token>>ML_RUN_BITS2)&3)<<8); ip++;
         }
-        else 
-        if ((token>>ML_RUN_BITS) == 0)
-        {
-            offset = MEM_readLE16(ip); ip+=2;
-        }
         else
-        if ((token>>ML_RUN_BITS2) == 2)
         {
-            offset = MEM_readLE24(ip); ip+=3;
-        }
-        else // (token>>ML_RUN_BITS2) == 3
-        {
-            offset = last_off;
+            /* 16-bit, 24-bit and last-offset: branch-free. One 32-bit load covers
+             * the widest offset, and the number of bytes consumed (2, 3 or 0) is
+             * computed rather than looked up. The literal-copy check above leaves
+             * at least 1+LASTLITERALS input bytes, so reading 4 at ip is in bounds. */
+            const unsigned c2 = (token >> 5) & 3;
+            const unsigned adv = 2u + (c2 == 2) - 2u * (c2 == 3);
+            offset = MEM_readLE32(ip) & ((1u << (8*adv)) - 1u);
+            ip += adv;
+            if (c2 == 3) offset = last_off;
         }
 #endif
 
@@ -1129,11 +1192,16 @@ _output_error:
 
 int LZ5_decompress_safe(const char* source, char* dest, int compressedSize, int maxDecompressedSize)
 {
+    if (compressedSize < 0) return -1;
+    if (maxDecompressedSize < 0) return -1;
     return LZ5_decompress_generic(source, dest, compressedSize, maxDecompressedSize, endOnInputSize, full, 0, noDict, (BYTE*)dest, NULL, 0);
 }
 
 int LZ5_decompress_safe_partial(const char* source, char* dest, int compressedSize, int targetOutputSize, int maxDecompressedSize)
 {
+    if (compressedSize < 0) return -1;
+    if (targetOutputSize < 0) return -1;
+    if (maxDecompressedSize < 0) return -1;
     return LZ5_decompress_generic(source, dest, compressedSize, maxDecompressedSize, endOnInputSize, partial, targetOutputSize, noDict, (BYTE*)dest, NULL, 0);
 }
 
@@ -1181,7 +1249,8 @@ int LZ5_setStreamDecode (LZ5_streamDecode_t* LZ5_streamDecode, const char* dicti
 {
     LZ5_streamDecode_t_internal* lz5sd = (LZ5_streamDecode_t_internal*) LZ5_streamDecode;
     lz5sd->prefixSize = (size_t) dictSize;
-    lz5sd->prefixEnd = (const BYTE*) dictionary + dictSize;
+    /* (NULL, 0) is the usual way to reset a decoder, and NULL + 0 is UB */
+    lz5sd->prefixEnd = (dictionary == NULL) ? NULL : (const BYTE*) dictionary + dictSize;
     lz5sd->externalDict = NULL;
     lz5sd->extDictSize  = 0;
     return 1;
@@ -1199,6 +1268,9 @@ int LZ5_decompress_safe_continue (LZ5_streamDecode_t* LZ5_streamDecode, const ch
     LZ5_streamDecode_t_internal* lz5sd = (LZ5_streamDecode_t_internal*) LZ5_streamDecode;
     int result;
 
+    if (compressedSize < 0) return -1;
+    if (maxOutputSize < 0) return -1;
+
     if (lz5sd->prefixEnd == (BYTE*)dest)
     {
         result = LZ5_decompress_generic(source, dest, compressedSize, maxOutputSize,
@@ -1211,7 +1283,9 @@ int LZ5_decompress_safe_continue (LZ5_streamDecode_t* LZ5_streamDecode, const ch
     else
     {
         lz5sd->extDictSize = lz5sd->prefixSize;
-        lz5sd->externalDict = lz5sd->prefixEnd - lz5sd->extDictSize;
+        /* prefixEnd is NULL on the first block of a fresh decoder (size 0), and
+         * NULL - 0 is UB; the decoder accepts a NULL dictionary of size 0 */
+        lz5sd->externalDict = (lz5sd->prefixEnd == NULL) ? NULL : lz5sd->prefixEnd - lz5sd->extDictSize;
         result = LZ5_decompress_generic(source, dest, compressedSize, maxOutputSize,
                                         endOnInputSize, full, 0,
                                         usingExtDict, (BYTE*)dest, lz5sd->externalDict, lz5sd->extDictSize);
@@ -1313,7 +1387,7 @@ int LZ5_uncompress_unknownOutputSize (const char* source, char* dest, int isize,
 
 /* Obsolete Streaming functions */
 
-int LZ5_sizeofStreamState() { return LZ5_STREAMSIZE; }
+int LZ5_sizeofStreamState(void) { return LZ5_STREAMSIZE; }
 
 static void LZ5_init(LZ5_stream_t_internal* lz5ds, BYTE* base)
 {

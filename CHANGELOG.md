@@ -1,3 +1,44 @@
+### [65.4m-pre56] - 2026-10-02
+
+#### `-ma:lz5` uses lz5-ex instead of LZ5 1.5
+
+- [lz5-ex](https://github.com/YadeWira/lz5-ex) (commit 5541227) is a maintained fork
+  of LZ5 1.5 with the same block format. The ZPAQLZ5 decoder that every `-ma:lz5`
+  block carries does not change, so archives from before and after extract with
+  both versions and with any zpaq.
+- Measured on 96 MB (text, executable, image, audio, incompressible, mixed):
+  - `lz5hc` levels 1 to 11, and `-ma:lz5` with its default level 9, write blocks
+    0.1-1.2% smaller;
+  - `lz5f`, `-ma:lz5:1` to `:4` and `lz5hc` 12 to 15 write the same bytes as
+    before;
+  - level 15 compresses about 5% slower; the other levels measured, and
+    extraction, run at the same speed.
+- Two out-of-bounds reads in LZ5 1.5 are gone. `LZ5_decompress_safe` could read
+  1-2 bytes past the end of its input, and the HC match finder 1 byte past the end
+  of the data. Neither showed in zpaq-std, whose buffers have spare capacity, but
+  AddressSanitizer finds both in LZ5 1.5 with buffers of the exact size.
+
+#### ultra-fast-lzma2 1.6.0
+
+- `-ma:uflzma2` moves from 1.5.1 to 1.6.0. The codec itself (encoder, match finder,
+  LZMA2 decoder, assembler) did not change and the blocks are byte-identical; 1.6.0
+  adds .xz streaming features that zpaq-std does not use.
+
+#### Checked
+
+- lz5-ex:
+  - its six library files are identical to commit 5541227 on GitHub;
+  - 180 combinations (`lz5f` and `lz5hc` at levels 1 to 15, six inputs) extract
+    identically with zpaq 7.15 (ZPAQLZ5) and natively;
+  - pre55 extracts the new blocks;
+  - 1,200 damaged blocks, natively under AddressSanitizer: every one reported or
+    harmless, no memory error, hang or silent corruption; zpaq 7.15 handled all
+    of them too;
+  - the exact-size buffer test: clean, also with `LZ5_compressBound` as the
+    output limit, which overflowed in LZ5 1.5.
+- ultra-fast-lzma2 1.6.0: levels 1 to 11 on the six inputs, byte-identical to 1.5.1
+  (66/66) and extracted by zpaq 7.15 and natively.
+
 ### [65.4m-pre55] - 2026-10-01
 
 #### Fixed: `-to` was ignored when a file argument had wildcards

@@ -45,6 +45,30 @@
 #include "lz5hc.h"
 #include <stdio.h>
 #include <stdint.h>
+#if defined(__linux__)
+#  include <sys/mman.h>   /* madvise */
+#endif
+
+
+/* The HC tables are big (1 GB of hash at level 15) and accessed at random. They
+ * come from calloc, so their pages are mapped lazily, one fault at a time,
+ * wherever the hash lands - and on a loaded or fragmented machine the kernel then
+ * backs them with 4 KB pages. Asking for transparent huge pages up front lets
+ * those faults take 2 MB pages instead, which cuts the TLB misses of the random
+ * walk; it costs nothing for small inputs, since only touched regions are filled.
+ * Measured at level 15 on 16 MB blocks: 8-12% faster, back to LZ5 1.5.0's speed
+ * when that one is built with LZ5_RESET_MEM (its memset pre-faulted the tables). */
+static void LZ5HC_preferHugePages(void* table, size_t size)
+{
+#if defined(__linux__) && defined(MADV_HUGEPAGE)
+    const size_t page = 4096;
+    const size_t start = ((size_t)table + page - 1) & ~(page - 1);
+    if (size >= ((size_t)2 << 20) + (start - (size_t)table))
+        (void)madvise((void*)start, size - (start - (size_t)table), MADV_HUGEPAGE);   /* only a hint */
+#else
+    (void)table; (void)size;
+#endif
+}
 
 
 /**************************************
@@ -60,18 +84,36 @@ int LZ5_alloc_mem_HC(LZ5HC_Data_Structure* ctx, int compressionLevel)
 
     ctx->params = LZ5HC_defaultParameters[ctx->compressionLevel];
 
-    ctx->hashTable = (U32*) malloc(sizeof(U32)*(((size_t)1 << ctx->params.hashLog3)+((size_t)1 << ctx->params.hashLog)));
+    /* Tables must be zeroed : index 0 is the "empty" sentinel, and lowLimit is
+     * always >= 1, so a 0 entry is correctly rejected as out of range.
+     * Using malloc here leaves the tables uninitialised, which makes the
+     * match search read stale heap data and produces a non-deterministic
+     * (and out-of-bounds) compression ratio. */
+    ctx->hashTable = (U32*) calloc(((size_t)1 << ctx->params.hashLog3)+((size_t)1 << ctx->params.hashLog), sizeof(U32));
     if (!ctx->hashTable)
         return 0;
+    LZ5HC_preferHugePages(ctx->hashTable, sizeof(U32)*(((size_t)1 << ctx->params.hashLog3)+((size_t)1 << ctx->params.hashLog)));
 
     ctx->hashTable3 = ctx->hashTable + ((size_t)1 << ctx->params.hashLog);
 
-    ctx->chainTable = (U32*) malloc(sizeof(U32)*((size_t)1 << ctx->params.contentLog));
-    if (!ctx->chainTable)
+    /* The chain table is read and written only by the price, lowest-price and
+     * optimal strategies - they walk it in LZ5HC_Insert / FindMatchFast. The
+     * fast strategy indexes the hash tables directly, so levels 1-3 used to
+     * carry a 16 MB allocation (contentLog 22) that was never touched. */
+    if (ctx->params.strategy == LZ5HC_fast)
     {
-        FREEMEM(ctx->hashTable);
-        ctx->hashTable = NULL;
-        return 0;
+        ctx->chainTable = NULL;
+    }
+    else
+    {
+        ctx->chainTable = (U32*) calloc((size_t)1 << ctx->params.contentLog, sizeof(U32));
+        if (!ctx->chainTable)
+        {
+            FREEMEM(ctx->hashTable);
+            ctx->hashTable = NULL;
+            return 0;
+        }
+        LZ5HC_preferHugePages(ctx->chainTable, sizeof(U32)*((size_t)1 << ctx->params.contentLog));
     }
 
     return 1;
@@ -122,10 +164,10 @@ FORCE_INLINE void LZ5HC_BinTree_Insert(LZ5HC_Data_Structure* ctx, const BYTE* ip
     
     while(idx < target)
     {
-        HashTable3[LZ5HC_hash3Ptr(base+idx, ctx->params.hashLog3)] = idx;
+        if (ctx->params.hashLog3)
+            HashTable3[LZ5HC_hash3Ptr(base+idx, ctx->params.hashLog3)] = idx;
         idx++;
     }
-
     ctx->nextToUpdate = target;
 #endif 
 }
@@ -163,8 +205,9 @@ FORCE_INLINE void LZ5HC_BinTree_InsertFull(LZ5HC_Data_Structure* ctx, const BYTE
         HashPos = &HashTable[LZ5HC_hashPtr(ip, ctx->params.hashLog, ctx->params.searchLength)];
         matchIndex = *HashPos;
 #if MINMATCH == 3
-        HashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)] = idx;
-#endif 
+        if (ctx->params.hashLog3)
+            HashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)] = idx;
+#endif
 
         // check rest of matches
         ptr0 = &chainTable[(idx*2+1) & contentMask];
@@ -203,7 +246,9 @@ FORCE_INLINE void LZ5HC_BinTree_InsertFull(LZ5HC_Data_Structure* ctx, const BYTE
                 }
             }
             
-            if (*(ip+mlt) < *(match+mlt))
+            /* the byte after the match: once a dictionary match has run into the prefix, it
+             * is read from base, not dictBase (that read went past the dictionary) */
+            if (*(ip+mlt) < *(((matchIndex + mlt >= dictLimit) ? base + matchIndex : match) + mlt))
             {
                 *ptr0 = delta0;
                 ptr0 = &chainTable[(matchIndex*2) & contentMask];
@@ -251,12 +296,16 @@ FORCE_INLINE void LZ5HC_Insert (LZ5HC_Data_Structure* ctx, const BYTE* ip)
     while(idx < target)
     {
         size_t h = LZ5HC_hashPtr(base+idx, ctx->params.hashLog, ctx->params.searchLength);
-        chainTable[idx & contentMask] = (U32)(idx - HashTable[h]);
-//        if (chainTable[idx & contentMask] == 1) chainTable[idx & contentMask] = (U32)0x01010101;
+        /* chainTable is NULL for the fast strategy, which never reads it - the
+         * dict catch-up path still runs LZ5HC_Insert, so the write is guarded
+         * rather than assumed away. */
+        if (chainTable)
+            chainTable[idx & contentMask] = (U32)(idx - HashTable[h]);
         HashTable[h] = idx;
 #if MINMATCH == 3
-        HashTable3[LZ5HC_hash3Ptr(base+idx, ctx->params.hashLog3)] = idx;
-#endif 
+        if (ctx->params.hashLog3)
+            HashTable3[LZ5HC_hash3Ptr(base+idx, ctx->params.hashLog3)] = idx;
+#endif
        idx++;
     }
 
@@ -264,6 +313,20 @@ FORCE_INLINE void LZ5HC_Insert (LZ5HC_Data_Structure* ctx, const BYTE* ip)
 }
 
     
+/* The repeat-offset candidate (ip - rep) is only usable inside the current
+ * prefix: the contiguous input being compressed and whatever precedes it in the
+ * same buffer. With an external dictionary (LZ5_loadDictHC, or a non-contiguous
+ * LZ5_compress_HC_continue block) the dictionary lives elsewhere in memory, so
+ * the bytes physically before the prefix are not the ones the decoder will
+ * reference. Comparing against them read foreign memory and could emit a match
+ * that decodes to other bytes. A repeat offset into the dictionary is skipped
+ * instead; the regular match finders still reach it through dictBase. */
+FORCE_INLINE int LZ5HC_repInPrefix(const LZ5HC_Data_Structure* ctx, const BYTE* ip, size_t rep)
+{
+    return (size_t)(ip - (ctx->base + ctx->dictLimit)) >= rep;
+}
+
+
 FORCE_INLINE int LZ5HC_FindBestMatch (LZ5HC_Data_Structure* ctx,   /* Index table will be updated */
                                                const BYTE* ip, const BYTE* const iLimit,
                                                const BYTE** matchpos)
@@ -285,7 +348,7 @@ FORCE_INLINE int LZ5HC_FindBestMatch (LZ5HC_Data_Structure* ctx,   /* Index tabl
     matchIndex = HashTable[LZ5HC_hashPtr(ip, ctx->params.hashLog, ctx->params.searchLength)];
 
     match = ip - ctx->last_off;
-    if (MEM_read24(match) == MEM_read24(ip))
+    if (LZ5HC_repInPrefix(ctx, ip, ctx->last_off) && MEM_read24(match) == MEM_read24(ip))
     {
         ml = MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
         *matchpos = match;
@@ -293,6 +356,7 @@ FORCE_INLINE int LZ5HC_FindBestMatch (LZ5HC_Data_Structure* ctx,   /* Index tabl
     }
 
 #if MINMATCH == 3
+	if (ctx->params.hashLog3)
 	{
 		U32 matchIndex3 = ctx->hashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
 		if (matchIndex3 < current && matchIndex3 >= lowLimit)
@@ -301,7 +365,7 @@ FORCE_INLINE int LZ5HC_FindBestMatch (LZ5HC_Data_Structure* ctx,   /* Index tabl
 			if (offset < LZ5_SHORT_OFFSET_DISTANCE)
 			{
 				match = ip - offset;
-				if (match > base && MEM_read24(ip) == MEM_read24(match))
+				if (match >= base + ctx->dictLimit && MEM_read24(ip) == MEM_read24(match))   /* inside the prefix, see LZ5HC_repInPrefix */
 				{
 					ml = 3;//MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
 					*matchpos = match;
@@ -360,7 +424,7 @@ FORCE_INLINE int LZ5HC_FindMatchFast (LZ5HC_Data_Structure* ctx, U32 matchIndex,
     size_t ml=0, mlt;
 
     match = ip - ctx->last_off;
-    if (MEM_read24(match) == MEM_read24(ip))
+    if (LZ5HC_repInPrefix(ctx, ip, ctx->last_off) && MEM_read24(match) == MEM_read24(ip))
     {
         ml = MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
         *matchpos = match;
@@ -374,7 +438,7 @@ FORCE_INLINE int LZ5HC_FindMatchFast (LZ5HC_Data_Structure* ctx, U32 matchIndex,
 		if (offset < LZ5_SHORT_OFFSET_DISTANCE)
 		{
 			match = ip - offset;
-			if (match > base && MEM_read24(ip) == MEM_read24(match))
+			if (match >= base + ctx->dictLimit && MEM_read24(ip) == MEM_read24(match))   /* inside the prefix, see LZ5HC_repInPrefix */
 			{
 				ml = 3;//MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
 				*matchpos = match;
@@ -431,7 +495,7 @@ FORCE_INLINE int LZ5HC_FindMatchFaster (LZ5HC_Data_Structure* ctx, U32 matchInde
     size_t ml=0, mlt;
 
     match = ip - ctx->last_off;
-    if (MEM_read24(match) == MEM_read24(ip))
+    if (LZ5HC_repInPrefix(ctx, ip, ctx->last_off) && MEM_read24(match) == MEM_read24(ip))
     {
         ml = MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
         *matchpos = match;
@@ -539,7 +603,7 @@ FORCE_INLINE size_t LZ5HC_GetWiderMatch (
     matchIndex = HashTable[LZ5HC_hashPtr(ip, ctx->params.hashLog, ctx->params.searchLength)];
 
     match = ip - ctx->last_off;
-    if (MEM_read24(match) == MEM_read24(ip))
+    if (LZ5HC_repInPrefix(ctx, ip, ctx->last_off) && MEM_read24(match) == MEM_read24(ip))
     {
         size_t mlt = MEM_count(ip+MINMATCH, match+MINMATCH, iHighLimit) + MINMATCH;
         
@@ -556,15 +620,16 @@ FORCE_INLINE size_t LZ5HC_GetWiderMatch (
     }
 
 #if MINMATCH == 3
+	if (ctx->params.hashLog3)
 	{
-        U32 matchIndex3 = ctx->hashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
+		U32 matchIndex3 = ctx->hashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
 		if (matchIndex3 < current && matchIndex3 >= lowLimit)
 		{
 			size_t offset = (size_t)current - matchIndex3;
 			if (offset < LZ5_SHORT_OFFSET_DISTANCE)
 			{
 				match = ip - offset;
-				if (match > base && MEM_read24(ip) == MEM_read24(match))
+				if (match >= base + ctx->dictLimit && MEM_read24(ip) == MEM_read24(match))   /* inside the prefix, see LZ5HC_repInPrefix */
 				{
 					size_t mlt = MEM_count(ip + MINMATCH, match + MINMATCH, iHighLimit) + MINMATCH;
 
@@ -669,15 +734,15 @@ FORCE_INLINE int LZ5HC_GetAllMatches (
     HashPos = &HashTable[LZ5HC_hashPtr(ip, ctx->params.hashLog, ctx->params.searchLength)];
     matchIndex = *HashPos;
 #if MINMATCH == 3
-    HashPos3 = &HashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
+    HashPos3 = &HashTable3[ctx->params.hashLog3 ? LZ5HC_hash3Ptr(ip, ctx->params.hashLog3) : 0];
 
-    if ((*HashPos3 < current) && (*HashPos3 >= lowLimit)) 
-	{
+    if (ctx->params.hashLog3 && (*HashPos3 < current) && (*HashPos3 >= lowLimit))
+ 	{
 		size_t offset = current - *HashPos3;
 		if (offset < LZ5_SHORT_OFFSET_DISTANCE)
 		{
 			match = ip - offset;
-			if (match > base && MEM_read24(ip) == MEM_read24(match))
+			if (match >= base + ctx->dictLimit && MEM_read24(ip) == MEM_read24(match))   /* inside the prefix, see LZ5HC_repInPrefix */
 			{
 				size_t mlt = MEM_count(ip + MINMATCH, match + MINMATCH, iHighLimit) + MINMATCH;
 
@@ -709,7 +774,21 @@ FORCE_INLINE int LZ5HC_GetAllMatches (
         {
             match = base + matchIndex;
 
-            if ((/*fullSearch ||*/ ip[best_mlen] == match[best_mlen]) && (MEM_read24(match) == MEM_read24(ip)))
+            /* Bounds-guarded pre-filter. The peek reads ip[best_mlen], which
+             * runs past the end of the input buffer whenever a block ends at
+             * the end of its allocation (ASan: found with -11/-12, present
+             * upstream in LZ5 1.5.0). A candidate whose peek would be out of
+             * bounds can never win: matches are clamped at iHighLimit and
+             * updates are strict `>`, so its length is <= best_mlen and
+             * skipping it loses nothing real.
+             * Note this is NOT byte-identical to LZ5 1.5.0 in that corner: the
+             * original decided which candidates to evaluate (and whether to hit
+             * the early break below) based on out-of-bounds heap bytes, which
+             * is undefined behaviour that can also fault. The streams emitted
+             * here are still fully 1.5.0-decodable in both directions. */
+            if ((best_mlen < (size_t)(iHighLimit - ip))
+                && (/*fullSearch ||*/ ip[best_mlen] == match[best_mlen])
+                && (MEM_read24(match) == MEM_read24(ip)))
             {
                 size_t mlt = MINMATCH + MEM_count(ip+MINMATCH, match+MINMATCH, iHighLimit);
                 int back = 0;
@@ -751,7 +830,7 @@ FORCE_INLINE int LZ5HC_GetAllMatches (
                 if (mlt > best_mlen)
                 {
                     best_mlen = mlt;
-                    matches[mnum].off = (int)(ip - match);
+                    matches[mnum].off = (int)(current - matchIndex);   /* match is in dictBase: use the virtual distance */
                     matches[mnum].len = (int)mlt;
                     matches[mnum].back = -back;
                     mnum++;
@@ -801,15 +880,15 @@ FORCE_INLINE int LZ5HC_BinTree_GetAllMatches (
 
     
 #if MINMATCH == 3
-    HashPos3 = &ctx->hashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
+    HashPos3 = &ctx->hashTable3[ctx->params.hashLog3 ? LZ5HC_hash3Ptr(ip, ctx->params.hashLog3) : 0];
 
-    if ((*HashPos3 < current) && (*HashPos3 >= lowLimit)) 
-	{
+    if (ctx->params.hashLog3 && (*HashPos3 < current) && (*HashPos3 >= lowLimit))
+ 	{
 		size_t offset = current - *HashPos3;
 		if (offset < LZ5_SHORT_OFFSET_DISTANCE)
 		{
 			match = ip - offset;
-			if (match > base && MEM_read24(ip) == MEM_read24(match))
+			if (match >= base + ctx->dictLimit && MEM_read24(ip) == MEM_read24(match))   /* inside the prefix, see LZ5HC_repInPrefix */
 			{
 				mlt = MEM_count(ip + MINMATCH, match + MINMATCH, iHighLimit) + MINMATCH;
 
@@ -871,7 +950,7 @@ FORCE_INLINE int LZ5HC_BinTree_GetAllMatches (
                 if (mlt > best_mlen)
                 {
                     best_mlen = mlt;
-                    matches[mnum].off = (int)(ip - match);
+                    matches[mnum].off = (int)(current - matchIndex);   /* match is in dictBase: use the virtual distance */
                     matches[mnum].len = (int)mlt;
                     matches[mnum].back = 0;
                     mnum++;
@@ -881,7 +960,9 @@ FORCE_INLINE int LZ5HC_BinTree_GetAllMatches (
             }
         }
         
-        if (*(ip+mlt) < *(match+mlt))
+        /* the byte after the match: once a dictionary match has run into the prefix, it
+         * is read from base, not dictBase (that read went past the dictionary) */
+        if (*(ip+mlt) < *(((matchIndex + mlt >= dictLimit) ? base + matchIndex : match) + mlt))
         {
             *ptr0 = delta0;
             ptr0 = &chainTable[(matchIndex*2) & contentMask];
@@ -939,9 +1020,11 @@ FORCE_INLINE int LZ5HC_encodeSequence (
     length = (int)(*ip - *anchor);
     token = (*op)++;
 
-    if ((limitedOutputBuffer) && ((*op + (length>>8) + length + (2 + 1 + LASTLITERALS)) > oend)) return 1;   /* Check output limit */
+    /* run-length bytes come one per 255, so length/255 - length>>8 undercounts a
+     * long run by up to length/65280 bytes, more than the margin for 16 MB runs */
+    if ((limitedOutputBuffer) && ((*op + (length/255) + length + (2 + 1 + LASTLITERALS)) > oend)) return 1;   /* Check output limit */
 
-    if (*ip-match >= LZ5_SHORT_OFFSET_DISTANCE && *ip-match < LZ5_MID_OFFSET_DISTANCE && (U32)(*ip-match) != 0)
+    if (*ip-match >= LZ5_SHORT_OFFSET_DISTANCE && *ip-match < LZ5_MID_OFFSET_DISTANCE && (U32)(*ip-match) != ctx->last_off && (U32)(*ip-match) != 0)
     {
         if (length>=(int)RUN_MASK) { int len; *token=(RUN_MASK<<ML_BITS); len = length-RUN_MASK; for(; len > 254 ; len-=255) *(*op)++ = 255;  *(*op)++ = (BYTE)len; }
         else *token = (BYTE)(length<<ML_BITS);
@@ -957,8 +1040,9 @@ FORCE_INLINE int LZ5HC_encodeSequence (
     MEM_wildCopy(*op, *anchor, (*op) + length);
     *op += length;
 
-    /* Encode Offset */
-    if ((U32)(*ip-match) == 0)
+    /* Encode Offset. The optimal parser signals "repeat the last offset" as offset 0; the
+     * other parsers pass the real offset, which is the same codeword when it equals the last one. */
+    if ((U32)(*ip-match) == 0 || (U32)(*ip-match) == ctx->last_off)
     {
         *token+=(3<<ML_RUN_BITS2);
     }
@@ -984,7 +1068,7 @@ FORCE_INLINE int LZ5HC_encodeSequence (
 
     /* Encode MatchLength */
     length = (int)(matchLength-MINMATCH);
-    if ((limitedOutputBuffer) && (*op + (length>>8) + (1 + LASTLITERALS) > oend)) return 1;   /* Check output limit */
+    if ((limitedOutputBuffer) && (*op + (length/255) + (1 + LASTLITERALS) > oend)) return 1;   /* Check output limit */
     if (length>=(int)ML_MASK) { *token+=ML_MASK; length-=ML_MASK; for(; length > 509 ; length-=510) { *(*op)++ = 255; *(*op)++ = 255; } if (length > 254) { length-=255; *(*op)++ = 255; } *(*op)++ = (BYTE)length; }
     else *token += (BYTE)(length);
 
@@ -1049,7 +1133,7 @@ static int LZ5HC_compress_optimal_price (
         llen = ip - anchor;
 
         // check rep
-        mlen = MEM_count(ip, ip - ctx->last_off, matchlimit);
+        mlen = LZ5HC_repInPrefix(ctx, ip, ctx->last_off) ? MEM_count(ip, ip - ctx->last_off, matchlimit) : 0;
         if (mlen >= MINMATCH)
         {
             LZ5_LOG_PARSER("%d: start try REP rep=%d mlen=%d\n", (int)(ip-source), ctx->last_off, mlen);
@@ -1186,7 +1270,7 @@ static int LZ5HC_compress_optimal_price (
 
            // check rep
            // best_mlen = 0;
-           mlen = MEM_count(inr, inr - opt[cur].rep, matchlimit);
+           mlen = LZ5HC_repInPrefix(ctx, inr, (size_t)opt[cur].rep) ? MEM_count(inr, inr - opt[cur].rep, matchlimit) : 0;
            if (mlen >= MINMATCH && mlen > best_mlen)
            {
               LZ5_LOG_PARSER("%d: try REP rep=%d mlen=%d\n", (int)(inr-source), opt[cur].rep, mlen);   
@@ -1571,12 +1655,17 @@ static int LZ5HC_compress_price_fast (
     {
         HashPos = &HashTable[LZ5HC_hashPtr(ip, ctx->params.hashLog, ctx->params.searchLength)];
 #if MINMATCH == 3
-        HashPos3 = &HashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
-        ml = LZ5HC_FindMatchFast (ctx, *HashPos, *HashPos3, ip, matchlimit, (&ref));
-        *HashPos3 = (U32)(ip - base);
+        if (ctx->params.hashLog3)
+        {
+            HashPos3 = &HashTable3[LZ5HC_hash3Ptr(ip, ctx->params.hashLog3)];
+            ml = LZ5HC_FindMatchFast (ctx, *HashPos, *HashPos3, ip, matchlimit, (&ref));
+            *HashPos3 = (U32)(ip - base);
+        }
+        else
+            ml = LZ5HC_FindMatchFast (ctx, *HashPos, 0, ip, matchlimit, (&ref));
 #else
         ml = LZ5HC_FindMatchFast (ctx, *HashPos, 0, ip, matchlimit, (&ref));
-#endif 
+#endif
         *HashPos =  (U32)(ip - base);
 
         if (!ml) { ip++; continue; }
@@ -1663,13 +1752,107 @@ _Encode:
 
 
 
-static int LZ5HC_compress_fast (
+/* Finder for the fast strategy. The main hash candidate is checked first, so
+ * the common case costs what it always did; the last offset (the cheapest
+ * codeword the format has) and the 3-byte index are only consulted when the
+ * main candidate finds nothing, where they are pure upside. Unlike
+ * LZ5HC_FindMatchFast - used by the chain strategies, where the chain walk
+ * supplies the long matches and a 3-byte candidate is only worth a look inside
+ * the short-offset range - the 3-byte candidate here is extended and
+ * considered at any distance; it is rejected only when the encoded price says
+ * a bare 3-byte match would cost more than the literals it replaces. */
+FORCE_INLINE int LZ5HC_FindMatchFast3 (LZ5HC_Data_Structure* ctx, U32 matchIndex, U32 matchIndex3,
+                                       const BYTE* ip, const BYTE* const iLimit,
+                                       const BYTE** matchpos)
+{
+    const BYTE* const base = ctx->base;
+    const BYTE* const dictBase = ctx->dictBase;
+    const BYTE* const lowPrefixPtr = base + ctx->dictLimit;
+    const U32 dictLimit = ctx->dictLimit;
+    const U32 maxDistance = (1 << ctx->params.windowLog);
+    const U32 current = (U32)(ip - base);
+    const U32 lowLimit = (ctx->lowLimit + maxDistance > current) ? ctx->lowLimit : current - (maxDistance - 1);
+    const BYTE* match;
+    size_t ml=0, mlt;
+
+    if (matchIndex < current && matchIndex >= lowLimit)
+    {
+        if (matchIndex >= dictLimit)
+        {
+            match = base + matchIndex;
+            if (MEM_read32(match) == MEM_read32(ip))
+            {
+                mlt = MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
+                ml = mlt; *matchpos = match;
+            }
+        }
+        else
+        {
+            match = dictBase + matchIndex;
+            if (MEM_read32(match) == MEM_read32(ip))
+            {
+                const BYTE* vLimit = ip + (dictLimit - matchIndex);
+                if (vLimit > iLimit) vLimit = iLimit;
+                mlt = MEM_count(ip+MINMATCH, match+MINMATCH, vLimit) + MINMATCH;
+                if ((ip+mlt == vLimit) && (vLimit < iLimit))
+                    mlt += MEM_count(ip+mlt, base+dictLimit, iLimit);
+                ml = mlt; *matchpos = base + matchIndex;   /* virtual matchpos */
+            }
+        }
+    }
+
+    if (!ml)
+    {
+        match = ip - ctx->last_off;
+        if (match >= lowPrefixPtr && MEM_read24(match) == MEM_read24(ip))
+        {
+            ml = MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
+            *matchpos = match;
+        }
+    }
+
+#if MINMATCH == 3
+    if (matchIndex3 < current && matchIndex3 >= lowLimit && matchIndex3 >= dictLimit)
+    {
+        match = base + matchIndex3;
+        if (MEM_read24(match) == MEM_read24(ip))
+        {
+            mlt = MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
+            if (!ml)
+            {
+                /* a bare 3-byte match only pays for a long offset when it extends */
+                if (mlt > MINMATCH || LZ5_MATCH_COST(mlt - MINMATCH, (size_t)(ip - match)) < LZ5_LIT_ONLY_COST(mlt))
+                    { ml = mlt; *matchpos = match; }
+            }
+            else if (mlt > ml && LZ5HC_better_price((ip - *matchpos), ml, (ip - match), mlt, ctx->last_off))
+                { ml = mlt; *matchpos = match; }
+        }
+    }
+#endif
+
+    return (int)ml;
+}
+
+
+/* Software prefetch hint, as used by the seq codec of the lz6 line: the next
+   probe's hash-table load is started while the current candidate is still
+   being compared. Output-neutral, so it is safe on every level. A prefetch of
+   a wild address is harmless (never faults), no bounds check needed. */
+#if defined(__GNUC__) || defined(__clang__)
+#  define LZ5_PREFETCH(p)  __builtin_prefetch((const void*)(p))
+#else
+#  define LZ5_PREFETCH(p)  ((void)(p))
+#endif
+
+FORCE_INLINE int LZ5HC_compress_fast_generic (
     LZ5HC_Data_Structure* ctx,
     const char* source,
     char* dest,
     int inputSize,
     int maxOutputSize,
-    limitedOutput_directive limit
+    limitedOutput_directive limit,
+    const int plusC,      /* 1: 3-byte index present, 0: absent, -1: read from params */
+    const U32 slC         /* searchLength as a constant, 0: read from params */
     )
 {
     const BYTE* ip = (const BYTE*) source;
@@ -1685,38 +1868,122 @@ static int LZ5HC_compress_fast (
     const BYTE* ref=NULL;
     const BYTE* lowPrefixPtr = ctx->base + ctx->dictLimit;
     const BYTE* const base = ctx->base;
-    U32* HashPos;
-    U32* HashTable  = ctx->hashTable;
-	const int accel = (ctx->params.searchNum>0)?ctx->params.searchNum:1;
-    
+    U32* const HashTable  = ctx->hashTable;
+    U32* const HashTable3 = ctx->hashTable3;
+    const U32 hBits  = ctx->params.hashLog;
+    const U32 h3Bits = ctx->params.hashLog3;
+    const U32 sl     = slC ? slC : ctx->params.searchLength;
+    const int accel = (ctx->params.searchNum>0)?(int)ctx->params.searchNum:1;
+    /* lazy-match sufficiency: a match at least this short is worth looking one
+     * and two positions ahead for a better one. 0 disables the check, which is
+     * what the speed-first level wants. */
+    const int lazyLimit = (int)ctx->params.sufficientLength;
+    const U32 skipTrigger = 6;   /* same accelerating-step ramp as the level-0 parser */
+    /* the price-aware 3-candidate finder costs more per position; it is only
+     * worth it on the levels that carry a 3-byte index */
+    const int usePlus = (plusC >= 0) ? plusC : (h3Bits != 0);
+
     /* init */
-	ctx->inputBuffer = (const BYTE*)source;
-	ctx->outputBuffer = (const BYTE*)dest;
-	ctx->end += inputSize;
+    ctx->inputBuffer = (const BYTE*)source;
+    ctx->outputBuffer = (const BYTE*)dest;
+    ctx->end += inputSize;
 
     ip++;
 
-    /* Main Loop */
+    /* Main Loop. The 1.5.x strategy checked a single candidate from an 8K
+     * table and never indexed the positions it skipped, so the table stayed
+     * sparse and stale and levels 1-3 compressed worse than level 0. This
+     * walks forward with the same accelerating step as the level-0 parser and
+     * indexes every position it tests, so the candidate it finds is real. */
+    if (ip < mflimit)
     while (ip < mflimit)
     {
-        HashPos = &HashTable[LZ5HC_hashPtr(ip, ctx->params.hashLog, ctx->params.searchLength)];
-        ml = LZ5HC_FindMatchFastest (ctx, *HashPos, ip, matchlimit, (&ref));
-        *HashPos =  (U32)(ip - base);
-        if (!ml) { ip+=accel; continue; }
+        const BYTE* forwardIp = ip;
+        unsigned step = 1;
+        unsigned searchMatchNb = (unsigned)(accel << skipTrigger);
+        U32 forwardH  = LZ5HC_hashPtr(forwardIp, hBits, sl);
+        U32 forwardH3 = h3Bits ? (U32)LZ5HC_hash3Ptr(forwardIp, h3Bits) : 0;
 
-		{
-			int back = 0;
-			while ((ip + back > anchor) && (ref + back > lowPrefixPtr) && (ip[back - 1] == ref[back - 1])) back--;
-			ml -= back;
-			ip += back;
-			ref += back;
-		}
+        for ( ; ; )
+        {
+            U32 h  = forwardH;
+            U32 h3 = forwardH3;
+            U32 current, idx, idx3 = 0;
+
+            ip = forwardIp;
+            forwardIp += step;
+            step = (searchMatchNb++ >> skipTrigger);
+            if (forwardIp > mflimit) goto _last_literals;
+            /* hash both tables for the next probe now, and start their loads:
+             * the prefetch is output-neutral, and carrying the 3-byte hash
+             * forward also saves recomputing it on the next iteration. */
+            forwardH = LZ5HC_hashPtr(forwardIp, hBits, sl);
+            LZ5_PREFETCH(&HashTable[forwardH]);
+            if (h3Bits)
+            {
+                forwardH3 = (U32)LZ5HC_hash3Ptr(forwardIp, h3Bits);
+                LZ5_PREFETCH(&HashTable3[forwardH3]);
+            }
+
+            current = (U32)(ip - base);
+            idx = HashTable[h];
+            HashTable[h] = current;
+            if (h3Bits)
+            {
+                U32* const h3Pos = &HashTable3[h3];
+                idx3 = *h3Pos;
+                *h3Pos = current;
+            }
+
+            ml = usePlus ? LZ5HC_FindMatchFast3 (ctx, idx, idx3, ip, matchlimit, (&ref))
+                         : LZ5HC_FindMatchFastest (ctx, idx, ip, matchlimit, (&ref));
+            if (ml) break;
+        }
+
+        /* Lazy match: if the next position has a clearly longer match, emit
+         * this one as a literal and take the better one. One extra lookup per
+         * emitted match; the thresholds mirror the ones the seq codec of the
+         * lz6 line settled on. */
+        if (lazyLimit && ml < lazyLimit && (ip + 1) < mflimit)
+        {
+            const BYTE* ref2 = NULL;
+            int ml2 = LZ5HC_FindMatchFastest(ctx, HashTable[LZ5HC_hashPtr(ip + 1, hBits, sl)], ip + 1, matchlimit, (&ref2));
+            if (ml2 >= ml + 2)
+            {
+                ip++;   /* the old position becomes a literal */
+                continue;
+            }
+            if (ml < lazyLimit/2 && (ip + 2) < mflimit)
+            {
+                const BYTE* ref3 = NULL;
+                int ml3 = LZ5HC_FindMatchFastest(ctx, HashTable[LZ5HC_hashPtr(ip + 2, hBits, sl)], ip + 2, matchlimit, (&ref3));
+                if (ml3 >= ml + 3)
+                {
+                    ip += 2;
+                    continue;
+                }
+            }
+        }
+
+        /* Catch up: shrink the literal run in front of the match. Kept as a
+         * byte loop on purpose: a word-at-a-time version was measured on
+         * Silesia at the three levels and lost 2.5-4.6% encode speed - the
+         * backward run is short (mostly 0-2 bytes), so the extra bounds
+         * arithmetic costs more than it saves. */
+        {
+            int back = 0;
+            while ((ip + back > anchor) && (ref + back > lowPrefixPtr) && (ip[back - 1] == ref[back - 1])) back--;
+            ml -= back;
+            ip += back;
+            ref += back;
+        }
 
         if (LZ5HC_encodeSequence(ctx, &ip, &op, &anchor, ml, ref, limit, oend)) return 0;
 
     }
 
     /* Encode Last Literals */
+    _last_literals:
     {
         int lastRun = (int)(iend - anchor);
         if ((limit) && (((char*)op - dest) + lastRun + 1 + ((lastRun+255-RUN_MASK)/255) > (U32)maxOutputSize)) return 0;  /* Check output limit */
@@ -1732,22 +1999,56 @@ static int LZ5HC_compress_fast (
 
 
 
+/* limit is a compile-time constant inside each copy, so the output-bound checks
+ * in the hot loop and in LZ5HC_encodeSequence fold away when unbounded. */
+static int LZ5HC_compress_fast (LZ5HC_Data_Structure* ctx, const char* source, char* dest,
+                                int inputSize, int maxOutputSize, limitedOutput_directive limit)
+{
+    const int plus = (ctx->params.hashLog3 != 0);
+    if (ctx->params.searchLength == 6)
+    {
+        if (limit)
+            return plus ? LZ5HC_compress_fast_generic(ctx, source, dest, inputSize, maxOutputSize, limitedOutput, 1, 6)
+                        : LZ5HC_compress_fast_generic(ctx, source, dest, inputSize, maxOutputSize, limitedOutput, 0, 6);
+        return plus ? LZ5HC_compress_fast_generic(ctx, source, dest, inputSize, maxOutputSize, noLimit, 1, 6)
+                    : LZ5HC_compress_fast_generic(ctx, source, dest, inputSize, maxOutputSize, noLimit, 0, 6);
+    }
+    if (limit) return LZ5HC_compress_fast_generic(ctx, source, dest, inputSize, maxOutputSize, limitedOutput, -1, 0);
+    return LZ5HC_compress_fast_generic(ctx, source, dest, inputSize, maxOutputSize, noLimit, -1, 0);
+}
+
+
+
 static int LZ5HC_compress_generic (void* ctxvoid, const char* source, char* dest, int inputSize, int maxOutputSize, limitedOutput_directive limit)
 {
     LZ5HC_Data_Structure* ctx = (LZ5HC_Data_Structure*) ctxvoid;
 
-    switch(ctx->params.strategy)
+    /* The decoder starts every block with last_off == 1, so the repeat-offset
+     * codeword may only refer to an offset used earlier in this same block. */
+    ctx->last_off = 1;
+
     {
-    default:
-    case LZ5HC_fast:
-        return LZ5HC_compress_fast(ctx, source, dest, inputSize, maxOutputSize, limit);
-    case LZ5HC_price_fast:
-        return LZ5HC_compress_price_fast(ctx, source, dest, inputSize, maxOutputSize, limit);
-    case LZ5HC_lowest_price:
-        return LZ5HC_compress_lowest_price(ctx, source, dest, inputSize, maxOutputSize, limit);
-    case LZ5HC_optimal_price:
-    case LZ5HC_optimal_price_bt:
-        return LZ5HC_compress_optimal_price(ctx, (const BYTE* )source, dest, inputSize, maxOutputSize, limit);
+        int result;
+        switch(ctx->params.strategy)
+        {
+        default:
+        case LZ5HC_fast:
+            result = LZ5HC_compress_fast(ctx, source, dest, inputSize, maxOutputSize, limit); break;
+        case LZ5HC_price_fast:
+            result = LZ5HC_compress_price_fast(ctx, source, dest, inputSize, maxOutputSize, limit); break;
+        case LZ5HC_lowest_price:
+            result = LZ5HC_compress_lowest_price(ctx, source, dest, inputSize, maxOutputSize, limit); break;
+        case LZ5HC_optimal_price:
+        case LZ5HC_optimal_price_bt:
+            result = LZ5HC_compress_optimal_price(ctx, (const BYTE* )source, dest, inputSize, maxOutputSize, limit); break;
+        }
+        /* The parser's output did not fit: when the caller gave at least
+         * LZ5_compressBound(), store the block as literals instead (see
+         * LZ5_encodeLiteralBlock). The window state is unaffected - the block
+         * is still the input, and the decoder still sees all of it. */
+        if (result == 0 && inputSize > 0 && maxOutputSize >= LZ5_compressBound(inputSize))
+            result = LZ5_encodeLiteralBlock(source, inputSize, dest, maxOutputSize);
+        return result;
     }
 }
 
@@ -1757,8 +2058,10 @@ int LZ5_sizeofStateHC(void) { return sizeof(LZ5HC_Data_Structure); }
 int LZ5_compress_HC_extStateHC (void* state, const char* src, char* dst, int srcSize, int maxDstSize)
 {
     if (((size_t)(state)&(sizeof(void*)-1)) != 0) return 0;   /* Error : state is not aligned for pointers (32 or 64 bits) */
+    if (srcSize < 0) return 0;
+    if (maxDstSize < 0) return 0;
     LZ5HC_init ((LZ5HC_Data_Structure*)state, (const BYTE*)src);
-    if (maxDstSize < LZ5_compressBound(srcSize))
+    if ((size_t)maxDstSize < LZ5_WORST_OUTPUT(srcSize))   /* not LZ5_compressBound: see LZ5_WORST_OUTPUT */
         return LZ5HC_compress_generic (state, src, dst, srcSize, maxDstSize, limitedOutput);
     else
         return LZ5HC_compress_generic (state, src, dst, srcSize, maxDstSize, noLimit);
@@ -1797,6 +2100,7 @@ LZ5_streamHC_t* LZ5_createStreamHC(int compressionLevel)
         FREEMEM(statePtr);
         return NULL;
     }
+    LZ5_resetStreamHC(statePtr);
     return statePtr; 
 }
 
@@ -1828,7 +2132,11 @@ int LZ5_loadDictHC (LZ5_streamHC_t* LZ5_streamHCPtr, const char* dictionary, int
         dictSize = LZ5_DICT_SIZE;
     }
     LZ5HC_init (ctxPtr, (const BYTE*)dictionary);
-    if (dictSize >= 4) LZ5HC_Insert (ctxPtr, (const BYTE*)dictionary +(dictSize-3));
+    {   /* index only positions whose hash input lies inside the dictionary: the
+         * 5- to 7-byte hashes read 8 bytes, see LZ5HC_setExternalDict */
+        const int hashRead = (ctxPtr->params.searchLength > 4) ? 8 : 4;
+        if (dictSize >= hashRead) LZ5HC_Insert (ctxPtr, (const BYTE*)dictionary + (dictSize - hashRead + 1));
+    }
     ctxPtr->end = (const BYTE*)dictionary + dictSize;
     return dictSize;
 }
@@ -1838,8 +2146,13 @@ int LZ5_loadDictHC (LZ5_streamHC_t* LZ5_streamHCPtr, const char* dictionary, int
 
 static void LZ5HC_setExternalDict(LZ5HC_Data_Structure* ctxPtr, const BYTE* newBlock)
 {
-    if (ctxPtr->end >= ctxPtr->base + 4)
-        LZ5HC_Insert (ctxPtr, ctxPtr->end-3);   /* Referencing remaining dictionary content */
+    /* Index the rest of the old block, but only positions whose hash input lies
+     * inside it. The 4-byte hash reads 4 bytes, so the limit inherited from LZ4HC
+     * (end-3) is right for it; the 5- to 7-byte hashes read 8 (MEM_read64), and
+     * with end-3 they read up to 4 bytes past the caller's previous block. */
+    const size_t hashRead = (ctxPtr->params.searchLength > 4) ? 8 : 4;
+    if (ctxPtr->end >= ctxPtr->base + hashRead)
+        LZ5HC_Insert (ctxPtr, ctxPtr->end - hashRead + 1);   /* Referencing remaining dictionary content */
     /* Only one memory segment for extDict, so any previous extDict is lost at this stage */
     ctxPtr->lowLimit  = ctxPtr->dictLimit;
     ctxPtr->dictLimit = (U32)(ctxPtr->end - ctxPtr->base);
@@ -1853,6 +2166,9 @@ static int LZ5_compressHC_continue_generic (LZ5HC_Data_Structure* ctxPtr,
                                             const char* source, char* dest,
                                             int inputSize, int maxOutputSize, limitedOutput_directive limit)
 {
+    if (inputSize < 0) return 0;
+    if (maxOutputSize < 0) return 0;
+
     /* auto-init if forgotten */
     if (ctxPtr->base == NULL)
         LZ5HC_init (ctxPtr, (const BYTE*) source);
@@ -1888,7 +2204,7 @@ static int LZ5_compressHC_continue_generic (LZ5HC_Data_Structure* ctxPtr,
 
 int LZ5_compress_HC_continue (LZ5_streamHC_t* LZ5_streamHCPtr, const char* source, char* dest, int inputSize, int maxOutputSize)
 {
-    if (maxOutputSize < LZ5_compressBound(inputSize))
+    if ((size_t)maxOutputSize < LZ5_WORST_OUTPUT(inputSize))   /* not LZ5_compressBound: see LZ5_WORST_OUTPUT */
         return LZ5_compressHC_continue_generic ((LZ5HC_Data_Structure*)LZ5_streamHCPtr, source, dest, inputSize, maxOutputSize, limitedOutput);
     else
         return LZ5_compressHC_continue_generic ((LZ5HC_Data_Structure*)LZ5_streamHCPtr, source, dest, inputSize, maxOutputSize, noLimit);
@@ -1900,7 +2216,12 @@ int LZ5_compress_HC_continue (LZ5_streamHC_t* LZ5_streamHCPtr, const char* sourc
 int LZ5_saveDictHC (LZ5_streamHC_t* LZ5_streamHCPtr, char* safeBuffer, int dictSize)
 {
     LZ5HC_Data_Structure* streamPtr = (LZ5HC_Data_Structure*)LZ5_streamHCPtr;
-    int prefixSize = (int)(streamPtr->end - (streamPtr->base + streamPtr->dictLimit));
+    int prefixSize;
+    if (dictSize < 0) dictSize = 0;
+    /* endIndex is a U32 : refuse to continue when the index space has already
+     * overflowed, otherwise base would be recomputed from a truncated value. */
+    if ((size_t)(streamPtr->end - streamPtr->base) >= 0x80000000) return 0;
+    prefixSize = (int)(streamPtr->end - (streamPtr->base + streamPtr->dictLimit));
     if (dictSize > LZ5_DICT_SIZE) dictSize = LZ5_DICT_SIZE;
   //  if (dictSize < 4) dictSize = 0;
     if (dictSize > prefixSize) dictSize = prefixSize;

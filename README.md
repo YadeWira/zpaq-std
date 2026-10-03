@@ -40,7 +40,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 | **yes** (ZPAQBZIP2) |
 | `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 | **yes** (ZPAQDEFLATE) |
 | `-ma:lizard:N` | [Lizard](https://github.com/inikep/lizard) 2.1 | 10–49 | 17 | **yes** (ZPAQLIZARD, ZPAQLIZARDH) |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | [LZ5](https://github.com/inikep/lizard/tree/v1.5) 1.5 (now Lizard) | 1–15 | 9 | **yes** (ZPAQLZ5) |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) (fork of LZ5 1.5; same format) | 1–15 | 9 | **yes** (ZPAQLZ5) |
 | `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.2.1 | 1–2 | 1 | **yes** (ZPAQSNAPPY) |
 | `-ma:lzfse` | [LZFSE](https://github.com/lzfse/lzfse) (Apple) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
 | `-ma:hs:N` | [heatshrink](https://github.com/atomicobject/heatshrink) 0.4.1 | 0–2 | 1 | **yes** (ZPAQHS) |
@@ -60,7 +60,7 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default | Opens in any zpaq |
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
-| `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.5.1 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
+| `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.0 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
 

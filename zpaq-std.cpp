@@ -123036,11 +123036,11 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			if (lz5buf)
 			{
 				int lz5size=0;
-				/// El tope que se le pasa es el ORIGINAL, no LZ5_compressBound: LZ5 solo
-				/// controla la salida si el tope es menor que el bound, y sus parsers HC
-				/// (nivel 9 en adelante) NO respetan el bound: con datos que LZ no puede
-				/// comprimir (16 MB de base64) escribian hasta 732 KB despues del buffer
-				/// (heap corrupto, abort de 'a'). Una salida >= original no sirve igual.
+				/// El tope que se le pasa es el ORIGINAL, no LZ5_compressBound: en LZ5 1.5 los
+				/// parsers HC (nivel 9 en adelante) NO respetaban el bound y, con datos que LZ no
+				/// puede comprimir (16 MB de base64), escribian hasta 732 KB despues del buffer.
+				/// lz5-ex lo arreglo (1650ce0: nunca pasa de maxDstSize), pero el tope sigue
+				/// siendo el original: una salida >= original no sirve igual.
 				const int lz5lim=(int)(orig_size-17);
 				if (g_ma_algorithm=="lz5hc")
 					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
