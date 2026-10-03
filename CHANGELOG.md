@@ -38,6 +38,13 @@
     output limit, which overflowed in LZ5 1.5.
 - ultra-fast-lzma2 1.6.0: levels 1 to 11 on the six inputs, byte-identical to 1.5.1
   (66/66) and extracted by zpaq 7.15 and natively.
+- Windows 7 x64 and x86, with the release binaries: `-ma:lz5`, `lz5hc`, `lz5f` and
+  `uflzma2` (also with `-m5`); `t` and `x` pass, all 28 extractions with identical
+  sha256; archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz,
+  pre55 and pre56 (28/28).
+- Full test battery: every suite has 0 cases to review; `suite_ma_hostil` 25/25;
+  golden archives: 0 unexpected failures; `difftest` against pre55: the only
+  differences are `-ma:lz5` blocks (new bytes), each version reading the other's.
 
 ### [65.4m-pre55] - 2026-10-01
 
