@@ -1,4 +1,27 @@
-### [65.4m-pre58] - unreleased
+### [65.4m-pre58] - 2026-10-09
+
+#### lz5-ex 1.5.2
+
+- `-ma:lz5`, `lz5hc` and `lz5f` move from lz5-ex commit 5541227 (pre56 and pre57) to
+  [lz5-ex 1.5.2](https://github.com/YadeWira/lz5-ex/releases/tag/v1.5.2). Same block
+  format and the same ZPAQLZ5 decoder; pre57 and older versions extract the new
+  blocks.
+- Fixed in the decoder, which zpaq-std uses natively:
+  - it checked match offsets by comparing pointers, which wraps around with an
+    output buffer at a low address and could read outside its buffers (LZ5 1.5,
+    in zpaq-std up to pre55, has the same defect);
+  - it could read past the end of its input in more cases (literals near the end,
+    one-byte and empty inputs).
+- Level 0 could write up to 3 bytes past a tight output buffer; zpaq-std passes a
+  buffer the size of the block's original data, so it was not affected.
+- Measured on 96 MB (text, executable, image, audio, incompressible, mixed),
+  against pre57:
+  - `-ma:lz5` with its default level 9 writes the same bytes and compresses about
+    9% faster; `lz5hc` 3, 4, 5 and 11 compress 11-21% faster;
+  - `lz5f` and `lz5hc` 4, 6 to 10 and 12 to 15 write the same bytes;
+  - `lz5hc` 1, 2, 3, 5 and 11 write blocks 0.07-1.1% larger (up to 3.2% on one
+    file at level 1); against LZ5 1.5 (pre55) they stay within 0.2% or smaller;
+  - extraction runs at the same speed.
 
 #### `-ma:uflzma2` is no longer experimental
 
@@ -6,6 +29,19 @@
   been byte-identical since 1.5.1, where it entered zpaq-std. The warning
   `00603! uflzma2 is EXPERIMENTAL` is gone, and the README lists it with the stable
   codecs. `-ma:lz6` stays experimental.
+
+#### Checked
+
+- lz5-ex 1.5.2:
+  - its six library files are identical to tag v1.5.2 (commit 1bcccdd) on GitHub;
+  - 180 combinations (`lz5f` and `lz5hc` at levels 1 to 15, six inputs) extract
+    identically with zpaq 7.15 (ZPAQLZ5) and natively;
+  - pre57 extracts the new blocks;
+  - 1,200 damaged blocks, decoded natively under AddressSanitizer: every one
+    reported, no memory error; zpaq 7.15 handled all of them too;
+  - compression and decompression with buffers of the exact size, under
+    AddressSanitizer and UndefinedBehaviorSanitizer: clean.
+- `suite_ma_hostil` 25/25 under AddressSanitizer.
 
 ### [65.4m-pre57] - 2026-10-08
 

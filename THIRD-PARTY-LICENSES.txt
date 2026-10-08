@@ -17,7 +17,7 @@ PART 1 - BUNDLED COMPRESSORS
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
   libdeflate           1.26                         MIT
   Lizard               2.1                          BSD-2-Clause (library)
-  lz5-ex               commit 5541227               BSD-2-Clause
+  lz5-ex               1.5.2                        BSD-2-Clause
   lz6                  see compressors/lz6/VERSION  BSD-2-Clause
   Snappy               1.2.1                        BSD-3-Clause
   LZFSE                -                            BSD-3-Clause
@@ -268,7 +268,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-lz5-ex commit 5541227
+lz5-ex 1.5.2
 Licence: BSD-2-Clause
 Copyright: Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)
 A fork of LZ5 1.5 with the same block format.

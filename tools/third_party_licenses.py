@@ -25,7 +25,7 @@ BUNDLED = [
     ('bzip2 / libbzip2', '1.0.8', 'bzip2 licence (BSD-style)', 'Julian R Seward', ['compressors/bzip2/LICENSE'], ''),
     ('libdeflate', '1.26', 'MIT', 'Eric Biggers', ['compressors/libdeflate/LICENSE'], ''),
     ('Lizard', '2.1', 'BSD-2-Clause (library)', 'Yann Collet, Przemyslaw Skibinski', ['compressors/lizard/LICENSE'], ''),
-    ('lz5-ex', 'commit 5541227', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
+    ('lz5-ex', '1.5.2', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('lz6', 'see compressors/lz6/VERSION', 'BSD-2-Clause', 'Yann Collet (LZ4), YadeWira', ['compressors/lz6/LICENSE'], ''),
     ('Snappy', '1.2.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
