@@ -1,3 +1,40 @@
+### [65.4m-pre57] - 2026-10-08
+
+#### Fixed: the LZMA2 decoders of `-ma:flzma2` and `-ma:uflzma2` accepted two kinds of corrupt chunks
+
+zpaq-std decodes these blocks natively, with fast-lzma2 1.0.1 and ultra-fast-lzma2.
+Both decoders had two defects, which ultra-fast-lzma2's maintainer found in a
+stability campaign:
+- a corrupt LZMA chunk could make the decoder read up to 20 bytes past the end of
+  its input;
+- a chunk without properties after a dictionary reset was accepted, leaving `pb`
+  uninitialized. The C decoder then shifted by out-of-range amounts, and the
+  assembler decoder of ultra-fast-lzma2, the one the x86_64 builds use, crashed
+  (SIGSEGV).
+
+Both kinds of chunk are now rejected as corrupt, as the LZMA SDK does:
+- `-ma:uflzma2` moves to ultra-fast-lzma2 **1.6.1**, its stability release;
+- `-ma:flzma2` keeps fast-lzma2 1.0.1 with a patch to its decoder, backported by
+  ultra-fast-lzma2's maintainer (`compressors/fl2/PATCHES`).
+
+Compressed bytes do not change, so archives written before and after are the same.
+Random damage to `-ma:flzma2` and `-ma:uflzma2` archives was always detected
+before too; these two defects need a deliberately crafted stream.
+
+#### Checked
+
+- The reproducers (four LZMA2 streams) against zpaq-std's own copies of both
+  libraries, with AddressSanitizer and UndefinedBehaviorSanitizer and with the
+  assembler decoder:
+  - before: heap-buffer-overflow, "shift exponent 190" and SIGSEGV;
+  - now: "Corrupted block detected" in every build.
+- Same bytes as pre56, extracted by this build, by pre56 and by zpaq 7.15:
+  - `-ma:flzma2` levels 1 to 10 on six inputs, plus `-m5` blocks (66/66);
+  - `-ma:uflzma2` levels 1 to 11 on six inputs (66/66).
+- 900 damaged `flzma2` and `uflzma2` blocks, decoded natively under
+  AddressSanitizer: every one reported, no memory error; `suite_ma_hostil` 25/25
+  under AddressSanitizer.
+
 ### [65.4m-pre56] - 2026-10-02
 
 #### `-ma:lz5` uses lz5-ex instead of LZ5 1.5
