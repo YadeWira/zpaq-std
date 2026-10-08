@@ -1,10 +1,12 @@
-ultra-fast-lzma2 v1.6.0 (tag v1.6.0, commit f4f5dba, 2026-10-02). Same codec as
-v1.5.1 (encoder, match finder, LZMA2 decoder and assembler unchanged): -ma:uflzma2
-writes the same bytes. New in 1.6.0, not used by zpaq-std: .xz streaming with sizes
-in the headers, and the .xz check in the multi-threaded decoder. v1.5.1 (a19bae2)
-was e97d737 plus the version bump; e97d737 fixes the 32-bit Windows crash of 1.5.0
-(hardware CRC run on threads Windows creates without realigning the stack); do not
-go back to 1.5.0.
+ultra-fast-lzma2 v1.6.1 (tag v1.6.1, commit 0d920cb, 2026-10-08), the stability
+release: eleven fixes, among them two in the decoder that zpaq-std uses for
+-ma:uflzma2 (a corrupt chunk could make it read up to 20 bytes past its input, and
+a chunk without properties after a dictionary reset was accepted with pb
+uninitialized, which crashed the assembler decoder). Compressed bytes are the
+same as 1.6.0 and 1.5.1. 1.6.0 (f4f5dba) added .xz streaming features zpaq-std
+does not use; 1.5.1 (a19bae2) fixed the 32-bit Windows crash of 1.5.0 (hardware
+CRC run on threads Windows creates without realigning the stack); do not go back
+to 1.5.0.
 Source: https://github.com/YadeWira/ultra-fast-lzma2, a fork of Conor McCarthy's
 fast-lzma2 (most of the code is his). Dual licensed BSD / GPLv2; zpaq-std uses it
 under the BSD license, see LICENSE.
