@@ -1,3 +1,12 @@
+### [65.4m-pre58] - unreleased
+
+#### `-ma:uflzma2` is no longer experimental
+
+- ultra-fast-lzma2 had its stability release (1.6.1, in pre57), and its blocks have
+  been byte-identical since 1.5.1, where it entered zpaq-std. The warning
+  `00603! uflzma2 is EXPERIMENTAL` is gone, and the README lists it with the stable
+  codecs. `-ma:lz6` stays experimental.
+
 ### [65.4m-pre57] - 2026-10-08
 
 #### Fixed: the LZMA2 decoders of `-ma:flzma2` and `-ma:uflzma2` accepted two kinds of corrupt chunks

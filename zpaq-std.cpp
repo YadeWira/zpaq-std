@@ -66968,7 +66968,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lz4: auto (1-4 fast, 5-12 HC). lz4hc: always HC. lz4f: always fast");
 		scrivi_riga(" ", "  zstd: ZPAQZSTD, levels 1..22 (1=fast, 3=default, 22=max); opens in any zpaq");
 		scrivi_riga(" ", "  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq");
-		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2, EXPERIMENTAL. ultra-fast-lzma2 (1..11, 5=default;");
+		scrivi_riga(" ", "  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=default;");
 		scrivi_riga(" ", "    11 also picks lc/lp/pb per block); opens in any zpaq");
 		scrivi_riga(" ", "  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, pinned (1=LZX, 2=DNA+LZ+Huffman,");
 		scrivi_riga(" ", "    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,");
@@ -70347,10 +70347,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		if (g_ma_algorithm=="lz6")
 			myprintf("00603! lz6 is EXPERIMENTAL: its compression and levels may change in future\n"
 			         "       releases. Archives already written stay readable (frozen block format)\n");
-		/// uflzma2 tambien: lo que puede cambiar es el compresor; el bloque es LZMA2.
-		if (g_ma_algorithm=="uflzma2")
-			myprintf("00603! uflzma2 is EXPERIMENTAL: its compression and levels may change in future\n"
-			         "       releases. Archives already written stay readable (standard LZMA2)\n");
 	}
 	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{
