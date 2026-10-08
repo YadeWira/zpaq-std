@@ -34,6 +34,12 @@ before too; these two defects need a deliberately crafted stream.
 - 900 damaged `flzma2` and `uflzma2` blocks, decoded natively under
   AddressSanitizer: every one reported, no memory error; `suite_ma_hostil` 25/25
   under AddressSanitizer.
+- Windows 7 x64 and x86, with the release binaries: `-ma:flzma2`, `uflzma2` and
+  `lz5`, also with `-m5`; `t` and `x` pass, all 28 extractions with identical
+  sha256; archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz,
+  pre56 and pre57 (28/28).
+- Full test battery: every suite has 0 cases to review; golden archives: 0
+  unexpected failures; `difftest` against pre56: 0 divergences.
 
 ### [65.4m-pre56] - 2026-10-02
 
