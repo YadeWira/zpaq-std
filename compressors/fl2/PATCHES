@@ -1,0 +1,18 @@
+fast-lzma2 1.0.1 (tag v1.0.1 of https://github.com/conor42/fast-lzma2), unmodified
+except for one patch, kept next to it: fl2-1.0.1-decoder-fixes.patch.
+
+fl2-1.0.1-decoder-fixes.patch (since zpaq-std 65.4m-pre57) touches only
+lzma2_dec.c, the decoder; compressed bytes do not change. It is the backport, by
+the maintainer of ultra-fast-lzma2 (a fork of fast-lzma2), of two fixes made there
+(ultra-fast-lzma2 commits 5c2238c and d4f6342):
+- a corrupt LZMA chunk could make the decoder read up to 20 bytes past the end of
+  its input; the last bytes are now decoded from a zero-padded copy, as the LZMA
+  SDK does;
+- a chunk without properties after a dictionary reset was accepted, leaving pb
+  uninitialized (shift by out-of-range amounts in C); it is now rejected, as the
+  LZMA SDK does. It also fixes a typo in LZMA2_initDecoder (prop.lc = 2 where
+  prop.pb = 2 was meant).
+Checked in zpaq-std: the reproducers of both bugs are rejected under ASan and
+UBSan, and -ma:flzma2 levels 1-10 (also with -m5 blocks) write and extract the
+same bytes as before. Apply to a fresh v1.0.1 with:
+    git apply --directory=compressors/fl2 compressors/fl2/fl2-1.0.1-decoder-fixes.patch
