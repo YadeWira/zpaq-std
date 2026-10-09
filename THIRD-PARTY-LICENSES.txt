@@ -12,7 +12,7 @@ PART 1 - BUNDLED COMPRESSORS
   brotli               1.2.0                        MIT
   LZMA SDK             26.03                        Public domain
   fast-lzma2           1.0.1                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
-  ultra-fast-lzma2     1.6.1                        BSD-3-Clause
+  ultra-fast-lzma2     1.6.2                        BSD-3-Clause
   lzlib                1.16                         BSD-2-Clause
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
   libdeflate           1.26                         MIT
@@ -121,7 +121,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-ultra-fast-lzma2 1.6.1
+ultra-fast-lzma2 1.6.2
 Licence: BSD-3-Clause
 Copyright: Conor McCarthy (fast-lzma2), fork by YadeWira
 
