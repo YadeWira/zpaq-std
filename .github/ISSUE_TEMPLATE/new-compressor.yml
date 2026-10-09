@@ -1,0 +1,66 @@
+name: Propose a compressor
+description: Ask for a compression algorithm to be bundled in zpaq-std as -ma:<name>
+title: "Compressor: <name>"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a compressor. zpaq-std bundles it with no system dependencies, adds it as `-ma:<name>`, and writes a ZPAQL decoder for it so its archives open in any zpaq.
+        The details are on the wiki: [Adding a compressor](https://github.com/YadeWira/zpaq-std/wiki/Adding-a-compressor). If something below does not apply or you are not sure, say so: none of it blocks the proposal except the license.
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Repository, and the tag or commit to bundle.
+      placeholder: https://github.com/you/yourcodec, tag v1.2.0
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: License
+      description: It must allow bundling in an MIT project (MIT, BSD, Apache 2.0, zlib, public domain and similar). GPL code cannot be bundled.
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Is the compressed format frozen?
+      options:
+        - "Frozen: streams written today will always decode the same way"
+        - "Still changing: it can come in as experimental"
+        - "Not sure"
+    validations:
+      required: true
+  - type: input
+    id: levels
+    attributes:
+      label: Levels
+      description: The levels to expose, and the default.
+      placeholder: 1-9, default 5
+  - type: checkboxes
+    id: requirements
+    attributes:
+      label: Requirements
+      description: Tick what you know holds. Unticked boxes are fine; zpaq-std tests all of them anyway.
+      options:
+        - label: Plain C or C++, builds from its own sources with no other library.
+        - label: Builds and runs on 32-bit x86.
+        - label: Runs on Windows 7 (no newer Windows APIs, no UCRT-only runtime).
+        - label: One-shot API, buffer to buffer, that never writes past the output capacity it is given.
+        - label: Deterministic. The same input and level always give the same bytes.
+        - label: No global state. Safe to call from several threads at once.
+        - label: Global symbols have a prefix of their own, so they do not clash with other bundled libraries.
+        - label: "Passes [codec_check](https://github.com/YadeWira/zpaq-std/tree/main/tools/codec_check): exact-size buffers, determinism, output caps and damaged input, under AddressSanitizer."
+  - type: textarea
+    id: codec_check
+    attributes:
+      label: codec_check output
+      description: If you ran it, paste the last lines.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Memory use per block, test vectors or sample files, what the codec is good at, and who maintains it.
