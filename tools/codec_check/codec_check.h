@@ -4,6 +4,9 @@
 #ifndef CODEC_CHECK_H
 #define CODEC_CHECK_H
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* the codec's name, printed in the report */
 extern const char* cc_name;
@@ -17,6 +20,9 @@ size_t cc_bound(size_t n);
 long cc_compress(const void* src, size_t n, void* dst, size_t cap, int level);
 /* decompresses n bytes into dst, writing at most cap bytes; cap is the original size */
 long cc_decompress(const void* src, size_t n, void* dst, size_t cap);
+#ifdef __cplusplus
+}
+#endif
 
 #ifndef CC_TIMEOUT
 #define CC_TIMEOUT 20   /* seconds a single call may take before it counts as a hang */
