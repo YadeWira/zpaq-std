@@ -23,6 +23,21 @@
     file at level 1); against LZ5 1.5 (pre55) they stay within 0.2% or smaller;
   - extraction runs at the same speed.
 
+#### The LZMA2 decoders reject one more kind of corrupt chunk
+
+- The maintainer of ultra-fast-lzma2 found, with a differential fuzzer, a corrupt
+  stream on which the decoders of `-ma:flzma2` and `-ma:uflzma2` disagreed: an LZMA
+  chunk that declares more packed bytes than its data uses. The one-shot decoder,
+  the one zpaq-std uses, returned the data up to that chunk as valid, while the
+  multi-threaded stream decoder read on. Such a chunk is now rejected as corrupt, as
+  the LZMA SDK does.
+- `-ma:uflzma2` moves to ultra-fast-lzma2
+  [1.6.2](https://github.com/YadeWira/ultra-fast-lzma2/releases/tag/v1.6.2);
+  `-ma:flzma2` gets the same fix in its fast-lzma2 1.0.1 patch, backported by
+  ultra-fast-lzma2's maintainer (`compressors/fl2/PATCHES`).
+- Only the decoders change: compressed bytes are the same. In zpaq-std the block
+  header also records the original size, which the decoded size must match.
+
 #### `-ma:uflzma2` is no longer experimental
 
 - ultra-fast-lzma2 had its stability release (1.6.1, in pre57), and its blocks have
@@ -41,6 +56,14 @@
     reported, no memory error; zpaq 7.15 handled all of them too;
   - compression and decompression with buffers of the exact size, under
     AddressSanitizer and UndefinedBehaviorSanitizer: clean.
+- LZMA2 decoders:
+  - seven reproducer streams (the three new ones and the four of pre57), against
+    zpaq-std's own copies of both libraries, with AddressSanitizer and
+    UndefinedBehaviorSanitizer and with the assembler decoder: "Corrupted block
+    detected" in every build; before, the three new ones decoded as "ok";
+  - same bytes as pre57, extracted by pre58, by pre57 and by zpaq 7.15:
+    `-ma:flzma2` levels 1 to 10 on six inputs, plus `-m5` blocks: 66/66;
+    `-ma:uflzma2` levels 1 to 11 on six inputs: 66/66.
 - `suite_ma_hostil` 25/25 under AddressSanitizer.
 - Windows 7 x64 and x86, with the release binaries:
   - `-ma:lz5hc` 1, 3, 4 and 11, `-ma:lz5:9` (also with `-m5`) and `-ma:uflzma2:11`;
