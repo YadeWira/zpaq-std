@@ -45,6 +45,19 @@
   `00603! uflzma2 is EXPERIMENTAL` is gone, and the README lists it with the stable
   codecs. `-ma:lz6` stays experimental.
 
+#### For codec authors: `tools/codec_check` and a proposal form
+
+- `tools/codec_check` runs the checks zpaq-std makes before bundling a compressor,
+  so that its author can run them first: round trips from exact-size buffers,
+  determinism, output caps and a few hundred damaged copies of every block, under
+  AddressSanitizer and UndefinedBehaviorSanitizer. The author fills in a small
+  adapter; `examples/adapter_lz5.c` is a complete one. lz5-ex 1.5.2 passes it, and
+  it catches the decoder over-read of LZ5 1.5.
+- A "Propose a compressor" issue form, and the wiki page
+  [Adding a compressor](https://github.com/YadeWira/zpaq-std/wiki/Adding-a-compressor)
+  now says what is required, what helps, what happens when a bug is found, and when
+  an experimental codec becomes stable.
+
 #### Checked
 
 - lz5-ex 1.5.2:
@@ -64,12 +77,15 @@
   - same bytes as pre57, extracted by pre58, by pre57 and by zpaq 7.15:
     `-ma:flzma2` levels 1 to 10 on six inputs, plus `-m5` blocks: 66/66;
     `-ma:uflzma2` levels 1 to 11 on six inputs: 66/66.
+  - 900 damaged `flzma2` and `uflzma2` blocks, decoded natively under
+    AddressSanitizer: every one reported, no memory error.
 - `suite_ma_hostil` 25/25 under AddressSanitizer.
 - Windows 7 x64 and x86, with the release binaries:
-  - `-ma:lz5hc` 1, 3, 4 and 11, `-ma:lz5:9` (also with `-m5`) and `-ma:uflzma2:11`;
-  - all 28 extractions have identical sha256;
+  - `-ma:lz5hc` 1, 3, 4 and 11, `-ma:lz5:9` (also with `-m5`), `-ma:uflzma2:11` and
+    `-ma:flzma2:10`;
+  - `t` and `x` pass, and all 32 extractions have identical sha256;
   - archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre57 and
-    pre58: 28/28.
+    pre58: 32/32.
 - Full test battery:
   - every suite has 0 cases to review;
   - golden archives: 0 unexpected failures;
