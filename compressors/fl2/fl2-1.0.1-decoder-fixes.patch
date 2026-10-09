@@ -1,13 +1,11 @@
-Backport de 2 arreglos de decodificacion de uf-lzma2 a fast-lzma2 1.0.1
-Aplicar contra el tag v1.0.1:  git apply fl2-1.0.1-decoder-fixes.patch
-Solo toca lzma2_dec.c. Decoder-only: los bytes comprimidos NO cambian.
-(1) over-read <=20 B al final de un chunk; (2) chunk sin props tras reset +
-    typo pb (prop.lc=2 donde iba prop.pb=2). Equivale a uf-lzma2 5c2238c + d4f6342.
-Verificado: cut_0/props_min/segv_min -> Corrupted block (C+ASan/UBSan y asm);
-round trip valido identico (niveles 1/6/9, corpus text).
+Backport to fast-lzma2 1.0.1 of three decoder fixes from ultra-fast-lzma2, by its
+maintainer. Apply to tag v1.0.1. Touches only lzma2_dec.c; compressed bytes do not
+change. (1) over-read of up to 20 bytes at the end of a chunk; (2) chunk without
+properties after a dictionary reset, plus the prop.pb typo; (3) LZMA chunk that
+completes without consuming its whole packed size.
 ---
 diff --git a/lzma2_dec.c b/lzma2_dec.c
-index 80bfcd7..b6dc907 100644
+index 80bfcd7..9bb0f7c 100644
 --- a/lzma2_dec.c
 +++ b/lzma2_dec.c
 @@ -862,21 +862,32 @@ static size_t LZMA_decodeToDic(LZMA2_DCtx *const p, size_t const dic_limit, cons
@@ -80,3 +78,21 @@ index 80bfcd7..b6dc907 100644
  
              LZMA_initDicAndState(p, init_dic, init_state);
              p->need_init_dic = 0;
+@@ -1119,6 +1139,17 @@ static size_t LZMA2_decodeChunkToDic(LZMA2_DCtx *const p, size_t const dic_limit
+             if (res != LZMA_STATUS_FINISHED && p->unpack_size == 0)
+                 return FL2_ERROR(corruption_detected);
+ 
++            /* A completed LZMA chunk must consume its whole packed size. Leftover
++             * packed bytes mean the chunk's compressed size was declared larger
++             * than its real LZMA data, so the range decoder reached a clean end
++             * early; the next control byte would then be read from inside this
++             * chunk and desynchronise the stream. The single-threaded decoder
++             * stopped at such a stray byte while the multi-threaded one, which
++             * locates chunks by their packed size, read on, so the two disagreed
++             * on the same corrupt input. */
++            if (p->unpack_size == 0 && p->pack_size != 0)
++                return FL2_ERROR(corruption_detected);
++
+             /* Error conditions:
+                1. need input but chunk is finished
+                2. have output space, input not needed, but nothing was written*/
