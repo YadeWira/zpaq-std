@@ -42,6 +42,15 @@
   - compression and decompression with buffers of the exact size, under
     AddressSanitizer and UndefinedBehaviorSanitizer: clean.
 - `suite_ma_hostil` 25/25 under AddressSanitizer.
+- Windows 7 x64 and x86, with the release binaries:
+  - `-ma:lz5hc` 1, 3, 4 and 11, `-ma:lz5:9` (also with `-m5`) and `-ma:uflzma2:11`;
+  - all 28 extractions have identical sha256;
+  - archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre57 and
+    pre58: 28/28.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre57: 0 divergences.
 
 ### [65.4m-pre57] - 2026-10-08
 
