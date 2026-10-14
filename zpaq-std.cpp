@@ -46803,7 +46803,7 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			if (flagdebug3)
 				myprintf("00216: HERE WE ARE @ %12s on fp %12s  size %s\n", migliaia3(ftello(firstfp)), migliaia(int64_t(firstfp)), migliaia2(ptr));
 #endif
-			char debugfilename[100];
+			char debugfilename[100]= "";
 #ifndef ESX
 			FP debugoutf;
 			if (flagdebug4)
@@ -46878,7 +46878,7 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			myprintf("00227: flush k4bis\n");
 
 #ifndef ESX
-		char debugfilename[100];
+		char debugfilename[100]= "";
 		FP	 debugoutf;
 		if (flagdebug4)
 		{
