@@ -67587,8 +67587,16 @@ string Jidac::rename(string name)
 				const string dest= (tofiles[i] == "") ? "" : includetrailingbackslash(tofiles[i]);
 				return dest + name.substr(pn);
 			}
+			/// Compared like ispath() selects: in Windows not case sensitive. The scan
+			/// returns names with the case they have on disk, so C:/x/DOCS selected
+			/// C:/x/Docs/a.txt and then -to was not applied (full path stored).
 			const int fn= files[i].size();
-			if (fn <= n && files[i] == name.substr(0, fn))
+			if (fn > n)
+				continue;
+			int k= 0;
+			while (k < fn && tolowerW(files[i][k]) == tolowerW(name[k]))
+				++k;
+			if (k == fn)
 				return tofiles[i] + name.substr(fn);
 		}
 	}
@@ -75834,7 +75842,24 @@ void Jidac::scandir(bool i_checkifselected, DTMap &i_edt, string filename, bool 
 
 	// Expand wildcards
 	WIN32_FIND_DATA ffd;
-	string			t= filename;
+	/// A folder given with a trailing slash (C:/x/folder/) was scanned as
+	/// folder/*: its contents only, never the folder entry itself, so an empty
+	/// folder added nothing at all. Without the slash, and on POSIX either way,
+	/// the folder is added too. Drop the slash, except on a root (C:/, //?/C:/,
+	/// //server/share/), whose name without it means something else.
+	if (filename.size() > 1 && filename[filename.size() - 1] == '/' && !iswildcards(filename))
+	{
+		const string s	   = filename.substr(0, filename.size() - 1);
+		const string r	   = (s.compare(0, 4, "//?/") == 0) ? s.substr(4) : s;
+		bool		 isroot= (r.size() == 2 && r[1] == ':');
+		if (r.compare(0, 4, "UNC/") == 0)
+			isroot= std::count(r.begin(), r.end(), '/') < 3;
+		else if (r.size() > 2 && r[0] == '/' && r[1] == '/')
+			isroot= std::count(r.begin() + 2, r.end(), '/') < 2;
+		if (!isroot && s[s.size() - 1] != '/' && direxists(s + "/"))
+			filename= s;
+	}
+	string t= filename;
 	if (t.size() > 0 && t[t.size() - 1] == '/')
 		t+= "*";
 	HANDLE h= FindFirstFile(utow(t.c_str()).c_str(), &ffd);
