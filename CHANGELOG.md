@@ -1,3 +1,54 @@
+### [65.4m-pre59] - 2026-10-14
+
+Two fixes for `-to` when adding on Windows, both inherited from zpaqfranz, and one for
+a debug message. Archives and compressed bytes do not change.
+
+#### `-to` on Windows: a folder with a trailing slash, and a different case
+
+- A folder given with a trailing slash, as in `a arc.zpaq C:/x/folder/ -to folder/`,
+  was scanned as `folder/*`: its contents only. The folder entry itself was not
+  stored, and an empty folder added nothing at all (`QUIT: total size,file/folder
+  count == zero`). On Linux, and on Windows without the slash, the folder is stored
+  too. Now one trailing slash is dropped on Windows as well, except on a root
+  (`C:/`, `//?/C:/`, `//server/share/`), where the name without it means something
+  else.
+- A folder written with a different case than on disk, as in
+  `a arc.zpaq C:/x/DOCS -to DOCS` for a folder called `Docs`: the files were
+  selected, since Windows paths are not case sensitive, but `-to` was not applied
+  and they were stored with their full path. `-to` now matches the same way the
+  selection does.
+- Wildcards (`folder/*`), double slashes (`folder//`) and roots behave as before.
+- Reported by the zpaq-std GUI; both confirmed in zpaqfranz 65.11.
+
+#### `-debug3` printed garbage in message 00228
+
+With `-debug3`, message `00228` printed a file name that is only filled with
+`-debug4`: uninitialised bytes, different on every run, and a read that could run
+past the buffer. It now prints an empty name.
+
+#### For codec authors
+
+`tools/codec_check/codec_check.h` declares its functions `extern "C"`, so an adapter
+can be written in C++.
+
+#### Checked
+
+- `-to` on Windows 10 and Windows 7 (x64 and x86), pre58 against pre59: a folder
+  with a trailing slash, an empty folder with a trailing slash, a different case,
+  no slash; pre59 stores the folder entry and applies `-to` in every case, and the
+  control without a slash is unchanged. Wildcards, double slashes and a drive root
+  (`subst`) give the same entries as pre58 on Windows 10.
+- `00228` with `-debug3` and `-key`: two runs print the same line (pre58 printed
+  different bytes each time).
+- Windows 7 x64 and x86, with the release binaries: `-m1`, `-m5`, `-ma:zstd:19` and
+  `-ma:uflzma2:11`; `t` and `x` pass, all 16 extractions have identical sha256, and
+  archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre58 and
+  pre59: 16/16.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre58: 0 divergences.
+
 ### [65.4m-pre58] - 2026-10-09
 
 #### lz5-ex 1.5.2
