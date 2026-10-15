@@ -39,13 +39,26 @@ body:
       label: Levels
       description: The levels to expose, and the default.
       placeholder: 1-9, default 5
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      description: "C, C++, Rust (built with Rust 1.77.2, the last release that targets Windows 7) or Free Pascal (3.2.2). See [Languages](https://github.com/YadeWira/zpaq-std/wiki/Adding-a-compressor#languages)."
+      options:
+        - C
+        - C++
+        - Rust
+        - Free Pascal
+        - Other (say which below)
+    validations:
+      required: true
   - type: checkboxes
     id: requirements
     attributes:
       label: Requirements
       description: Tick what you know holds. Unticked boxes are fine; zpaq-std tests all of them anyway.
       options:
-        - label: Plain C or C++, builds from its own sources with no other library.
+        - label: Builds from its own sources with no other library (no other crates, units or packages).
         - label: Builds and runs on 32-bit x86.
         - label: Runs on Windows 7 (no newer Windows APIs, no UCRT-only runtime).
         - label: One-shot API, buffer to buffer, that never writes past the output capacity it is given.
