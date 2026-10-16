@@ -66,6 +66,13 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// Comment out the next line to build without -m7 (-m7 is then -m5 again)
 #define ZPAQLZAV
 
+/// zpaq-std's own version and release date. The banner reads
+/// "zpaq-std v0.0.1 | zf v65.4m-<build>,(<our date>)": zf is the zpaqfranz base.
+/// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
+/// build differ, and the release binaries are reproducible).
+#define ZPAQSTD_VERSION "0.0.1"
+#define ZPAQSTD_DATE "(2026-10-16)"
+/// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.4m"
 #define ZPAQ_DATE "(2026-09-24)"
 
@@ -65009,7 +65016,7 @@ string help_versum(bool i_usage, bool i_example)
 		scrivi_riga("-replace", "folder (if different)");
 		scrivi_riga("-to", "file.zpaq Test against hashes stored in .zpaq (MUST match algo type!)");
 		scrivi_riga(" ", "aka: do NOT compare sha3 hashes with xxhash64 or something !=");
-		scrivi_riga("-hashdeep", "Use hashdeep format for the input file (DEFAULT: zpaqfranz)");
+		scrivi_riga("-hashdeep", "Use hashdeep format for the input file (DEFAULT: zpaq-std's)");
 		scrivi_riga("-checktxt", "Test against .md5 / _md5.txt file (w/wildcards)");
 		scrivi_riga("-fasttxt", "Test against _crc32.txt file (w/wildcards)");
 		scrivi_riga("-fasttxt -quick", "Test QUICK against _crc32.txt file (w/wildcards)");
@@ -65175,7 +65182,7 @@ string help_work(bool i_usage, bool i_example)
 		scrivi_esempio("Devart", "work devart ALL-OK");
 		scrivi_esempio("Last file name", "work lastfile z:\\temp\\copia*.zpaq -terse");
 		scrivi_esempio("Scary text", "work devart-red ERROR! -terse");
-		scrivi_esempio("Show filesize", "work getsize zpaqfranz*.cpp /tmp/prova");
+		scrivi_esempio("Show filesize", "work getsize zpaq-std*.cpp /tmp/prova");
 		scrivi_esempio("Check free space", "work checkspace c:\\ 10g d:\\ 20g -exec_error nospace.bat");
 		scrivi_esempio("Compare global hash", "work compare2 1.txt 2.txt \"GLOBAL SHA256:\" \"hashme:\"");
 		scrivi_esempio("Compare file1 and file2", "fc file1 file2");
@@ -65327,10 +65334,10 @@ string help_last(bool i_usage, bool i_example)
 		moreprint(" ");
 		moreprint("Windows' example (script use %%, direct only %)");
 		moreprint(" ");
-		moreprint("FOR /f %%G in ('zpaqfranz last K:\\parte_???????? -pakka -noeta') DO ");
+		moreprint("FOR /f %%G in ('zpaq-std last K:\\parte_???????? -pakka -noeta') DO ");
 		moreprint("ssh -i thekey user@theserver.com md5sum '/home/franco/%%G' >remote.txt");
 		moreprint(" ");
-		moreprint("FOR /f %%G in ('zpaqfranz last K:\\parte_???????? -pakka -noeta') DO ");
+		moreprint("FOR /f %%G in ('zpaq-std last K:\\parte_???????? -pakka -noeta') DO ");
 		moreprint("zpaq-std sum k:/%%G -md5 -pakka -noeta -stdout >>remote.txt");
 		moreprint(" ");
 		moreprint("zpaq-std last2 remote.txt -big");
@@ -65481,6 +65488,8 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-nochecksum", "Disable extra checksums (faster, but less reliable)");
 		scrivi_riga("-nodedup", "Turn off deduplicator");
 		scrivi_riga("-store", "Store mode: no deduplication, no compression");
+		scrivi_riga("-ma:algo:N", "Compress with a bundled library: zstd, brotli, lzma, bzip2, kanzi...");
+		scrivi_riga(" ", "  any zpaq extracts the archive; every codec and level: h voodoo");
 		scrivi_riga("-touch", "Re-hash unchanged files without a usable hash (7.15, other algo)");
 		scrivi_riga("-norecursion", "Do not recurse into folders (default: YES)");
 #ifdef _WIN32
@@ -65518,6 +65527,7 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-longpath", "Enable support for Windows paths longer than 255 characters");
 		scrivi_riga("-windate", "Store file creation date");
 		scrivi_riga("-open", "Early fail if archive is already open");
+		scrivi_riga("-popgui", "Show a native progress window (-innosetup: same, legacy name)");
 		scrivi_riga("-ads", "Store CRC-32 (-fasttxt) in NTFS' ADS (Alternate Data Stream)");
 #endif // corresponds to #if (#if defined(_WIN32))
 		scrivi_riga("-image", "Create a raw image of a drive/partition (Administrator/root rights required)");
@@ -65593,7 +65603,9 @@ losetup -d /dev/loop0
 		scrivi_esempio("Add 2nd copy to USB drive (U)", "a \"z:\\f_???.zpaq\" c:\\nz\\ -copy u:\\usb");
 		scrivi_esempio("Archive file if bigger of 10GB", "a z:\\h.zpaq c:\\nz\\ -freeze y:\\archived -maxsize 10000000000");
 		scrivi_esempio("Prepare a debug archive...for me", "a z:\\1.zpaq c:\\nz\\ -debug -zero");
-		scrivi_esempio("In-place 7.15 to zpaqfranz", "a z:\\1.zpaq c:\\nz\\ -touch");
+		scrivi_esempio("In-place 7.15 to zpaq-std", "a z:\\1.zpaq c:\\nz\\ -touch");
+		scrivi_esempio("Add with zstd level 19", "a z:\\1.zpaq c:\\nz\\ -ma:zstd:19");
+		scrivi_esempio("Add with lzma, 64 MB blocks", "a z:\\1.zpaq c:\\nz\\ -ma:lzma:9 -m16");
 		scrivi_esempio("Store SHA-256 of unchanged files", "a z:\\1.zpaq c:\\nz\\ -touch -sha256");
 		scrivi_esempio("Hard-check of files", "a z:\\1.zpaq c:\\nz\\ -paranoid");
 		scrivi_esempio("Hard-check of files multithread", "a z:\\1.zpaq c:\\nz\\ -paranoid -ssd");
@@ -65635,7 +65647,7 @@ losetup -d /dev/loop0
 		scrivi_esempio("Store creation date (slower)", "a z:\\1.zpaq c:\\users\\utente -date");
 		scrivi_esempio("Use less RAM: DO NOT MIX HASHES!", "a z:\\1.zpaq c:\\nz -frugal");
 		scrivi_esempio("Store external VFILE-l-external.txt", "a z:\\2.zpaq c:\\nz -external \"c:\\nz\\hashdeep64 -r -c sha1 %files\"");
-		scrivi_esempio("Alter the filedate (piped)", "type 1.txt|zpaqfranz a z:\\2.zpaq 1.sql -stdin -touch 2024_02_03");
+		scrivi_esempio("Alter the filedate (piped)", "type 1.txt|zpaq-std a z:\\2.zpaq 1.sql -stdin -touch 2024_02_03");
 		scrivi_esempio("Load files from text file", "a z:\\1.zpaq -input z:\\thelist.txt");
 		scrivi_esempio("Write errors", "a z:\\1.zpaq c:\\windows\\system32 -errorlog z:\\errors.txt -silent");
 		scrivi_esempio("Load files/to from text files", "a z:\\1.zpaq -input z:\\input.txt -destination z:\\destination.txt");
@@ -65966,7 +65978,7 @@ string help_l(bool i_usage, bool i_example)
 		scrivi_esempio("Show a folder WITHOUT subfolders", "l z:\\1.zpaq -only c:/dropbox/snapshot -norecursion");
 		scrivi_esempio("Show a folder WITH subfolders", "l z:\\1.zpaq -only c:/dropbox/snapshot");
 		scrivi_esempio("Get metadata (if any)", "l /tmp/backup.zpaq -tar");
-		scrivi_esempio("Show 4 largest 1-level folders", "l z:\\1.zpaq c:/zpaqfranz -home -desc -n 4");
+		scrivi_esempio("Show 4 largest 1-level folders", "l z:\\1.zpaq c:/zpaq-std -home -desc -n 4");
 	}
 	return ("List file(s)");
 }
@@ -66109,10 +66121,10 @@ string help_find(bool i_usage, bool i_example)
 	{
 		scrivi_esempio("'Double filter'", "find c:\\dropbox *.txt -minsize 1000000  -find franco");
 		scrivi_esempio("Search in multiple folders", "find c:\\uno z:\\kb -only *franco*");
-		scrivi_esempio("Search file ending with 01.cpp", "find c:\\zpaqfranz *01.cpp");
-		scrivi_esempio("Search all .cpp", "find c:\\zpaqfranz *.cpp -verbose");
+		scrivi_esempio("Search file ending with 01.cpp", "find c:\\zpaq-std *01.cpp");
+		scrivi_esempio("Search all .cpp", "find c:\\zpaq-std *.cpp -verbose");
 		scrivi_esempio("Search *francia* BEWARE DOUBLE QUOTE", "find /root \"*francia*\"");
-		scrivi_esempio("Search filtered on date", "find c:\\zpaqfranz *.cpp -datefrom 20220920 -dateto 2022-10-01");
+		scrivi_esempio("Search filtered on date", "find c:\\zpaq-std *.cpp -datefrom 20220920 -dateto 2022-10-01");
 		scrivi_esempio("Search every file of 2017", "find . -datefrom 2017 -dateto 2017");
 		scrivi_esempio("Search every EXE file of 2017", "find . *.exe -datefrom 2017 -dateto 2017");
 		scrivi_esempio("10 biggest cpp", "find . *.cpp -orderby size -desc -limit 10 -verbose");
@@ -66242,12 +66254,12 @@ string help_sync(bool i_usage, bool i_example)
 		scrivi_examples();
 	if (i_example)
 	{
-		scrivi_esempio("(example) Archive with 3 folders", "a z:\\1.zpaq c:\\zpaqfranz c:\\nz c:\\ut");
-		scrivi_esempio("Check all 3 folders against archive", "sync z:\\1.zpaq c:\\zpaqfranz c:\\nz c:\\ut");
+		scrivi_esempio("(example) Archive with 3 folders", "a z:\\1.zpaq c:\\zpaq-std c:\\nz c:\\ut");
+		scrivi_esempio("Check all 3 folders against archive", "sync z:\\1.zpaq c:\\zpaq-std c:\\nz c:\\ut");
 		scrivi_esempio("Check only 2 specific folders", "sync z:\\1.zpaq c:\\nz c:\\ut");
 		scrivi_esempio("Check with multithreaded hashing", "sync z:\\1.zpaq c:\\nz -ssd");
 		scrivi_esempio("Quick size-only comparison", "sync z:\\1.zpaq c:\\nz -quick");
-		scrivi_esempio("Check specific subfolder only", "sync z:\\1.zpaq c:\\zpaqfranz\\release -ssd");
+		scrivi_esempio("Check specific subfolder only", "sync z:\\1.zpaq c:\\zpaq-std\\release -ssd");
 	}
 	return ("Compare archive with filesystem");
 }
@@ -66897,6 +66909,9 @@ string help_mainswitches(bool i_usage, bool i_example)
 		scrivi_riga("-m7[h]", "LZAV (experimental; any zpaq, 7.15 too, extracts it)");
 		scrivi_riga(" ", "  -m7 default, -m7h LZAV hi (smaller, slower), -m76: 64 MB blocks");
 #endif // ZPAQLZAV
+		scrivi_riga("-ma:algo:N", "A bundled library compresses each block (any zpaq extracts it)");
+		scrivi_riga(" ", "  -ma:zstd:19 -ma:brotli -ma:lzma:9 -ma:kanzi:5 ... list: h voodoo");
+		scrivi_riga(" ", "  block size from -m: -ma:zstd:19 -m16 = 64 MB blocks");
 		scrivi_riga("-force", "Overwrite");
 		scrivi_riga("-test", "Verify (extract/add)");
 		scrivi_riga("-kill", "Allow destructive operations ('wet runs')");
@@ -67054,7 +67069,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "t8,24: MIX2 last 2 models, N1 context bits, learning rate N2");
 #ifdef ZPAQLZ4
 		scrivi_riga("-m6[B][hN|aN]", "LZ4 (experimental): stored block + LZ4 decoder in ZPAQL");
-		scrivi_riga(" ", "  inside it, so ANY zpaq (7.15 too) extracts it; zpaqfranz decodes it");
+		scrivi_riga(" ", "  inside it, so ANY zpaq (7.15 too) extracts it; zpaq-std decodes it");
 		scrivi_riga(" ", "  natively. B: 2^B MiB blocks (default 4, -m6 = -m64)");
 		scrivi_riga(" ", "  hN: LZ4 HC level 1..12 (9 = best size for the time). aN: fast mode,");
 		scrivi_riga(" ", "  acceleration N (bigger = faster, larger). Nothing: LZ4 default");
@@ -67063,7 +67078,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 #endif // ZPAQLZ4
 #ifdef ZPAQLZAV
 		scrivi_riga("-m7[B][h]", "LZAV (experimental): stored block + LZAV decoder in ZPAQL");
-		scrivi_riga(" ", "  inside it, so ANY zpaq (7.15 too) extracts it; zpaqfranz decodes it");
+		scrivi_riga(" ", "  inside it, so ANY zpaq (7.15 too) extracts it; zpaq-std decodes it");
 		scrivi_riga(" ", "  natively. B: 2^B MiB blocks (default 4, -m7 = -m74). h: LZAV hi,");
 		scrivi_riga(" ", "  smaller and slower. LZ77 with a 2 MB window, farther with the offset");
 		scrivi_riga(" ", "  carry (-m6 has 64 KB): smaller than -m6, the pcomp needs a");
@@ -68699,7 +68714,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagnumeric,		"-numeric",				"x -tar: owners by uid/gid only, not by name",			"");
 	g_programflags.add(&flagtmp,			"-tmp",					"Use .tmp instead of .zpaq during backup",			"");
 	g_programflags.add(&flagtest,			"-test",				"Only do test",										"");
-	g_programflags.add(&flagtouch,			"-touch",				"Re-hash files without a usable hash (7.15 to zpaqfranz)",		"");
+	g_programflags.add(&flagtouch,			"-touch",				"Re-hash files without a usable hash (7.15 to zpaq-std)",		"");
 	g_programflags.add(&flagutc,			"-utc",					"Use UTC time",										"");
 	g_programflags.add(&flagdate,			"-date",				"Show/save creation date (if possible)",			"");
 	g_programflags.add(&flagutf,			"-utf",					"UTF-8",											"");
@@ -68789,14 +68804,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 	// A bit of refactoring. The boolean differentiate hashes used inside zpaqfranz archive
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_NONE		 ,	tipohash("NONE",		0,"Disable checksums",											true	,"-nochecksum",		&flagnochecksum,	&finalizza_none,		"")));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_CRC_32	 ,	tipohash("CRC-32",	 	8,"Old but ubiquitous, superfast, not very strong",				true	,"-crc32",			&flagcrc32,			&finalizza_crc32,		TOSTRING(FRANZO_CRC_32))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64	 ,	tipohash("XXHASH64",   16,"Very fast, low CPU usage, zpaqfranz's default",				true	,"-xxhash",			&flagxxhash64,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64B ,	tipohash("XXHASH64B",  16,"Very fast, low CPU usage, zpaqfranz's 60+ default",			true	,"-xxhashb",		&flagxxhash64b,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64	 ,	tipohash("XXHASH64",   16,"Very fast, low CPU usage, the default before zpaqfranz 60",				true	,"-xxhash",			&flagxxhash64,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64B ,	tipohash("XXHASH64B",  16,"Very fast, low CPU usage, the default",			true	,"-xxhashb",		&flagxxhash64b,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64B))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_1	 ,	tipohash("SHA-1",	   40,"Fair speed, very reliable, some collisions known",			true	,"-sha1",			&flagsha1,			&finalizza_sha1,		TOSTRING(FRANZO_SHA_1))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_1B	 ,	tipohash("SHA-1B",	   40,"Fair speed, very reliable, some collisions known",			true	,"-sha1b",			&flagsha1b,			&finalizza_sha1,		TOSTRING(FRANZO_SHA_1B))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_256	 ,	tipohash("SHA-256",	   64,"CPU intensive, one of the most reliable. Legal proof in EU",	true	,"-sha256",			&flagsha256,		&finalizza_sha256,		TOSTRING(FRANZO_SHA_256))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_256B	 ,	tipohash("SHA-256B",   64,"CPU intensive, one of the most reliable. Legal proof in EU",	true	,"-sha256b",		&flagsha256b,		&finalizza_sha256,		TOSTRING(FRANZO_SHA_256B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3		 ,	tipohash("XXH3",	   32,"Very fast and strong, zpaqfranz default for file comparing",	true	,"-xxh3",			&flagxxh3,			&finalizza_xxh3,		TOSTRING(FRANZO_SHA3))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3B	 ,	tipohash("XXH3B",	   32,"Very fast and strong, zpaqfranz default for file comparing",	true	,"-xxh3b",			&flagxxh3b,			&finalizza_xxh3,		TOSTRING(FRANZO_XXH3B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3		 ,	tipohash("XXH3",	   32,"Very fast and strong, the default for file comparing",	true	,"-xxh3",			&flagxxh3,			&finalizza_xxh3,		TOSTRING(FRANZO_SHA3))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3B	 ,	tipohash("XXH3B",	   32,"Very fast and strong, the default for file comparing",	true	,"-xxh3b",			&flagxxh3b,			&finalizza_xxh3,		TOSTRING(FRANZO_XXH3B))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_MD5		 ,	tipohash("MD5",	       32,"Common, fast, hashdeep compatible. Not cryptographically secure",	true	,"-md5",			&flagmd5,			&finalizza_md5,			TOSTRING(FRANZO_MD5))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_MD5B		 ,	tipohash("MD5B",	   32,"Common, fast, hashdeep compatible. Not cryptographically secure",	true	,"-md5b",			&flagmd5b,			&finalizza_md5,			TOSTRING(FRANZO_MD5B))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_BLAKE3	 ,	tipohash("BLAKE3",	   64,"Fast, CPU intensive (on Win64 HW acceleration), reliable",	true	,"-blake3",			&flagblake3,		&finalizza_blake3,		TOSTRING(FRANZO_BLAKE3))));
@@ -69130,9 +69145,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 			char buffer[300];
 
 #ifndef ZPAQFULL
-		snprintf(buffer,sizeof(buffer),"zpaq-std-open v" ZPAQ_VERSION "%s" TEXT_BIG TEXT_ALIGN TEXT_HWPRE TEXT_HWBLAKE3 TEXT_HWSHA1 TEXT_HWSHA2 TEXT_IPV ZSFX_VERSION ZPAQ_DATE,textnojit.c_str()); 
+		snprintf(buffer,sizeof(buffer),"zpaq-std v" ZPAQSTD_VERSION " | zf v" ZPAQ_VERSION "%s" TEXT_BIG TEXT_ALIGN TEXT_HWPRE TEXT_HWBLAKE3 TEXT_HWSHA1 TEXT_HWSHA2 TEXT_IPV ZSFX_VERSION ZPAQSTD_DATE,textnojit.c_str()); 
 #else
-		snprintf(buffer,sizeof(buffer),"zpaq-std v" ZPAQ_VERSION "%s" TEXT_BIG TEXT_ALIGN TEXT_HWPRE TEXT_HWBLAKE3 TEXT_HWSHA1 TEXT_HWSHA2 TEXT_IPV ZSFX_VERSION ZPAQ_DATE,textnojit.c_str()); 
+		snprintf(buffer,sizeof(buffer),"zpaq-std v" ZPAQSTD_VERSION " | zf v" ZPAQ_VERSION "%s" TEXT_BIG TEXT_ALIGN TEXT_HWPRE TEXT_HWBLAKE3 TEXT_HWSHA1 TEXT_HWSHA2 TEXT_IPV ZSFX_VERSION ZPAQSTD_DATE,textnojit.c_str()); 
 #endif
 			color_green();
 			moreprint(buffer);
@@ -92471,7 +92486,7 @@ int Jidac::summa()
 			return 2;
 		}
 		flagnoeta= true;
-		myprintf("%%%%%%%% zpaqfranz " ZPAQ_VERSION "\n");
+		myprintf("%%%%%%%% zpaq-std " ZPAQSTD_VERSION " (zf " ZPAQ_VERSION ")\n");
 		myprintf("%%%%%%%% size,%s,filename\n", hashdeepalgo.c_str());
 
 		myprintf("## invoked @ ");
