@@ -179,9 +179,11 @@ LZHAMINC  := -Icompressors/lzham
 ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
 
 # Download URLs
-SOURCE_URL_NIGHTLY  := http://www.francocorbelli.it/zpaq-std.cpp
-SOURCE_URL_DOWNLOAD := http://www.francocorbelli.it/zpaq-std/win64/zpaq-std.cpp
-SOURCE_URL_GITHUB   := https://raw.githubusercontent.com/fcorbelli/zpaq-std/main/zpaq-std.cpp
+# (zpaqfranz's URLs, on Franco Corbelli's site, never held zpaq-std: all three
+# fetch zpaq-std.cpp from this repository's main branch.)
+SOURCE_URL_NIGHTLY  := https://raw.githubusercontent.com/YadeWira/zpaq-std/main/zpaq-std.cpp
+SOURCE_URL_DOWNLOAD := https://raw.githubusercontent.com/YadeWira/zpaq-std/main/zpaq-std.cpp
+SOURCE_URL_GITHUB   := https://raw.githubusercontent.com/YadeWira/zpaq-std/main/zpaq-std.cpp
 
 # User-overridable flags (safe to pass from command line or packaging systems)
 CXXFLAGS ?= -O3

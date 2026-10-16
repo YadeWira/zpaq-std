@@ -8,9 +8,21 @@ zpaq-std
  /___| .__/ \__,_|\__, |_| |_|  \__,_|_| |_/___|
      |_|             |_|                        
                                                                     
-This is zpaq-std, a patched  but (maybe) compatible fork of ZPAQ version 7.15 
-(http://mattmahoney.net/dc/zpaq.html)
- 
+This is zpaq-std (https://github.com/YadeWira/zpaq-std) by YadeWira (Yade Bravo),
+a fork of zpaqfranz by Franco Corbelli (https://github.com/fcorbelli/zpaqfranz),
+which is in turn a patched but (maybe) compatible fork of ZPAQ version 7.15 by
+Matt Mahoney (http://mattmahoney.net/dc/zpaq.html).
+
+zpaq-std's own licence is in LICENSE (MIT). The compression libraries that
+zpaq-std bundles under compressors/ (and libdivsufsort) are listed, with the full
+text of each licence, in THIRD-PARTY-LICENSES.txt, which also comes with every
+release.
+
+What follows is zpaqfranz's own credits list, which zpaq-std inherits with its
+code, as Franco Corbelli wrote it: the "I" and "me" in it are him.
+It matches the list in zpaq-std.cpp. Entry 24, curl, is used only by
+zpaqfranz's full build, which zpaq-std does not build.
+
 Portions of software by other authors, mentioned later, are included.
 As far as I know this is allowed by the licenses.
 
@@ -58,7 +70,7 @@ Credits and copyrights and licenses and links and internal bookmarks
 16 [Public domain]  Whirlpool by Paulo Barreto and Vincent Rijmen       https://web.archive.org/web/20171129084214/http://www.larc.usp.br/~pbarreto/WhirlpoolPage.html
  /// LICENSE_START.16 LICENSE_END.16
 17 [almost-unrestricted]		  Twofish implementation,(c) 2002 by Niels Ferguson   https://github.com/wernerd/ZRTPCPP/blob/master/cryptcommon/twofish.c
-**** This is part of currently not released zpaq-std (future zpaq-over-IP)
+**** This is part of currently not released zpaqfranz (future zpaq-over-IP)
 18 [Apache License 2.0] HighWay64 hasher                                       https://github.com/google/highwayhash
  /// LICENSE_START.18 LICENSE_END.18
 19 [Public domain]                The files in this directory are released to the Public Domain.
@@ -74,6 +86,15 @@ Credits and copyrights and licenses and links and internal bookmarks
  /// LICENSE_START.23 LICENSE_END.23
 24 [MIT-like]           curl command line tool and library        https://curl.se/
  /// LICENSE_START.24 LICENSE_END.24
+25 [LGPL]                       https://github.com/libfuse/libfuse
+ /// LICENSE_START.25 LICENSE_END.25
+26 [GPLv3 + FLOSS exception]   WinFsp Copyright (C) Bill Zissimopoulos https://github.com/winfsp/winfsp
+ /// LICENSE_START.26 LICENSE_END.26
+    (25 and 26: only for the optional mount command, built with MOUNT=1. Neither
+    is bundled or linked statically: libfuse3 is linked dynamically from the
+    system, WinFsp is loaded at run time. The release binaries contain neither.)
+27 [MIT License]                LZAV Copyright (c) 2023-2026 Aleksey Vaneev https://github.com/avaneev/lzav
+ /// LICENSE_START.27 LICENSE_END.27
 
    _____ _____  ______ ______ _______ _____ _   _  _____  _____ 
   / ____|  __ \|  ____|  ____|__   __|_   _| \ | |/ ____|/ ____|
@@ -141,7 +162,7 @@ Credits and copyrights and licenses and links and internal bookmarks
 51 Thanks to https://github.com/forgottenbutnotgone     for a bug in crc32 blocks sorting
 52 Thanks to https://github.com/197788                  for help fix
 53 Thanks to https://github.com/cheebusjeebus           for "different" UTC fixes
-54 Thanks to https://github.com/def324/                 for Docker https://github.com/fcorbelli/zpaq-std/tree/main/docker
+54 Thanks to https://github.com/def324/                 for Docker https://github.com/fcorbelli/zpaqfranz/tree/main/docker
 55 Thanks to https://github.com/KnightAR                for stdin-size switch   
 
 

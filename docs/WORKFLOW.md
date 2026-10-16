@@ -428,7 +428,7 @@ git remote -v
 # origin  https://github.com/YadeWira/zpaq-std (push)
 ```
 
-If the remote ever points back to one of Franco Corbelli's forks (`fcorbelli/zpaqfranz` or `fcorbelli/zpaq-std`), fix it with:
+If the remote ever points back to Franco Corbelli's zpaqfranz (`fcorbelli/zpaqfranz`), fix it with:
 ```bash
 git remote set-url origin https://github.com/YadeWira/zpaq-std
 ```

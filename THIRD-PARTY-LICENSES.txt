@@ -1862,7 +1862,7 @@ Credits and copyrights and licenses and links and internal bookmarks
  5 [Public domain]                Sha1Opt.asm and 7zAsm.asm by Igor Pavlov
     *** NOTE: those asm are used only on Windows ***
     https://sourceforge.net/p/sevenzip/discussion/45797/thread/7d394aca49/?limit=25#521d
- 	Hello, I am the developer of a little zpaq's fork (zpaq-std)	(...)
+ 	Hello, I am the developer of a little zpaq's fork (zpaqfranz)	(...)
 	I integrated two of yours source code into mine	(...)
 	Even if the performance increases very little (maybe 10%), can I use it?
 	I think it is right to ask this explicitly before releasing the new version or zpaqfranz

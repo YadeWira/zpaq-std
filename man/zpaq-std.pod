@@ -136,8 +136,7 @@ The help is embedded : please use that or read the wiki on github
 
 =head1 AVAILABILITY
 
- https://github.com/fcorbelli/zpaq-std
- https://sourceforge.net/projects/zpaq-std/
+ https://github.com/YadeWira/zpaq-std
 
 =head1 BUGS
 

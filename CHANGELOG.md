@@ -2308,6 +2308,9 @@ on Windows too, so they are back. Bundled algorithms: 15 → 17.
 - Binary ~6.09 MB
 - Total bundle: 93 source files, ~9.7 MB
 
+<!-- Everything below is zpaqfranz's own changelog, by Franco Corbelli, up to the version
+     zpaq-std forked from; its links point to github.com/fcorbelli/zpaqfranz. -->
+
 ### [63.3b] - 2025-09-23
 
 FRANZEN Enhancements
@@ -2317,7 +2320,7 @@ FRANZEN Enhancements
 - New `work crc32` command for quick integrity checks without requiring the encryption password.
 
 **Improved**
-- CRC-32 computation uses multi-threaded block processing, similar to zpaq-std.
+- CRC-32 computation uses multi-threaded block processing, similar to zpaqfranz.
 - Verification function skips the first 140 bytes (128 + 12) and processes the rest efficiently.
 - Supports high-speed integrity checks for cloud transmission on standard machines.
 
@@ -2336,7 +2339,7 @@ SFTP bandwidth limitation, distributed across multiple threads, using the `-band
 - `-sparse`: On Windows, attempts to create a sparse file (typically for NTFS). This can halve the extraction time for gigantic files.
 - `-huge`: Uses a different algorithm for file preparation. Useful for few but enormous files on filesystems that do not support sparse files.
 
-Details: [Discussion #213](https://github.com/fcorbelli/zpaq-std/discussions/213)
+Details: [Discussion #213](https://github.com/fcorbelli/zpaqfranz/discussions/213)
 
 - In the `dir` command, the `-nodir` switch now displays only files, excluding folders.
 - In the `hash` command, a new `-norecursion` switch performs as expected (non-recursive hashing).
@@ -2355,14 +2358,14 @@ Details: [Discussion #213](https://github.com/fcorbelli/zpaq-std/discussions/213
 
 - New `kickstart` function for downloading files from the internet or extracting them (if available) on Windows.
 
-Details: [Discussion #205](https://github.com/fcorbelli/zpaq-std/discussions/205)
+Details: [Discussion #205](https://github.com/fcorbelli/zpaqfranz/discussions/205)
 
-- Added release of `zpaq-std-full.exe` (for 64-bit Windows), which includes statically linked resources (useful for offline systems; no other functional differences).
+- Added release of `zpaqfranz-full.exe` (for 64-bit Windows), which includes statically linked resources (useful for offline systems; no other functional differences).
 
 ## FRANZEN Encryptor
 Details: [Encode.su Thread](https://encode.su/threads/4431-sodio-file-encryption-my-way)
 
-Essentially, this is an early (very immature) version of a future capability to encrypt zpaq-std files (losing backward compatibility with zpaq) using a different encryption system and a separate password.
+Essentially, this is an early (very immature) version of a future capability to encrypt zpaqfranz files (losing backward compatibility with zpaq) using a different encryption system and a separate password.
 
 In the future (not yet implemented), it will enable **double encryption** for files: an outer layer (FRANZEN) and an inner layer (standard zpaq). This allows GDPR-compliant cloud storage where the provider knows the outer password, but only the user knows the inner one.
 
@@ -2407,7 +2410,7 @@ If you see version 62.3 instead of 61.7, know that it’s for a good cause.
 
 ### Internal Changes to Reduce False Positives in Kaspersky and Other Antivirus Software
 Various program analysis systems use heuristics to detect viruses. 
-After reverse-engineering Kaspersky’s detection methods, which flagged false positives for some versions of zpaq-std, I introduced source code fixes. 
+After reverse-engineering Kaspersky’s detection methods, which flagged false positives for some versions of zpaqfranz, I introduced source code fixes. 
 Unfortunately, due to known reasons, Kaspersky is no longer installed on any of my machines, so I hadn’t noticed this earlier.
 
 ### Autotest Command: Default Quick Hash Check for Moderate File Sizes
@@ -2478,7 +2481,7 @@ The primary change is the overhaul of the interface with CURL and the management
 ## Additional Features
 It is now possible to extract only the files added in a specific version, marked with a textual comment, using the following example format:
 ```
-c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
+c:\zpaqfranz\zpaqfranz x z:\2.zpaq -to z:\wherever -comment "something" -range
 ```
 
 ## Miscellaneous Changes
@@ -2520,7 +2523,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **`-ntfs` Switch**: When used with `-image`, stores only the used sectors of an NTFS partition in the zpaq archive.
   - Format is experimental and not yet optimized.
   - Intended for emergency image-based backups of Windows systems.
-- **New `ntfs` Command**: Regenerates the original file from a zpaq-std-created image, filling unused sectors with zeros.
+- **New `ntfs` Command**: Regenerates the original file from a zpaqfranz-created image, filling unused sectors with zeros.
   - Experimental and under active development.
 - **`-ntfs` Switch (without `-image`)**: Scans an NTFS drive by reading and decoding its NTFS data directly, bypassing file-by-file enumeration.
   - Similar to the behavior of the "Everything" utility.
@@ -2557,12 +2560,12 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
     - Windows: Attempts to terminate all processes (success not guaranteed).
     - Non-Windows: Uses heuristic methods to handle `sudo` availability (not universally present).
   - **New `work` Commands**:
-    - `zpaq-std work shutdown`: Triggers a merciless system shutdown.
-    - `zpaq-std work big turbo`: Activates CPU turbo mode.
-    - `zpaq-std work big noturbo`: Deactivates CPU turbo mode (same as `-slow`).
-    - `zpaq-std work monitoroff`: Turns off the monitor (Windows only).
-    - `zpaq-std work monitoron`: Turns on the monitor (Windows only).
-- **Example Usage**: `zpaq-std a z:\1.zpaq c:\pippo -slow -monitor -shutdown`
+    - `zpaqfranz work shutdown`: Triggers a merciless system shutdown.
+    - `zpaqfranz work big turbo`: Activates CPU turbo mode.
+    - `zpaqfranz work big noturbo`: Deactivates CPU turbo mode (same as `-slow`).
+    - `zpaqfranz work monitoroff`: Turns off the monitor (Windows only).
+    - `zpaqfranz work monitoron`: Turns on the monitor (Windows only).
+- **Example Usage**: `zpaqfranz a z:\1.zpaq c:\pippo -slow -monitor -shutdown`
 
 ### Changed
 - **Shutdown Logic**: Improved system shutdown mechanism with platform-specific heuristics (e.g., `sudo` detection on non-Windows systems).
@@ -2614,7 +2617,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 
 ### Added
 - **SFTP Support with libcurl**: Enabled SFTP functionality by compiling with `-DSFTP` to dynamically use the libcurl library.
-  - **Windows**: Automatically downloads `libcurl-x64.dll`/`libcurl.dll` from the author's website (`zpaq-std sftp`) if not found.
+  - **Windows**: Automatically downloads `libcurl-x64.dll`/`libcurl.dll` from the author's website (`zpaqfranz sftp`) if not found.
   - **Non-Windows**: Requires manual installation of `libcurl.so` (e.g., `apt install libcurl` on Debian, `pkg install curl` on FreeBSD). Searches heuristically in common paths (`/usr/lib/`, `/usr/local/lib/`, etc.).
   - **Use Case**: Direct uploads to SFTP servers (username/password only; key file support planned), reducing ransomware risks compared to Samba shares.
   - **Note**: Do not use `-static` with `-DSFTP` on *nix systems due to inconsistent behavior across platforms.
@@ -2628,11 +2631,11 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Use `help` or `?` for command list.
 - **New Switches**:
   - `-noonedrive`: Disables Windows OneDrive placeholders to prevent automatic downloads to the local drive.
-  - `-norecursion` with `-only` in `list`: Prevents recursion into folders when listing with `-only` (fixes [issue #156](https://github.com/fcorbelli/zpaq-std/issues/156)).
+  - `-norecursion` with `-only` in `list`: Prevents recursion into folders when listing with `-only` (fixes [issue #156](https://github.com/fcorbelli/zpaqfranz/issues/156)).
   - `-DNOLM` (experimental): Uses a software implementation for numeric functions, bypassing the `lm` library for compatibility with unusual systems.
 
 ### Removed
-- **Server Code**: Dropped `zpaq-std-over-TCP` functionality, replaced by SFTP.
+- **Server Code**: Dropped `zpaqfranz-over-TCP` functionality, replaced by SFTP.
 - **Windows GUI with ncurses**: Replaced by the new `tui` command.
 
 ### Fixed
@@ -2670,7 +2673,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **`-notrim` Flag**: Disables automatic correction of incomplete transactions in the last transaction, restoring zpaq 7.15 behavior.
 - **`-destination` Switch in `consolidate` Command**: Allows renaming of `.zpaq` backup files (e.g., from `pippo` to `pluto`).
   - Complements the existing `-to` switch, which merges multipart files into a single file (labeled 01).
-  - **Warning**: Always use full paths (e.g., `c:\zpaq-std\pippo.zpaq`) with `consolidate`.
+  - **Warning**: Always use full paths (e.g., `c:\zpaqfranz\pippo.zpaq`) with `consolidate`.
 - **Enhanced `i` (info) Command**:
   - Now displays totals by default.
   - Added `-n` switch to show the last few lines of info output.
@@ -2681,7 +2684,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Changed
 - **Default Backup Behavior**: Backup command now uses `.tmp` files by default to protect against corruption from interruptions.
 - **Incomplete Transaction Handling**: 
-  - zpaq-std now issues a prominent warning for incomplete transactions.
+  - zpaqfranz now issues a prominent warning for incomplete transactions.
   - Automatically attempts to correct the archive if the interrupted transaction is the last one (unless `-notrim` is used).
   - For severe cases, users can use `consolidate` (multipart) or `trim` (single file) to remove corrupted parts.
 
@@ -2709,16 +2712,16 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **`-tmp` Switch for Multipart Files**: Names multipart files as `.tmp` during creation, renaming them to `.zpaq` upon completion.
   - Enables parallel testing/updates and compatibility with file-sync tools like Syncthing.
 - **Improved Password Handling**: Enhanced `-key` switch with support for delete key and cursor movement.
-  - Prompts for password twice during archive creation to ensure consistency (e.g., `zpaq-std a z:\1.zpaq *.cpp -key`).
+  - Prompts for password twice during archive creation to ensure consistency (e.g., `zpaqfranz a z:\1.zpaq *.cpp -key`).
 - **1980 Timestamp**: Sets file dates to 1/1/1980 during creation, updated only when the `jidac` header is written, aiding identification of incomplete files.
-- **Windows Placeholders**: Added filename placeholders `$pcname`, `$computername`, and `$username` (e.g., `zpaq-std a z:\pippo_$username c:\nz`).
+- **Windows Placeholders**: Added filename placeholders `$pcname`, `$computername`, and `$username` (e.g., `zpaqfranz a z:\pippo_$username c:\nz`).
 - **ZETA Hasher with `-backupzeta`**: New pseudo XXHASH64 hash calculation during backup generation.
   - Avoids re-reading large multipart files (e.g., virtual disks) for integrity checks, also calculates CRC-32.
   - Not yet supported for encrypted multipart archives (planned for future).
-- **`-nomore` Switch**: Disables the internal `more` command for faster external text processing (e.g., `zpaq-std h h -nomore | less`).
+- **`-nomore` Switch**: Disables the internal `more` command for faster external text processing (e.g., `zpaqfranz h h -nomore | less`).
   - On 64-bit Windows, enables experimental LargePages support (no noticeable improvement; may be removed).
-- **Common Switches List**: Accessible via `zpaq-std h common`.
-- **P7M Signature Check**: Windows option to verify FEQ digital signatures for hash files during updates (see [wiki](https://github.com/fcorbelli/zpaq-std/wiki/Windows-update)).
+- **Common Switches List**: Accessible via `zpaqfranz h common`.
+- **P7M Signature Check**: Windows option to verify FEQ digital signatures for hash files during updates (see [wiki](https://github.com/fcorbelli/zpaqfranz/wiki/Windows-update)).
 - **IPv6 Support**: Experimental support with `-DIVP6` compilation flag for the upgrade command (untested due to lack of IPv6 environment).
 
 ### Changed
@@ -2733,7 +2736,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **Compatibility Efforts**: Ongoing support for old systems and compilers remains a challenge but is maintained with minimal divergence from modern versions.
 - **ZETA Hasher Details**: See GitHub issues for a full explanation of `-backupzeta` functionality.
 - **IPv6**: Untested due to lack of test environment; feedback welcome.
-- **Hints**: Additional context for changes can be found in [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues?q=is%3Aissue).
+- **Hints**: Additional context for changes can be found in [GitHub issues](https://github.com/fcorbelli/zpaqfranz/issues?q=is%3Aissue).
 - **Request**: Testing on Apple Silicon (Mx) systems is desired; contact the author if you can provide access.
 
 ## Planned at the time of [60.8]
@@ -2749,18 +2752,18 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Added
 - **`-backupzeta` Switch**: Generates checksums (almost XXHASH64 and CRC-32) on-the-fly during `.zpaq` file creation in the backup command.
   - Saves time by avoiding post-creation reads, especially on slow HDDs.
-  - Future support planned for encrypted volumes ([issue #139](https://github.com/fcorbelli/zpaq-std/issues/139)).
-- **Creation Date Set to 1/1/1980**: `.zpaq` archives are now stamped with 1/1/1980 to easily identify incomplete files ([issue #138](https://github.com/fcorbelli/zpaq-std/issues/138)).
+  - Future support planned for encrypted volumes ([issue #139](https://github.com/fcorbelli/zpaqfranz/issues/139)).
+- **Creation Date Set to 1/1/1980**: `.zpaq` archives are now stamped with 1/1/1980 to easily identify incomplete files ([issue #138](https://github.com/fcorbelli/zpaqfranz/issues/138)).
 - **New Hash Algorithms**: Added ZETA and ZETAENC, selectable with `-zeta` and `-zetaenc`.
-  - Details in [issue #139, comment](https://github.com/fcorbelli/zpaq-std/issues/139#issuecomment-2425010093).
+  - Details in [issue #139, comment](https://github.com/fcorbelli/zpaqfranz/issues/139#issuecomment-2425010093).
 - **`-destination` Switch**: Allows loading multiple `-to` options from a text file for batch processing.
-  - Explanation in [issue #136, comment](https://github.com/fcorbelli/zpaq-std/issues/136#issuecomment-2422947782).
+  - Explanation in [issue #136, comment](https://github.com/fcorbelli/zpaqfranz/issues/136#issuecomment-2422947782).
 - **`-nodelete` Switch**: Prevents marking files as deleted if not found during path scanning, useful for bulk file list manipulation.
-  - Details in [issue #136, comment](https://github.com/fcorbelli/zpaq-std/issues/136#issuecomment-2416220823).
+  - Details in [issue #136, comment](https://github.com/fcorbelli/zpaqfranz/issues/136#issuecomment-2416220823).
 - **`-salt` Switch**: Forces an empty salt (32 zero bytes) for development purposes (not recommended for general use).
 - **`-hdd` Switch**: Uses RAM (including virtual memory/swap) to buffer extracted data before sequential writing to HDD.
   - Reduces seek times on HDDs, halving extraction time for medium-sized files (not suitable for very large files).
-  - Details in [issue #135](https://github.com/fcorbelli/zpaq-std/issues/135).
+  - Details in [issue #135](https://github.com/fcorbelli/zpaqfranz/issues/135).
 - **`-ramdisk`**: Internal support for `-hdd` functionality.
 
 ### Changed
@@ -2813,7 +2816,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Notes
 - This release introduces numerous features; expect potential bugs as testing continues.
 - The wiki is being updated with more details; for now, this changelog provides a high-level overview.
-- Feedback and bug reports are welcome via [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues).
+- Feedback and bug reports are welcome via [GitHub issues](https://github.com/fcorbelli/zpaqfranz/issues).
 
 ---
 
@@ -2823,10 +2826,10 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **Improved `-stdin` Management**: Files added via `-stdin` are now deduplicated as efficiently as manually added files.
 - **`comparehex` Command**: Compares hexadecimal hash codes between two files, exiting with "OK" if they match.
   - Ignores non-hex characters; optional hash length specification.
-  - Example: `zpaq-std comparehex z:\1.txt z:\2.txt "GLOBAL SHA256:" 64`
+  - Example: `zpaqfranz comparehex z:\1.txt z:\2.txt "GLOBAL SHA256:" 64`
 - **`count` Command**: Counts occurrences of a string across multiple files, returning "OK" if the count matches the expected value.
   - Defaults to counting "OK" with `-big` if no string is specified.
-  - Example: `zpaq-std count z:\*.txt 3 "all OK"`
+  - Example: `zpaqfranz count z:\*.txt 3 "all OK"`
 - **`work` Command Verbs**: Added utility functions for log automation.
   - Examples: `work big "count the ok"`, `work pad 123 -n 4`, `work date "%year_%month_%day" -terse`.
 - **`-crc32` Switch for `t` (test) Command**: Performs a triple CRC-32 check against the filesystem.
@@ -2839,7 +2842,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Example: `l z:\1.zpaq -terse -csv "\",\"" -csvhf "\""`
 - **`-external` Switch in `a` (add) Command**: Executes an external command before adding files, saving its output to a virtual file (e.g., `VFILE-l-external.txt`).
   - Useful for snapshots or independent hash checks (e.g., with `hashdeep`).
-  - Example: `zpaq-std a z:\2.zpaq c:\nz -external "c:\nz\hashdeep64 -r -c sha256 %files"`
+  - Example: `zpaqfranz a z:\2.zpaq c:\nz -external "c:\nz\hashdeep64 -r -c sha256 %files"`
 - **`-external` Switch in `x` (extract) Command**: Extracts the virtual external file directly.
   - Example: `x z:\2.zpaq -external -silent > mygoodoutput.txt`
 - **`-symlink` Switch in `a` (add) Command (Windows)**: Ignores NTFS symlinks during addition.
@@ -2849,7 +2852,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 
 ### Changed
 - **Control-C Handling**: Improved cleanup of `-chunk` files and potential `.zpaq` rollback on termination (portability unconfirmed).
-- **`gettempdirectory`**: Creates temporary files in timestamped subfolders to avoid collisions with multiple `zpaq-std` instances.
+- **`gettempdirectory`**: Creates temporary files in timestamped subfolders to avoid collisions with multiple `zpaqfranz` instances.
 - **Output with `-big`**: Ensures the final "OK" output remains visible even with reduced verbosity switches.
 - **Maximum Versions in `i` Command**: Increased the limit of displayed versions.
 
@@ -2859,7 +2862,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Notes
 - This release adds many features tailored to the developer's needs, potentially replicable with tools like `awk` or `grep`, but integrated for convenience in environments lacking such utilities (e.g., ESXi, NAS).
 - New features may introduce bugs; users should verify archive integrity after use.
-- Report issues or suggestions at [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues).
+- Report issues or suggestions at [GitHub issues](https://github.com/fcorbelli/zpaqfranz/issues).
 
 ## Planned at the time of [60.5]
 - Potential `.zpaq` rollback on Control-C termination.
@@ -2874,11 +2877,11 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **Faster Windows 64-bit Binary**: Improved performance on AMD CPUs, with average speed gains of 5% and up to 20% in best cases.
   - Example: Compression time reduced from 21.938s (v60.1k) to 18.875s (v60.5d) for identical tasks.
 - **`-stat` Switch in `a` (add) Command**: Displays statistics on files added, removed, or updated.
-  - Example: `zpaq-std a z:\test.zpaq c:\zpaq-std\*.cpp -stat`
+  - Example: `zpaqfranz a z:\test.zpaq c:\zpaqfranz\*.cpp -stat`
 - **`-stat` Switch in `i` (info) Command**: Shows uncompressed data size (slower operation).
-  - Example: `zpaq-std i z:\test.zpaq -stat`
+  - Example: `zpaqfranz i z:\test.zpaq -stat`
 - **`-quick` Switch in `t` (test) Command with Paths**: Performs a quick test using only file size and date, skipping hash computation.
-  - Example: `zpaq-std t z:\test.zpaq c:\zpaq-std\*.cpp -quick`
+  - Example: `zpaqfranz t z:\test.zpaq c:\zpaqfranz\*.cpp -quick`
 - **`testbackup` Command Enhancement**: Now displays a global SHA256 hash of backup hashes during verification.
   - Facilitates quick comparison between local and remote backups (e.g., Synology vs. FreeBSD server).
   - Example output shows identical SHA256 (`EDBEE1D3...`) for consistency checks.
@@ -2893,7 +2896,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Notes
 - Performance improvements are most notable on Windows 64-bit systems, particularly with AMD CPUs.
 - The global SHA256 in `testbackup` provides a fast integrity check; use `-paranoid` or `-verify` for deeper verification, especially if backup paths differ.
-- Report bugs or feedback at [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues).
+- Report bugs or feedback at [GitHub issues](https://github.com/fcorbelli/zpaqfranz/issues).
 
 ---
 
@@ -2905,8 +2908,8 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **`isjitable` in `b` (benchmark) Command**: Issues a warning if compiled without `-DNOJIT` but the CPU does not appear to be Intel/AMD (e.g., virtual or ARM CPUs).
   - Enhanced with `-debug` for additional CPU information (e.g., vendor ID, endianness).
   - Examples:
-    - `zpaq-std b` (normal Intel/AMD CPU detection).
-    - `zpaq-std b -debug` (detailed output with warning for non-Intel/AMD CPUs).
+    - `zpaqfranz b` (normal Intel/AMD CPU detection).
+    - `zpaqfranz b -debug` (detailed output with warning for non-Intel/AMD CPUs).
 - **Celeron J4125 Benchmark**: Added `franzomips` support for Synology DS224+ NAS with Celeron J4125 CPU.
 
 ### Fixed
@@ -2918,7 +2921,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Notes
 - The `-nosynology` switch improves usability on Synology NAS systems by skipping system-specific folders.
 - CPU detection in `isjitable` is not fully reliable across all platforms due to portability challenges; future improvements are planned.
-- Report bugs or suggestions at [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues).
+- Report bugs or suggestions at [GitHub issues](https://github.com/fcorbelli/zpaqfranz/issues).
 
 ---
 
@@ -2927,22 +2930,22 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Fixed
 - **Microfixes for Compilability**: Applied small corrections to ensure compatibility across various systems.
   - Supported builds:
-    - `zpaq-std.exe`: Windows 64-bit
-    - `zpaq-std32.exe`: Windows 32-bit
-    - `zpaq-stdhw.exe`: Windows 64-bit with SHA-1 assembly optimizations (AMD)
-    - `zpaq-std_armv8`: ARM-NAS compatible build (e.g., QNAP, Synology)
-    - `zpaq-std_esxi`: ESXi build
-    - `zpaq-std_freebsd`: FreeBSD 64-bit
-    - `zpaq-std_linux32`: Generic Linux 32-bit
-    - `zpaq-std_linux64`: Generic Linux 64-bit
-    - `zpaq-std_nas`: Generic Linux 64-bit for Intel-powered NAS
-    - `zpaq-std_openbsd`: OpenBSD 64-bit
-    - `zpaq-std_haiku`: Haiku 64-bit
+    - `zpaqfranz.exe`: Windows 64-bit
+    - `zpaqfranz32.exe`: Windows 32-bit
+    - `zpaqfranzhw.exe`: Windows 64-bit with SHA-1 assembly optimizations (AMD)
+    - `zpaqfranz_armv8`: ARM-NAS compatible build (e.g., QNAP, Synology)
+    - `zpaqfranz_esxi`: ESXi build
+    - `zpaqfranz_freebsd`: FreeBSD 64-bit
+    - `zpaqfranz_linux32`: Generic Linux 32-bit
+    - `zpaqfranz_linux64`: Generic Linux 64-bit
+    - `zpaqfranz_nas`: Generic Linux 64-bit for Intel-powered NAS
+    - `zpaqfranz_openbsd`: OpenBSD 64-bit
+    - `zpaqfranz_haiku`: Haiku 64-bit
 
 ### Notes
 - No macOS build included in this release ("Sorry, no Mac today 😄").
 - These microfixes enhance portability; specific changes are minor and focused on compilation stability.
-- Report issues or feedback at [GitHub issues](https://github.com/fcorbelli/zpaq-std/issues).
+- Report issues or feedback at [GitHub issues](https://github.com/fcorbelli/zpaqfranz/issues).
 
 
 ---
@@ -2952,18 +2955,18 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Added
 - **Improved `dump` Command**: Enhanced to display archive technical details in a more readable format.
   - Shows archive format type and compatibility level:
-    - `60+`: zpaq-std v60 and later (circa July 2024).
-    - `<60`: zpaq-std up to v59.x.
-    - `715`: Standard zpaq 7.15 or zpaq-std with `-715`.
+    - `60+`: zpaqfranz v60 and later (circa July 2024).
+    - `<60`: zpaqfranz up to v59.x.
+    - `715`: Standard zpaq 7.15 or zpaqfranz with `-715`.
   - Switches:
     - **`-summary`**: Brief output.
     - **`-verbose`**: Detailed useful information.
     - **`-all`**: Deeper technical details.
   - Examples:
-    - `zpaq-std dump z:\715.zpaq -summary`: Identifies as `715 archive (original zpaq format)`.
-    - `zpaq-std dump z:\v59.zpaq -summary`: Shows `<60 archive (older zpaq-std v59)` with `XXHASH64`.
-    - `zpaq-std dump z:\v60.zpaq -summary`: Shows `60+ archive (newer zpaq-std v60)` with `XXHASH64B`.
-    - `zpaq-std dump z:\v60_mixed.zpaq -summary`: Detects mixed block sizes (`050`, `190`) and hash types (`WHIRLPOOL`, `XXHASH64B`), warns against `-frugal`.
+    - `zpaqfranz dump z:\715.zpaq -summary`: Identifies as `715 archive (original zpaq format)`.
+    - `zpaqfranz dump z:\v59.zpaq -summary`: Shows `<60 archive (older zpaqfranz v59)` with `XXHASH64`.
+    - `zpaqfranz dump z:\v60.zpaq -summary`: Shows `60+ archive (newer zpaqfranz v60)` with `XXHASH64B`.
+    - `zpaqfranz dump z:\v60_mixed.zpaq -summary`: Detects mixed block sizes (`050`, `190`) and hash types (`WHIRLPOOL`, `XXHASH64B`), warns against `-frugal`.
 
 ### Fixed
 - **Backup Command Bug**: Prevented creation of unnecessarily large backup files when no files were added.
@@ -2993,12 +2996,12 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Auto-resizes columns; uses colors (disabled with `NO_COLOR` or `-nocolor`).
   - Supports `-attr`, `-checksum` (e.g., `-crc32`), `-date`, `-terse`.
   - Slower due to added features; faster version may be considered later.
-  - Details: [GitHub #111](https://github.com/fcorbelli/zpaq-std/issues/111).
+  - Details: [GitHub #111](https://github.com/fcorbelli/zpaqfranz/issues/111).
 - **Backup with `-index`**: Detachable index files for Worm systems.
   - Indexes storable separately (e.g., `-index <path>`); fragile if mismatched.
-  - Details: [GitHub #109](https://github.com/fcorbelli/zpaq-std/issues/109).
+  - Details: [GitHub #109](https://github.com/fcorbelli/zpaqfranz/issues/109).
 - **Enhanced `t` (test) Command**: Supports `-test` with `-find`, `-replace`, `-to`.
-  - Enables string substitution during testing; see [GitHub #112](https://github.com/fcorbelli/zpaq-std/issues/112).
+  - Enables string substitution during testing; see [GitHub #112](https://github.com/fcorbelli/zpaqfranz/issues/112).
 - **`-DNAS` Compilation Switch**: Optimizes memory usage for NAS (e.g., Synology, QNAP).
 - **Extended `autotest`**: Enhanced `autotest -all -to <path>`.
   - More tests, including expected failures; requires ~15GB.
@@ -3006,7 +3009,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - May produce false positives; runtime varies (minutes to hours on slow NAS).
 
 ### Changed
-- **Backward Compatibility**: New format readable by zpaq and zpaq-std ≤ v59 for listing, extraction, and addition.
+- **Backward Compatibility**: New format readable by zpaq and zpaqfranz ≤ v59 for listing, extraction, and addition.
   - Pre-v60 cannot test CRC32 or read hashes from v60 archives.
   - Use non-`b` switches (e.g., `-xxhash64`) for full v59 compatibility.
 - **`l` (list) Command**: Slower due to enhanced features and operations.
@@ -3024,10 +3027,10 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Added
 - **`-index` for `backup` Command**: Allows storing backup indexes in a separate folder for WORM storage.
   - User must ensure correct file pairing.
-  - Example: `zpaq-std backup z:\pippo *.cpp -index c:\temp`.
+  - Example: `zpaqfranz backup z:\pippo *.cpp -index c:\temp`.
 - **`-thunderbird` Flag (Windows)**: Automatically includes Thunderbird folders from `AppData\Local` and `AppData\Roaming`.
   - Optionally terminates `thunderbird.exe` before backup with `-kill`.
-  - Example: `zpaq-std a z:\email.zpaq c:\users\utente -thunderbird -kill`.
+  - Example: `zpaqfranz a z:\email.zpaq c:\users\utente -thunderbird -kill`.
 - **NO_COLOR Support on *nix**: Disables output coloring via shell variable `NO_COLOR`.
 
 ### Fixed
@@ -3043,7 +3046,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Added
 - **`-ifexist <X>` Switch in `a` (add)**: Prevents adding files if folder `X` does not exist.
   - Useful for *nix systems to avoid backups to local disk when external mounts (e.g., NFS) fail.
-  - Example: `zpaq-std a /monta/mygoodnas/thebackup.zpaq /home -ifexist /monta/mygoodnas/rar`.
+  - Example: `zpaqfranz a /monta/mygoodnas/thebackup.zpaq /home -ifexist /monta/mygoodnas/rar`.
 - **Console Color Support on *nix**: Adds color output to console; intended to work across most *nix systems.
 - **`-nocolors` on Redirect**: Automatically disables colors when output is redirected to a file.
 
@@ -3053,11 +3056,11 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Shows estimated compression ratio.
   - Provides enhanced details with `-all`; hides attributes by default.
   - Reverts to old format with `-attr`.
-- **Win32/Win64hw Updates**: `zpaq-std32.exe` (32-bit) and `zpaq-stdhw.exe` (64-bit SHA-1 ASM-accelerated) now support automatic updates via the `upgrade` command.
+- **Win32/Win64hw Updates**: `zpaqfranz32.exe` (32-bit) and `zpaqfranzhw.exe` (64-bit SHA-1 ASM-accelerated) now support automatic updates via the `upgrade` command.
 
 ### Notes
 - `-ifexist` helps prevent disk saturation on *nix by checking for sentinel folders (e.g., `/monta/mygoodnas/rar`) on mounted filesystems.
-- Visual examples of the new `l` format and `-attr` behavior available in GitHub assets: [Image 1](https://github.com/fcorbelli/zpaq-std/assets/77727889/df8e60c6-a6a3-4071-93c8-31c9982fb467), [Image 2](https://github.com/fcorbelli/zpaq-std/assets/77727889/242b07ec-941f-462d-877d-ecd44c17fd11), [Image 3](https://github.com/fcorbelli/zpaq-std/assets/77727889/3164b036-f779-4be9-be60-cf80b543434c).
+- Visual examples of the new `l` format and `-attr` behavior available in GitHub assets: [Image 1](https://github.com/fcorbelli/zpaqfranz/assets/77727889/df8e60c6-a6a3-4071-93c8-31c9982fb467), [Image 2](https://github.com/fcorbelli/zpaqfranz/assets/77727889/242b07ec-941f-462d-877d-ecd44c17fd11), [Image 3](https://github.com/fcorbelli/zpaqfranz/assets/77727889/3164b036-f779-4be9-be60-cf80b543434c).
 
 ---
 
@@ -3072,7 +3075,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Changed
 - **Reduced RAM Usage for File Enumeration**: Now uses ~400 bytes per file on average.
   - Example: ~4GB RAM for 10 million files.
-  - Details: [GitHub #104](https://github.com/fcorbelli/zpaq-std/issues/104).
+  - Details: [GitHub #104](https://github.com/fcorbelli/zpaqfranz/issues/104).
 - **VSS Info Update**: Less alarming messages displayed during Volume Shadow Copy Service (VSS) operations.
 - **Compiler Compatibility**: Refactored code for better support with modern compilers and fortification layers.
 
@@ -3103,11 +3106,11 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Without `-ssd`, hashes are written immediately.
 - **`-home` Switch in `s` Command**: Calculates total folder size from depth 1.
   - Useful for sizing `/home`, `/users`, or VM stores.
-  - Example: `zpaq-std s c:\users -home -ignore`.
+  - Example: `zpaqfranz s c:\users -home -ignore`.
 - **`-orderby` in `hash` Command**: Sorts output (e.g., by size with `-desc`).
-  - Example: `zpaq-std sum * -xxh3 -orderby size -desc`.
+  - Example: `zpaqfranz sum * -xxh3 -orderby size -desc`.
 - **`-ignore` Switch**: Suppresses error messages (e.g., permission issues) during scanning.
-  - Example: `zpaq-std hash c:\users -ignore` vs. verbose errors with `-ssd`.
+  - Example: `zpaqfranz hash c:\users -ignore` vs. verbose errors with `-ssd`.
 
 ### Changed
 - **Time Format**: Simplified `timetohuman` output (e.g., `00:00:00` instead of `0:00:00:00`).
@@ -3119,7 +3122,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Provides clearer update availability info (e.g., `Your 59.5h (2024-05-14) is not older...`).
 
 ### Notes
-- Released version: `zpaq-std v59.5h-JIT-GUI-L,HW BLAKE3,SHA1/2,SFX64 v55.1`.
+- Released version: `zpaqfranz v59.5h-JIT-GUI-L,HW BLAKE3,SHA1/2,SFX64 v55.1`.
 - `-ignore` is risky as it hides errors; use cautiously.
 
 ---
@@ -3151,7 +3154,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
     - `l z:\1.zpaq -range 2:3`: Files from versions 2–3.
     - `l z:\1.zpaq -range ::1`: Files from last version.
 - **`-sfx` Flag (Win32)**: Creates a self-extracting archive directly.
-  - Example: `zpaq-std a z:\test.zpaq *.cpp -sfx`.
+  - Example: `zpaqfranz a z:\test.zpaq *.cpp -sfx`.
 - **`-nomac` Flag**: Skips macOS `.DS_Store`, `Thumbs.db`, and similar files.
 - **Cortex `franzomips` Benchmark**: Added benchmark for QNAP low-cost NAS CPUs.
 - **`-verbose` in `dump` Command**: Now displays block offsets from file start.
@@ -3172,34 +3175,34 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ## [59.3] - 2024-04-19
 
 ### Added
-- **`update`/`upgrade` Command**: Checks for newer zpaq-std versions across platforms; downloads and updates on Win64.
-  - Default source: `http://www.francocorbelli.it/zpaq-std`.
+- **`update`/`upgrade` Command**: Checks for newer zpaqfranz versions across platforms; downloads and updates on Win64.
+  - Default source: `http://www.francocorbelli.it/zpaqfranz`.
   - Examples:
-    - `zpaq-std update`: Check for updates (all platforms).
-    - `zpaq-std update -force`: Update if newer (Win64).
-    - `zpaq-std update -force -kill`: Force download (Win64).
-    - `zpaq-std update <hash_url> <exe_url>`: Custom source (e.g., `https://www.pippo.com/ugo.sha256 http://www.pluto.com/zpaqnew.exe`).
+    - `zpaqfranz update`: Check for updates (all platforms).
+    - `zpaqfranz update -force`: Update if newer (Win64).
+    - `zpaqfranz update -force -kill`: Force download (Win64).
+    - `zpaqfranz update <hash_url> <exe_url>`: Custom source (e.g., `https://www.pippo.com/ugo.sha256 http://www.pluto.com/zpaqnew.exe`).
 - **`download` Command (Win64)**: Downloads files with optional hash verification.
   - Supports MD5/SHA-1/SHA-256; detects hash type by length (32=MD5, 40=SHA-1, 64=SHA-256).
   - Defaults: No overwrite (use `-force`), checks output path (use `-space` to bypass).
   - Examples:
-    - `zpaq-std download https://www.1.it/2.cpp ./2.cpp`: Download to `./2.cpp`.
-    - `zpaq-std download http://www.1.it/3.cpp z:\3.cpp -checktxt http://www.1.it/3.sha256`: Download with SHA-256 check.
-    - `zpaq-std download http://www.francocorbelli.it/zpaq-std/win64/zpaq-std.exe ./thenewfile.exe -checktxt http://www.francocorbelli.it/zpaq-std/win64/zpaq-std.md5`: Download with MD5 check.
+    - `zpaqfranz download https://www.1.it/2.cpp ./2.cpp`: Download to `./2.cpp`.
+    - `zpaqfranz download http://www.1.it/3.cpp z:\3.cpp -checktxt http://www.1.it/3.sha256`: Download with SHA-256 check.
+    - `zpaqfranz download http://www.francocorbelli.it/zpaqfranz/win64/zpaqfranz.exe ./thenewfile.exe -checktxt http://www.francocorbelli.it/zpaqfranz/win64/zpaqfranz.md5`: Download with MD5 check.
 - **Enhanced `ads` Command (Windows)**: Manages Alternate Data Streams (ADS).
   - Options: List (`ads z:\1.zpaq`), remove all (`-kill`), remove specific (`-only <name> -kill`), rebuild (`-force`).
-  - Example: `zpaq-std ads z:\*.zpaq -kill`.
+  - Example: `zpaqfranz ads z:\*.zpaq -kill`.
 - **`-fasttxt` with ADS**: Stores updated CRC-32 in ADS for archive integrity checks without decryption.
-  - Example: `zpaq-std a z:\pippo.zpaq c:\dropbox -fasttxt -ads -key pippo`, then `zpaq-std versum z:\pippo.zpaq`.
+  - Example: `zpaqfranz a z:\pippo.zpaq c:\dropbox -fasttxt -ads -key pippo`, then `zpaqfranz versum z:\pippo.zpaq`.
 - **`pause` Command Enhancement**: Waits for a specific keypress.
-  - Example: `zpaq-std pause -find z` (waits for 'z').
+  - Example: `zpaqfranz pause -find z` (waits for 'z').
 - **Updated `franzomips` Benchmark**: Added AMD Ryzen 7950X3D CPU results.
 
 ### Fixed
 - Improved compatibility and stability for Windows 7 64-bit.
 
 ### Notes
-- **Security Warning**: Use trusted sources for `update`/`download` (e.g., GitHub, SourceForge, or `https://www.francocorbelli.it/zpaq-std/win64/`).
+- **Security Warning**: Use trusted sources for `update`/`download` (e.g., GitHub, SourceForge, or `https://www.francocorbelli.it/zpaqfranz/win64/`).
 - `ads` command is under development; expect further refinements.
 - `-fasttxt` enables fast integrity checks (e.g., >2GB/s on NVMe) without needing encryption keys; Samba/PAKKA integration in progress.
 - `franzomips` disables HW-acceleration by default; use specific flags (e.g., `-sha256`) for HW benchmarks.
@@ -3209,13 +3212,13 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ## [59.2] - 2024-02-23
 
 ### Added
-- **`pakka` Command**: Integrates with PAKKA, a Windows GUI for zpaq-std.
+- **`pakka` Command**: Integrates with PAKKA, a Windows GUI for zpaqfranz.
   - Supports newer PAKKA versions without requiring `zpaqlist`.
   - Features in development: file addition, testing, and full functionality beyond extraction.
   - Examples:
-    - `zpaq-std pakka h:\zarc\1.zpaq -out z:\default.txt`: Lists to file.
-    - `zpaq-std pakka h:\zarc\1.zpaq -all -distinct -out z:\default.txt`: Lists without deduplication.
-    - `zpaq-std pakka h:\zarc\1.zpaq -until 10 -out z:\10.txt`: Lists up to version 10.
+    - `zpaqfranz pakka h:\zarc\1.zpaq -out z:\default.txt`: Lists to file.
+    - `zpaqfranz pakka h:\zarc\1.zpaq -all -distinct -out z:\default.txt`: Lists without deduplication.
+    - `zpaqfranz pakka h:\zarc\1.zpaq -until 10 -out z:\10.txt`: Lists up to version 10.
 
 ### Fixed
 - Minor unspecified issues.
@@ -3223,7 +3226,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Notes
 - PAKKA is a freeware Windows GUI available at [https://www.francocorbelli.it/pakka/build/latest/pakka_latest.zip](https://www.francocorbelli.it/pakka/build/latest/pakka_latest.zip) with built-in auto-update functionality.
 - Ongoing development includes online help and ADS (Alternate Data Stream) support for small NAS systems like TrueNAS.
-- PAKKA, written in Delphi, evolves faster than zpaq-std core.
+- PAKKA, written in Delphi, evolves faster than zpaqfranz core.
 
 ---
 ## [59.1] - 2024-01-16
@@ -3233,19 +3236,19 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Supports sizes: raw numbers (e.g., `2000000`), `K`/`M`/`G`, `KB`/`MB`/`GB` (e.g., `-chunk 1G`, `-chunk 500MB`).
   - Chunks approximate multiples of 64KB; not fully integrated (e.g., unsupported in `backup`).
   - Examples:
-    - `zpaq-std a z:\ronko_?? whatever-you-like -chunk 1G`.
-    - `zpaq-std a z:\ronko_?? who-knows -chunk 500m`.
+    - `zpaqfranz a z:\ronko_?? whatever-you-like -chunk 1G`.
+    - `zpaqfranz a z:\ronko_?? who-knows -chunk 500m`.
 - **ADS Filelists (Windows, NTFS)**: Stores file lists in Alternate Data Streams for unencrypted archives.
   - Uses LZ4 compression for speed and chunked storage.
-  - Example: `zpaq-std a z:\1.zpaq *.cpp -ads`, then `zpaq-std l z:\1.zpaq`.
-  - Force standard listing: `zpaq-std l z:\1.zpaq -ads`.
+  - Example: `zpaqfranz a z:\1.zpaq *.cpp -ads`, then `zpaqfranz l z:\1.zpaq`.
+  - Force standard listing: `zpaqfranz l z:\1.zpaq -ads`.
 - **`ads` Command (Windows)**: Manipulates ADS filelists.
   - Show: `ads z:\1.zpaq`.
   - Rebuild: `ads z:\1.zpaq -force`.
   - Remove: `ads z:\*.zpaq -kill`.
 - **`-fast` Switch in `a` (add)**: Experimental feature to store a partial file list in the archive.
   - Aims for faster extraction; maintains compatibility with zpaq 7.15.
-  - Example: `zpaq-std a z:\1.zpaq c:\dropbox -fast`, then `zpaq-std l z:\1.zpaq` (auto-detects `-fast`, else `-fast` to force).
+  - Example: `zpaqfranz a z:\1.zpaq c:\dropbox -fast`, then `zpaqfranz l z:\1.zpaq` (auto-detects `-fast`, else `-fast` to force).
 - **Console Colors (Windows)**: Limited color support for black-background consoles.
   - Disabled with `NO_COLOR` env variable or `-nocolor` switch.
 - **Debug Switches**: Enhanced debugging options.
@@ -3253,14 +3256,14 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - `-debug4`: Writes debug files to `z:\` if available.
 - **`-longpath` for Files**: Rudimentary support for individual files >255 characters on Windows.
   - Uses `GetFinalPathNameByHandleW` from `KERNEL32.DLL`.
-  - Details: [GitHub #90](https://github.com/fcorbelli/zpaq-std/issues/90).
+  - Details: [GitHub #90](https://github.com/fcorbelli/zpaqfranz/issues/90).
 
 ### Changed
 - **Password Prompt**: Unified at the file-handling class level.
   - Applies to all commands (e.g., `dump`); prompts if `-key` omitted, avoiding command history exposure.
 
 ### Notes
-- This is a new branch with untested features; bugs are expected—report them at [GitHub Issues](https://github.com/fcorbelli/zpaq-std/issues).
+- This is a new branch with untested features; bugs are expected—report them at [GitHub Issues](https://github.com/fcorbelli/zpaqfranz/issues).
 - `-chunk` aims for optical media compatibility (e.g., Blu-ray); Ctrl+C handling and part estimation are incomplete.
 - ADS with LZ4 enables potential filesystem mounting in future; encryption support untested.
 - `-fast` is experimental and currently provides minimal utility; full implementation is complex.
@@ -3283,7 +3286,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - SSDs: ~5K files/sec.
 - NVMe: ~30K files/sec.
 - Traditional tools require full enumeration before processing, making frequent backups (e.g., every 10 minutes) impractical.
-- With `-dataset`, `zpaq-std` uses ZFS snapshots to identify changes instantly, enabling rapid updates.
+- With `-dataset`, `zpaqfranz` uses ZFS snapshots to identify changes instantly, enabling rapid updates.
 
 ### How It Works
 - On first run: Creates a base snapshot (e.g., `tank/d@franco_base`).
@@ -3295,20 +3298,20 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ## [58.11.s] - 2023-11-10
 
 ## Big "news": Developing (underway) to handle SHA-1 collisions
-- Work in progress to address SHA-1 collision handling in `zpaq-std`.
+- Work in progress to address SHA-1 collision handling in `zpaqfranz`.
 
 ### Disclaimer: Is this a real issue? Can my backups become broken?
 - SHA-1 collisions have been demonstrated in controlled lab environments, but in real-world scenarios, they are extremely unlikely (bordering on impossible).
-- Backups made with `zpaq-std` are considered safe. The `t` command has included collision detection for years, ensuring archive integrity.
+- Backups made with `zpaqfranz` are considered safe. The `t` command has included collision detection for years, ensuring archive integrity.
 - The new `collision` command offers a faster collision-specific test compared to the comprehensive `t` command, which also checks file integrity.
 - Paranoid-level commands and switches are available for extra caution.
 - Maintaining backward compatibility with `zpaq 7.15` remains a significant challenge.
 
 ## New switch `-collision` in add
-- `zpaq-std` can now recover from SHA-1 collisions within the current archive version, ensuring correct file extraction for paranoid users.
+- `zpaqfranz` can now recover from SHA-1 collisions within the current archive version, ensuring correct file extraction for paranoid users.
 
-### Collision-aware `zpaq-std` in action: Detecting and fixing
-#### Older `zpaq-std` (default behavior):
+### Collision-aware `zpaqfranz` in action: Detecting and fixing
+#### Older `zpaqfranz` (default behavior):
 - No collision detection by default:
 
 ---
@@ -3320,22 +3323,22 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - Enables archiving different folders into separate `.zpaq` files, useful for splitting individual users (e.g., within `/home` or `c:\users`) into distinct archives.
 - Examples:
 ```
-  zpaq-std a z:\utenti.zpaq c:\users -home
-  zpaq-std a /temp/test1 /home -home -not franco
-  zpaq-std a /temp/test2 /home -home -only "*SARA" -only "*NERI"
+  zpaqfranz a z:\utenti.zpaq c:\users -home
+  zpaqfranz a /temp/test1 /home -home -not franco
+  zpaqfranz a /temp/test2 /home -home -only "*SARA" -only "*NERI"
 ```
 
 ## Support for selections in `r` (robocopy) command
 - File selection now mirrors the `add` command functionality.
 - Examples:
 ```
-  zpaq-std r c:\d0 z:\dest -kill -minsize 10GB
-  zpaq-std r c:\d0 z:\dest -kill -only *.e01 -only *.zip
+  zpaqfranz r c:\d0 z:\dest -kill -minsize 10GB
+  zpaqfranz r c:\d0 z:\dest -kill -only *.e01 -only *.zip
 ```
 
 ## Fixes and Improvements
 ### Fix for Mac PowerPC
-- Added support for compiling `zpaq-std` on PowerPC Macs.
+- Added support for compiling `zpaqfranz` on PowerPC Macs.
 
 ### Improved compatibility with ancient compilers on Slackware
 - Enhanced support for very old GCC versions commonly used in Slackware.
@@ -3364,14 +3367,14 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - `%time`
 - Example:
 ```
-  zpaq-std r c:\d0 z:\backup_%day -kill
+  zpaqfranz r c:\d0 z:\backup_%day -kill
 ```
 
 ## Enhanced `-orderby` switch in `add`
 - Examples:
 ```
-  zpaq-std a z:\test.txt c:\dropbox -orderby ext;name
-  zpaq-std a z:\test.txt c:\dropbox -orderby size -desc
+  zpaqfranz a z:\test.txt c:\dropbox -orderby ext;name
+  zpaqfranz a z:\test.txt c:\dropbox -orderby size -desc
 ```
 
 ## Filecopy with variable buffer size (`-buffer`)
@@ -3393,7 +3396,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ## [55.6] - 2022-07-26
 
 ### Added
-- **HW-Accelerated SHA1 (Windows 64)**: New executable `zpaq-stdhw.exe` with `-hw` switch.
+- **HW-Accelerated SHA1 (Windows 64)**: New executable `zpaqfranzhw.exe` with `-hw` switch.
   - Utilizes CPU SHA1 instructions (common on AMD Ryzen since 2017; limited Intel support).
   - Modest performance gain; requires `-hw` on supported CPUs.
 - **Advanced Error Reporting (Windows)**: Filesystem errors logged after `add()`.
@@ -3419,7 +3422,7 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ### Added
 - **`q` (paQQa) Command (Windows)**: Archives C: drive with exclusions (`swap files`, `System Volume Information`, `Windows`).
   - Requires admin rights; deletes pre-existing VSS; creates `C:\FRANZSNAP`.
-  - Example: `zpaq-std q z:\pippo.zpaq -only *.cpp -key mightypassword`.
+  - Example: `zpaqfranz q z:\pippo.zpaq -only *.cpp -key mightypassword`.
   - Supports most `add()` switches except `-to`.
   - `-forcewindows`: Adds `c:\windows`, `%TEMP%`, `ADS`.
 
@@ -3443,8 +3446,8 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 ## [55.2] - 2022-07-15
 
 ### Added
-- **`-touch` Switch in `a` (add)**: Forces timestamp changes to convert zpaq 7.15 archives to zpaq-std format in-place.
-  - Example: `zpaq-std a z:\1.zpaq c:\nz\ -touch` then `zpaq-std a z:\1.zpaq c:\nz\`.
+- **`-touch` Switch in `a` (add)**: Forces timestamp changes to convert zpaq 7.15 archives to zpaqfranz format in-place.
+  - Example: `zpaqfranz a z:\1.zpaq c:\nz\ -touch` then `zpaqfranz a z:\1.zpaq c:\nz\`.
 
 ### Changed
 - Improved ETA computation accuracy.
@@ -3465,9 +3468,9 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
 - **`-fixcase` and `-fixreserved` (Windows)**: Handles case collisions and reserved filenames.
 - **`-ssd`**: Replaces `-all` for multithread computation.
 - **`d` Command**: Supports various hashes (e.g., `-blake3`).
-  - Example: `zpaq-std d c:\dropbox\ -ssd -blake3`.
+  - Example: `zpaqfranz d c:\dropbox\ -ssd -blake3`.
 - **`dir` Command**: Hash-based duplicate detection.
-  - Example: `zpaq-std dir c:\dropbox\ /s -checksum -blake3`.
+  - Example: `zpaqfranz dir c:\dropbox\ /s -checksum -blake3`.
 - **`a` (add) Debug Switches**:
   - `-debug -zero`: Adds zero-filled files.
   - `-debug -zero -kill`: Adds 0-byte files for debugging.
@@ -3476,10 +3479,10 @@ c:\zpaq-std\zpaq-std x z:\2.zpaq -to z:\wherever -comment "something" -range
   - Switches: `-force`, `-kill`, `-space`.
 - **`w` Command**: Chunked extraction/testing to disk or RAM.
   - Scenarios:
-    1. HDD extraction: `zpaq-std w z:\1.zpaq -to p:\muz7\ -ramdisk -longpath`.
-    2. Hash checking: `zpaq-std w z:\1.zpaq -ramdisk -test -checksum -ssd -frugal -verbose`.
-    3. Large archive check: `zpaq-std w z:\1.zpaq -to z:\muz7\ -paranoid -verify -verbose -longpath`.
-    4. SSD/RAM check: `zpaq-std w z:\1.zpaq -to z:\kajo -ramdisk -paranoid -verify -checksum -longpath -ssd`.
+    1. HDD extraction: `zpaqfranz w z:\1.zpaq -to p:\muz7\ -ramdisk -longpath`.
+    2. Hash checking: `zpaqfranz w z:\1.zpaq -ramdisk -test -checksum -ssd -frugal -verbose`.
+    3. Large archive check: `zpaqfranz w z:\1.zpaq -to z:\muz7\ -paranoid -verify -verbose -longpath`.
+    4. SSD/RAM check: `zpaqfranz w z:\1.zpaq -to z:\kajo -ramdisk -paranoid -verify -checksum -longpath -ssd`.
   - Switches: `-maxsize`, `-ramdisk`, `-frugal`, `-ssd`, `-test`, `-verbose`, `-checksum`, `-verify`, `-paranoid`.
 
 ### Changed
