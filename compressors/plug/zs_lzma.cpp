@@ -29,7 +29,7 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 	memset(d + 5, 0, 4);
 	return (long long)destLen + 9;
 }
-static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap) {
+static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	if (n < 10)
 		return -1;
 	const unsigned char* s = (const unsigned char*)src;
@@ -40,4 +40,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap)
 	return (long long)dlen;
 }
 
-ZS_DEFINE_CODEC(lzma, "LZMA SDK " MY_VERSION, 0, 9, zs_bound, zs_compress, zs_decompress, nullptr)
+ZS_DEFINE_CODEC(lzma, "LZMA SDK " MY_VERSION, 0, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

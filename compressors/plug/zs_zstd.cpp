@@ -9,9 +9,9 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 	const size_t r = ZSTD_compress(dst, cap, src, n, level);
 	return ZSTD_isError(r) ? -1 : (long long)r;
 }
-static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap) {
+static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	const size_t r = ZSTD_decompress(dst, cap, src, n);
 	return ZSTD_isError(r) ? -1 : (long long)r;
 }
 
-ZS_DEFINE_CODEC(zstd, "zstd " ZSTD_VERSION_STRING, 1, 22, zs_bound, zs_compress, zs_decompress, nullptr)
+ZS_DEFINE_CODEC(zstd, "zstd " ZSTD_VERSION_STRING, 1, 22, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

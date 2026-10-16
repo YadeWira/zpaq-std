@@ -24,7 +24,7 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 	const int r = bz2ng_BZ2_bzBuffToBuffCompress((char*)dst, &len, (char*)src, (unsigned int)n, level, 0, 0);
 	return r == BZ_OK ? (long long)len : -1;
 }
-static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap) {
+static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	if (n > 0xFFFFFFFFu || cap > 0x7FFFFFFF)
 		return -1;
 	unsigned int len = (unsigned int)cap;
@@ -41,4 +41,4 @@ extern "C" void bz_internal_error(int errcode) {
 }
 #endif
 
-ZS_DEFINE_CODEC(bz2, "bz2-ng 63987e0", 1, 9, zs_bound, zs_compress, zs_decompress, nullptr)
+ZS_DEFINE_CODEC(bz2, "bz2-ng 63987e0", 1, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

@@ -80,7 +80,7 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 		return -1;
 	return (long long)used;
 }
-static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap) {
+static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	size_t used = 0;
 	if (lzlib_decompress_wrapper((const unsigned char*)src, n, (unsigned char*)dst, cap, &used) != 0)
 		return -1;
@@ -88,4 +88,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap)
 }
 
 static_assert(LZ_API_VERSION == 1016, "update the version string below");
-ZS_DEFINE_CODEC(lz, "lzlib 1.16", 0, 9, zs_bound, zs_compress, zs_decompress, nullptr)
+ZS_DEFINE_CODEC(lz, "lzlib 1.16", 0, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

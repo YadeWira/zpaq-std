@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6","snappy","hs","lzfse","bzip3","brotli"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19724,7 +19724,12 @@ extern "C" const zs_codec* zs_codec_deflate(void);
 extern "C" const zs_codec* zs_codec_lizard(void);
 extern "C" const zs_codec* zs_codec_lz5(void);
 extern "C" const zs_codec* zs_codec_lz6(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6};
+extern "C" const zs_codec* zs_codec_snappy(void);
+extern "C" const zs_codec* zs_codec_hs(void);
+extern "C" const zs_codec* zs_codec_lzfse(void);
+extern "C" const zs_codec* zs_codec_bzip3(void);
+extern "C" const zs_codec* zs_codec_brotli(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6,zs_codec_snappy,zs_codec_hs,zs_codec_lzfse,zs_codec_bzip3,zs_codec_brotli};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -19856,7 +19861,6 @@ extern "C" {
 #include "compressors/brotli/include/brotli/decode.h"
 #include "compressors/brotli/common/dictionary.h"     /// ZPAQBROTLI: el prefijo de datos
 #include "compressors/brotli/common/transform.h"
-extern "C" const uint8_t _kBrotliContextLookupTable[2048];
 #ifdef __cplusplus
 }
 #endif
@@ -28814,39 +28818,7 @@ const std::string& zpaqlzfse_bytecode() {
 /// transformaciones, tamanos del diccionario y constantes) y el flujo; M guarda eso y
 /// la salida entera. H: ph 19. El prefijo se arma de libbrotli, una vez.
 #include "compressors/zpaqbrotli/zpaqbrotli_body.h"
-static const int ZPAQBROTLI_PREFIJO=126608;
-const std::string& zpaqbrotli_prefijo() {
-  static std::string p;
-  if (p.empty()) {
-    static const unsigned K[220]={
-      0,1,2,3,4,5,6,8,10,14,18,26,34,50,66,98,130,194,322,578,1090,2114,6210,22594,
-      0,0,0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,7,8,9,10,12,14,24,
-      2,3,4,5,6,7,8,9,10,12,14,18,22,30,38,54,70,102,134,198,326,582,1094,2118,
-      0,0,0,0,0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,7,8,9,10,24,
-      0,0,0,0,8,8,0,16,8,16,16,  0,8,0,8,0,8,16,0,16,8,16,
-      1,5,9,13,17,25,33,41,49,65,81,97,113,145,177,209,241,305,369,497,753,1265,2289,4337,8433,16625,
-      2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,6,6,7,8,9,10,11,12,13,24,
-      1,2,3,4,0,5,17,6,16,7,8,9,10,11,12,13,14,15,
-      2,2,2,3,2,2,2,4,2,2,2,3,2,2,2,4,  0,4,3,2,0,4,3,1,0,4,3,2,0,4,3,5};
-    const BrotliDictionary* d=BrotliGetDictionary();
-    const BrotliTransforms* t=BrotliGetTransforms();
-    std::string q(ZPAQBROTLI_PREFIJO, '\0');
-    size_t o=0;
-    memcpy(&q[o], d->data, 122784); o+=122784;
-    memcpy(&q[o], _kBrotliContextLookupTable, 2048); o+=2048;
-    memcpy(&q[o], t->prefix_suffix, t->prefix_suffix_size); o+=224;
-    for (int i=0; i<50; i++) { q[o+2*i]=(char)(t->prefix_suffix_map[i]&255); q[o+2*i+1]=(char)(t->prefix_suffix_map[i]>>8); }
-    o+=128;
-    memcpy(&q[o], t->transforms, t->num_transforms*3); o+=384;
-    memcpy(&q[o], d->size_bits_by_length, 32); o+=32;
-    for (int i=0; i<32; i++) for (int k=0; k<4; k++) q[o+4*i+k]=(char)((d->offsets_by_length[i]>>(8*k))&255);
-    o+=128;
-    for (int i=0; i<220; i++) for (int k=0; k<4; k++) q[o+4*i+k]=(char)((K[i]>>(8*k))&255);
-    o+=880;
-    p=q;
-  }
-  return p;
-}
+static const int ZPAQBROTLI_PREFIJO=126608;   /// the brotli plugin builds the prefix (data())
 std::string zpaqbrotli_config(int pm) {
   return "comp 0 0 19 "+itos(pm)+" 0\n"+ZPAQBROTLI_CUERPO;
 }
@@ -78346,7 +78318,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(lz5_orig);
 				const zs_codec* zc=zs_get("lz5");
-				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lz5_orig) : -1;
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lz5_orig, 0) : -1;
 				if (r2 != lz5_orig)
 					error("31319 LZ5 decompression failed");
 				out.reset();
@@ -78362,9 +78334,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(bz3p_orig);
-				size_t bz3out=(size_t)bz3p_orig;
-				int rc=bz3_decompress((const uint8_t*)out.data(),(uint8_t*)&decomp2[0],out.size(),&bz3out);
-				if (rc!=0||(int64_t)bz3out!=bz3p_orig)
+				const zs_codec* zc=zs_get("bzip3");
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)bz3p_orig, 0) : -1;
+				if (r2 != bz3p_orig)
 					error("31319 bzip3 decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78448,9 +78420,9 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 brotli decompression failed");
 				string decomp2;
 				decomp2.resize(brop_orig);
-				size_t dstLen=(size_t)brop_orig;
-				BROTLI_BOOL rc=BrotliDecoderDecompress(out.size()-libzpaq::ZPAQBROTLI_PREFIJO,(const uint8_t*)out.data()+libzpaq::ZPAQBROTLI_PREFIJO,&dstLen,(uint8_t*)&decomp2[0]);
-				if (rc!=BROTLI_TRUE||(int64_t)dstLen!=brop_orig)
+				const zs_codec* zc=zs_get("brotli");
+				const long long r2 = zc ? zc->decompress(out.data()+libzpaq::ZPAQBROTLI_PREFIJO, out.size()-libzpaq::ZPAQBROTLI_PREFIJO, &decomp2[0], (size_t)brop_orig, 0) : -1;
+				if (r2 != brop_orig)
 					error("31319 brotli decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78465,8 +78437,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(lzfp_orig);
-				size_t produced=lzfse_decode_buffer((uint8_t*)&decomp2[0],(size_t)lzfp_orig,(const uint8_t*)out.data(),out.size(),NULL);
-				if (produced!=(size_t)lzfp_orig)
+				const zs_codec* zc=zs_get("lzfse");
+				const long long produced = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lzfp_orig, 0) : -1;
+				if (produced != lzfp_orig)
 					error("31319 lzfse decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78482,7 +78455,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(zstp_orig);
 				const zs_codec* zc=zs_get("zstd");
-				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)zstp_orig) : -1;
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)zstp_orig, 0) : -1;
 				if (r2 != zstp_orig)
 					error("31319 zstd decompression failed");
 				out.reset();
@@ -78503,7 +78476,7 @@ ThreadReturn decompressThread(void *arg)
 				decomp2.resize(bz2p_orig);
 				unsigned int dstLen=(unsigned int)bz2p_orig;
 				const zs_codec* zc=zs_get("bzip2");
-				const long long zr=zc ? zc->decompress(out.data(), out.size(), &decomp2[0], dstLen) : -1;
+				const long long zr=zc ? zc->decompress(out.data(), out.size(), &decomp2[0], dstLen, 0) : -1;
 				const int rc=zr<0 ? -1 : BZ_OK;
 				dstLen=zr<0 ? 0 : (unsigned int)zr;
 				if (rc!=BZ_OK||(int64_t)dstLen!=bz2p_orig)
@@ -78525,7 +78498,7 @@ ThreadReturn decompressThread(void *arg)
 				decomp2.resize(bzngp_orig);
 				unsigned int dstLen=(unsigned int)bzngp_orig;
 				const zs_codec* zc=zs_get("bz2");
-				const long long zr=zc ? zc->decompress(out.data(), out.size(), &decomp2[0], dstLen) : -1;
+				const long long zr=zc ? zc->decompress(out.data(), out.size(), &decomp2[0], dstLen, 0) : -1;
 				const int rc=zr<0 ? -1 : BZ_OK;
 				dstLen=zr<0 ? 0 : (unsigned int)zr;
 				if (rc!=BZ_OK||(int64_t)dstLen!=bzngp_orig)
@@ -78552,7 +78525,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(lizp_orig);
 				const zs_codec* zc=zs_get("lizard");
-				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)lizp_orig) : -1;
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)lizp_orig, 0) : -1;
 				if (r2 != lizp_orig)
 					error("31319 Lizard decompression failed");
 				out.reset();
@@ -78568,9 +78541,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(hsp_orig);
-				size_t produced = 0;
-				if (hs_decompress_wrapper((const uint8_t *)out.data(), out.size(), (uint8_t *)&decomp2[0],
-				                          (size_t)hsp_orig, &produced) != 0 || (int64_t)produced != hsp_orig)
+				const zs_codec* zc=zs_get("hs");
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)hsp_orig, 0) : -1;
+				if (r2 != hsp_orig)
 					error("31319 hs decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78594,7 +78567,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(dfl_orig);
 				const zs_codec* zc=zs_get("deflate");
-				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)dfl_orig) : -1;
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)dfl_orig, 0) : -1;
 				if (r2 != dfl_orig)
 					error("31319 deflate decompression failed");
 				out.reset();
@@ -78634,9 +78607,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(snp_orig);
-				size_t dlen = (size_t)snp_orig;
-				if (snappy_uncompress((const char *)out.data(), out.size(), &decomp2[0], &dlen) != SNAPPY_OK
-				    || (int64_t)dlen != snp_orig)
+				const zs_codec* zc=zs_get("snappy");
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)snp_orig, 0) : -1;
+				if (r2 != snp_orig)
 					error("31319 snappy decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78660,7 +78633,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(fl2p_orig);
 				const zs_codec* zc=zs_get("flzma2");
-				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)fl2p_orig) : -1;
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)fl2p_orig, 0) : -1;
 				if (r2 != fl2p_orig)
 					error("31319 flzma2 decompression failed");
 				out.reset();
@@ -78718,7 +78691,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(uf2p_orig);
 				const zs_codec* zc=zs_get("uflzma2");
-				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)uf2p_orig) : -1;
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)uf2p_orig, 0) : -1;
 				if (r2 != uf2p_orig)
 					error("31319 uflzma2 decompression failed");
 				out.reset();
@@ -78744,7 +78717,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(lzma_orig);
 				const zs_codec* zc=zs_get("lzma");
-				const long long r2 = zc ? zc->decompress(src, out.size(), &decomp2[0], (size_t)lzma_orig) : -1;
+				const long long r2 = zc ? zc->decompress(src, out.size(), &decomp2[0], (size_t)lzma_orig, 0) : -1;
 				if (r2 != lzma_orig)
 					error("31319 lzma decompression failed");
 				out.reset();
@@ -78761,7 +78734,7 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(lz6_orig);
 				const zs_codec* zc=zs_get("lz6");
-				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lz6_orig) : -1;
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lz6_orig, 0) : -1;
 				if (r2 != lz6_orig)
 					error("31319 lz6 decompression failed");
 				out.reset();
@@ -123434,10 +123407,11 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="bzip3" && sb.size()>16)
+	else if (g_ma_algorithm=="bzip3" && sb.size()>16 && zs_get("bzip3"))
 	{
+		const zs_codec* zc=zs_get("bzip3");
 		int64_t orig_size=sb.size();
-		size_t dstCap=bz3_bound((size_t)orig_size);
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* bz3buf=new(std::nothrow) char[dstCap];
@@ -123451,8 +123425,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				/// -ma:bzip3 no comprimio nunca con bzip3, desde el commit
 				/// inicial. Las pruebas de ida y vuelta pasaban igual, porque
 				/// guardar sin el codec tambien es reversible.
-				size_t bz3out=dstCap;
-				int rc=bz3_compress((uint32_t)(g_ma_level*100000),(const uint8_t*)sb.data(),(uint8_t*)bz3buf,(size_t)orig_size,&bz3out);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,bz3buf,dstCap,g_ma_level);
+				const size_t bz3out=zr<0 ? 0 : (size_t)zr;
+				const int rc=zr<0 ? -1 : 0;
 				/// ZPAQBZIP3: el flujo tal cual, con su decodificador ZPAQL. M guarda el
 				/// flujo y dos buffers de bloque (1179648 bytes cada uno).
 				const int64_t need=(int64_t)bz3out+16+2*(int64_t)1179648+64;
@@ -123475,16 +123450,21 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="brotli" && sb.size()>16)
+	else if (g_ma_algorithm=="brotli" && sb.size()>16 && zs_get("brotli") && zs_get("brotli")->data)
 	{
+		const zs_codec* zc=zs_get("brotli");
 		int64_t orig_size=sb.size();
-		size_t dstCap=BrotliEncoderMaxCompressedSize((size_t)orig_size);
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* brotlibuf=new(std::nothrow) char[dstCap];
 			if (brotlibuf)
 			{
-				BROTLI_BOOL rc=BrotliEncoderCompress(g_ma_level,BROTLI_DEFAULT_WINDOW,BROTLI_DEFAULT_MODE,(size_t)orig_size,(const uint8_t*)sb.data(),&dstCap,(uint8_t*)brotlibuf);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,brotlibuf,dstCap,g_ma_level);
+				dstCap=zr<0 ? 0 : (size_t)zr;
+				size_t presize=0;
+				const char* pre=(const char*)zc->data(ZS_DATA_PREFIX,&presize);
+				const bool rc=(zr>0) && pre && (presize==(size_t)libzpaq::ZPAQBROTLI_PREFIJO);
 				/// ZPAQBROTLI: el prefijo de datos (126608 bytes) y el flujo, con su
 				/// decodificador ZPAQL. Si el prefijo se come la ganancia (bloques chicos),
 				/// el bloque queda con el metodo nativo: portable igual, sin -ma.
@@ -123492,7 +123472,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				const int64_t need=total+16+orig_size+64;
 				int k=17;
 				while (k<31 && ((int64_t)1<<k)<need) k++;
-				if (rc==BROTLI_TRUE&&dstCap>0&&total<orig_size-16&&((int64_t)1<<k)>=need)
+				if (rc&&dstCap>0&&total<orig_size-16&&((int64_t)1<<k)>=need)
 				{
 					libzpaq::SHA1 sh1;
 					sh1.write((const char*)sb.data(), orig_size);
@@ -123500,9 +123480,8 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					char hx[41];
 					for (int q=0; q<20; ++q)
 						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-					const std::string& pre=libzpaq::zpaqbrotli_prefijo();
 					sb.reset();
-					sb.write(pre.data(),(int)pre.size());
+					sb.write(pre,(int)presize);
 					sb.write(brotlibuf,(int)dstCap);
 					m="zpaqbrotli:"+itos(k)+":"+itos(orig_size)+":"+hx;
 					ma_comment="zpaqstd-ma2:brotli:"+itos(g_ma_level)+":"+itos(orig_size);
@@ -123511,18 +123490,19 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="snappy" && sb.size()>16)
+	else if (g_ma_algorithm=="snappy" && sb.size()>16 && zs_get("snappy"))
 	{
+		const zs_codec* zc=zs_get("snappy");
 		int64_t orig_size=sb.size();
-		size_t dstCap=snappy_max_compressed_length((size_t)orig_size);
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* snbuf=new(std::nothrow) char[dstCap];
 			if (snbuf)
 			{
-				size_t snsz=dstCap;
-				snappy_status src2=snappy_compress((const char*)sb.data(),(size_t)orig_size,snbuf,&snsz);
-				if (src2==SNAPPY_OK&&snsz>0&&(int64_t)snsz<orig_size-16)
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,snbuf,dstCap,g_ma_level);
+				const size_t snsz=zr<0 ? 0 : (size_t)zr;
+				if (zr>0&&(int64_t)snsz<orig_size-16)
 				{
 					/// ZPAQSNAPPY: el bloque de snappy tal cual, con su
 					/// decodificador ZPAQL: cualquier zpaq lo extrae.
@@ -123670,8 +123650,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="hs" && sb.size()>16)
+	else if (g_ma_algorithm=="hs" && sb.size()>16 && zs_get("hs"))
 	{
+		const zs_codec* zc=zs_get("hs");
 		int64_t orig_size=sb.size();
 		// heatshrink overhead is small (~1.05x worst case). Bound to inlen + 64 bytes.
 		size_t dstCap=(size_t)orig_size+64;
@@ -123680,8 +123661,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
 			if (lzbuf)
 			{
-				size_t lzsz=0;
-				int lzrc=hs_compress_wrapper((const uint8_t*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,lzbuf,dstCap,g_ma_level);
+				const size_t lzsz=zr<0 ? 0 : (size_t)zr;
+				const int lzrc=zr<0 ? -1 : 0;
 				/// ZPAQHS: el flujo de hs_wrapper tal cual, con su decodificador
 				/// ZPAQL; pm = la ventana W, que viaja en el primer byte.
 				const int hsw= (lzsz>0) ? (lzbuf[0]&15) : 0;
@@ -123702,20 +123684,20 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="lzfse" && sb.size()>16)
+	else if (g_ma_algorithm=="lzfse" && sb.size()>16 && zs_get("lzfse"))
 	{
+		const zs_codec* zc=zs_get("lzfse");
 		int64_t orig_size=sb.size();
 		if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
 		{
-			size_t scratch_size=lzfse_encode_scratch_size();
-			size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
+			size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 			{
 				unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
-				unsigned char* scratch=new(std::nothrow) unsigned char[scratch_size];
-				if (lzbuf&&scratch)
+				if (lzbuf)
 				{
-					size_t lzsz=lzfse_encode_buffer(lzbuf,dstCap,(const uint8_t*)sb.data(),(size_t)orig_size,scratch);
+					const long long zr=zc->compress(sb.data(),(size_t)orig_size,lzbuf,dstCap,g_ma_level);
+					const size_t lzsz=zr<0 ? 0 : (size_t)zr;
 					/// ZPAQLZFSE: el flujo tal cual, con su decodificador ZPAQL. M guarda el
 					/// flujo, un bloque de literales (64 KB + 64) y la salida entera.
 					const int64_t need=(int64_t)lzsz+65600+orig_size+64;
@@ -123735,12 +123717,6 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 						ma_comment="zpaqstd-ma2:lzfse:0:"+itos(orig_size);
 					}
 					delete[] lzbuf;
-					delete[] scratch;
-				}
-				else
-				{
-					if (lzbuf) delete[] lzbuf;
-					if (scratch) delete[] scratch;
 				}
 			}
 		}

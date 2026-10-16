@@ -18,7 +18,7 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 	libdeflate_free_compressor(c);
 	return r > 0 ? (long long)r : -1;
 }
-static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap) {
+static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	struct libdeflate_decompressor* d = libdeflate_alloc_decompressor();
 	if (!d)
 		return -1;
@@ -28,4 +28,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap)
 	return r == LIBDEFLATE_SUCCESS ? (long long)len : -1;
 }
 
-ZS_DEFINE_CODEC(deflate, "libdeflate " LIBDEFLATE_VERSION_STRING, 0, 12, zs_bound, zs_compress, zs_decompress, nullptr)
+ZS_DEFINE_CODEC(deflate, "libdeflate " LIBDEFLATE_VERSION_STRING, 0, 12, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

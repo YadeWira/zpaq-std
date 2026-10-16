@@ -34,6 +34,9 @@ extern "C" {
 
 #define ZS_CODEC_ABI 1
 
+#define ZS_ERR_DATA   (-1)  /* damaged stream, or the compressor failed */
+#define ZS_ERR_MEMORY (-2)  /* out of memory: zpaq-std tries again later */
+
 typedef struct zs_codec {
 	int abi;                  /* ZS_CODEC_ABI */
 	const char* name;         /* the -ma name, "zstd" */
@@ -49,15 +52,28 @@ typedef struct zs_codec {
 	long long (*compress)(const void* src, size_t n, void* dst, size_t cap, int level);
 
 	/* Decompress n bytes of src into dst. cap is the original size, which
-	   zpaq-std always knows. Returns the size written, or a negative number
-	   if the stream is damaged. Never reads or writes outside the buffers. */
-	long long (*decompress)(const void* src, size_t n, void* dst, size_t cap);
+	   zpaq-std always knows; param is what the codec needs from the block
+	   header, if anything (kanzi: its level; ppmd: the order, and the memory in
+	   MB from bit 8 on), else 0. Returns the size written, ZS_ERR_MEMORY if
+	   memory ran out (zpaq-std tries the block again later), or another
+	   negative number if the stream is damaged. Never reads or writes outside
+	   the buffers. */
+	long long (*decompress)(const void* src, size_t n, void* dst, size_t cap, int param);
 
 	/* Optional, NULL if the codec needs none: a question about a compressed
 	   stream that zpaq-std needs to size the ZPAQL decoder's memory
 	   (kanzi: the length of its first pre-transform). */
 	long long (*query)(int what, const void* src, size_t n);
+
+	/* Optional, NULL if the codec needs none: fixed data that zpaq-std writes
+	   into a block, built from the library's own tables (brotli: the data
+	   prefix ZPAQBROTLI reads, ZS_DATA_PREFIX). Returns a pointer that stays
+	   valid while the plugin is loaded, and its size in *size. */
+	const void* (*data)(int what, size_t* size);
 } zs_codec;
+
+#define ZS_QUERY_FIRST_PRE 1  /* kanzi: the length of the first pre-transform */
+#define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
 
 typedef const zs_codec* (*zs_codec_entry)(void);
 

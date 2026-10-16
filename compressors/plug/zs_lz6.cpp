@@ -19,11 +19,11 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 	                         : LZ6_compress_HC_window((const char*)src, (char*)dst, (int)n, (int)cap, level, 22);
 	return r > 0 ? (long long)r : -1;
 }
-static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap) {
+static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	if (n > 0x7FFFFFFF || cap > 0x7FFFFFFF)
 		return -1;
 	const int r = LZ6_decompress_safe((const char*)src, (char*)dst, (int)n, (int)cap);
 	return r >= 0 ? (long long)r : -1;
 }
 
-ZS_DEFINE_CODEC(lz6, "lz6 52076b2", 0, 15, zs_bound, zs_compress, zs_decompress, nullptr)
+ZS_DEFINE_CODEC(lz6, "lz6 52076b2", 0, 15, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
