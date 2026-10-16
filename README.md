@@ -156,7 +156,7 @@ The formats are in the [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/U
 
 ## No system dependencies
 
-All 19 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
+All 20 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
 zpaqfranz), together with the ZPAQL decoders and the scripts that generate them.
 No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`: just `make`, and **no
 flag needs anything installed on the host**. The tree, and the optional `mount`
