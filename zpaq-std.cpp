@@ -46917,9 +46917,19 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			if (flagdebug3)
 				myprintf("00222: closing the firstp %s\n", migliaia(int64_t(firstfp)));
 #endif
+			const FP primo= firstfp;
 			tocca_now(firstfp);
 			myfclose(&firstfp);
 			firstfp= FPNULL;
+			/// -chunk: fp may be a later part, still open. It was only forgotten here,
+			/// never closed, so its stdio buffer was not written until the process
+			/// exited: the check below (02137) found the last part empty and deleted
+			/// it, with the end of the archive inside (a tail under the stdio buffer).
+			if ((fp != FPNULL) && (fp != primo))
+			{
+				tocca_now(fp);
+				myfclose(&fp);
+			}
 			fp	   = FPNULL;
 			ptr	   = 0;
 			return;
@@ -47022,9 +47032,34 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			}
 		}
 #endif
-		myfwrite(buf, 1, ptr, fp);
+		/// -chunk: a part holds at most g_chunk_size bytes. The whole buffer (up to
+		/// 64 KB) used to be written and the part changed only afterwards, so every
+		/// part ended up to one buffer larger than the limit (1114112 bytes with
+		/// -chunk 1MB). Now the buffer is split at the limit; the next part is opened
+		/// only when there is something to write in it, so no empty part is left at
+		/// the end. The encryption above went by absolute position, so splitting the
+		/// write changes nothing in the bytes.
+		if (g_chunk_size > 0)
+		{
+			int done= 0;
+			while (done < ptr)
+			{
+				if (chunksize >= g_chunk_size)
+					nextchunk(writtensofar + done);
+				int n= ptr - done;
+				if ((uint64_t)n > g_chunk_size - chunksize)
+					n= (int)(g_chunk_size - chunksize);
+				myfwrite(buf + done, 1, n, fp);
+				done+= n;
+				chunksize+= n;
+			}
+		}
+		else
+		{
+			myfwrite(buf, 1, ptr, fp);
+			chunksize+= ptr;
+		}
 		writtensofar+= ptr;
-		chunksize+= ptr;
 
 		if (nowrite)
 		{
@@ -47036,38 +47071,39 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 		if (flagdebug3)
 			myprintf("00235: flush k8\n");
 
-		if (g_chunk_size > 0)
-			if (chunksize > g_chunk_size)
-			{
-				if ((fp != firstfp) && (fp != FPNULL))
-				{
-#ifndef ESX
-					if (flagdebug3)
-					{
-						myprintf("\r                                                                                \r");
-						myprintf("\r");
-						myprintf("00236: closing __________________________ %s |%s|\n", migliaia(int64_t(fp)), thefilename.c_str());
-					}
-#endif
-					tocca_now(fp);
-					myfclose(&fp);
-				}
-				thefilename= format_filename(++chunknumber);
-				if (flagdebug3)
-					myprintf("00237: the (new) filename %s\n", thefilename.c_str());
-				fp= myfopen(thefilename.c_str(), WB, DATE_1980);
-				if (!isopen())
-					ioerr(thefilename.c_str());
-#ifndef ESX
-				if (flagdebug3)
-					myprintf("00238: file open and ready on fp %s!\n", migliaia(int64_t(fp)));
-#endif
-				chunksize		  = 0;
-				writtenonlastchunk= writtensofar;
-				g_addedchunklist.push_back(thefilename);
-				/// g_addedchunklist_fp.push_back(fp);
-			}
 		ptr= 0;
+	}
+	/// -chunk: close the current part (the first one stays open: its header is
+	/// written again at the end) and open the next. i_written: bytes written so far.
+	void nextchunk(int64_t i_written)
+	{
+		if ((fp != firstfp) && (fp != FPNULL))
+		{
+#ifndef ESX
+			if (flagdebug3)
+			{
+				myprintf("\r                                                                                \r");
+				myprintf("\r");
+				myprintf("00236: closing __________________________ %s |%s|\n", migliaia(int64_t(fp)), thefilename.c_str());
+			}
+#endif
+			tocca_now(fp);
+			myfclose(&fp);
+		}
+		thefilename= format_filename(++chunknumber);
+		if (flagdebug3)
+			myprintf("00237: the (new) filename %s\n", thefilename.c_str());
+		fp= myfopen(thefilename.c_str(), WB, DATE_1980);
+		if (!isopen())
+			ioerr(thefilename.c_str());
+#ifndef ESX
+		if (flagdebug3)
+			myprintf("00238: file open and ready on fp %s!\n", migliaia(int64_t(fp)));
+#endif
+		chunksize		  = 0;
+		writtenonlastchunk= i_written;
+		g_addedchunklist.push_back(thefilename);
+		/// g_addedchunklist_fp.push_back(fp);
 	}
 	// Position the next read or write offset to p.
 	void seek(int64_t p, int whence)
