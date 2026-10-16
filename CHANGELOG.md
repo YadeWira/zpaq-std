@@ -1,3 +1,28 @@
+### [0.0.1-pre61] - 2026-10-16
+
+The `-ma` codecs can now also come as plugins, like 7-Zip-zstd's codec DLLs: besides the usual binaries, every platform gets a zip with a smaller program and one plugin per codec. The usual self-contained binaries do not change: they write the same archives as pre60, byte for byte.
+
+#### Codecs as plugins
+
+- `zpaq-std-v0.0.1-pre61-<platform>-plugins.zip` holds `zpaq-std` (about 5 MB instead of 10) and `codecs/` with 20 plugins (`zstd.dll`, `brotli.dll`, `kanzi.dll`… or `.so` on Linux), plus `LICENSE` and `THIRD-PARTY-LICENSES.txt`. Unzip it and run `zpaq-std` from its folder.
+- With a codec's plugin, everything is as in the full binary: the same archives, byte for byte, and a speed within a few percent.
+- Without it, `-ma:<codec>` stops with `00605! -ma:<codec> needs its plugin`, and archives that already hold that codec's blocks still extract: every `-ma` block carries its own ZPAQL decoder, which runs instead (slower). `-m0` to `-m7`, `-ma:lz4` and `-ma:lzav` need no plugin.
+- zpaq-std loads the plugins only from the `codecs` folder next to the executable, by absolute path, once at start-up: never from the current folder or the `PATH`. On Windows they import only `KERNEL32` and `msvcrt` and run on Windows 7, x64 and x86.
+- `make plugins` builds them (after `make clean`); the interface is a few C functions, `compressors/plug/zs_codec.h`, described in [`compressors/plug/README.md`](https://github.com/YadeWira/zpaq-std/blob/main/compressors/plug/README.md). One plugin, `lz5`, serves `-ma:lz5`, `lz5hc` and `lz5f`.
+- Inside the program every `-ma` codec now goes through this interface, also in the full binary; the archives do not change.
+
+#### Documentation
+
+- The README linked zpaq's page at an address that no longer exists; it points to mattmahoney.net/dc/zpaq.html, and counts 20 libraries and 26 `-ma` switches.
+
+#### Checked
+
+- Full binary (Linux, the release one): byte for byte the binary that passed the full battery (every suite 0 cases to review, golden archives 0 unexpected failures, `difftest` against pre60 0 divergences); with a fixed `-timestamp`, it writes the same archives as pre60 for 21 methods covering every codec.
+- Plugins, against the full binary, for 20 methods (every codec): on Linux, from the release zip, 20/20 identical archives that extract correctly; on Windows x64 and x86 (under Wine, against the pre60 `.exe`) 21/21. Without each plugin, compressing stops with 00605 and extracting through ZPAQL gives the original files (21/21, Linux).
+- Windows 7 x64 and x86:
+  - full binaries: `-ma:bz2:9`, `-ma:zstd:19`, `-ma:kanzi:5` and `-m1`; `t` and `x` pass, all 16 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre60 and pre61: 16/16;
+  - the release plugin zips, unzipped: `-ma:zstd`, `brotli`, `kanzi`, `bsc`, `ppmd`, `lz5hc`, `bz2`, `uflzma2`, `flzma2`, `lzh` and `bzip3` compress, test and extract correctly; without `codecs`, 00605, and a zstd archive still extracts.
+
 ### [0.0.1-pre60] - 2026-10-16
 
 zpaq-std gets a version of its own: **v0.0.1** (still a pre-release). A new experimental codec, `-ma:bz2`, compresses bzip2 streams with bz2-ng, about twice as fast as `-ma:bzip2`. The licence and credit files are corrected, and the built-in help documents `-ma` where it is looked for.
