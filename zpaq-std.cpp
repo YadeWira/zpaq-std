@@ -19663,6 +19663,103 @@ extern "C" int UTIL_countPhysicalCores(void)
 extern "C" {
 #endif
 #include "compressors/zstd/zstd.h"
+/// -ma codecs behind one interface (compressors/plug/zs_codec.h). The full build
+/// links every adapter; the plugin build (make plugins, -DZS_PLUGINS) loads
+/// codecs/<name>.dll or .so from the executable's folder, all of them once at
+/// start-up, before any thread exists, so that lookups need no lock. A codec
+/// without its plugin cannot compress, and its blocks extract through their
+/// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
+#include "compressors/plug/zs_codec.h"
+static const char* const ZS_NAMES[]={"zstd"};
+#ifdef ZS_PLUGINS
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
+static const zs_codec* g_zs_codecs[sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0])];
+static std::string g_zs_dir;
+void zs_load_plugins(const std::string& i_exename)
+{
+	const size_t slash=i_exename.find_last_of("/\\");
+	g_zs_dir=(slash==std::string::npos ? std::string("") : i_exename.substr(0,slash+1))+"codecs/";
+	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
+	{
+		g_zs_codecs[i]=NULL;
+#ifdef _WIN32
+		const std::string path=g_zs_dir+ZS_NAMES[i]+".dll";
+		const std::wstring wpath=utow(path.c_str());	/// UTF-8 paths too, '/' as '\\'
+		/// an absolute path, and the DLL's own folder for its dependencies: a
+		/// plugin never comes from the current directory or the PATH
+		HMODULE h=LoadLibraryExW(wpath.c_str(), NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+		if (!h)
+			continue;
+		zs_codec_entry e=(zs_codec_entry)(void*)GetProcAddress(h, ZS_CODEC_ENTRY);
+#else
+		const std::string path=g_zs_dir+ZS_NAMES[i]+".so";
+		void* h=dlopen(path.c_str(), RTLD_NOW|RTLD_LOCAL);
+		if (!h)
+			continue;
+		zs_codec_entry e=(zs_codec_entry)dlsym(h, ZS_CODEC_ENTRY);
+#endif
+		const zs_codec* c=e ? e() : NULL;
+		if (c && c->abi==ZS_CODEC_ABI && c->name && strcmp(c->name, ZS_NAMES[i])==0 && c->bound && c->compress && c->decompress)
+			g_zs_codecs[i]=c;
+	}
+}
+const zs_codec* zs_get(const char* i_name)
+{
+	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
+		if (strcmp(ZS_NAMES[i], i_name)==0)
+			return g_zs_codecs[i];
+	return NULL;
+}
+#else
+extern "C" const zs_codec* zs_codec_zstd(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd};
+void zs_load_plugins(const std::string&) {}
+const zs_codec* zs_get(const char* i_name)
+{
+	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
+		if (strcmp(ZS_NAMES[i], i_name)==0)
+			return ZS_LINKED[i]();
+	return NULL;
+}
+#endif
+/// The native shortcut (PostProcessor::shortcut) is allowed only with a
+/// zpaqstd-ma2: tag in sight, and only if the codec the tag names is here: in
+/// the plugin build, without its plugin, the block's ZPAQL decoder runs. The
+/// tag is zpaqstd-ma2:<name>:...; a name that is not in ZS_NAMES belongs to a
+/// codec linked into zpaq-std itself.
+/// The plugin that serves a -ma name ("" = a codec linked into zpaq-std itself).
+static std::string zs_plugin_name(const std::string& i_ma)
+{
+	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
+		if (i_ma==ZS_NAMES[i])
+			return i_ma;
+	return "";
+}
+#ifdef ZS_PLUGINS
+static std::string zs_plugin_dir() { return g_zs_dir; }
+#ifdef _WIN32
+#define ZS_PLUGIN_EXT ".dll"
+#else
+#define ZS_PLUGIN_EXT ".so"
+#endif
+#endif
+static bool zs_native_ok(const std::string& i_comment)
+{
+	const size_t p=i_comment.find("zpaqstd-ma2:");
+	if (p==std::string::npos)
+		return false;
+	const size_t a=p+12;
+	const size_t b=i_comment.find(':', a);
+	if (b==std::string::npos)
+		return false;
+	const std::string name=i_comment.substr(a, b-a);
+	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
+		if (name==ZS_NAMES[i])
+			return zs_get(ZS_NAMES[i])!=NULL;
+	return true;
+}
 #ifdef __cplusplus
 }
 #endif
@@ -69024,6 +69121,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if (myexename=="robocopy")
 		flagforzarobocopy=true;
 #endif // corresponds to #ifdef (#ifdef unix)
+	zs_load_plugins(fullzpaqexename);	/// -ma codecs: nothing to do in the full build
 
 	if (flagdebug)
 	{	
@@ -69714,7 +69812,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 				else if (g_ma_level<1) g_ma_level=1;
 				if (g_ma_algorithm=="zstd")
 				{
-					int zmax=ZSTD_maxCLevel();
+					const zs_codec* zc=zs_get("zstd");
+					int zmax=zc ? zc->max_level : 22;
 					if (g_ma_level>zmax) g_ma_level=zmax;
 				}
 				else if (g_ma_algorithm=="flzma2")
@@ -70382,6 +70481,20 @@ int Jidac::loadparameters(int argc, const char** argv)
 	/// lz4/lz4hc/lz4f y lzav no son bloques -ma: se escriben como -m6 / -m7 de
 	/// zpaqfranz (ma_alias_m6m7, en add()), que cualquier zpaq extrae. Aca todavia
 	/// no se convirtieron, por eso van primero y con su propio aviso.
+#ifdef ZS_PLUGINS
+	/// make plugins: compressing with a -ma codec needs its plugin. Without it every
+	/// block would silently stay as -m1..-m5 compressed it, so stop instead.
+	if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
+	{
+		const std::string plug=zs_plugin_name(g_ma_algorithm);
+		if ((plug!="") && (zs_get(plug.c_str())==NULL))
+		{
+			myprintf("00605! -ma:%s needs its plugin, %s%s%s, which is missing or not valid\n",
+			         g_ma_algorithm.c_str(), zs_plugin_dir().c_str(), plug.c_str(), ZS_PLUGIN_EXT);
+			seppuku(2);
+		}
+	}
+#endif
 	if ((g_ma_algorithm=="lz4" || g_ma_algorithm=="lz4hc" || g_ma_algorithm=="lz4f" || g_ma_algorithm=="lzav")
 	    && ((command=='a') || (command=='Z')))
 	{
@@ -78233,7 +78346,7 @@ ThreadReturn decompressThread(void *arg)
 					}
 					/// Bloques propios con decodificador ZPAQL: el atajo nativo solo se
 					/// permite aca, con la etiqueta a la vista (ver PostProcessor::shortcut).
-					d.setNativeShortcut(cs.find("zpaqstd-ma2:") != string::npos);
+					d.setNativeShortcut(zs_native_ok(cs));
 					auto m6 = cs.find("zpaqstd-ma2:lz5-lz6:");
 					if (m6 != string::npos)
 					{
@@ -78417,8 +78530,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(zstp_orig);
-				size_t r2 = ZSTD_decompress(&decomp2[0], (size_t)zstp_orig, (const char *)out.data(), out.size());
-				if (ZSTD_isError(r2) || (int64_t)r2 != zstp_orig)
+				const zs_codec* zc=zs_get("zstd");
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)zstp_orig) : -1;
+				if (r2 != zstp_orig)
 					error("31319 zstd decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -122976,22 +123090,24 @@ static void ma_alias_m6m7(string& io_method)
 static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 {
 	/// -ma:lz4* y -ma:lzav ya no llegan aca: ma_alias_m6m7() los escribe como -m6 / -m7.
-	if (g_ma_algorithm=="zstd" && sb.size()>16)
+	if (g_ma_algorithm=="zstd" && sb.size()>16 && zs_get("zstd"))
 	{
+		const zs_codec* zc=zs_get("zstd");
 		int64_t orig_size=sb.size();
-		size_t dstCap=ZSTD_compressBound((size_t)orig_size);
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* zstdbuf=new(std::nothrow) char[dstCap];
 			if (zstdbuf)
 			{
-				size_t zs=ZSTD_compress(zstdbuf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,zstdbuf,dstCap,g_ma_level);
+				const size_t zs=zr<0 ? 0 : (size_t)zr;
 				/// ZPAQZSTD: el frame tal cual, con su decodificador ZPAQL. M guarda el
 				/// frame, un bloque de literales (128 KB + 64) y la salida entera.
 				const int64_t need=(int64_t)zs+131136+orig_size+64;
 				int k=17;
 				while (k<31 && ((int64_t)1<<k)<need) k++;
-				if (!ZSTD_isError(zs)&&zs>0&&(int64_t)zs<orig_size-16&&((int64_t)1<<k)>=need)
+				if (zr>0&&(int64_t)zs<orig_size-16&&((int64_t)1<<k)>=need)
 				{
 					libzpaq::SHA1 sh1;
 					sh1.write((const char*)sb.data(), orig_size);
