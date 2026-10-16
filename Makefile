@@ -381,11 +381,15 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := zstd flzma2 uflzma2
+PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz
 PLUGLIB_zstd := compressors/zstd/zstd.c
 PLUGINC_zstd := -Icompressors/zstd
 PLUGLIB_flzma2 := $(FL2OBJ)
 PLUGLIB_uflzma2 := $(UFL2BUNDLE)
+PLUGLIB_lzma := $(LZMAOBJ)
+PLUGINC_lzma := $(LZMAINC)
+PLUGLIB_lz := $(LZLIBOBJ)
+PLUGINC_lz := $(LZLIBINC)
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   PLUGEXT := .dll
   # static runtime like the program, no PE timestamp (reproducible), no .comment
@@ -453,8 +457,8 @@ plugins:
 	@mkdir -p plugins/codecs
 	$(MAKE) --no-print-directory PLUGINS=1 plugins/zpaq-std $(PLUGIN_FILES)
 
-compressors/plug/%.o: compressors/plug/%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
-	$(CXX) $(ZPAQ_CXXFLAGS) -c $< -o $@
+compressors/plug/zs_%.o: compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
+	$(CXX) $(ZPAQ_CXXFLAGS) $(PLUGINC_$*) -c $< -o $@
 
 compressors/bz2ng/%.o: compressors/bz2ng/%.c
 	$(CC) $(BZ2NGCFLAGS) $(if $(filter $(BZ2NGO3),$(basename $(notdir $<))),-O3) \

@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19716,7 +19716,9 @@ const zs_codec* zs_get(const char* i_name)
 extern "C" const zs_codec* zs_codec_zstd(void);
 extern "C" const zs_codec* zs_codec_flzma2(void);
 extern "C" const zs_codec* zs_codec_uflzma2(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2};
+extern "C" const zs_codec* zs_codec_lzma(void);
+extern "C" const zs_codec* zs_codec_lz(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -19911,69 +19913,7 @@ extern "C" {
 }
 #endif
 
-// lzlib (lzip) one-shot compress/decompress wrappers.
-// lzlib has only a stream API; we wrap it in a single call that fills
-// the output buffer and returns the compressed size.
-static int lzlib_compress_wrapper(const unsigned char* in, size_t in_size,
-                                  unsigned char* out, size_t out_size, size_t* out_used, int level)
-{
-    static const size_t DICT[]   = {65535, 1u<<20, 1572864, 2u<<20, 3u<<20, 4u<<20, 8u<<20, 16u<<20, 24u<<20, 32u<<20};
-    static const int    MATCH[]  = {16, 5, 6, 8, 12, 20, 36, 68, 132, 273};
-    if (level < 0) level = 6;
-    if (level > 9) level = 9;
-    LZ_Encoder* enc = LZ_compress_open(DICT[level], MATCH[level], 0x1000000000000ULL);
-    if (!enc || LZ_compress_errno(enc) != LZ_ok) { LZ_compress_close(enc); return -1; }
-    size_t inpos = 0, outpos = 0;
-    int ret, error = 0;
-    while (1) {
-        ret = LZ_compress_write(enc, in + inpos, (int)(in_size - inpos));
-        if (ret < 0) { error = 1; break; }
-        inpos += ret;
-        if (inpos >= in_size) LZ_compress_finish(enc);
-        ret = LZ_compress_read(enc, out + outpos, (int)(out_size - outpos));
-        if (ret < 0) { error = 1; break; }
-        outpos += ret;
-        if (LZ_compress_finished(enc) == 1) break;
-        if (outpos >= out_size) { error = 1; break; }
-    }
-    LZ_compress_close(enc);
-    if (error) return -1;
-    *out_used = outpos;
-    return 0;
-}
-
-static int lzlib_decompress_wrapper(const unsigned char* in, size_t in_size,
-                                    unsigned char* out, size_t out_size, size_t* out_used)
-{
-    LZ_Decoder* dec = LZ_decompress_open();
-    if (!dec) return -1;
-    size_t inpos = 0, outpos = 0;
-    int ret, error = 0;
-    while (1) {
-        /* Feed input incrementally. lzlib's input buffer is bounded
-         * (~64 KB), so for compressed streams larger than that a single
-         * LZ_decompress_write accepts only part of the data. Only signal
-         * end-of-input once everything has actually been written —
-         * calling LZ_decompress_finish() early (as a previous version did
-         * every iteration) corrupts the stream for multi-buffer inputs,
-         * which is why larger blocks failed to round-trip. */
-        if (inpos < in_size) {
-            ret = LZ_decompress_write(dec, in + inpos, (int)(in_size - inpos));
-            if (ret < 0) { error = 1; break; }
-            inpos += ret;
-            if (inpos >= in_size) LZ_decompress_finish(dec);
-        }
-        ret = LZ_decompress_read(dec, out + outpos, (int)(out_size - outpos));
-        if (ret < 0) { error = 1; break; }
-        outpos += ret;
-        if (LZ_decompress_finished(dec) == 1) break;
-        if (outpos >= out_size) { error = 1; break; }
-    }
-    LZ_decompress_close(dec);
-    if (error) return -1;
-    *out_used = outpos;
-    return 0;
-}
+// lzlib (-ma:lz): its one-shot wrappers are in compressors/plug/zs_lz.cpp.
 
 
 
@@ -78794,9 +78734,9 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 lzma decompression failed");
 				string decomp2;
 				decomp2.resize(lzma_orig);
-				size_t dlen = (size_t)lzma_orig, slen = out.size() - 9;
-				int r2 = LzmaUncompress((unsigned char *)&decomp2[0], &dlen, src + 9, &slen, src, LZMA_PROPS_SIZE);
-				if ((r2 != SZ_OK && r2 != SZ_ERROR_INPUT_EOF) || (int64_t)dlen != lzma_orig)
+				const zs_codec* zc=zs_get("lzma");
+				const long long r2 = zc ? zc->decompress(src, out.size(), &decomp2[0], (size_t)lzma_orig) : -1;
+				if (r2 != lzma_orig)
 					error("31319 lzma decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -123362,7 +123302,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="lzma" && sb.size()>16)
+	else if (g_ma_algorithm=="lzma" && sb.size()>16 && zs_get("lzma"))
 	{
 		/// ZPAQLZMA: LZMA1 del LZMA SDK, con el decodificador ZPAQL de kaitz (zpaqf)
 		/// en cada bloque: cualquier zpaq lo extrae. El flujo es el que ese programa
@@ -123372,6 +123312,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 		/// pm = diccionario x2: en el programa, M guarda la salida entera y detras
 		/// los datos comprimidos, que tienen que caber (por eso lo comprimido tiene
 		/// que ser menor que el diccionario, y lo es: si no, el bloque queda nativo).
+		const zs_codec* zc=zs_get("lzma");
 		int64_t orig_size=sb.size();
 		int k=16;
 		while (k<30 && ((int64_t)1<<k)<orig_size) k++;
@@ -123381,11 +123322,11 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap+9];
 			if (lzbuf)
 			{
-				size_t destLen=dstCap, propsSize=LZMA_PROPS_SIZE;
-				int res=LzmaCompress(lzbuf+9, &destLen, (const unsigned char*)sb.data(), (size_t)orig_size,
-				                     lzbuf, &propsSize, g_ma_level, (unsigned)1<<k, 3, 0, 2, -1, 1);
-				int64_t total=(int64_t)destLen+9;
-				if (res==SZ_OK && propsSize==LZMA_PROPS_SIZE && total<orig_size-16
+				/// the adapter (compressors/plug/zs_lzma.cpp) writes the whole stream,
+				/// with the same dictionary, 1<<k; the size goes in below
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,lzbuf,dstCap+9,g_ma_level);
+				int64_t total=zr;
+				if (zr>9 && total<orig_size-16
 				    && total<((int64_t)1<<k) && lzbuf[9]==0)
 				{
 					for (int i=0; i<4; i++)
@@ -123670,8 +123611,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="lz" && sb.size()>16)
+	else if (g_ma_algorithm=="lz" && sb.size()>16 && zs_get("lz"))
 	{
+		const zs_codec* zc=zs_get("lz");
 		int64_t orig_size=sb.size();
 		size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
@@ -123679,8 +123621,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
 			if (lzbuf)
 			{
-				size_t lzsz=0;
-				int lzrc=lzlib_compress_wrapper((const unsigned char*)sb.data(),(size_t)orig_size,lzbuf,dstCap,&lzsz,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,lzbuf,dstCap,g_ma_level);
+				const size_t lzsz=zr<0 ? 0 : (size_t)zr;
+				const int lzrc=zr<0 ? -1 : 0;
 				/// ZPAQLZIP: un miembro lzip es "LZIP" + version + diccionario (6
 				/// bytes), LZMA1 con lc=3 lp=0 pb=2, y 20 bytes de cierre. Se guarda
 				/// solo el LZMA de adentro, con la cabecera que lee el decodificador
