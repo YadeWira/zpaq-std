@@ -774,6 +774,7 @@ help:
 	@echo "Build:"
 	@echo "  make                   Compile zpaq-std (JIT auto on x86 only)"
 	@echo "  make static            Static build (NAS, containers, rescue)"
+	@echo "  make plugins           Program + one plugin per -ma codec in plugins/ (make clean first)"
 	@echo "  make nointel           Force without JIT (even on Intel)"
 	@echo "  make debug             Debug build (no optimization)"
 	@echo ""

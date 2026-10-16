@@ -176,6 +176,7 @@ make static       # static binary (NAS, containers, rescue)
 make m32          # 32-bit i386 ELF (requires g++-multilib)
 make test         # run zpaq-std's built-in autotest
 make check        # show configuration
+make plugins      # program + one plugin per -ma codec, in plugins/ (make clean first)
 ```
 
 Cross-compile:
@@ -184,6 +185,31 @@ make CROSS_COMPILE=aarch64-linux-gnu-     # ARM64 Linux
 make CROSS_COMPILE=x86_64-w64-mingw32-    # 64-bit Windows (MinGW-w64)
 make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (MinGW-w64)
 ```
+
+### Codecs as plugins: `make plugins`
+
+Like 7-Zip-zstd's codec DLLs, the `-ma` codecs can also be built apart from the
+program. The default build stays one self-contained binary; `make plugins` (after
+`make clean`) builds the program without the codecs' libraries, and one plugin per
+codec:
+
+```
+plugins/zpaq-std[.exe]                        about 5 MB instead of 10
+plugins/codecs/zstd.dll  brotli.dll  kanzi.dll ...  (.so on Linux), 20 of them
+```
+
+- zpaq-std loads the plugins from the `codecs` folder next to the executable, by
+  absolute path, once at start-up. Nothing is looked up in the current folder or
+  the `PATH`.
+- With a codec's plugin, everything is as in the full build, byte for byte: the
+  same archives, the same speed.
+- Without it, `-ma:<codec>` stops with `00605! -ma:<codec> needs its plugin`, and
+  archives that already hold that codec's blocks still extract: every `-ma` block
+  carries its own ZPAQL decoder, which runs instead (slower).
+- `-m0`..`-m7` (and `-ma:lz4`, `-ma:lzav`, which are `-m6`/`-m7`) need no plugin.
+
+The interface is a few C functions (`compressors/plug/zs_codec.h`); see
+[`compressors/plug/README.md`](compressors/plug/README.md).
 
 The Windows build is a self-contained `zpaq-std.exe` that runs on a clean Windows
 7+ box. The 32-bit Windows build compresses with at most 2 threads and is
