@@ -201,8 +201,9 @@ plugins/codecs/zstd.dll  brotli.dll  kanzi.dll ...  (.so on Linux), 20 of them
 - zpaq-std loads the plugins from the `codecs` folder next to the executable, by
   absolute path, once at start-up. Nothing is looked up in the current folder or
   the `PATH`.
-- With a codec's plugin, everything is as in the full build, byte for byte: the
-  same archives, the same speed.
+- With a codec's plugin, the archives are the full build's, byte for byte, and the
+  speed is within a few percent of it (on Linux a plugin is position-independent
+  code).
 - Without it, `-ma:<codec>` stops with `00605! -ma:<codec> needs its plugin`, and
   archives that already hold that codec's blocks still extract: every `-ma` block
   carries its own ZPAQL decoder, which runs instead (slower).
