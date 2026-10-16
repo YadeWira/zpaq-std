@@ -155,7 +155,14 @@ LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp c
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
 UFL2INC := -Icompressors/uflzma2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE $(if $(UFL2ASM),-DLZMA2_DEC_OPT)
-BZ2NGCFLAGS := $(CFLAGS) -O2 -std=c11 -fvisibility=hidden -DNDEBUG -DBZ_NO_STDIO -D_DEFAULT_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -Icompressors/bz2ng -Icompressors/bz2ng/lib
+# make plugins on POSIX: every library becomes part of a shared object, so every
+# object is position-independent (make clean between this and the full build).
+ifdef PLUGINS
+  ifeq (,$(findstring mingw,$(CROSS_COMPILE)))
+    PICFLAG := -fPIC
+  endif
+endif
+BZ2NGCFLAGS := $(PICFLAG) $(CFLAGS) -O2 -std=c11 -fvisibility=hidden -DNDEBUG -DBZ_NO_STDIO -D_DEFAULT_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -Icompressors/bz2ng -Icompressors/bz2ng/lib
 ifneq (,$(findstring x86_64,$(UFL2MACH)))
   BZ2NG_V2 := -march=x86-64-v2
   BZ2NG_V3 := -march=x86-64-v3
@@ -195,7 +202,7 @@ ZOPFLIINC :=
 BSCINC    := -Icompressors/bsc/libbsc -Icompressors/bsc/lzp -Icompressors/bsc/coder -Icompressors/bsc/coder/qlfc -Icompressors/bsc/bwt -Icompressors/bsc/bwt/libsais -Icompressors/bsc/st -Icompressors/bsc/adler32 -Icompressors/bsc/platform -Icompressors/bsc/filters
 LZHAMINC  := -Icompressors/lzham
 # (packJPG removed together with -sa.)
-ZPAQ_CFLAGS := $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
+ZPAQ_CFLAGS := $(PICFLAG) $(CFLAGS) -O3 -pthread -Wall -D_GLIBCXX_USE_CXX11_ABI=0
 
 # Download URLs
 # (zpaqfranz's URLs, on Franco Corbelli's site, never held zpaq-std: all three
@@ -209,7 +216,7 @@ CXXFLAGS ?= -O3
 CPPFLAGS ?=
 
 # Project-required flags (always present; user flags are appended)
-ZPAQ_CXXFLAGS := -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
+ZPAQ_CXXFLAGS := $(PICFLAG) -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
 # -mconsole tells the MinGW CRT to use main() instead of WinMain()
 # as the entry point. Required for console (CLI) applications.
 # -static* statically links the MinGW runtime (libgcc, libstdc++,
@@ -337,27 +344,6 @@ BZ2NGOBJ := $(BZ2NGSRC:.c=.o)
 # builds each one with its library as codecs/<name>.dll / .so instead.
 PLUGSRC := $(wildcard compressors/plug/zs_*.cpp)
 PLUGOBJ := $(PLUGSRC:.cpp=.o)
-# The codecs that are plugins in make plugins, and the library sources of each.
-PLUGIN_CODECS := zstd
-PLUGLIB_zstd := compressors/zstd/zstd.c
-PLUGINC_zstd := -Icompressors/zstd
-ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
-  PLUGEXT := .dll
-  # static runtime like the program, no PE timestamp (reproducible), no .comment
-  PLUGLDFLAGS := -shared -static -static-libgcc -static-libstdc++ -Wl,--no-insert-timestamp
-else
-  PLUGEXT := .so
-  PLUGLDFLAGS := -shared -fPIC
-endif
-PLUGIN_FILES := $(addprefix plugins/codecs/,$(addsuffix $(PLUGEXT),$(PLUGIN_CODECS)))
-ifdef PLUGINS
-  ZPAQ_CPPFLAGS += -DZS_PLUGINS
-  ZSTDSRC :=
-  PLUGOBJ :=
-  ifeq (,$(findstring mingw,$(CROSS_COMPILE)))
-    LDLIBS += -ldl
-  endif
-endif
 BZ2NGBUNDLE := compressors/bz2ng/bz2ng-bundle.o
 LZ5OBJ := $(LZ5SRC:.c=.o)
 LZ6OBJ := $(LZ6SRC:.c=.o)
@@ -390,8 +376,39 @@ ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 KANZIOBJ := $(KANZISRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+
+# ---- make plugins ----------------------------------------------------------------
+# The codecs that become plugins, and what each plugin links: its adapter
+# (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
+# library's objects, built by the rules below like in the full build.
+PLUGIN_CODECS := zstd flzma2 uflzma2
+PLUGLIB_zstd := compressors/zstd/zstd.c
+PLUGINC_zstd := -Icompressors/zstd
+PLUGLIB_flzma2 := $(FL2OBJ)
+PLUGLIB_uflzma2 := $(UFL2BUNDLE)
+ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
+  PLUGEXT := .dll
+  # static runtime like the program, no PE timestamp (reproducible), no .comment
+  PLUGLDFLAGS := -shared -static -static-libgcc -static-libstdc++ -Wl,--no-insert-timestamp
+else
+  PLUGEXT := .so
+  PLUGLDFLAGS := -shared -fPIC
+endif
+PLUGIN_FILES := $(addprefix plugins/codecs/,$(addsuffix $(PLUGEXT),$(PLUGIN_CODECS)))
+ifdef PLUGINS
+  # the core: no adapter and none of the plugins' libraries (filtered out of the
+  # link below; the variables stay, the plugins' rules need them)
+  ZPAQ_CPPFLAGS += -DZS_PLUGINS
+  CORE_DROP := $(PLUGOBJ) $(foreach c,$(PLUGIN_CODECS),$(PLUGLIB_$(c)))
+  ifeq (,$(findstring mingw,$(CROSS_COMPILE)))
+    LDLIBS += -ldl
+  endif
+endif
+# Everything the program links. make plugins leaves out CORE_DROP: the adapters
+# and the libraries that went into plugins.
+LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
+$(PROG): $(filter-out $(CORE_DROP),$(LINKOBJS))
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(filter-out $(CORE_DROP),$(LINKOBJS)) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -426,9 +443,10 @@ $(UFL2BUNDLE): $(UFL2OBJ)
 	$(RM) $@.tmp $@.syms
 
 # One plugin: the adapter and its library, in one shared object.
-plugins/codecs/%$(PLUGEXT): compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
+.SECONDEXPANSION:
+plugins/codecs/%$(PLUGEXT): compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h $$(PLUGLIB_$$*)
 	@mkdir -p plugins/codecs
-	$(CXX) -O3 -Wall -DZS_PLUGIN $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
+	$(CXX) -O3 -Wall -pthread -DZS_PLUGIN -D_GLIBCXX_USE_CXX11_ABI=0 $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
 	$(if $(findstring mingw,$(CROSS_COMPILE)),SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(STRIP) --remove-section=.comment $@)
 
 plugins:

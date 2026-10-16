@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19714,7 +19714,9 @@ const zs_codec* zs_get(const char* i_name)
 }
 #else
 extern "C" const zs_codec* zs_codec_zstd(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd};
+extern "C" const zs_codec* zs_codec_flzma2(void);
+extern "C" const zs_codec* zs_codec_uflzma2(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -69818,13 +69820,15 @@ int Jidac::loadparameters(int argc, const char** argv)
 				}
 				else if (g_ma_algorithm=="flzma2")
 				{
-					int fmax=FL2_maxCLevel();
+					const zs_codec* zc=zs_get("flzma2");
+					int fmax=zc ? zc->max_level : 10;
 					if (g_ma_level>fmax) g_ma_level=fmax;
 				}
 				/// uflzma2: 1..10 como fast-lzma2; 11 busca ademas lc/lp/pb por bloque.
 				else if (g_ma_algorithm=="uflzma2")
 				{
-					int umax=UF2_maxCLevel();
+					const zs_codec* zc=zs_get("uflzma2");
+					int umax=zc ? zc->max_level : 11;
 					if (g_ma_level>umax) g_ma_level=umax;
 				}
 				/// kanzi: 1 a 9, todos con decodificador ZPAQL (desde pre54 ZPAQKANZI1B, 3B,
@@ -78706,8 +78710,9 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 flzma2 decompression failed");
 				string decomp2;
 				decomp2.resize(fl2p_orig);
-				size_t r2 = FL2_decompress(&decomp2[0], (size_t)fl2p_orig, (const char *)src + 4, out.size() - 4);
-				if (FL2_isError(r2) || (int64_t)r2 != fl2p_orig)
+				const zs_codec* zc=zs_get("flzma2");
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)fl2p_orig) : -1;
+				if (r2 != fl2p_orig)
 					error("31319 flzma2 decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78763,8 +78768,9 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 uflzma2 decompression failed");
 				string decomp2;
 				decomp2.resize(uf2p_orig);
-				size_t r2 = UF2_decompress(&decomp2[0], (size_t)uf2p_orig, (const char *)src + 4, out.size() - 4);
-				if (UF2_isError(r2) || (int64_t)r2 != uf2p_orig)
+				const zs_codec* zc=zs_get("uflzma2");
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)uf2p_orig) : -1;
+				if (r2 != uf2p_orig)
 					error("31319 uflzma2 decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -123124,16 +123130,18 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="flzma2" && sb.size()>16)
+	else if (g_ma_algorithm=="flzma2" && sb.size()>16 && zs_get("flzma2"))
 	{
+		const zs_codec* zc=zs_get("flzma2");
 		int64_t orig_size=sb.size();
-		size_t dstCap=FL2_compressBound((size_t)orig_size);
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* fl2buf=new(std::nothrow) char[dstCap];
 			if (fl2buf)
 			{
-				size_t fs=FL2_compress(fl2buf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,fl2buf,dstCap,g_ma_level);
+				const size_t fs=zr<0 ? 0 : (size_t)zr;
 				/// ZPAQFLZMA2: el bloque lleva su decodificador LZMA2 en ZPAQL,
 				/// asi que cualquier zpaq lo extrae. Flujo: tamano original (4
 				/// bytes LE) + la salida de FL2_compress tal cual. pm: que entren
@@ -123141,7 +123149,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				int64_t total=(int64_t)fs+4;
 				int k=17;
 				while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
-				if (!FL2_isError(fs)&&fs>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+				if (zr>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
 				{
 					libzpaq::SHA1 sh1;
 					sh1.write((const char*)sb.data(), orig_size);
@@ -123222,20 +123230,22 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 	}
 	/// ZPAQUFLZMA2: como flzma2, con ultra-fast-lzma2 (un hilo por bloque, como
 	/// FL2_compress: la salida depende de la cantidad de hilos).
-	else if (g_ma_algorithm=="uflzma2" && sb.size()>16)
+	else if (g_ma_algorithm=="uflzma2" && sb.size()>16 && zs_get("uflzma2"))
 	{
+		const zs_codec* zc=zs_get("uflzma2");
 		int64_t orig_size=sb.size();
-		size_t dstCap=UF2_compressBound((size_t)orig_size);
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* uf2buf=new(std::nothrow) char[dstCap];
 			if (uf2buf)
 			{
-				size_t fs=UF2_compress(uf2buf,dstCap,(const char*)sb.data(),(size_t)orig_size,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,uf2buf,dstCap,g_ma_level);
+				const size_t fs=zr<0 ? 0 : (size_t)zr;
 				int64_t total=(int64_t)fs+4;
 				int k=17;
 				while (k<31 && ((int64_t)1<<k)<orig_size+total+64) k++;
-				if (!UF2_isError(fs)&&fs>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
+				if (zr>0&&total<orig_size-16&&((int64_t)1<<k)>=orig_size+total+64)
 				{
 					libzpaq::SHA1 sh1;
 					sh1.write((const char*)sb.data(), orig_size);
