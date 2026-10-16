@@ -1,3 +1,54 @@
+### [0.0.1-pre60] - 2026-10-16
+
+zpaq-std gets a version of its own: **v0.0.1** (still a pre-release). A new experimental codec, `-ma:bz2`, compresses bzip2 streams with bz2-ng, about twice as fast as `-ma:bzip2`. The licence and credit files are corrected, and the built-in help documents `-ma` where it is looked for.
+
+#### Version 0.0.1
+
+The version line was zpaqfranz's: `zpaq-std-open v65.4m-JIT67,...,(2026-09-24)`, with the date of zpaqfranz 65.3y. It is now
+
+```
+zpaq-std v0.0.1 | zf v65.4m-JIT67,-L,HW SHA1/2,4,(2026-10-16)
+```
+
+zpaq-std's own version, the zpaqfranz version it is based on (`zf`), and zpaq-std's release date. Programs that recognise the old `zpaq-std-open ` prefix need updating; the new line starts with `zpaq-std v` and a digit. Releases are tagged `v0.0.1-preN` until the first stable one.
+
+#### `-ma:bz2` (experimental): bzip2 with bz2-ng
+
+- [bz2-ng](https://github.com/tfenne/bz2-ng) rewrites libbz2 1.0.8's encoder and decoder and keeps its format and its API. `-ma:bz2` uses it; `-ma:bzip2` keeps libbz2 1.0.8. Levels 1 to 9 as bzip2, default 9.
+- It writes the same bytes as libbz2 (checked on every level), so the compression ratio is the same. Inside zpaq-std, with one thread on 52 MB, it compresses about 2 times as fast as `-ma:bzip2` and extracts about 1.5 times as fast.
+- Its blocks carry their own decoder, **ZPAQBZ2** (ZPAQBZIP2 with one instruction more, to give it an identity of its own): zpaq 7.15, zpaqfranz and older zpaq-std versions extract them.
+- Experimental because bz2-ng has no release yet: zpaq-std bundles commit 63987e0, unmodified. Archives already written stay readable whatever happens to it.
+
+#### Licences and credits
+
+zpaq-std's first commit had renamed "zpaqfranz" to "zpaq-std" everywhere, also in text that belongs to zpaqfranz:
+
+- a quoted request of Franco Corbelli to Igor Pavlov, in the credits inside `zpaq-std.cpp` (and `THIRD-PARTY-LICENSES.txt`), named the wrong fork; it reads as he wrote it again;
+- `LICENSE` described Franco Corbelli's copyright as "the original zpaq-std codebase"; it is zpaqfranz's;
+- `COPYING` called zpaq-std a fork of zpaq 7.15 and linked a repository that does not exist; it now says what zpaq-std is forked from, points to `THIRD-PARTY-LICENSES.txt`, and lists three entries (libfuse, WinFsp, LZAV) that `zpaq-std.cpp` already credited;
+- `CONTRIBUTORS` is rewritten: it named a "zpaq-std" by Franco Corbelli that does not exist, gave the wrong authors for LZ5 and Snappy and the wrong licence for LZHAM, and missed half of the bundled compressors;
+- the part of the changelog that is zpaqfranz's own (63.3b and older) is zpaqfranz's text again, with its links to github.com/fcorbelli/zpaqfranz;
+- the Makefile's download targets and the man page pointed to addresses that never held zpaq-std.
+
+#### Built-in help
+
+- `-ma` was documented only in `h voodoo`. It is now in `h main` and `h a` too, with examples; `h voodoo` keeps the list of every codec and level.
+- `-popgui` (legacy name `-innosetup`) is in `h a` on Windows.
+- Examples that ran the program as `zpaqfranz` run `zpaq-std`, and descriptions that called this program zpaqfranz name zpaq-std. What describes zpaqfranz's formats and history stays.
+
+#### Checked
+
+- `-ma:bz2`:
+  - bz2-ng writes the same bytes as zpaq-std's libbz2 1.0.8 on 81 files at every level from 1 to 9, including all-zero and periodic blocks, and each library decodes the other's output;
+  - [codec_check](https://github.com/YadeWira/zpaq-std/tree/main/tools/codec_check) under AddressSanitizer and UndefinedBehaviorSanitizer: 3,294 blocks at the 9 levels, damaged copies included, 0 failures;
+  - with the release binary, levels 1, 5 and 9 extract identically with zpaq 7.15 and pre59 (both run ZPAQBZ2) and with pre60.
+- Windows 7 x64 and x86, with the release binaries: `-ma:bz2` 1 and 9, `-ma:bzip2:9`, `-m1`, `-ma:zstd:19` and `-ma:uflzma2:11`; `t` and `x` pass, all 24 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre59 and pre60: 24/24. The new version line and the `-ma` and `-popgui` lines of `h a` show on both.
+- Full test battery, with `-ma:bz2` added to its round-trip suites:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre59: 0 divergences.
+- `THIRD-PARTY-LICENSES.txt`, attached, adds bz2-ng (and its bzip2, libdeflate and libsais parts) and has the corrected quote.
+
 ### [65.4m-pre59] - 2026-10-14
 
 Two fixes for `-to` when adding on Windows, both inherited from zpaqfranz, and one for
