@@ -15,3 +15,10 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 }
 
 ZS_DEFINE_CODEC(flzma2, "fast-lzma2 " FL2_VERSION_STRING, 1, FL2_maxCLevel(), zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+
+#if defined(ZS_PLUGIN) && defined(_WIN32)
+/* On Windows fast-lzma2's util.c is left out (it is POSIX), and fl2_threading.c
+   still references UTIL_countPhysicalCores; the program provides it, and so does
+   the plugin. One thread, as zpaq-std compresses each block with one. */
+extern "C" int UTIL_countPhysicalCores(void) { return 1; }
+#endif
