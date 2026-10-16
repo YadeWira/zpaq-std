@@ -100,6 +100,11 @@ endif
 # Its assembler LZMA decoder goes in on x86_64 (Microsoft x64 calling convention
 # on Windows) and ARM64; 32-bit builds use its C decoder.
 UFL2SRC := $(wildcard compressors/uflzma2/*.c)
+# bz2-ng (-ma:bz2, experimental): libbz2's format and API with a faster encoder and
+# decoder. Every source is compiled on every target; the x86 and ARM tiers compile to
+# nothing elsewhere. The x86-64 tiers get their ISA flags and are picked at run time.
+BZ2NGSRC := $(wildcard compressors/bz2ng/lib/*.c) $(wildcard compressors/bz2ng/lib/x86/*.c) $(wildcard compressors/bz2ng/lib/arm/*.c)
+BZ2NGO3 := compress enc_block enc_huff enc_sort sort_libsais
 UFL2MACH := $(shell $(CC) -dumpmachine 2>/dev/null)
 UFL2ASM :=
 UFL2ASFLAGS :=
@@ -143,6 +148,13 @@ LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp c
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
 UFL2INC := -Icompressors/uflzma2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE $(if $(UFL2ASM),-DLZMA2_DEC_OPT)
+BZ2NGCFLAGS := $(CFLAGS) -O2 -std=c11 -fvisibility=hidden -DNDEBUG -DBZ_NO_STDIO -D_DEFAULT_SOURCE -D_FILE_OFFSET_BITS=64 -U_FORTIFY_SOURCE -Icompressors/bz2ng -Icompressors/bz2ng/lib
+ifneq (,$(findstring x86_64,$(UFL2MACH)))
+  BZ2NG_V2 := -march=x86-64-v2
+  BZ2NG_V3 := -march=x86-64-v3
+  BZ2NG_PCLMUL := -msse4.1 -mpclmul
+  BZ2NG_VPCLMUL := -mavx2 -mpclmul -mvpclmulqdq
+endif
 # LZ5_RESET_MEM / LIZARD_RESET_MEM: the libraries' own switches that reset their
 # hash/chain tables (hash 0, chain 0x01) before compressing. Without them the tables come from malloc
 # and the parsers read entries before writing them (valgrind: 44 and 101 reads of
@@ -313,6 +325,8 @@ build: $(PROG)
 FL2OBJ := $(FL2SRC:.c=.o)
 UFL2OBJ := $(UFL2SRC:.c=.o) $(UFL2ASM)
 UFL2BUNDLE := compressors/uflzma2/uflzma2-bundle.o
+BZ2NGOBJ := $(BZ2NGSRC:.c=.o)
+BZ2NGBUNDLE := compressors/bz2ng/bz2ng-bundle.o
 LZ5OBJ := $(LZ5SRC:.c=.o)
 LZ6OBJ := $(LZ6SRC:.c=.o)
 LZMAOBJ := $(LZMASRC:.c=.o)
@@ -344,8 +358,8 @@ ZOPFLIOBJ := $(ZOPFLISRC:.c=.o)
 BSCOBJ   := $(BSCSRC:.cpp=.o)
 KANZIOBJ := $(KANZISRC:.cpp=.o)
 LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
-$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
-	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
+$(PROG): $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
+	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
 
 # RT_MANIFEST resource (Windows/MinGW only) for visual-styled common controls.
@@ -376,6 +390,26 @@ compressors/uflzma2/%.o: compressors/uflzma2/%.S
 $(UFL2BUNDLE): $(UFL2OBJ)
 	$(CROSS_COMPILE)ld -r -o $@.tmp $^
 	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n !~ /^_?UF2_/) print n" ufl2_"n}' > $@.syms
+	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
+	$(RM) $@.tmp $@.syms
+
+compressors/bz2ng/%.o: compressors/bz2ng/%.c
+	$(CC) $(BZ2NGCFLAGS) $(if $(filter $(BZ2NGO3),$(basename $(notdir $<))),-O3) \
+	  $(if $(filter kern_sse4,$(basename $(notdir $<))),$(BZ2NG_V2)) \
+	  $(if $(filter kern_avx2,$(basename $(notdir $<))),$(BZ2NG_V3)) \
+	  $(if $(filter crc32_pclmul,$(basename $(notdir $<))),$(BZ2NG_PCLMUL)) \
+	  $(if $(filter crc32_vpclmul,$(basename $(notdir $<))),$(BZ2NG_VPCLMUL)) \
+	  $(if $(filter crc32_armv8,$(basename $(notdir $<))),$(if $(findstring aarch64,$(UFL2MACH)),-march=armv8-a+crc)) \
+	  $(if $(filter crc32_pmull,$(basename $(notdir $<))),$(if $(findstring aarch64,$(UFL2MACH)),-march=armv8-a+crc+crypto)) \
+	  -c $< -o $@
+
+# bz2-ng exports libbz2's own API (BZ2_*), which -ma:bzip2's libbzip2 exports too.
+# Only those are renamed, to bz2ng_BZ2_* (on 32-bit Windows they carry the stdcall
+# decoration, _BZ2_x@N, kept as it is); everything else in bz2-ng is already
+# prefixed bzng_ and libsais is static inside sort_libsais.c.
+$(BZ2NGBUNDLE): $(BZ2NGOBJ)
+	$(CROSS_COMPILE)ld -r -o $@.tmp $^
+	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n ~ /^_?BZ2_/) {m=n; sub(/BZ2_/,"bz2ng_BZ2_",m); print n" "m}}' > $@.syms
 	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
 	$(RM) $@.tmp $@.syms
 

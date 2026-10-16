@@ -1,0 +1,3 @@
+bz2-ng, https://github.com/tfenne/bz2-ng
+commit 63987e085fc6799c2189edb94b9198f0e1f81dc5 (2026-10-16), no release yet
+Files: c/lib, c/third_party/libsais, c/bzlib.h, c/LICENSE, c/licenses, unmodified.
