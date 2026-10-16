@@ -381,7 +381,7 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 snappy hs lzfse bzip3 brotli
+PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi
 PLUGLIB_zstd := compressors/zstd/zstd.c
 PLUGINC_zstd := -Icompressors/zstd
 PLUGLIB_flzma2 := $(FL2OBJ)
@@ -412,6 +412,14 @@ PLUGLIB_bzip3 := $(BZIP3OBJ)
 PLUGINC_bzip3 := $(BZIP3INC)
 PLUGLIB_brotli := $(BROTLIOBJ)
 PLUGINC_brotli := $(BROTLIINC)
+PLUGLIB_bsc := $(BSCOBJ)
+PLUGINC_bsc := $(BSCINC)
+PLUGLIB_lzh := $(LZHAMOBJ)
+PLUGINC_lzh := $(LZHAMINC)
+PLUGLIB_ppmd := $(PPMDOBJ)
+PLUGINC_ppmd := $(PPMDINC)
+PLUGLIB_kanzi := $(KANZIOBJ)
+PLUGINC_kanzi := $(KANZIINC)
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   PLUGEXT := .dll
   # static runtime like the program, no PE timestamp (reproducible), no .comment

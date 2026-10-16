@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6","snappy","hs","lzfse","bzip3","brotli"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6","snappy","hs","lzfse","bzip3","brotli","bsc","lzh","ppmd","kanzi"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19729,7 +19729,11 @@ extern "C" const zs_codec* zs_codec_hs(void);
 extern "C" const zs_codec* zs_codec_lzfse(void);
 extern "C" const zs_codec* zs_codec_bzip3(void);
 extern "C" const zs_codec* zs_codec_brotli(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6,zs_codec_snappy,zs_codec_hs,zs_codec_lzfse,zs_codec_bzip3,zs_codec_brotli};
+extern "C" const zs_codec* zs_codec_bsc(void);
+extern "C" const zs_codec* zs_codec_lzh(void);
+extern "C" const zs_codec* zs_codec_ppmd(void);
+extern "C" const zs_codec* zs_codec_kanzi(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6,zs_codec_snappy,zs_codec_hs,zs_codec_lzfse,zs_codec_bzip3,zs_codec_brotli,zs_codec_bsc,zs_codec_lzh,zs_codec_ppmd,zs_codec_kanzi};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -19907,13 +19911,7 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-/// bsc_init() arma el modelo estatico del QLFC (una tabla global): una sola vez y
-/// sin carrera entre los hilos de extraccion (la inicializacion de un static local es
-/// segura entre hilos desde C++11). Antes era un "static int ..._done" sin proteccion.
-static void bsc_init_una_vez() {
-  static const int hecho=(bsc_init(0), 1);
-  (void)hecho;
-}
+/// bsc_init() lives in compressors/plug/zs_bsc.cpp now.
 
 #ifdef __cplusplus
 extern "C" {
@@ -78360,9 +78358,10 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 ppmd decompression failed");
 				string decomp2;
 				decomp2.resize(ppmp_orig);
-				int ok= ppmd_decompress(ph+libzpaq::ZPAQPPMD_CABECERA, out.size()-libzpaq::ZPAQPPMD_CABECERA,
-										(unsigned char*)&decomp2[0], (size_t)ppmp_orig, order, mem>>20);
-				if (!ok)
+				const zs_codec* zc=zs_get("ppmd");
+				const long long r2= zc ? zc->decompress(ph+libzpaq::ZPAQPPMD_CABECERA, out.size()-libzpaq::ZPAQPPMD_CABECERA,
+										&decomp2[0], (size_t)ppmp_orig, (int)(order|((mem>>20)<<8))) : -1;
+				if (r2!=ppmp_orig)
 					error("31319 ppmd decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78377,11 +78376,11 @@ ThreadReturn decompressThread(void *arg)
 			{
 				if (out.size() <= (size_t)libzpaq::ZPAQBSC_PREFIJO || bscp_orig > 0x7FFFFFFF)
 					error("31319 bsc decompression failed");
-				bsc_init_una_vez();
 				string decomp2;
 				decomp2.resize(bscp_orig);
-				int rc=bsc_decompress((const unsigned char*)out.data()+libzpaq::ZPAQBSC_PREFIJO,(int)(out.size()-libzpaq::ZPAQBSC_PREFIJO),(unsigned char*)&decomp2[0],(int)bscp_orig,0);
-				if (rc<0)
+				const zs_codec* zc=zs_get("bsc");
+				const long long rc = zc ? zc->decompress(out.data()+libzpaq::ZPAQBSC_PREFIJO, out.size()-libzpaq::ZPAQBSC_PREFIJO, &decomp2[0], (size_t)bscp_orig, 0) : -1;
+				if (rc != bscp_orig)
 					error("31319 bsc decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78396,13 +78395,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(lzhp_orig);
-				lzham_decompress_params dpar;
-				memset(&dpar,0,sizeof(dpar));
-				dpar.m_struct_size=sizeof(dpar);
-				dpar.m_dict_size_log2=20; /* 1MB dict */
-				size_t lzhout=(size_t)lzhp_orig;
-				lzham_decompress_status_t dstat=lzham_decompress_memory(&dpar,(unsigned char*)&decomp2[0],&lzhout,(const unsigned char*)out.data(),out.size(),NULL);
-				if (dstat!=LZHAM_DECOMP_STATUS_SUCCESS||(int64_t)lzhout!=lzhp_orig)
+				const zs_codec* zc=zs_get("lzh");
+				const long long lzhout = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lzhp_orig, 0) : -1;
+				if (lzhout != lzhp_orig)
 					error("31319 lzham decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78661,12 +78656,13 @@ ThreadReturn decompressThread(void *arg)
 				const size_t kzpre = (src[4] >= 3) ? 5 + (size_t)libzpaq::ZPAQKANZI_DICT_LEN : 5;   /// 3 a 6 llevan el diccionario
 				if (out.size() < kzpre)
 					error("31319 kanzi decompression failed");
-				const int kzrc = kanzi_zs_decompress(src + kzpre, out.size() - kzpre, &decomp2[0], (size_t)knzp_orig, src[4]);
+				const zs_codec* zc=zs_get("kanzi");
+				const long long kzrc = zc ? zc->decompress(src + kzpre, out.size() - kzpre, &decomp2[0], (size_t)knzp_orig, src[4]) : -1;
 				/// sin memoria (TPAQX con bloques grandes en 32 bits): bad_alloc, para que el
 				/// bloque vuelva a la cola y lo haga otro hilo cuando este libere la suya
-				if (kzrc == 2)
+				if (kzrc == ZS_ERR_MEMORY)
 					throw std::bad_alloc();
-				if (kzrc != 0)
+				if (kzrc != knzp_orig)
 					error("31319 kanzi decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -123097,8 +123093,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 	/// kanzi por bloque. El bloque: [orig 4 LE][nivel 1][flujo]. pm: la entrada, la
 	/// salida de la entropia (a lo sumo 1,5 x original + 2048, la copia transformada de
 	/// kanzi) y la de LZ (a lo sumo el original), con margenes.
-	else if (g_ma_algorithm=="kanzi" && sb.size()>16)
+	else if (g_ma_algorithm=="kanzi" && sb.size()>16 && zs_get("kanzi"))
 	{
+		const zs_codec* zc=zs_get("kanzi");
 		int64_t orig_size=sb.size();
 		size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+65536;
 		if (orig_size<((int64_t)1<<28))
@@ -123106,7 +123103,8 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			char* kzbuf=new(std::nothrow) char[dstCap];
 			if (kzbuf)
 			{
-				size_t fs=kanzi_zs_compress(sb.data(),(size_t)orig_size,kzbuf,dstCap,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,kzbuf,dstCap,g_ma_level);
+				const size_t fs=zr<0 ? 0 : (size_t)zr;
 				/// niveles 3 a 6 (ZPAQKANZI3, ZPAQKANZI5): el diccionario va detras de la
 				/// cabecera, y M guarda la entrada y dos buffers de max(blk, pre+512)+64;
 				/// en el nivel 4 (ROLZ) ZPAQKANZI3 usa ademas 4 mas y la tabla f2s de ANS
@@ -123116,7 +123114,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				int64_t need=total+32+orig_size+orig_size/2+2048+32+orig_size+64;
 				if (k5||k3||k7||k8)
 				{
-					int64_t lin=(int64_t)kanzi_zs_first_pre(kzbuf,fs)+512;
+					int64_t lin=(int64_t)zc->query(ZS_QUERY_FIRST_PRE,kzbuf,fs)+512;
 					const int64_t blk=libzpaq::zpaqkanzi5_blk(orig_size);
 					if (lin<blk) lin=blk;
 					const bool rolz=(g_ma_level==4);
@@ -123561,17 +123559,19 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="ppmd" && sb.size()>16)
+	else if (g_ma_algorithm=="ppmd" && sb.size()>16 && zs_get("ppmd"))
 	{
+		const zs_codec* zc=zs_get("ppmd");
 		int64_t orig_size=sb.size();
-		size_t dstCap=(size_t)orig_size+(size_t)orig_size/2+4096; // PPMd worst-case headroom
+		size_t dstCap=zc->bound((size_t)orig_size,g_ma_level); // PPMd worst-case headroom
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 		{
 			char* pbuf=new(std::nothrow) char[dstCap];
 			if (pbuf)
 			{
 				unsigned order=(unsigned)g_ma_level; if(order<2)order=2; if(order>32)order=32;
-				size_t psz=ppmd_compress((const unsigned char*)sb.data(),(size_t)orig_size,(unsigned char*)pbuf,dstCap,order,64);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,pbuf,dstCap,(int)order);
+				const size_t psz=zr<0 ? 0 : (size_t)zr;
 				/// ZPAQPPMD: cabecera [orden][memoria][tamano original] y el flujo, con su
 				/// decodificador ZPAQL. M guarda el monticulo del modelo (64 MB) y la entrada.
 				const int64_t total=(int64_t)libzpaq::ZPAQPPMD_CABECERA+(int64_t)psz;
@@ -123730,27 +123730,22 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 		 * for a fast deflate alternative. */
 		error("31319 -ma:zop is no longer supported; use -ma:deflate:N instead");
 	}
-	else if (g_ma_algorithm=="bsc" && sb.size()>16)
+	else if (g_ma_algorithm=="bsc" && sb.size()>16 && zs_get("bsc"))
 	{
+		const zs_codec* zc=zs_get("bsc");
 		/* libbsc: block sorting (BWT/ST) + LZP + QLFC coder, very slow.
 		 * levels: 1=fast (ST3), 9=high (ST5) */
 		int64_t orig_size=sb.size();
 		if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
 		{
-			/* bsc_compress needs n + LIBBSC_HEADER_SIZE in output */
-			bsc_init_una_vez();
-			size_t dstCap=(size_t)orig_size+1024;
+			size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 			{
 				unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
 				if (lzbuf)
 				{
-					/* block sorter: ST3=3, ST4=4, ST5=5 (mapped from level 1..9) */
-					int blocksorter=LIBBSC_BLOCKSORTER_ST3+(g_ma_level-1)/3;
-					if (blocksorter>LIBBSC_BLOCKSORTER_ST5) blocksorter=LIBBSC_BLOCKSORTER_ST5;
-					int rc=bsc_compress((const unsigned char*)sb.data(),lzbuf,
-						(int)orig_size,0,0,
-						blocksorter, LIBBSC_DEFAULT_CODER, 0);
+					const long long zr=zc->compress(sb.data(),(size_t)orig_size,lzbuf,dstCap,g_ma_level);
+					const int rc=zr<0 ? -1 : (int)zr;
 					/// ZPAQBSC: el prefijo de datos (40960 bytes) y el bloque de bsc, con
 					/// su decodificador ZPAQL. M guarda eso, 16 ceros, la entrada de la ST
 					/// y la salida. Si no gana con el prefijo, el bloque queda nativo.
@@ -123777,34 +123772,30 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="lzh" && sb.size()>16)
+	else if (g_ma_algorithm=="lzh" && sb.size()>16 && zs_get("lzh"))
 	{
+		const zs_codec* zc=zs_get("lzh");
 		/* LZHAM: LZMA-class codec, public domain. Very slow.
 		 * levels: 1=fastest, 2=faster, 3=default, 4=uber */
 		int64_t orig_size=sb.size();
 		if (orig_size>0&&orig_size<=(int64_t)0x7FFFFFFF)
 		{
 			/* output cap: orig + small overhead, capped at 256MB */
-			size_t dstCap=(size_t)orig_size+(size_t)orig_size/8+1024;
+			size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 			{
 				unsigned char* lzbuf=new(std::nothrow) unsigned char[dstCap];
 				if (lzbuf)
 				{
-					lzham_compress_params cpar;
-					memset(&cpar,0,sizeof(cpar));
-					cpar.m_struct_size=sizeof(cpar);
-					cpar.m_level=(lzham_compress_level)(LZHAM_COMP_LEVEL_FASTEST+g_ma_level-1);
-					cpar.m_dict_size_log2=20; /* 1MB dict */
-					cpar.m_max_helper_threads=0; /* single-threaded for determinism */
-					size_t out_size=dstCap;
-					lzham_compress_status_t cstat=lzham_compress_memory(&cpar,lzbuf,&out_size,(const lzham_uint8*)sb.data(),(size_t)orig_size,NULL);
+					const long long zr=zc->compress(sb.data(),(size_t)orig_size,lzbuf,dstCap,g_ma_level);
+					const size_t out_size=zr<0 ? 0 : (size_t)zr;
+					const bool cstat=zr>0;
 					/// ZPAQLZHAM: el flujo tal cual, con su decodificador ZPAQL. M guarda el
 					/// flujo, 32 ceros y la salida entera.
 					const int64_t need=(int64_t)out_size+32+orig_size+64;
 					int k=17;
 					while (k<31 && ((int64_t)1<<k)<need) k++;
-					if (cstat==LZHAM_COMP_STATUS_SUCCESS&&(int64_t)out_size<orig_size-16&&((int64_t)1<<k)>=need)
+					if (cstat&&(int64_t)out_size<orig_size-16&&((int64_t)1<<k)>=need)
 					{
 						libzpaq::SHA1 sh1;
 						sh1.write((const char*)sb.data(), orig_size);
