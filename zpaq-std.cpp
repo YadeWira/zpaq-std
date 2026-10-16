@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19718,7 +19718,9 @@ extern "C" const zs_codec* zs_codec_flzma2(void);
 extern "C" const zs_codec* zs_codec_uflzma2(void);
 extern "C" const zs_codec* zs_codec_lzma(void);
 extern "C" const zs_codec* zs_codec_lz(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz};
+extern "C" const zs_codec* zs_codec_bzip2(void);
+extern "C" const zs_codec* zs_codec_bz2(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -78495,7 +78497,10 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(bz2p_orig);
 				unsigned int dstLen=(unsigned int)bz2p_orig;
-				int rc=BZ2_bzBuffToBuffDecompress(&decomp2[0],&dstLen,(char*)out.data(),(unsigned int)out.size(),0,0);
+				const zs_codec* zc=zs_get("bzip2");
+				const long long zr=zc ? zc->decompress(out.data(), out.size(), &decomp2[0], dstLen) : -1;
+				const int rc=zr<0 ? -1 : BZ_OK;
+				dstLen=zr<0 ? 0 : (unsigned int)zr;
 				if (rc!=BZ_OK||(int64_t)dstLen!=bz2p_orig)
 					error("31319 bzip2 decompression failed");
 				out.reset();
@@ -78514,7 +78519,10 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(bzngp_orig);
 				unsigned int dstLen=(unsigned int)bzngp_orig;
-				int rc=bz2ng_BZ2_bzBuffToBuffDecompress(&decomp2[0],&dstLen,(char*)out.data(),(unsigned int)out.size(),0,0);
+				const zs_codec* zc=zs_get("bz2");
+				const long long zr=zc ? zc->decompress(out.data(), out.size(), &decomp2[0], dstLen) : -1;
+				const int rc=zr<0 ? -1 : BZ_OK;
+				dstLen=zr<0 ? 0 : (unsigned int)zr;
 				if (rc!=BZ_OK||(int64_t)dstLen!=bzngp_orig)
 					error("31319 bz2 decompression failed");
 				out.reset();
@@ -123390,9 +123398,10 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 	}
 	/// bz2 (bz2-ng): el mismo camino que bzip2, con el compresor de bz2-ng y su propio
 	/// decodificador ZPAQBZ2 y etiqueta.
-	else if ((g_ma_algorithm=="bzip2" || g_ma_algorithm=="bz2") && sb.size()>16)
+	else if ((g_ma_algorithm=="bzip2" || g_ma_algorithm=="bz2") && sb.size()>16 && zs_get(g_ma_algorithm.c_str()))
 	{
 		const bool ng=(g_ma_algorithm=="bz2");
+		const zs_codec* zc=zs_get(g_ma_algorithm.c_str());
 		int64_t orig_size=sb.size();
 		unsigned int dstCap=(unsigned int)(orig_size+orig_size/100+1024);
 		if (dstCap>0&&dstCap<256*1024*1024)
@@ -123400,8 +123409,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			char* bz2buf=new(std::nothrow) char[dstCap];
 			if (bz2buf)
 			{
-				int rc=ng ? bz2ng_BZ2_bzBuffToBuffCompress(bz2buf,&dstCap,(char*)sb.data(),(unsigned int)orig_size,g_ma_level,0,0)
-				          : BZ2_bzBuffToBuffCompress(bz2buf,&dstCap,(char*)sb.data(),(unsigned int)orig_size,g_ma_level,0,0);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,bz2buf,dstCap,g_ma_level);
+				const int rc=zr<0 ? -1 : BZ_OK;
+				dstCap=zr<0 ? 0 : (unsigned int)zr;
 				int bz2size=(int)dstCap;
 				/// ZPAQBZIP2: el flujo tal cual, con su decodificador ZPAQL; M solo
 				/// guarda el comprimido (la salida sale con OUT).
