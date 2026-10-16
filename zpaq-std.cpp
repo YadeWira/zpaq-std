@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19720,7 +19720,8 @@ extern "C" const zs_codec* zs_codec_lzma(void);
 extern "C" const zs_codec* zs_codec_lz(void);
 extern "C" const zs_codec* zs_codec_bzip2(void);
 extern "C" const zs_codec* zs_codec_bz2(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2};
+extern "C" const zs_codec* zs_codec_deflate(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -78587,14 +78588,9 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 deflate decompression failed");
 				string decomp2;
 				decomp2.resize(dfl_orig);
-				struct libdeflate_decompressor* lddcmp2 = libdeflate_alloc_decompressor();
-				if (!lddcmp2)
-					error("31319 deflate decompression failed");
-				size_t dstLen = 0;
-				libdeflate_result ldr2 = libdeflate_deflate_decompress(lddcmp2, (const void *)(src + 4), out.size() - 4,
-				                                                        (void *)&decomp2[0], (size_t)dfl_orig, &dstLen);
-				libdeflate_free_decompressor(lddcmp2);
-				if (ldr2 != LIBDEFLATE_SUCCESS || (int64_t)dstLen != dfl_orig)
+				const zs_codec* zc=zs_get("deflate");
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)dfl_orig) : -1;
+				if (r2 != dfl_orig)
 					error("31319 deflate decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -123541,19 +123537,19 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="deflate" && sb.size()>16)
+	else if (g_ma_algorithm=="deflate" && sb.size()>16 && zs_get("deflate"))
 	{
+		const zs_codec* zc=zs_get("deflate");
 		int64_t orig_size=sb.size();
-		struct libdeflate_compressor* ldcmp=libdeflate_alloc_compressor(g_ma_level);
-		if (ldcmp)
 		{
-			size_t dstCap=libdeflate_deflate_compress_bound(ldcmp,(size_t)orig_size);
+			size_t dstCap=zc->bound((size_t)orig_size,g_ma_level);
 			if (dstCap>0&&dstCap<(size_t)256*1024*1024)
 			{
 				char* ldbuf=new(std::nothrow) char[dstCap];
 				if (ldbuf)
 				{
-					size_t ldsz=libdeflate_deflate_compress(ldcmp,(const void*)sb.data(),(size_t)orig_size,ldbuf,dstCap);
+					const long long zr=zc->compress(sb.data(),(size_t)orig_size,ldbuf,dstCap,g_ma_level);
+					const size_t ldsz=zr<0 ? 0 : (size_t)zr;
 					/// ZPAQDEFLATE: tamano original (4 bytes) + el deflate crudo, con
 					/// su decodificador ZPAQL; pm para la salida entera y el comprimido.
 					int64_t total=(int64_t)ldsz+4;
@@ -123579,7 +123575,6 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					delete[] ldbuf;
 				}
 			}
-			libdeflate_free_compressor(ldcmp);
 		}
 	}
 	else if (g_ma_algorithm=="ppmd" && sb.size()>16)

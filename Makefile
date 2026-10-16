@@ -381,7 +381,7 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2
+PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate
 PLUGLIB_zstd := compressors/zstd/zstd.c
 PLUGINC_zstd := -Icompressors/zstd
 PLUGLIB_flzma2 := $(FL2OBJ)
@@ -394,6 +394,8 @@ PLUGLIB_bzip2 := $(BZIP2OBJ)
 PLUGINC_bzip2 := $(BZIP2INC)
 PLUGLIB_bz2 := $(BZ2NGBUNDLE)
 PLUGINC_bz2 := $(BZIP2INC)
+PLUGLIB_deflate := $(LIBDEFLATEOBJ)
+PLUGINC_deflate := $(LIBDEFLATEINC)
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   PLUGEXT := .dll
   # static runtime like the program, no PE timestamp (reproducible), no .comment
