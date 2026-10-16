@@ -19670,7 +19670,7 @@ extern "C" {
 /// without its plugin cannot compress, and its blocks extract through their
 /// ZPAQL decoder (zs_get returns NULL, so the native shortcut is not taken).
 #include "compressors/plug/zs_codec.h"
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6"};
 #ifdef ZS_PLUGINS
 #ifndef _WIN32
 #include <dlfcn.h>
@@ -19721,7 +19721,10 @@ extern "C" const zs_codec* zs_codec_lz(void);
 extern "C" const zs_codec* zs_codec_bzip2(void);
 extern "C" const zs_codec* zs_codec_bz2(void);
 extern "C" const zs_codec* zs_codec_deflate(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate};
+extern "C" const zs_codec* zs_codec_lizard(void);
+extern "C" const zs_codec* zs_codec_lz5(void);
+extern "C" const zs_codec* zs_codec_lz6(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6};
 void zs_load_plugins(const std::string&) {}
 const zs_codec* zs_get(const char* i_name)
 {
@@ -19737,11 +19740,14 @@ const zs_codec* zs_get(const char* i_name)
 /// tag is zpaqstd-ma2:<name>:...; a name that is not in ZS_NAMES belongs to a
 /// codec linked into zpaq-std itself.
 /// The plugin that serves a -ma name ("" = a codec linked into zpaq-std itself).
+/// It is also the plugin that decodes a zpaqstd-ma2:<name> tag: lz5hc and lz5f
+/// are lz5's, and "lz5-lz6" (lz6 blocks up to pre42) is lz6's.
 static std::string zs_plugin_name(const std::string& i_ma)
 {
+	const std::string n=(i_ma=="lz5hc"||i_ma=="lz5f") ? std::string("lz5") : (i_ma=="lz5-lz6") ? std::string("lz6") : i_ma;
 	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
-		if (i_ma==ZS_NAMES[i])
-			return i_ma;
+		if (n==ZS_NAMES[i])
+			return n;
 	return "";
 }
 #ifdef ZS_PLUGINS
@@ -19761,11 +19767,8 @@ static bool zs_native_ok(const std::string& i_comment)
 	const size_t b=i_comment.find(':', a);
 	if (b==std::string::npos)
 		return false;
-	const std::string name=i_comment.substr(a, b-a);
-	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
-		if (name==ZS_NAMES[i])
-			return zs_get(ZS_NAMES[i])!=NULL;
-	return true;
+	const std::string plug=zs_plugin_name(i_comment.substr(a, b-a));
+	return (plug=="") || (zs_get(plug.c_str())!=NULL);
 }
 #ifdef __cplusplus
 }
@@ -78342,8 +78345,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(lz5_orig);
-				int r2 = LZ5_decompress_safe((const char *)out.data(), &decomp2[0], (int)out.size(), (int)lz5_orig);
-				if (r2 != (int)lz5_orig)
+				const zs_codec* zc=zs_get("lz5");
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lz5_orig) : -1;
+				if (r2 != lz5_orig)
 					error("31319 LZ5 decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78547,8 +78551,9 @@ ThreadReturn decompressThread(void *arg)
 					error("31319 Lizard decompression failed");
 				string decomp2;
 				decomp2.resize(lizp_orig);
-				int r2 = Lizard_decompress_safe((const char *)src + 4, &decomp2[0], (int)(out.size() - 4), (int)lizp_orig);
-				if (r2 != (int)lizp_orig)
+				const zs_codec* zc=zs_get("lizard");
+				const long long r2 = zc ? zc->decompress(src + 4, out.size() - 4, &decomp2[0], (size_t)lizp_orig) : -1;
+				if (r2 != lizp_orig)
 					error("31319 Lizard decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -78755,8 +78760,9 @@ ThreadReturn decompressThread(void *arg)
 			{
 				string decomp2;
 				decomp2.resize(lz6_orig);
-				int r2 = LZ6_decompress_safe((const char *)out.data(), &decomp2[0], (int)out.size(), (int)lz6_orig);
-				if (r2 != (int)lz6_orig)
+				const zs_codec* zc=zs_get("lz6");
+				const long long r2 = zc ? zc->decompress(out.data(), out.size(), &decomp2[0], (size_t)lz6_orig) : -1;
+				if (r2 != lz6_orig)
 					error("31319 lz6 decompression failed");
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
@@ -123210,10 +123216,11 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if ((g_ma_algorithm=="lz5"||g_ma_algorithm=="lz5hc"||g_ma_algorithm=="lz5f") && sb.size()>16)
+	else if ((g_ma_algorithm=="lz5"||g_ma_algorithm=="lz5hc"||g_ma_algorithm=="lz5f") && sb.size()>16 && zs_get("lz5"))
 	{
+		const zs_codec* zc=zs_get("lz5");
 		int64_t orig_size=sb.size();
-		int dstCap=LZ5_compressBound((int)orig_size);
+		int dstCap=(int)zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<256*1024*1024)
 		{
 			char* lz5buf=new(std::nothrow) char[dstCap];
@@ -123226,14 +123233,10 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				/// lz5-ex lo arreglo (1650ce0: nunca pasa de maxDstSize), pero el tope sigue
 				/// siendo el original: una salida >= original no sirve igual.
 				const int lz5lim=(int)(orig_size-17);
-				if (g_ma_algorithm=="lz5hc")
-					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
-				else if (g_ma_algorithm=="lz5f")
-					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
-				else if (g_ma_level>=5)
-					lz5size=LZ5_compress_HC((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
-				else
-					lz5size=LZ5_compress_fast((const char*)sb.data(),lz5buf,(int)orig_size,lz5lim,g_ma_level);
+				/// the plugin's level carries the mode: +100 always HC, +200 always fast
+				const int mode=(g_ma_algorithm=="lz5hc") ? 100 : (g_ma_algorithm=="lz5f") ? 200 : 0;
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,lz5buf,(size_t)lz5lim,mode+g_ma_level);
+				lz5size=zr<0 ? 0 : (int)zr;
 				if (lz5size>0&&(int64_t)lz5size<orig_size-16)
 				{
 					/// ZPAQLZ5: el bloque lleva su decodificador ZPAQL, asi que
@@ -123259,7 +123262,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="lz6" && sb.size()>16)
+	else if (g_ma_algorithm=="lz6" && sb.size()>16 && zs_get("lz6"))
 	{
 		/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION)
 		/// escribe el MISMO formato de bloque que LZ5 v1.5: es su "perfil
@@ -123268,8 +123271,9 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 		/// otro bytecode, ver compressors/zpaqlz6/). La ventana se limita a 2^22
 		/// (la de ZPAQLZ5): un zpaq ajeno reserva 4 MB por hilo y no 16, a un costo
 		/// medido por lz6 de +0.13% en dickens y +0.75% en samba con el rapido.
+		const zs_codec* zc=zs_get("lz6");
 		int64_t orig_size=sb.size();
-		int dstCap=LZ6_compressBound((int)orig_size);
+		int dstCap=(int)zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<256*1024*1024)
 		{
 			char* lz6buf=new(std::nothrow) char[dstCap];
@@ -123279,10 +123283,8 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 				/// Tope = original, no el bound: el mismo defecto que LZ5 (ver arriba),
 				/// en los niveles HC 10 en adelante.
 				const int lz6lim=(int)(orig_size-17);
-				if (g_ma_level<=0)
-					lz6size=LZ6_compress_fast_window((const char*)sb.data(),lz6buf,(int)orig_size,lz6lim,1,22);
-				else
-					lz6size=LZ6_compress_HC_window((const char*)sb.data(),lz6buf,(int)orig_size,lz6lim,g_ma_level,22);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,lz6buf,(size_t)lz6lim,g_ma_level);
+				lz6size=zr<0 ? 0 : (int)zr;
 				if (lz6size>0&&(int64_t)lz6size<orig_size-16)
 				{
 					libzpaq::SHA1 sh1;
@@ -123350,16 +123352,18 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 			}
 		}
 	}
-	else if (g_ma_algorithm=="lizard" && sb.size()>16)
+	else if (g_ma_algorithm=="lizard" && sb.size()>16 && zs_get("lizard"))
 	{
+		const zs_codec* zc=zs_get("lizard");
 		int64_t orig_size=sb.size();
-		int dstCap=Lizard_compressBound((int)orig_size);
+		int dstCap=(int)zc->bound((size_t)orig_size,g_ma_level);
 		if (dstCap>0&&dstCap<256*1024*1024)
 		{
 			char* lizbuf=new(std::nothrow) char[dstCap];
 			if (lizbuf)
 			{
-				int lizsize=Lizard_compress((const char*)sb.data(),lizbuf,(int)orig_size,dstCap,g_ma_level);
+				const long long zr=zc->compress(sb.data(),(size_t)orig_size,lizbuf,(size_t)dstCap,g_ma_level);
+				const int lizsize=zr<0 ? 0 : (int)zr;
 				/// ZPAQLIZARD: los niveles 10-29 (sin Huffman) llevan su decodificador
 				/// ZPAQL: tamano original (4 bytes) + el flujo de Lizard. Los 30-49
 				/// (Huffman) llevan ZPAQLIZARDH, que ademas decodifica cada flujo
