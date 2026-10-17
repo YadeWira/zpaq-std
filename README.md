@@ -12,7 +12,7 @@ The application lives in one ~130,000-line `zpaq-std.cpp`, plus `libdivsufsort/`
 the bundled `compressors/` and the `test/testlab/` harness. More documentation is in
 the **[wiki](https://github.com/YadeWira/zpaq-std/wiki)**.
 
-**Version numbers** are `MAJOR.MINOR.PATCH`: MAJOR for big changes in zpaq-std itself, MINOR for a small update of the zpaqfranz base or a small new feature, PATCH for bug fixes. The banner also shows the zpaqfranz version underneath (`zpaq-std v1.0.0 | zf v65.4m-...`). 1.0.0 is the first stable release; the `0.0.1-preNN` and `v65.4m-preNN` tags before it were pre-releases.
+**Version numbers** are `MAJOR.MINOR.PATCH`: MAJOR for big changes in zpaq-std itself, MINOR for a small update of the zpaqfranz base or a small new feature, PATCH for bug fixes. The banner also shows the zpaqfranz version underneath (`zpaq-std v1.0.0 | zf v65.4m-...`). Release candidates before a release are pre-releases tagged `vX.Y.Z-rcN`. 1.0.0 is the first stable release; the `0.0.1-preNN` and `v65.4m-preNN` tags before it were pre-releases.
 
 ---
 

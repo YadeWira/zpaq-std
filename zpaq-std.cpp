@@ -70,6 +70,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// "zpaq-std v1.0.0 | zf v65.4m-<build>,(<our date>)": zf is the zpaqfranz base.
 /// MAJOR.MINOR.PATCH: MAJOR for big changes of zpaq-std, MINOR for a small
 /// update of the zpaqfranz base or a small feature, PATCH for bug fixes.
+/// A release candidate keeps the version it is for (tag vX.Y.Z-rcN).
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
 #define ZPAQSTD_VERSION "1.0.0"
