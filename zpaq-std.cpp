@@ -81314,6 +81314,14 @@ int Jidac::kill()
 		return -1;
 	if (archive == "")
 		return -1;
+	/// k works on the folder given with -to: without it, tofiles[0] below read an
+	/// empty vector and the program crashed (SIGSEGV, BUG-002, inherited)
+	if (tofiles.size() == 0)
+	{
+		myprintf("\n95282! k needs -to: the folder to clean up, as in\n");
+		myprintf("95282!   k z:\\1.zpaq c:\\z -to z:\\knb\n");
+		return 2;
+	}
 	read_archive(NULL, archive.c_str());
 	// Read external files into edt
 	/// uint64_t howmanyfiles=0;
@@ -81397,11 +81405,27 @@ int Jidac::kill()
 	for (unsigned int i= 0; i < tobekilled.size(); i++)
 		if (delete_file(tobekilled[i].c_str()))
 			killed++;
-	/// OK iterating instead of recursing
-	while (killeddir != dirtobekilled.size())
+	/// OK iterating instead of recursing: a folder can be removed once the ones inside
+	/// it are gone, so pass after pass. It looped for ever when a folder could not be
+	/// removed at all (read-only parent, BUG-003, inherited): it stops now when a
+	/// whole pass removes nothing, and says which folders are left.
+	vector<bool> dirgone(dirtobekilled.size(), false);
+	bool		 progress= true;
+	while ((killeddir != dirtobekilled.size()) && progress)
+	{
+		progress= false;
 		for (unsigned int i= 0; i < dirtobekilled.size(); i++)
-			if (delete_dir(dirtobekilled[i].c_str()))
-				killeddir++;
+			if (!dirgone[i])
+				if (delete_dir(dirtobekilled[i].c_str()))
+				{
+					dirgone[i]= true;
+					killeddir++;
+					progress  = true;
+				}
+	}
+	for (unsigned int i= 0; i < dirtobekilled.size(); i++)
+		if (!dirgone[i])
+			myprintf("95283! cannot remove the folder %Z\n", dirtobekilled[i].c_str());
 	myprintf("01029: Dir  to be removed %s -> killed %s\n", migliaia(dirtobekilled.size()), migliaia2(killeddir));
 	myprintf("01030: File to be removed %s -> killed %s\n", migliaia(tobekilled.size()), migliaia2(killed));
 	if ((killeddir + killed) != (dirtobekilled.size() + tobekilled.size()))
