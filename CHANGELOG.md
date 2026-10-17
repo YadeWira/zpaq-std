@@ -1,3 +1,33 @@
+### [0.0.1-pre63] - 2026-10-17
+
+Control-C during `a` and `backup` stops cleanly again, and a backup that died no longer blocks its set. Both inherited from zpaqfranz 65.4m (ZF's BUG-022 and BUG-023).
+
+#### Control-C during `a`
+
+The control-C handler closed and truncated the archive while the writer thread could still be writing to it: now and then the program ended with `free(): invalid pointer` instead of a clean stop. The handler now stops new writes first and waits for the one in progress (at most about 3 seconds) before it closes anything; a second control-C during the clean-up is ignored. The rollback itself works as before.
+
+#### Control-C during `backup`, and a stale `.pid`
+
+- `backup` closed its `.pid` lock file twice on control-C: `double free`, and the `.pid` stayed behind, so every later `backup` and `testbackup` quit with "backup seems running" until the file was deleted by hand. It is closed once now, and removed.
+- A backup that dies anyway (killed, a crash) also leaves its `.pid`. The `.pid` now says which process on which machine wrote it, and a `.pid` of this machine whose process is gone is dropped, with a message (`95281!`). A `.pid` of another machine, or one written by pre62 or older, still counts as a running backup, as before: mixing versions can only refuse a backup, never run over a live one.
+
+#### Checked
+
+- Linux, with the release binary:
+  - control-C during `a`, ZF's script: 0 aborts in 60 runs; in 20 more, every rolled-back archive is the original byte for byte and passes `t`;
+  - control-C during `backup`, ZF's script: 0 aborts in 10 runs, the `.pid` removed each time, and the next backup runs;
+  - after `kill -9` during a backup, the next backup drops the stale `.pid` and runs.
+- Before the release build, same source: control-C during `a`, 100 runs, 0 aborts (pre62: 1 of 40); control-C during `backup`, 10 runs, 0 aborts, `.pid` removed and the next backup runs (pre62: 7 of 10 aborted, the `.pid` stayed and the next backup was refused). After 30 control-C rollbacks the archive was the original byte for byte and passed `t`.
+- `.pid` and versions: pre62 refuses a new-format `.pid` (as it refuses any); the new version refuses an old-format `.pid`, one of another machine and one of a running process, and drops one of a process that is gone (after `kill -9`, `backup` and `testbackup` go on).
+- Windows 7 x64 and x86, with the release binaries:
+  - `.pid`: two backups in a row, a `.pid` of a process that is gone on this machine is dropped, one of another machine still blocks, `testbackup` passes;
+  - `-ma:bz2:9`, `-ma:zstd:19` and `-m1`: `t` and `x` pass, all 12 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre62 and pre63: 12/12.
+  - Control-C itself was not tested on Windows (it cannot be sent to a console program over SSH).
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre62: 0 divergences.
+
 ### [0.0.1-pre62] - 2026-10-17
 
 Three fixes for `-chunk` (multi-part archives with a size limit per part), all inherited from zpaqfranz 65.4m, found with ZF.
