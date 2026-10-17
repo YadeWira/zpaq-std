@@ -47357,6 +47357,14 @@ int listfiles(string i_path, const string &i_extension, bool i_fullname, vector<
 
 	return tobesorted.size();
 #else
+	/// no folder at all (extractfilepath of a bare "pippo_???.zpaq") is the current one,
+	/// as on Windows: NOT the root, and the names come back without any prefix. With
+	/// "" + "/" the parts were looked for in /: a -chunk archive in the current folder
+	/// had no previous parts, and with -key a second version was encrypted at the
+	/// wrong position and did not extract (zpaqfranz 65.6; found by ZF, BUG-038).
+	const bool cartellacorrente= (i_path == "");
+	if (cartellacorrente)
+		i_path= "./";
 	if (!isdirectory(i_path))
 		i_path+= "/";
 
@@ -47372,11 +47380,12 @@ int listfiles(string i_path, const string &i_extension, bool i_fullname, vector<
 	while ((ent= readdir(dir)) != NULL)
 	{
 		string thename= ent->d_name;
-		if ((thename != ".") && (thename != "..") && (!isdirectory(thename)))
+		/// readdir never adds a trailing '/': a folder called x_002.zpaq must be asked to stat, not to the string
+		if ((thename != ".") && (thename != "..") && (!direxists(i_path + thename)))
 		{
 			string fullname;
 			if (i_fullname)
-				fullname= i_path + thename;
+				fullname= cartellacorrente ? thename : i_path + thename;
 			else
 				fullname= thename;
 
@@ -60451,6 +60460,7 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 	writtensofar	  = 0;
 	writtenonlastchunk= 0;
 	firstchunk		  = true;
+	bool saltinpart	  = false;	/// the salt was written at the start of this part
 	previoussize	  = 0;
 	if (g_chunk_size > 0)
 	{
@@ -60636,6 +60646,7 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 			{
 				if (off == 0 && myfwrite(salt, 1, 32, fp) != 32)
 					ioerr(thefilename.c_str());
+				saltinpart= (off == 0) && !nowrite;
 				if (nowrite)
 				{
 					off		  = 32; // virtual position just after the salt
@@ -60652,7 +60663,9 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 	if (flagdebug)
 		myprintf("00299: opened 1 thefilename %s\n", thefilename.c_str());
 	firstfp	 = FPNULL;
-	chunksize= 0;
+	/// -chunk: the salt at the start of the first part counts towards its size, so
+	/// that with -key the first part is not 32 bytes over the limit either
+	chunksize= saltinpart ? 32 : 0;
 
 	if (g_chunk_size > 0)
 	{
