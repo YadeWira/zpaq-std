@@ -1,3 +1,41 @@
+### [1.0.0] - 2026-10-17
+
+The first stable release of zpaq-std, after 64 pre-releases. It is the same program as 0.0.1-pre64, plus one fix for `-tar` inherited from zpaqfranz 65.4m (ZF's BUG-021).
+
+zpaq-std is zpaqfranz 65.4m (its "open" build) with 20 bundled compression libraries behind `-ma:<codec>:<level>` (26 switches), no system dependencies, and every `-ma` block readable by any zpaq through its own ZPAQL decoder. It runs on Windows 7 or later (x86 and x64) and Linux x64. See the [README](https://github.com/YadeWira/zpaq-std#readme) and the [wiki](https://github.com/YadeWira/zpaq-std/wiki).
+
+#### Version numbers
+
+From now on versions are `MAJOR.MINOR.PATCH`: MAJOR for big changes in zpaq-std itself, MINOR for a small update of the zpaqfranz base or a small new feature, PATCH for bug fixes. The banner reads `zpaq-std v1.0.0 | zf v65.4m-...`, the zpaqfranz base underneath.
+
+#### `-tar`: hard links across versions
+
+A hard link group was decided inside each `add`, and the names that did not change were not written again. So:
+
+- a new link to a file already in the archive was stored as the first name of the group, while the other names still linked to the old first name;
+- deleting the first name left the other names linked to a name that is gone.
+
+`x -tar -until N` then gave independent copies instead of hard links, for every version after the one where the group changed. The data were always right: only the links were lost. zpaqfranz 65.11 does the same.
+
+Each `add` now checks every name of a group against the archive, and writes a new version of each name whose link changed: just the index, as for a `chown`, the data are not read again. The first name stays the archived one while it exists, so a new link writes only the new name; when the first name is deleted, the other names of the group are written again, linked to the new first name. The format does not change: zpaqfranz 65.4m and 65.11, and pre64, extract archives written by 1.0.0 with the right links.
+
+#### Downloads
+
+- `zpaq-std-v1.0.0-<platform>`: the full program, every codec inside.
+- `zpaq-std-v1.0.0-<platform>-plugins.zip`: a small program and one plugin (DLL or .so) per codec in `codecs/`. Without a codec's plugin you cannot compress with it, but its blocks still extract through their ZPAQL decoder.
+- `THIRD-PARTY-LICENSES.txt`: the licences of everything from other authors in these binaries; redistribute it with them.
+- `SHA256SUMS.txt`. The builds are reproducible.
+
+#### Checked
+
+- Linux, with the release binary, ZF's BUG-021 script: every version of the archive extracts identical to the original (type, mode, size, mtime, content and hard link group of each entry); pre64 gave copies from the second version on. The archive written by 1.0.0 extracts with the right links with zpaqfranz 65.4m, zpaqfranz 65.11 and pre64, and with zpaq 7.15 (as copies, it has no `-tar`).
+- `suite_tar.sh` now runs in the battery, with four versions of a hard link group (a link added, the first name deleted, a group left with one name): 7/7 (pre64: 4/7).
+- Windows 7 x64 and x86, with the release binaries: `-ma:bz2:9`, `-ma:zstd:19`, `-m1` and `-ma:lzma:5`: `t` and `x` pass, all 16 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre64 and 1.0.0: 16/16. Both banners read `zpaq-std v1.0.0`.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre64: 0 divergences.
+
 ### [0.0.1-pre64] - 2026-10-17
 
 Two fixes for `k` (delete what is not in the archive), both inherited from zpaqfranz 65.4m (ZF's BUG-002 and BUG-003).
