@@ -1,3 +1,23 @@
+### [0.0.1-pre64] - 2026-10-17
+
+Two fixes for `k` (delete what is not in the archive), both inherited from zpaqfranz 65.4m (ZF's BUG-002 and BUG-003).
+
+#### `k`
+
+- **Without `-to`, `k` crashed** (segmentation fault). It now says that it needs `-to`, the folder to clean up, with an example (`95282!`), and returns 2.
+- **A folder that cannot be removed made `k` loop for ever.** `k` removes folders pass after pass, inner ones first; one it could not remove (for instance inside a read-only folder) kept it going. It now stops when a pass removes nothing, names each folder left (`95283!`) and returns 1, as it already did for files.
+
+#### Checked
+
+- Linux, ZF's script, with the release binary: `k` without `-to` returns 2 with the message (pre63: 139, a crash); with a read-only folder, `k` returns 1 and names both folders it could not remove (pre63: still running after the timeout). A normal `k` still removes extra files and nested extra folders and leaves the rest.
+- Windows 7 x64 and x86, with the release binaries:
+  - `k` without `-to`: the message, return code 2; a normal `k`, with its captcha, removes an extra file and an extra nested folder and leaves the archived ones;
+  - `-ma:bz2:9`, `-ma:zstd:19` and `-m1`: `t` and `x` pass, all 12 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre63 and pre64: 12/12.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre63: 0 divergences.
+
 ### [0.0.1-pre63] - 2026-10-17
 
 Control-C during `a` and `backup` stops cleanly again, and a backup that died no longer blocks its set. Both inherited from zpaqfranz 65.4m (ZF's BUG-022 and BUG-023).
