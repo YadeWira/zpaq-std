@@ -1,3 +1,28 @@
+### [0.0.1-pre62] - 2026-10-17
+
+Three fixes for `-chunk` (multi-part archives with a size limit per part), all inherited from zpaqfranz 65.4m, found with ZF.
+
+#### `-chunk`
+
+- **Parts no larger than the limit.** A whole write buffer (up to 64 KB) was written before changing part, so every part could end up to 64 KB over the limit: 1,114,112 bytes with `-chunk 1MB`. A part now holds at most the limit, and with `-key` the 32-byte salt at the start of the first part counts towards it.
+- **The last part is not deleted.** When the header of the transaction is written again in the first part, the part being written was left open instead of being closed. Its last bytes could stay unwritten, the check that removes an empty last part found it empty, and deleted it with the end of the archive inside. It showed with small parts; zpaqfranz 65.6 has the same fix.
+- **A second version with `-key` extracts.** On Linux, a pattern without a folder (`a "part_???.zpaq" ...`) made the program look for the existing parts in the root folder instead of the current one. A second version did not see the first, and with `-key` its part was encrypted at the wrong position: it did not extract (`00966! UKONE`), with zpaq-std or zpaqfranz. The parts are now looked for in the current folder. Ported from zpaqfranz 65.6; ZF found the change by bisecting 65.5 to 65.6.
+
+Archives written before still extract as they did; a two-version `-chunk -key` archive written by pre61 or older keeps its wrongly encrypted second version.
+
+#### Checked
+
+- `-chunk` on Linux, with the release binary: 1000, 7777, 100000 bytes and 1 MB, with and without `-key`, two versions in the current folder: every part at most the limit; without `-key`, the parts put together equal the same archive written without `-chunk`, byte for byte (fixed `-timestamp`); both versions extract with pre62 and with zpaqfranz 65.11.
+- With the same source before the release build: also two versions in another folder, with and without `-key`; and a `-chunk -key` archive written by zpaqfranz 65.11 extracts with zpaq-std, and one written by zpaq-std with zpaqfranz 65.11.
+- Windows 7 x64 and x86, with the release binaries:
+  - `-chunk 100000`, two versions, with and without `-key`, in the current folder: both versions extract, every part at most 100000 bytes;
+  - `-ma:bz2:9`, `-ma:zstd:19` and `-m1`: `t` and `x` pass, all 12 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, pre61 and pre62: 12/12.
+- Reproducible build: the Windows `.exe` files and the three plugin zips were built twice from the same source, with the same sha256.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against pre61: 0 divergences.
+
 ### [0.0.1-pre61] - 2026-10-16
 
 The `-ma` codecs can now also come as plugins, like 7-Zip-zstd's codec DLLs: besides the usual binaries, every platform gets a zip with a smaller program and one plugin per codec. The usual self-contained binaries do not change: they write the same archives as pre60, byte for byte.
