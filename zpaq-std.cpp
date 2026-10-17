@@ -14879,6 +14879,19 @@ bool					 flagbarraos;
 /// avance = leido - (queued - cm) - sbpend. Los fragmentos duplicados nunca
 /// entran a un bloque, asi que cuentan como hechos al leerse, que es lo correcto.
 std::atomic<int64_t> g_prog_cm(0), g_prog_queued(0), g_prog_sbpend(0);
+/// control-C and the archive being written. The handler (my_handler) closes the
+/// archive and truncates it back, from its own context, while the writer thread
+/// may be inside fwrite() on that same FILE: closing it under the writer gave
+/// "free(): invalid pointer" (BUG-022). Now the handler first sets g_cc_stop, so
+/// that no new write starts, and waits for the one in progress (g_flush_busy).
+std::atomic<bool> g_cc_stop(false);
+std::atomic<int>  g_flush_busy(0);
+struct flush_guard
+{
+	bool stop;
+	flush_guard() { ++g_flush_busy; stop= g_cc_stop.load(); }
+	~flush_guard() { --g_flush_busy; }
+};
 
 std::vector<std::string> g_addedchunklist;
 int						 g_franzotype;
@@ -46838,6 +46851,13 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 	// Write pending output
 	void flush()
 	{
+		/// control-C: the archive is being rolled back, nothing more is written to it
+		flush_guard guard;
+		if (guard.stop)
+		{
+			ptr= 0;
+			return;
+		}
 		if (flagdebug3)
 			myprintf("00210: flush k1\n");
 		assert(fp != FPNULL || nowrite);
@@ -83615,7 +83635,16 @@ int Jidac::findj()
 /// control-c handler
 void my_handler(int s)
 {
+	/// a second control-C while this one is cleaning up: ignored, it must not start
+	/// the housekeeping again half-way
+	signal(SIGINT, SIG_IGN);
 	g_control_c= true; // block open new files for write
+	/// no new write to the archive, and wait (at most ~3 s) for the one in progress
+	/// before anything below closes or truncates the file (BUG-022). The wait is
+	/// bounded: on POSIX the signal may land on the writer thread itself.
+	g_cc_stop= true;
+	for (int i= 0; (i < 300) && (g_flush_busy.load() > 0); i++)
+		cpq_sleep_ms(10);
 	color_restore();
 	resetconsolecolor();
 	fflush(stdout);
@@ -95772,6 +95801,54 @@ int64_t Jidac::getzpaqsum(string i_archive, int64_t &o_usize, int64_t &o_allsize
 	return csize;
 }
 
+/// backup's .pid: who holds the lock. A backup that died (killed, a crash, a
+/// control-C before BUG-023 was fixed) left its .pid behind, and every later backup
+/// quit with "backup seems running" until the file was deleted by hand. The .pid
+/// now says which process on which machine wrote it, so that a .pid whose process
+/// is gone, on this same machine, can be dropped. Anything else (another machine,
+/// a .pid without that line) still counts as running, as before.
+static int64_t pid_mine()
+{
+#ifdef _WIN32
+	return (int64_t)GetCurrentProcessId();
+#else
+	return (int64_t)getpid();
+#endif
+}
+static string pid_host()
+{
+#ifdef _WIN32
+	char  name[MAX_COMPUTERNAME_LENGTH + 1]= {0};
+	DWORD size								= sizeof(name);
+	if (!GetComputerNameA(name, &size))
+		return "";
+	return string(name);
+#else
+	char name[256]= {0};
+	if (gethostname(name, sizeof(name) - 1) != 0)
+		return "";
+	return string(name);
+#endif
+}
+/// true if the process is gone for sure; false if it runs or if it cannot be told
+static bool pid_gone(int64_t i_pid)
+{
+	if (i_pid <= 0)
+		return false;
+#ifdef _WIN32
+	HANDLE h= OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)i_pid);
+	if (h == NULL)
+		return GetLastError() == ERROR_INVALID_PARAMETER; /// no such process
+	DWORD code= 0;
+	const bool exited= GetExitCodeProcess(h, &code) && (code != STILL_ACTIVE);
+	CloseHandle(h);
+	return exited;
+#else
+	if (kill((pid_t)i_pid, 0) == 0)
+		return false;
+	return errno == ESRCH;
+#endif
+}
 bool Jidac::isbackuprunning()
 {
 	if (flagnopid)
@@ -95802,6 +95879,20 @@ bool Jidac::isbackuprunning()
 		if (pidfile.size() > 0)
 			for (unsigned int i= 0; i < pidfile.size(); i++)
 				myprintf("02707: PID %03d %s\n", (int)i, pidfile[i].c_str());
+		/// "pid N on host": on this machine, with the process gone, the .pid is stale
+		const string host= pid_host();
+		for (unsigned int i= 0; i < pidfile.size(); i++)
+		{
+			long long pidn= 0;
+			char	  where[256]= {0};
+			if (sscanf(pidfile[i].c_str(), "pid %lld on %255s", &pidn, where) == 2)
+				if ((host != "") && (host == where) && pid_gone((int64_t)pidn))
+				{
+					myprintf("95281! the backup that wrote %Z (pid %lld) is not running any more: stale, removed\n", g_pidname.c_str(), pidn);
+					delete_file(g_pidname.c_str());
+					return false;
+				}
+		}
 	}
 	return true;
 }
@@ -96667,8 +96758,11 @@ int Jidac::backup()
 			myprintf("02812! cannot write on pid %Z (no writeable folder?)\n", g_pidname.c_str());
 			return 2;
 		}
-		g_pid_handle= handlepid;
+		/// the handle is closed right away: it is not kept in g_pid_handle, or the
+		/// control-C handler closed it a second time ("double free", BUG-023)
 		fprintf(handlepid, "Starting backup @ %s\n", dateToString(true, now()).c_str());
+		/// who holds the lock: isbackuprunning() drops a .pid whose process is gone
+		fprintf(handlepid, "pid %lld on %s\n", (long long)pid_mine(), pid_host().c_str());
 		fclose(handlepid);
 	}
 	int risultato= add();
@@ -121924,7 +122018,6 @@ int Jidac::gestisciwrite()
 					myprintf("02043! cannot append on pid %Z\n", g_pidname.c_str());
 					return 2;
 				}
-				g_pid_handle= handlepid;
 				if (g_flagcreating)
 					fprintf(handlepid, "Creating backup %s\n", arcname.c_str());
 				else
