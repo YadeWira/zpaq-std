@@ -9,12 +9,19 @@
 # add no terminaba nunca). Upstream lo evita en su add(); el pool no lo sabia.
 # Con -t1 (sin pool) andaba, por eso hay que probarlo con varios hilos.
 #
+# Segunda parte, BUG-021 (heredado de 65.4m, igual en 65.11): un grupo de hard
+# links se decidia dentro de cada add y los nombres sin cambios no se volvian a
+# escribir. Un link nuevo, o borrar el primer nombre, y x -tar -until N daba
+# copias sueltas. Cada version se compara con manifest.py (tipo, modo, tamano,
+# mtime, sha1 y grupo de hard link de cada entrada).
+#
 #   uso: suite_tar.sh          (usa Z=... o el binario del repo)
 # ============================================================================
 set -u
 Z=${Z:-/home/forum/git/zpaq-std/zpaq-std}
 W=/mnt/IA_LAB/agentes/ZPAQ-STD/testlab
 RUN=${RUN:-tar}
+M=$(cd "$(dirname "$0")" && pwd)/manifest.py
 OUT=$W/$RUN; rm -rf "$OUT"; mkdir -p "$OUT/tsrc/sub"; cd "$OUT"
 python3 -c "
 import random; random.seed(7); w='alfa beta gamma delta'.split()
@@ -37,5 +44,21 @@ for t in "" "-t1" "-t4"; do
   [ "$r" = ok ] || malos=$((malos+1))
   printf '  -tar %-4s %s\n' "${t:-(def)}" "$r"
 done
-echo "--- 3 casos, $((3-malos)) bien, $malos a revisar ---"
+# --- BUG-021: grupos de hard links entre versiones ---
+rm -rf h; mkdir -p h/d/s; cd h
+echo "shared content" > d/s/000; for i in $(seq 1 200); do ln d/s/000 d/s/$(printf %03d $i); done
+echo solo > d/solo
+paso() { timeout 120 "$Z" a h.zpaq d -tar </dev/null >/dev/null 2>&1; cp -a d v$1; sleep 1.1; }
+paso 1
+ln d/s/000 d/nuevo; ln d/solo d/solo2; paso 2          # links nuevos en un grupo
+rm d/s/000; paso 3                                      # se borra el primer nombre
+rm d/solo; paso 4                                       # un grupo queda con un nombre
+for v in 1 2 3 4; do
+  rm -rf x; timeout 120 "$Z" x h.zpaq -to x -tar -until $v </dev/null >/dev/null 2>&1
+  a=$(python3 "$M" v$v); b=$(python3 "$M" x/d 2>/dev/null)
+  if [ -n "$a" ] && [ "$a" = "$b" ]; then r=ok; else r="DISTINTO"; malos=$((malos+1)); fi
+  printf '  hardlinks -until %s %s\n' $v "$r"
+done
+cd ..
+echo "--- 7 casos, $((7-malos)) bien, $malos a revisar ---"
 echo DONE_TAR

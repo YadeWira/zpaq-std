@@ -59296,6 +59296,7 @@ class Jidac
 	void   tar_scanned(DTMap &i_edt, const string &i_key, const struct stat &i_sb);
 	void   tar_addspecial(bool i_checkifselected, DTMap &i_edt, const string &i_filename, const struct stat &i_sb);
 	bool   tar_ownerchanged(DTMap::iterator i_old, DTMap::iterator i_new);
+	bool   tar_linkchanged(DTMap::iterator i_old, DTMap::iterator i_new);
 	void   tar_linkmasters(map<string, string> &o_linkto);
 	int	   tar_restore(int &o_errors);
 #endif
@@ -76699,10 +76700,16 @@ void Jidac::write715attr(libzpaq::StringBuffer &i_sb, uint64_t i_data, unsigned 
 	  7.15 extracts a small file holding the target); the first 215 bytes are in
 	  linkname too, for the older zpaqfranz
 	- hard links: the files with the same (device, inode) found in the same add
-	  are a group. The first name (in order) is stored as a regular file, every
+	  are a group. One name (the first name) is stored as a regular file, every
 	  other one as LNKTYPE with linkname = that first name. The content is stored
 	  anyway (deduplication: it costs just the index), so without -tar, or when
 	  the link cannot be made (another filesystem...), the file is a copy
+	- the group is checked on every add, against the archive: a name added to
+	  or removed from a group, a link made or broken, writes a new version of
+	  each name whose link changed (just the index, as a chown). The first name
+	  stays the archived one while it exists, so a new link writes one name;
+	  when the first name is deleted, every other name of the group is written
+	  again, linked to the new first name
 	- FIFOs, character and block devices (with major and minor): no data
 	- sockets: skipped, as tar does
 	- the owner is checked on every add: a chown (or chgrp) alone writes a new
@@ -76740,10 +76747,10 @@ void Jidac::write715attr(libzpaq::StringBuffer &i_sb, uint64_t i_data, unsigned 
 	- not stored: extended attributes, ACLs, SELinux labels, file capabilities
 	  (they need room, and the franz_block has none: see above), sparse holes
 	  (the zeros are stored, deduplicated and compressed, and written back as
-	  zeros), hard links across different adds, sockets
-	- a hard link group is decided inside one add: if the first name is
-	  deleted later, the other names (not written again) point to nothing: x
-	  keeps their copy
+	  zeros), sockets
+	- a hard link group is what one add sees: two names of the same file
+	  selected by different adds (a d/a, then a d/b) are a group only when an
+	  add sees both
 	How to go beyond: a "VFILE-tar" (as VFILE-l-filelist) with one record per
 	file of the version (long link names, xattr, ACL...), stored as a normal
 	file: no limits, the old versions just see one file more
@@ -77440,11 +77447,50 @@ int restorefilemetadata(const char *filepath, const struct franz_posix *metadata
 #endif
 	return 0;
 }
+/// -tar: the archived record of a file, as a hard link: true if it has one
+/// (o_islink, o_target: LNKTYPE and its first name)
+static bool tar_archivedlink(DTMap::iterator i_old, bool &o_islink, string &o_target)
+{
+	o_islink= false;
+	o_target= "";
+	if (i_old->second.franz_block == NULL)
+		return false;
+	string		 myhashtype	   = "";
+	string		 myhash		   = "";
+	string		 mycrc32	   = "";
+	int64_t		 mycreationtime= 0;
+	int64_t		 myaccesstime  = 0;
+	bool		 myisordered   = false;
+	int			 myversion	   = 0;
+	franz_posix *myposix	   = NULL;
+	bool		 myisadded	   = false;
+	decode_franz_block(false, i_old->second.franz_block, myhashtype, myhash, mycrc32, mycreationtime, myaccesstime, myisordered, myversion, myposix, myisadded);
+	if (myposix == NULL)
+		return false;
+	if (myposix->typeflag[0] == LNKTYPE)
+	{
+		o_islink= true;
+		o_target= tar_field(myposix->linkname, sizeof(myposix->linkname));
+	}
+	return true;
+}
 /// -tar: every hard link group with two or more names in this add: the first name
-/// (archived name) for the others. A first name too long for linkname: copies
+/// (archived name) for the others. A first name too long for linkname: copies.
+/// Computed once per add (the scan is over), then the same map for all.
+/// The first name stays the one of the archive while it is there (the name the
+/// most of the group already link to, then a name stored as a file, then the
+/// first in order): a new name in the group writes just that name, not the group
+static map<string, string> g_tarlinkto;
+static bool				   g_tarlinkready= false;
 void Jidac::tar_linkmasters(map<string, string> &o_linkto)
 {
-	o_linkto.clear();
+	if (g_tarlinkready)
+	{
+		o_linkto= g_tarlinkto;
+		return;
+	}
+	g_tarlinkready= true;
+	g_tarlinkto.clear();
 	for (std::map<std::pair<uint64_t, uint64_t>, std::vector<std::string> >::iterator g= g_tarinodes.begin(); g != g_tarinodes.end(); ++g)
 	{
 		vector<string> nomi;
@@ -77458,17 +77504,65 @@ void Jidac::tar_linkmasters(map<string, string> &o_linkto)
 		nomi.erase(std::unique(nomi.begin(), nomi.end()), nomi.end());
 		if (nomi.size() < 2)
 			continue;
-		string primo= rename(nomi[0]);
-		franzreplace(primo);
+		/// the archived names, and how each one is stored now
+		vector<string> archiviati(nomi.size());
+		vector<int>	   comefile(nomi.size(), 0);
+		map<string, int> voti;
+		for (unsigned i= 0; i < nomi.size(); i++)
+		{
+			archiviati[i]= rename(nomi[i]);
+			franzreplace(archiviati[i]);
+			DTMap::iterator a= dt.find(archiviati[i]);
+			bool			islink= false;
+			string			target= "";
+			if ((a != dt.end()) && a->second.date && tar_archivedlink(a, islink, target))
+			{
+				if (islink)
+					voti[target]++;
+				else
+					comefile[i]= 1;
+			}
+		}
+		unsigned scelto= 0;
+		for (unsigned i= 1; i < nomi.size(); i++)
+		{
+			int vi= voti.count(archiviati[i]) ? voti[archiviati[i]] : 0;
+			int vs= voti.count(archiviati[scelto]) ? voti[archiviati[scelto]] : 0;
+			if ((comefile[i] > comefile[scelto]) || ((comefile[i] == comefile[scelto]) && (vi > vs)))
+				scelto= i;
+		}
+		const string &primo= archiviati[scelto];
 		if (primo.size() >= sizeof(((franz_posix *)0)->linkname))
 		{
 			g_tarlongnames+= (int)nomi.size() - 1;
 			myprintf("64403$ Hard link: first name longer than %d bytes, stored as copies <<%Z>>\n", (int)sizeof(((franz_posix *)0)->linkname) - 1, primo.c_str());
 			continue;
 		}
-		for (unsigned i= 1; i < nomi.size(); i++)
-			o_linkto[nomi[i]]= primo;
+		for (unsigned i= 0; i < nomi.size(); i++)
+			if (i != scelto)
+				g_tarlinkto[nomi[i]]= primo;
 	}
+	o_linkto= g_tarlinkto;
+}
+/// -tar: the hard link group of a file is not the one in the archive (a name
+/// added or deleted in the group, a link made or broken): store it again, just
+/// the index, as a chown
+bool Jidac::tar_linkchanged(DTMap::iterator i_old, DTMap::iterator i_new)
+{
+	if (!flagtar)
+		return false;
+	map<string, string> linkto;
+	if (!g_tarlinkready)
+		tar_linkmasters(linkto);
+	string						  voluto= "";
+	map<string, string>::iterator l		= g_tarlinkto.find(i_new->first);
+	if (l != g_tarlinkto.end())
+		voluto= l->second;
+	bool   islink= false;
+	string target= "";
+	if (!tar_archivedlink(i_old, islink, target))
+		return voluto != "";
+	return islink ? (target != voluto) : (voluto != "");
 }
 /// -tar: a chown or chgrp only (the attr has just the mode): true if the owner
 /// is not the one in the archive, or the archive has no owner for that file
@@ -99781,6 +99875,7 @@ void Jidac::buildindexchunks(vector<string> &o_chunks)
 								   || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr) // attr ch. get less bits
 #ifdef unix
 								   || tar_ownerchanged(a, p) // -tar: chown, chgrp
+								   || tar_linkchanged(a, p)  // -tar: hard link group changed
 #endif
 								   || a->second.size != p->second.size												  // size change
 								   || p->second.rehash																  // read only to store its hash
@@ -124293,7 +124388,7 @@ int Jidac::add()
 			(p->second.date == a->second.date) && (p->second.size == a->second.size) &&
 			(flagtouch || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr)
 #ifdef unix
-			 || tar_ownerchanged(a, p)
+			 || tar_ownerchanged(a, p) || tar_linkchanged(a, p)
 #endif
 				 ))
 		{
@@ -126516,7 +126611,7 @@ int Jidac::add2()
 			(p->second.date == a->second.date) && (p->second.size == a->second.size) &&
 			(flagtouch || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr)
 #ifdef unix
-			 || tar_ownerchanged(a, p)
+			 || tar_ownerchanged(a, p) || tar_linkchanged(a, p)
 #endif
 				 ))
 		{
