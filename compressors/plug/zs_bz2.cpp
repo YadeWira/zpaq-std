@@ -41,4 +41,4 @@ extern "C" void bz_internal_error(int errcode) {
 }
 #endif
 
-ZS_DEFINE_CODEC(bz2, "bz2-ng 63987e0", 1, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(bz2, "bz2-ng b2fbb2f", 1, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

@@ -94,41 +94,52 @@ bzng_build_htable(bzng_htable *t, const u8 *length, s32 alpha_size)
 }
 
 /*
- * Per-quarter symbol counts of L[0..n): quarters [0,q), [q,2q), [2q,3q),
- * [3q,n) with q = n/4, counted in one interleaved pass so the four counter
- * chains run in parallel.
+ * The table build splits L into BUILD_PARTS parts of q = n / BUILD_PARTS rows,
+ * the last part also taking the n % BUILD_PARTS rows after them, and counts
+ * and scatters them interleaved, each part with counters and cursors of its
+ * own: L is mostly runs of one symbol, so one part's updates form a chain of
+ * dependent loads and stores, and the parts' chains run in parallel.
  */
+#define BUILD_PARTS 8
+
+/* Repeats X(k) for parts 0..7. */
+#define PARTS_8(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+
+/* Counts row i of part k. */
+#define PART_COUNT(k) h[k][L[i + (k) * q]]++;
+
+/* Per-part symbol counts of L[0..n), in one interleaved pass. */
 static void
-quarter_hist(const u8 *L, u32 n, u32 h[4][256])
+part_hist(const u8 *L, u32 n, u32 h[BUILD_PARTS][256])
 {
-	memset(h, 0, 4 * 256 * sizeof(u32));
-	const u32 q = n / 4;
+	/* PARTS_8, PARTS_LO and PARTS_HI name the parts by number. */
+	STATIC_ASSERT(BUILD_PARTS == 8);
+	memset(h, 0, BUILD_PARTS * 256 * sizeof(u32));
+	const u32 q = n / BUILD_PARTS;
 	for (u32 i = 0; i < q; i++) {
-		h[0][L[i]]++;
-		h[1][L[i + q]]++;
-		h[2][L[i + 2 * q]]++;
-		h[3][L[i + 3 * q]]++;
+		PARTS_8(PART_COUNT)
 	}
-	for (u32 i = 4 * q; i < n; i++)
-		h[3][L[i]]++;
+	for (u32 i = BUILD_PARTS * q; i < n; i++)
+		h[BUILD_PARTS - 1][L[i]]++;
 }
 
 /*
- * Fills cftab (exclusive prefix sums, cftab[256] == n) and the per-quarter
- * scatter cursors from the quarter histograms.
+ * Fills cftab (exclusive prefix sums, cftab[256] == n) from the per-part
+ * counts and turns the counts into the parts' scatter cursors in place: part
+ * k's rows of symbol c go to [h[k][c], h[k + 1][c]), and the last part's end
+ * at cftab[c + 1].
  */
 static void
-cursors(bzng_dstate *s, u32 h[4][256], u32 cf[4][256])
+cursors(bzng_dstate *s, u32 h[BUILD_PARTS][256])
 {
 	u32 sum = 0;
 	for (int c = 0; c < 256; c++) {
 		s->cftab[c] = sum;
-		u32 at = sum;
-		for (int k = 0; k < 4; k++) {
-			cf[k][c] = at;
-			at += h[k][c];
+		for (int k = 0; k < BUILD_PARTS; k++) {
+			const u32 count = h[k][c];
+			h[k][c] = sum;
+			sum += count;
 		}
-		sum = at;
 	}
 	s->cftab[256] = sum;
 }
@@ -245,47 +256,66 @@ load3(const u8 *p3, u32 j)
 }
 
 /*
- * Builds the T table from L (T(LF(i)) = i), four quarters with independent
- * cursors. fit: 3-byte entries holding the 20-bit pointer; otherwise 4-byte
+ * The scatter takes the parts four at a time, parts 0-3 and then 4-7, every
+ * part named by a constant: reached through a run-time part offset, gcc
+ * stores some cursors before their entries, which is slower.
+ */
+#define PARTS_LO(X) X(0) X(1) X(2) X(3)
+#define PARTS_HI(X) X(4) X(5) X(6) X(7)
+/* Row i of part k in the scatter: its symbol c##k, cursor j##k and row. */
+#define PART_SYM(k) const u32 c##k = L[i + (k) * q];
+#define PART_CUR(k) const u32 j##k = cf[k][c##k];
+#define PART_ROW(k) (i + (k) * q)
+#define PART_STORE(k)                       \
+	tt[j##k] = PART_ROW(k) << 8 | c##k; \
+	cf[k][c##k] = j##k + 1;
+#define PART_PUT(k)  tt[cf[k][c##k]++] = PART_ROW(k) << 8 | c##k;
+#define PART_PUT3(k) store3w(p3, cf[k][L[i + (k) * q]]++, PART_ROW(k));
+
+/*
+ * Builds the T table from L (T(LF(i)) = i), BUILD_PARTS parts with cursors of
+ * their own. fit: 3-byte entries holding the 20-bit pointer; otherwise 4-byte
  * entries i << 8 | L[i] (the symbol is F of the row being indexed).
  */
 static void
 build_t(bzng_dstate *s, u32 n, int fit)
 {
-	u32 h[4][256], cf[4][256];
+	u32 cf[BUILD_PARTS][256];
 	const u8 *L = s->L;
-	quarter_hist(L, n, h);
-	cursors(s, h, cf);
-	const u32 q = n / 4;
+	part_hist(L, n, cf);
+	cursors(s, cf);
+	const u32 q = n / BUILD_PARTS;
 	if (fit) {
 		/*
 		 * One 4-byte store per entry: it also zeroes the low byte of
-		 * the next entry, which within a (quarter, symbol) cursor range
+		 * the next entry, which within a (part, symbol) cursor range
 		 * is written later anyway; the first entry of each range is
 		 * repaired below.
 		 */
 		u8 *p3 = s->tbl;
-		u32 start[4][256];
-		memcpy(start, cf, sizeof start);
 		for (u32 i = 0; i < q; i++) {
-			store3w(p3, cf[0][L[i]]++, i);
-			store3w(p3, cf[1][L[i + q]]++, i + q);
-			store3w(p3, cf[2][L[i + 2 * q]]++, i + 2 * q);
-			store3w(p3, cf[3][L[i + 3 * q]]++, i + 3 * q);
+			PARTS_LO(PART_PUT3)
 		}
-		for (u32 i = 4 * q; i < n; i++)
-			store3w(p3, cf[3][L[i]]++, i);
+		for (u32 i = 0; i < q; i++) {
+			PARTS_HI(PART_PUT3)
+		}
+		for (u32 i = BUILD_PARTS * q; i < n; i++)
+			store3w(p3, cf[BUILD_PARTS - 1][L[i]]++, i);
 		/*
-		 * A range's first entry holds the first i of its quarter with
+		 * A range's first entry holds the first i of its part with
 		 * that symbol; bits 8-19 survived, so the low byte is found by
-		 * a scan of at most 256 symbols.
+		 * a scan of at most 256 symbols.  Part k's range for c starts
+		 * where part k - 1's cursor for c ended, and is empty if part
+		 * k's cursor ends there too.
 		 */
-		for (int k = 0; k < 4; k++) {
+		for (int k = 0; k < BUILD_PARTS; k++) {
 			const u32 q_lo = (u32)k * q;
 			for (int c = 0; c < 256; c++) {
-				if (h[k][c] == 0)
+				const u32 first =
+					k ? cf[k - 1][c] : s->cftab[c];
+				if (cf[k][c] == first)
 					continue;
-				u8 *e = p3 + 3 * (size_t)start[k][c];
+				u8 *e = p3 + 3 * (size_t)first;
 				u32 i = ((u32)e[1] | (u32)e[2] << 8) << 8;
 				if (i < q_lo)
 					i = q_lo;
@@ -297,40 +327,38 @@ build_t(bzng_dstate *s, u32 n, int fit)
 	} else {
 		u32 *tt = (u32 *)(void *)s->tbl;
 		/*
-		 * Each quarter has its own cursors, so all four cursors of an
+		 * Each part has its own cursors, so all the cursors of an
 		 * iteration are loaded before any entry is stored, and each
 		 * entry is then stored before its cursor: with clang that order
-		 * decodes repetitive data about 15% faster on Granite Rapids.
-		 * The cursors never escape, so the compiler may reorder these
-		 * accesses; clang keeps the order written here. gcc keeps the
-		 * post-increment, which it compiles to tighter code that does
-		 * not need the order.
+		 * decodes repetitive data markedly faster on Granite Rapids
+		 * (spec D7 has the measurement). The cursors never escape, so
+		 * the compiler may reorder these accesses; clang keeps the
+		 * order written here. gcc gets the post-increment form, which
+		 * it compiles to tighter code that still stores each entry
+		 * before its cursor as long as every part is named by a
+		 * constant.
 		 */
 		for (u32 i = 0; i < q; i++) {
-			const u32 c0 = L[i], c1 = L[i + q], c2 = L[i + 2 * q],
-				  c3 = L[i + 3 * q];
+			PARTS_LO(PART_SYM)
 #if GCC_PREREQ(1, 0)
-			tt[cf[0][c0]++] = i << 8 | c0;
-			tt[cf[1][c1]++] = (i + q) << 8 | c1;
-			tt[cf[2][c2]++] = (i + 2 * q) << 8 | c2;
-			tt[cf[3][c3]++] = (i + 3 * q) << 8 | c3;
+			PARTS_LO(PART_PUT)
 #else
-			const u32 j0 = cf[0][c0], j1 = cf[1][c1],
-				  j2 = cf[2][c2], j3 = cf[3][c3];
-
-			tt[j0] = i << 8 | c0;
-			cf[0][c0] = j0 + 1;
-			tt[j1] = (i + q) << 8 | c1;
-			cf[1][c1] = j1 + 1;
-			tt[j2] = (i + 2 * q) << 8 | c2;
-			cf[2][c2] = j2 + 1;
-			tt[j3] = (i + 3 * q) << 8 | c3;
-			cf[3][c3] = j3 + 1;
+			PARTS_LO(PART_CUR)
+			PARTS_LO(PART_STORE)
 #endif
 		}
-		for (u32 i = 4 * q; i < n; i++) {
+		for (u32 i = 0; i < q; i++) {
+			PARTS_HI(PART_SYM)
+#if GCC_PREREQ(1, 0)
+			PARTS_HI(PART_PUT)
+#else
+			PARTS_HI(PART_CUR)
+			PARTS_HI(PART_STORE)
+#endif
+		}
+		for (u32 i = BUILD_PARTS * q; i < n; i++) {
 			const u32 c = L[i];
-			tt[cf[3][c]++] = i << 8 | c;
+			tt[cf[BUILD_PARTS - 1][c]++] = i << 8 | c;
 		}
 	}
 }
@@ -352,12 +380,23 @@ seg_index(const bzng_dstate *s, u32 row)
 
 /*
  * Chooses splitter rows (evenly spaced plus origPtr), marks them in the
- * table and returns the lane count.
+ * table and returns the lane count.  Each lane gets at least three segments
+ * where the arrays allow: the lock-step walk ends when the first lane runs
+ * out of segments, and the other lanes then finish theirs with less overlap.
  */
 static u32
 mark_splitters(bzng_dstate *s, u32 n, int fit)
 {
+	u32 lanes = 2;
+	if (n >= 4096)
+		lanes = BZNG_LANES;
+	else if (n >= 1024)
+		lanes = 8;
 	u32 want = n / BZNG_SEG_ROWS;
+	/* seg_cap is at least 50, so 8 or 24 lanes get a segment each */
+	STATIC_ASSERT(100000u / BZNG_SEG_ROWS + 2 > BZNG_LANES);
+	if (lanes > 2 && want < 3 * lanes)
+		want = 3 * lanes;
 	if (want < 1)
 		want = 1;
 	if (want > s->seg_cap - 1)
@@ -385,22 +424,25 @@ mark_splitters(bzng_dstate *s, u32 n, int fit)
 			((u32 *)(void *)s->tbl)[s->seg_row[k]] |= 0x80000000u;
 	}
 	s->seg_origin = seg_index(s, op);
-	if (n >= 65536)
-		return BZNG_LANES;
-	if (n >= 16384)
-		return 8;
-	if (m >= 2)
-		return 2;
-	return 1;
+	return m >= 2 ? lanes : 1;
 }
 
+/*
+ * A lane's row and write position, the state every step reads and writes.
+ * The write position is an offset into the pool and always names a writable
+ * byte: a lane takes its next chunk as soon as its current one is full.
+ */
 typedef struct {
-	u32 p;	       /* current row */
-	u8 *out, *end; /* write position and end of the current chunk */
-	u32 written;   /* bytes written by this lane before the current chunk */
-	u32 seg;       /* segment being walked */
-	u32 mark;      /* lane byte count at the segment's start */
-} walk_lane;
+	u32 p; /* current row */
+	u32 o; /* pool offset of the next byte */
+} walk_hot;
+
+/* The rest of a lane's state, which only segment and chunk ends touch. */
+typedef struct {
+	u32 written; /* bytes written by this lane before its current chunk */
+	u32 seg;     /* segment being walked */
+	u32 mark;    /* lane byte count at the segment's start */
+} walk_cold;
 
 typedef struct {
 	u8 *pool;
@@ -409,90 +451,107 @@ typedef struct {
 	u32 next_split;
 } walk_pool;
 
-/* Bytes the lane has written in total. */
+/* Takes a lane's first pool chunk and returns its offset. */
 static inline u32
-lane_count(const walk_lane *ln)
+first_chunk(walk_pool *w)
 {
-	return ln->written + (u32)(BZNG_CHUNK - (u32)(ln->end - ln->out));
-}
-
-/* Gives the lane a fresh pool chunk, linked after its current one. */
-static inline void
-new_chunk(walk_pool *w, walk_lane *ln)
-{
-	const u32 c = w->next_chunk++;
-	if (ln->end) {
-		const u32 prev = (u32)((ln->end - w->pool) / BZNG_CHUNK) - 1;
-		w->chunk_next[prev] = c;
-		ln->written += BZNG_CHUNK;
-	}
-	w->chunk_next[c] = 0;
-	ln->out = w->pool + (size_t)c * BZNG_CHUNK;
-	ln->end = ln->out + BZNG_CHUNK;
+	const u32 k = w->next_chunk++;
+	w->chunk_next[k] = 0;
+	return k * BZNG_CHUNK;
 }
 
 /*
- * Starts segment `seg` on a lane: records where its bytes begin, emits the
- * splitter row's own byte and moves to its successor.
+ * Takes the next pool chunk for a lane whose current chunk ends at offset
+ * `full`, links it after that chunk and returns its offset.
  */
-static inline void
-seg_begin(bzng_dstate *s, walk_pool *w, walk_lane *ln, u32 seg, int fit)
+static inline u32
+take_chunk(walk_pool *w, walk_cold *c, u32 full)
 {
-	if (ln->out == ln->end)
-		new_chunk(w, ln);
-	s->seg_start[seg] = (u32)(ln->out - w->pool);
-	ln->seg = seg;
-	ln->mark = lane_count(ln);
-	const u32 row = s->seg_row[seg];
-	if (fit) {
-		const u32 e = load3(s->tbl, row);
-		*ln->out++ = row_symbol(s, row);
-		ln->p = e & PMASK;
-	} else {
-		const u32 e = ((const u32 *)(const void *)s->tbl)[row];
-		*ln->out++ = (u8)e;
-		ln->p = (e >> 8) & PMASK;
-	}
+	const u32 k = w->next_chunk++;
+	w->chunk_next[full / BZNG_CHUNK - 1] = k;
+	w->chunk_next[k] = 0;
+	c->written += BZNG_CHUNK;
+	return k * BZNG_CHUNK;
 }
 
-/* Records the length and successor segment of the lane's finished segment. */
-static inline void
-seg_end(bzng_dstate *s, walk_lane *ln)
+/* Writes one byte at a lane's write position *o and advances it. */
+static forceinline void
+lane_put(walk_pool *w, walk_cold *c, u8 *pool, u32 *o, u8 sym)
 {
-	s->seg_len[ln->seg] = lane_count(ln) - ln->mark;
-	s->seg_next[ln->seg] = seg_index(s, ln->p);
+	pool[*o] = sym;
+	if (unlikely(++*o % BZNG_CHUNK == 0))
+		*o = take_chunk(w, c, *o);
+}
+
+/*
+ * Starts segment `seg` on a lane whose next byte goes to pool offset o:
+ * records where the segment's bytes begin, emits the splitter row's own byte
+ * and returns the lane's successor row and write position.  They are
+ * returned by value so that no pointer to a lane's locals leaves the step.
+ */
+static walk_hot
+seg_begin(bzng_dstate *s, walk_pool *w, walk_cold *c, u8 *pool, u32 o, u32 seg,
+	  int fit)
+{
+	walk_hot h;
+	s->seg_start[seg] = o;
+	c->seg = seg;
+	c->mark = c->written + o % BZNG_CHUNK;
+	const u32 row = s->seg_row[seg];
+	u8 sym;
+	if (fit) {
+		sym = row_symbol(s, row);
+		h.p = load3(s->tbl, row) & PMASK;
+	} else {
+		const u32 e = ((const u32 *)(const void *)s->tbl)[row];
+		sym = (u8)e;
+		h.p = (e >> 8) & PMASK;
+	}
+	h.o = o;
+	lane_put(w, c, pool, &h.o, sym);
+	return h;
+}
+
+/*
+ * Records the length and successor segment of the segment a lane has just
+ * finished at row p, with its write position at o.
+ */
+static inline void
+seg_end(bzng_dstate *s, const walk_cold *c, u32 p, u32 o)
+{
+	s->seg_len[c->seg] = c->written + o % BZNG_CHUNK - c->mark;
+	s->seg_next[c->seg] = seg_index(s, p);
 }
 
 /*
  * One step of a lane: emits the current row's F byte and follows T, or ends
  * the segment at a marked row. Returns 0 when the lane has nothing left.
+ * The lane's row and write position come by pointer so that the lock-step
+ * loops can keep them in locals.  tbl, pool and fsh are the walk's copies of
+ * s->tbl, s->L and s->fsym_shift: the pool's byte stores may alias the
+ * state, so reading s would reload them on every step.
  * pf: prefetch the next row's table entry as soon as its index is known.
- * tbl and fsh are the caller's copies of s->tbl and s->fsym_shift, which a
- * prefetching walk of 3-byte entries uses instead of the state: the pool's
- * byte stores may alias the state, so reading s reloads them on every step.
- * The other walks read the state, which measured faster for them (4-byte
- * entries with clang on Zen 5, the small walks with Apple clang).
  */
 static forceinline int
-lane_step(bzng_dstate *s, walk_pool *w, walk_lane *ln, const u8 *tbl, u32 fsh,
-	  int fit, int pf)
+lane_step(bzng_dstate *s, walk_pool *w, walk_cold *c, u32 *p, u32 *o,
+	  const u8 *tbl, u8 *pool, u32 fsh, int fit, int pf)
 {
 	u32 e, next;
 	u8 sym;
 	if (fit) {
-		e = load3(pf ? tbl : s->tbl, ln->p);
+		e = load3(tbl, *p);
 		if (unlikely(e & (SPLIT3 | GUESS3))) {
 			if (e & SPLIT3)
 				goto seg_done;
-			sym = row_symbol(s, ln->p);
+			sym = row_symbol(s, *p);
 		} else {
 			const u8 *const guess = guess_table_r(s);
 
-			sym = guess[ln->p >> (pf ? fsh : s->fsym_shift)];
+			sym = guess[*p >> fsh];
 		}
 		next = e & PMASK;
 	} else {
-		e = ((const u32 *)(const void *)s->tbl)[ln->p];
+		e = ((const u32 *)(const void *)tbl)[*p];
 		if (unlikely(e & 0x80000000u))
 			goto seg_done;
 		sym = (u8)e;
@@ -500,71 +559,128 @@ lane_step(bzng_dstate *s, walk_pool *w, walk_lane *ln, const u8 *tbl, u32 fsh,
 	}
 	if (pf)
 		prefetchr(fit ? tbl + 3 * (size_t)next :
-				s->tbl + 4 * (size_t)next);
-	if (unlikely(ln->out == ln->end))
-		new_chunk(w, ln);
-	*ln->out++ = sym;
-	ln->p = next;
+				tbl + 4 * (size_t)next);
+	*p = next;
+	lane_put(w, c, pool, o, sym);
 	return 1;
 seg_done:
-	seg_end(s, ln);
+	seg_end(s, c, *p, *o);
 	if (w->next_split < s->n_seg) {
-		seg_begin(s, w, ln, w->next_split++, fit);
+		const walk_hot h =
+			seg_begin(s, w, c, pool, *o, w->next_split++, fit);
+		*p = h.p;
+		*o = h.o;
 		return 1;
 	}
 	return 0;
 }
 
 /*
- * Walks with at least this many lanes (blocks of at least 64 Ki rows)
- * prefetch; the tables of smaller blocks stay in cache.
+ * Walks with at least this many lanes (blocks of at least 4 Ki rows)
+ * prefetch.  Blocks of 64 Ki rows and more need it; for smaller ones, whose
+ * table is in cache, it measured neither faster nor slower on the M4.
  */
 #define PREFETCH_MIN_LANES 16
 
+/* Lane i's hot state in locals of its own, one step of it, and back. */
+#define LANE_IN(i)  u32 p##i = h[i].p, o##i = h[i].o;
+#define LANE_OUT(i) h[i].p = p##i, h[i].o = o##i;
+#define LANE_STEP(i)                                                        \
+	if (!lane_step(s, w, &c[i], &p##i, &o##i, tbl, pool, fsh, fit, pf)) \
+		dead |= 1u << (i);
+
+#define LANES_1(X) X(0)
+#define LANES_2(X) X(0) X(1)
+#define LANES_8(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+
 /*
- * Walks every segment with K lanes in lock step (K fixed so the lane state
- * stays in registers), then finishes the stragglers. Every table is a
- * permutation of [0, n) because cftab is the exact prefix sum of the symbols
- * written, so no step needs a bounds check and every segment ends at a
- * marked row.
+ * K lanes in lock step until one runs out of segments; returns the mask of
+ * the lanes that have. Each lane's row and write position are copied into
+ * locals of their own for the loop so that the compiler can keep them in
+ * registers: the array, which the other phases index by variable, stays in
+ * memory.
+ */
+#define DEFINE_LOCKSTEP_REG(K)                                           \
+	static forceinline u32 lockstep_##K(                             \
+		bzng_dstate *s, walk_pool *w, walk_hot *h, walk_cold *c, \
+		const u8 *tbl, u8 *pool, u32 fsh, int fit, int pf)       \
+	{                                                                \
+		u32 dead = 0;                                            \
+		LANES_##K(LANE_IN);                                      \
+		do {                                                     \
+			LANES_##K(LANE_STEP)                             \
+		} while (!dead);                                         \
+		LANES_##K(LANE_OUT);                                     \
+		return dead;                                             \
+	}
+
+DEFINE_LOCKSTEP_REG(1)
+DEFINE_LOCKSTEP_REG(2)
+DEFINE_LOCKSTEP_REG(8)
+
+/*
+ * lockstep_K for more lanes than there are registers for: the hot state
+ * stays in its array.
+ */
+static forceinline u32
+lockstep_24(bzng_dstate *s, walk_pool *w, walk_hot *h, walk_cold *c,
+	    const u8 *tbl, u8 *pool, u32 fsh, int fit, int pf)
+{
+	u32 dead = 0;
+	while (!dead) {
+		UNROLL_FULL
+		for (int k = 0; k < 24; k++) {
+			if (!lane_step(s, w, &c[k], &h[k].p, &h[k].o, tbl, pool,
+				       fsh, fit, pf))
+				dead |= 1u << k;
+		}
+	}
+	return dead;
+}
+
+/*
+ * Walks every segment with K lanes in lock step, then finishes the
+ * stragglers. Every table is a permutation of [0, n) because cftab is the
+ * exact prefix sum of the symbols written, so no step needs a bounds check
+ * and every segment ends at a marked row.
  */
 #define DEFINE_WALK(K, FIT)                                                    \
 	static void walk_##K##_##FIT(bzng_dstate *s, walk_pool *w)             \
 	{                                                                      \
-		const int pf = (K) >= PREFETCH_MIN_LANES;                      \
+		const int fit = (FIT), pf = (K) >= PREFETCH_MIN_LANES;         \
 		const u8 *const tbl = s->tbl;                                  \
-		const u32 fsh = (FIT) ? s->fsym_shift : 0;                     \
-		walk_lane ln[K];                                               \
+		u8 *const pool = w->pool;                                      \
+		const u32 fsh = fit ? s->fsym_shift : 0;                       \
+		walk_hot h[K];                                                 \
+		walk_cold c[K];                                                \
 		u32 active = 0;                                                \
 		while (active < (K) && w->next_split < s->n_seg) {             \
-			ln[active].out = ln[active].end = NULL;                \
-			ln[active].written = 0;                                \
-			new_chunk(w, &ln[active]);                             \
-			ln[active].written = 0;                                \
-			seg_begin(s, w, &ln[active], w->next_split++, FIT);    \
+			c[active].written = 0;                                 \
+			h[active] = seg_begin(s, w, &c[active], pool,          \
+					      first_chunk(w), w->next_split++, \
+					      fit);                            \
 			active++;                                              \
 		}                                                              \
 		if (active == (K)) {                                           \
-			u32 dead = 0;                                          \
-			while (!dead) {                                        \
-				UNROLL_FULL for (int k = 0; k < (K);           \
-						 k++) if (!lane_step(s, w,     \
-								     &ln[k],   \
-								     tbl, fsh, \
-								     FIT, pf)) \
-					dead |= 1u << k;                       \
-			}                                                      \
+			const u32 dead = lockstep_##K(s, w, h, c, tbl, pool,   \
+						      fsh, fit, pf);           \
 			u32 a = 0;                                             \
-			for (int k = 0; k < (K); k++)                          \
-				if (!((dead >> k) & 1))                        \
-					ln[a++] = ln[k];                       \
+			for (int k = 0; k < (K); k++) {                        \
+				if (!((dead >> k) & 1)) {                      \
+					h[a] = h[k];                           \
+					c[a] = c[k];                           \
+					a++;                                   \
+				}                                              \
+			}                                                      \
 			active = a;                                            \
 		}                                                              \
 		while (active > 0) {                                           \
 			for (u32 k = 0; k < active; k++) {                     \
-				if (!lane_step(s, w, &ln[k], tbl, fsh, FIT,    \
-					       pf)) {                          \
-					ln[k] = ln[--active];                  \
+				if (!lane_step(s, w, &c[k], &h[k].p, &h[k].o,  \
+					       tbl, pool, fsh, fit, pf)) {     \
+					active--;                              \
+					h[k] = h[active];                      \
+					c[k] = c[active];                      \
 					k--;                                   \
 				}                                              \
 			}                                                      \
@@ -640,9 +756,9 @@ bzng_finish_block(bzng_dstate *s)
 		 * overwrites symbols already used; then libbz2's pointer
 		 * reversal turns the cycle through origPtr into T.
 		 */
-		u32 h[4][256], cf[4][256], cend[256];
-		quarter_hist(s->L, n, h);
-		cursors(s, h, cf);
+		u32 h[BUILD_PARTS][256], cend[256];
+		part_hist(s->L, n, h);
+		cursors(s, h);
 		for (int c = 0; c < 256; c++)
 			cend[c] = s->cftab[c + 1];
 		for (u32 i = n; i-- > 0;) {

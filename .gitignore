@@ -34,3 +34,5 @@ win7test/
 *.swp
 .DS_Store
 Thumbs.db
+compressors/bz2ng/libsais-patched/
+compressors/bz2ng/libsais-patched.tmp/

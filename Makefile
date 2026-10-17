@@ -112,6 +112,11 @@ UFL2SRC := $(wildcard compressors/uflzma2/*.c)
 # nothing elsewhere. The x86-64 tiers get their ISA flags and are picked at run time.
 BZ2NGSRC := $(wildcard compressors/bz2ng/lib/*.c) $(wildcard compressors/bz2ng/lib/x86/*.c) $(wildcard compressors/bz2ng/lib/arm/*.c)
 BZ2NGO3 := compress enc_block enc_huff enc_sort sort_libsais
+# libsais with bz2-ng's own patches (third_party/libsais/patches), applied to a copy
+# as bz2-ng's CMake does; sort_libsais.c includes that copy. The result must match
+# patches/SHA256, so a patch that applies with fuzz or to another libsais stops the build.
+BZ2NGSAIS := compressors/bz2ng/third_party/libsais
+BZ2NGPATCHED := compressors/bz2ng/libsais-patched
 UFL2MACH := $(shell $(CC) -dumpmachine 2>/dev/null)
 UFL2ASM :=
 UFL2ASFLAGS :=
@@ -498,7 +503,17 @@ compressors/bz2ng/%.o: compressors/bz2ng/%.c
 	  $(if $(filter crc32_vpclmul,$(basename $(notdir $<))),$(BZ2NG_VPCLMUL)) \
 	  $(if $(filter crc32_armv8,$(basename $(notdir $<))),$(if $(findstring aarch64,$(UFL2MACH)),-march=armv8-a+crc)) \
 	  $(if $(filter crc32_pmull,$(basename $(notdir $<))),$(if $(findstring aarch64,$(UFL2MACH)),-march=armv8-a+crc+crypto)) \
+	  $(if $(filter sort_libsais,$(basename $(notdir $<))),-I$(BZ2NGPATCHED)) \
 	  -c $< -o $@
+
+compressors/bz2ng/lib/sort_libsais.o: $(BZ2NGPATCHED)/libsais.c
+
+$(BZ2NGPATCHED)/libsais.c: $(BZ2NGSAIS)/libsais.c $(BZ2NGSAIS)/libsais.h $(wildcard $(BZ2NGSAIS)/patches/*.patch) $(BZ2NGSAIS)/patches/SHA256
+	$(RM) -r $(BZ2NGPATCHED).tmp && mkdir -p $(BZ2NGPATCHED).tmp
+	cp $(BZ2NGSAIS)/libsais.c $(BZ2NGSAIS)/libsais.h $(BZ2NGPATCHED).tmp/
+	for p in $(sort $(wildcard $(BZ2NGSAIS)/patches/*.patch)); do patch -s -p1 -N -d $(BZ2NGPATCHED).tmp -i $(CURDIR)/$$p || exit 1; done
+	cd $(BZ2NGPATCHED).tmp && sha256sum -c --quiet $(CURDIR)/$(BZ2NGSAIS)/patches/SHA256
+	$(RM) -r $(BZ2NGPATCHED) && mv $(BZ2NGPATCHED).tmp $(BZ2NGPATCHED)
 
 # bz2-ng exports libbz2's own API (BZ2_*), which -ma:bzip2's libbzip2 exports too.
 # Only those are renamed, to bz2ng_BZ2_* (on 32-bit Windows they carry the stdcall
@@ -746,7 +761,7 @@ test-nointel: nointel
 clean:
 	$(RM) $(PROG) $(PROG).exe
 	find . -name '*.o' -type f -delete
-	$(RM) -r plugins
+	$(RM) -r plugins $(BZ2NGPATCHED) $(BZ2NGPATCHED).tmp
 
 # Check (with JIT and SFTP status)
 check:

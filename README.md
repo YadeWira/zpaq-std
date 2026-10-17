@@ -63,7 +63,7 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default | Opens in any zpaq |
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
-| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit 63987e0 (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
+| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit b2fbb2f (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
 

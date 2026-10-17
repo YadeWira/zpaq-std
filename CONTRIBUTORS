@@ -36,8 +36,8 @@ folder under compressors/.
   ultra-fast-lzma2 1.6.2  Conor McCarthy (fast-lzma2), YadeWira   BSD-3-Clause
   lzlib 1.16              Antonio Diaz Diaz                       BSD-2-Clause
   bzip2 1.0.8             Julian R Seward                         BSD-style
-  bz2-ng (63987e0)        Tim Fennell; libsais by Ilya Grebnov    MIT, BSD-style, Apache-2.0
-                                                                  WITH LLVM-exception
+  bz2-ng (b2fbb2f)        Tim Fennell; libsais by Ilya Grebnov;   MIT, BSD-style, Apache-2.0
+                          sais-lite by Yuta Mori                  WITH LLVM-exception
   libdeflate 1.26         Eric Biggers                            MIT
   Lizard 2.1              Yann Collet, Przemyslaw Skibinski       BSD-2-Clause
   lz5-ex 1.5.2            Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira

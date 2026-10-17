@@ -1,3 +1,4 @@
 bz2-ng, https://github.com/tfenne/bz2-ng
-commit 63987e085fc6799c2189edb94b9198f0e1f81dc5 (2026-10-16), no release yet
-Files: c/lib, c/third_party/libsais, c/bzlib.h, c/LICENSE, c/licenses, unmodified.
+commit b2fbb2f4 (2026-10-17), no release yet
+Files: c/lib, c/third_party/libsais (with its patches/), c/bzlib.h, c/LICENSE, c/licenses, unmodified.
+The Makefile applies third_party/libsais/patches to a copy in libsais-patched/, as bz2-ng's CMake does, and checks the result against patches/SHA256.
