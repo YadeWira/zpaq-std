@@ -67,10 +67,12 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define ZPAQLZAV
 
 /// zpaq-std's own version and release date. The banner reads
-/// "zpaq-std v0.0.1 | zf v65.4m-<build>,(<our date>)": zf is the zpaqfranz base.
+/// "zpaq-std v1.0.0 | zf v65.4m-<build>,(<our date>)": zf is the zpaqfranz base.
+/// MAJOR.MINOR.PATCH: MAJOR for big changes of zpaq-std, MINOR for a small
+/// update of the zpaqfranz base or a small feature, PATCH for bug fixes.
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "0.0.1"
+#define ZPAQSTD_VERSION "1.0.0"
 #define ZPAQSTD_DATE "(2026-10-17)"
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.4m"
