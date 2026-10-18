@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **20 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (27 `-ma` switches), and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **21 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (28 `-ma` switches), and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -64,7 +64,8 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit b2fbb2f (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.3, format v2), a fast LZ in Free Pascal. **Plugin only**: `codecs/sylz.dll` or `.so` (see below). The fastest levels, -2 and -1, are written `02` and `01` | 02, 01, 1–12 | 1 | **yes** (ZPAQSYLZ) |
+| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 (format 9), a fast LZ built for decompression speed; 6–7 add Huffman | 1–7 | 3 | **yes** (ZPAQZXC) |
+| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.4, format v2), a fast LZ in Free Pascal. **Plugin only**: `codecs/sylz.dll` or `.so` (see below). The fastest levels, -2 and -1, are written `02` and `01` | 02, 01, 1–12 | 1 | **yes** (ZPAQSYLZ) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
 
@@ -73,7 +74,7 @@ stays native (no regression).
 
 ### Portability
 
-**All 27 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
+**All 28 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
 zpaqfranz, and every zpaq-std from pre20 on. Their blocks carry their own decoder,
 written in ZPAQL, the bytecode every zpaq implementation runs (the way zpaq's own
 `-m1` works); zpaq-std recognises its decoders and decodes natively, at full speed.
@@ -159,7 +160,7 @@ The formats are in the [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/U
 
 ## No system dependencies
 
-All 20 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
+All 21 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
 zpaqfranz), together with the ZPAQL decoders and the scripts that generate them.
 sylz, in Free Pascal, is there too, but it is built only as a plugin (`make
 fpc-plugins`, with `fpc`), never into the program.
@@ -201,7 +202,7 @@ codec:
 
 ```
 plugins/zpaq-std[.exe]                        about 5 MB instead of 10
-plugins/codecs/zstd.dll  brotli.dll  kanzi.dll ...  (.so on Linux), 21 of them
+plugins/codecs/zstd.dll  brotli.dll  kanzi.dll ...  (.so on Linux), 22 of them
 ```
 
 **Codecs in Rust or Free Pascal are always plugins**, never linked into the
