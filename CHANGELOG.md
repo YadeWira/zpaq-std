@@ -1,3 +1,42 @@
+### [1.1.0] - 2026-10-18
+
+A new experimental codec, `-ma:sylz`, and a new rule: codecs written in Rust or Free Pascal ship only as plugins, never inside the program.
+
+#### `-ma:sylz` (experimental, plugin only)
+
+[sylz](https://github.com/YadeWira/syc) is syc's fast LZ codec, written in Free Pascal with x86-64 assembler in its hot paths (format v2, syc v0.2.2, MIT). Levels 1 to 12, default 1.
+
+- **It is a plugin**, `codecs/sylz.dll` or `codecs/sylz.so` next to the program, in both the full program and the plugins download. Without it, `-ma:sylz` stops with `00605!`.
+- **Any zpaq opens its archives, plugin or not.** Every block carries ZPAQSYLZ, a decoder written in ZPAQL and generated from sylz's own token table: zpaq 7.15, zpaqfranz and zpaq-std without the plugin extract it, more slowly. With the plugin, zpaq-std decodes natively.
+- **Damaged blocks end quickly.** The decoder never writes more than the block's original size, which zpaq-std stores in front of the block: a damaged block, even one crafted to expand, fails at once instead of writing gigabytes.
+- **It is experimental:** zpaq-std says so (`00603!`) each time it is used, and you use it at your own risk. Its format may change in a later release; blocks are tagged with their format (`sylz2`), the native decoder is used only with a plugin of that same format, and archives already written stay readable through the decoder they carry.
+- On 32-bit Windows, level 1 writes different bytes than on 64-bit systems (it hashes 4 bytes instead of 5). Every build reads every other's archives.
+
+#### Rust and Free Pascal codecs: always plugins
+
+From now on a codec written in Rust or Free Pascal is never linked into zpaq-std. The full program now also loads such codecs from `codecs/`, and `make fpc-plugins` builds the Free Pascal ones (sylz) with `fpc`; for Windows x86 it takes a cross `ppc386`, built from Debian's `fpc-source` without installing anything (see the wiki, Building). The plugins built here are byte for byte the ones in syc's own release.
+
+#### Downloads
+
+Per platform there are now three:
+
+- `zpaq-std-v1.1.0-<platform>`: the full program, every C and C++ codec inside.
+- `zpaq-std-v1.1.0-<platform>-extra-codecs.zip`: `codecs/` with the plugin-only codecs (today sylz), to unpack next to the full program.
+- `zpaq-std-v1.1.0-<platform>-plugins.zip`: the small program and every codec as a plugin, sylz included.
+
+Plus `THIRD-PARTY-LICENSES.txt` (sylz, MIT, added) and `SHA256SUMS.txt`.
+
+#### Checked
+
+- sylz's decoder in ZPAQL: 246 blocks (82 mixed files, levels 1, 6 and 12) decode identically to the plugin; 200 randomly damaged blocks end in at most 0.01 s; a crafted 1 MB block that would expand to 255 MB stops at the original size (0.03 s with JIT, 0.17 s without).
+- Linux, with the release binary and the extra-codecs plugin: `-ma:sylz` at levels 1, 6 and 12 passes `t` and extracts identically with the plugin, with zpaq-std without the plugin, with zpaq 7.15, zpaqfranz 65.4m and 65.11; without the plugin, `a` stops with `00605!`; the full program with extra-codecs and the plugins download write byte-identical archives. New `test/testlab/suite_sylz.sh`, in the battery: 5/5.
+- The sylz plugins in the downloads are byte for byte those of syc's v0.2.2 release, on all three platforms.
+- Windows 7 x64 and x86, with the release binaries and the extra-codecs DLLs: `-ma:sylz:1` and `:12` compress; archives made on Windows and on Linux test and extract with x64, x86 and without the DLL (15/15 identical), and those made on Windows extract on Linux with zpaq 7.15, zpaqfranz and zpaq-std. Without the DLL, `a` stops with `00605!`. `-ma:bz2:9`, `-ma:zstd:19`, `-ma:lz5:9` and `-m1`: 16/16 extractions identical, and they extract on Linux with zpaq 7.15, zpaqfranz, 1.0.2 and 1.1.0.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.0.2: 0 divergences.
+
 ### [1.0.2] - 2026-10-17
 
 One fix for control-C, inherited from zpaqfranz 65.4m (ZF's BUG-022 and BUG-023, the part that pre63 did not cover).
