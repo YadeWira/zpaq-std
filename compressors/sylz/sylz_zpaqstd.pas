@@ -110,8 +110,8 @@ const
   Codec: TZsCodec = (
     abi: ZS_CODEC_ABI;
     name: 'sylz';
-    library_: 'sylz format v2 (syc 0.2.4)';
-    min_level: SYLZ_MINLEVEL;   { -2: --fast=2; 0 = the default level, 1 }
+    library_: 'sylz format v2 (syc 0.2.5)';
+    min_level: SYLZ_MINLEVEL;   { 0 = fastest; the default is 1 }
     max_level: SYLZ_MAXLEVEL;
     bound: @CodecBound;
     compress: @CodecCompress;

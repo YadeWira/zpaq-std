@@ -55,7 +55,7 @@ folder under compressors/.
                           rapidhash by Nicolas De Carli
   libdivsufsort 2.0       Yuta Mori                               MIT
 
-sylz (syc v0.2.4, Yade Bravo, MIT) is in Free Pascal and, by rule, never linked into
+sylz (syc v0.2.5, Yade Bravo, MIT) is in Free Pascal and, by rule, never linked into
 zpaq-std: it ships as a plugin (codecs/sylz.dll or sylz.so).
 
 LZ4 (Yann Collet, BSD-2-Clause) and LZAV (Aleksey Vaneev, MIT), used by `-m6`/`-m7`

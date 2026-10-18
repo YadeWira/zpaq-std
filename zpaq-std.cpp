@@ -67242,7 +67242,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  zxc: ZPAQZXC, EXPERIMENTAL. zxc's fast LZ (very fast to decompress); levels 1-7,");
 		scrivi_riga(" ", "    default 3 (6-7 with Huffman); opens in any zpaq");
 		scrivi_riga(" ", "  sylz: ZPAQSYLZ, EXPERIMENTAL. syc's fast LZ (Free Pascal), only as a plugin:");
-		scrivi_riga(" ", "    codecs/sylz.dll or sylz.so; levels 02 01 1-12 (02 = -2, the fastest), default 1;");
+		scrivi_riga(" ", "    codecs/sylz.dll or sylz.so; levels 0-10 (0 the fastest), default 1;");
 		scrivi_riga(" ", "    opens in any zpaq");
 		scrivi_riga(" ", "  bz2: ZPAQBZ2, EXPERIMENTAL. bzip2's format with bz2-ng, faster (levels as bzip2);");
 		scrivi_riga(" ", "    opens in any zpaq");
@@ -69874,16 +69874,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 						seppuku(2);
 					}
 					g_ma_level=atoi(lv.c_str());
-					/// Fast levels below 1 are written with a leading zero: 01 is -1, 02 is
-					/// -2 (sylz's -2 and -1, its fastest). A plain 0 stays 0.
+					/// A level with a leading zero (01, 002) is refused: it was the way to
+					/// write a negative level, and no codec has one now.
 					if (lv.size()>1 && lv[0]=='0')
 					{
-						if (g_ma_algorithm!="sylz")
-						{
-							myprintf("00563! -ma:%s has no fast levels below 1 (%s)\n", g_ma_algorithm.c_str(), lv.c_str());
-							seppuku(2);
-						}
-						g_ma_level= -atoi(lv.c_str()+1);
+						myprintf("00563! -ma:%s: no level is written with a leading zero (%s)\n", g_ma_algorithm.c_str(), lv.c_str());
+						seppuku(2);
 					}
 				}
 				else
@@ -69906,7 +69902,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="lz6") g_ma_level=0;
 					/// lzma: 6, el default de xz; 0..9 como el LZMA SDK.
 					else if (g_ma_algorithm=="lzma") g_ma_level=6;
-					/// sylz: 1, el default de syc (1 rapido, 2..12 mas lentos)
+					/// sylz: 1, el default de syc (0 el mas rapido, 2..10 mas lentos)
 					else if (g_ma_algorithm=="sylz") g_ma_level=1;
 					/// zxc: 3, su default (1-2 GHI, 3-5 GLO, 6-7 con Huffman)
 					else if (g_ma_algorithm=="zxc") g_ma_level=3;
@@ -69934,12 +69930,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 				{
 					if (g_ma_level<0) g_ma_level=0;
 				}
-				/// sylz: -2 and -1 (written 02 and 01) are its fastest levels; 0 is its
-				/// default, 1
+				/// sylz: 0 is a real level, its fastest (syc 0.2.5 on); the default is 1
 				else if (g_ma_algorithm=="sylz")
 				{
-					if (g_ma_level<-2) g_ma_level=-2;
-					if (g_ma_level==0) g_ma_level=1;
+					if (g_ma_level<0) g_ma_level=0;
 				}
 				else if (g_ma_level<1) g_ma_level=1;
 				if (g_ma_algorithm=="zstd")
@@ -70031,7 +70025,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 				}
 				else if (g_ma_algorithm=="sylz")
 				{
-					if (g_ma_level>12) g_ma_level=12;
+					if (g_ma_level>10) g_ma_level=10;
 				}
 				else if (g_ma_algorithm=="zxc")
 				{

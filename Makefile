@@ -528,7 +528,7 @@ else
 endif
 fpc-plugins: $(FPC_PLUGIN_FILES)
 
-plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylz_zpaqstd.pas
+plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhuf.pas compressors/sylz/sylz_zpaqstd.pas
 	@mkdir -p plugins/codecs plugins/fpc-sylz
 	$(FPC) -O3 -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/sylz -FUplugins/fpc-sylz -FEplugins/fpc-sylz compressors/sylz/sylz_zpaqstd.pas
 	mv -f plugins/fpc-sylz/$(FPCLIB) $@
