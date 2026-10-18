@@ -45993,6 +45993,20 @@ string mygetpasswordblind(const string& i_default)
 }
 FP g_archivefp;
 FP g_archivefp_first;
+/// The archive being written is closed by exactly one side: the add, when it ends,
+/// or the control-C handler. Each one takes it out of g_archivefp atomically and
+/// closes it only if it got it. Before, the add closed its own copy of the handle
+/// and left g_archivefp pointing to a closed file: a control-C right then closed it
+/// a second time ("free(): double free detected", BUG-022/023, about 1 in 100)
+static bool archivefp_mine(FP i_fp)
+{
+	FP atteso= i_fp;
+	if (__atomic_compare_exchange_n(&g_archivefp, &atteso, (FP)FPNULL, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+		return true; /// it was the archive, now ours
+	/// another file, or one never handed to the handler: close it. Taken by the
+	/// handler (control-C, g_archivefp empty): it closes it, not us
+	return (atteso != FPNULL) || !g_control_c;
+}
 
 //////////////////// zpaq stuff
 
@@ -47263,7 +47277,10 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 				if (flagdebug3)
 					myprintf("00242: calling close %s\n", migliaia(int64_t(fp)));
 #endif
-				myfclose(&fp);
+				if (archivefp_mine(fp))
+					myfclose(&fp);
+				else
+					fp= FPNULL; /// the control-C handler closes it
 			}
 			if (flagdebug3)
 				myprintf("37816: ho fatto close su file\n");
@@ -83889,14 +83906,17 @@ void my_handler(int s)
 	}
 	else
 	{
-		if ((g_archivefp != FPNULL) && (g_archivefp != NULL))
+		/// take it: if the add has closed it already, g_archivefp is empty (see
+		/// archivefp_mine)
+		FP archivio= __atomic_exchange_n(&g_archivefp, (FP)FPNULL, __ATOMIC_SEQ_CST);
+		if ((archivio != FPNULL) && (archivio != NULL))
 		{
 #ifndef ESX
-			myprintf("01274: Closing file handle %s\n", migliaia(int64_t(g_archivefp)));
+			myprintf("01274: Closing file handle %s\n", migliaia(int64_t(archivio)));
 #endif
-			myfclose(&g_archivefp);
+			myfclose(&archivio);
 #ifndef ESX
-			myprintf("01275: myfclose done on archivefp now %s\n", migliaia(int64_t(g_archivefp)));
+			myprintf("01275: myfclose done on archivefp now %s\n", migliaia(int64_t(archivio)));
 #endif
 		}
 		if ((g_archivefp_first != FPNULL) && (g_archivefp_first != NULL))
