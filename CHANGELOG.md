@@ -1,3 +1,24 @@
+### [1.0.2] - 2026-10-17
+
+One fix for control-C, inherited from zpaqfranz 65.4m (ZF's BUG-022 and BUG-023, the part that pre63 did not cover).
+
+#### Control-C after the archive was closed
+
+At the end of an `add`, the archive was closed through the add's own copy of its handle, and the copy that the control-C handler uses kept pointing to the closed file. A control-C after that moment closed it a second time. With `backup` the moment is long: the MD5 of the new part is computed after the part is closed. glibc detects the second close only now and then, as `free(): double free detected`: in ZF's scripts, about one control-C in a hundred ended that way. The archive itself was not damaged, and the next `backup` ran.
+
+Now exactly one side closes the archive: the add when it ends, or the handler. Both take it out of the shared handle atomically, and only the one that gets it closes it.
+
+#### Checked
+
+- Linux, control-C sent to `backup` the moment it prints "Creating MD5": 1.0.1 closes the archive a second time every time (AddressSanitizer: double-free in the handler), 1.0.2 never does, removes its `.pid`, and the next `backup` runs.
+- Control-C at random moments during `a`: the archive is rolled back to the original byte for byte and passes `t`; with AddressSanitizer, 40 runs, no error.
+- New `test/testlab/suite_sigint.sh`, in the battery from now on: 11/11 (1.0.1: 6/11, the five control-C during the MD5).
+- Windows 7 x64 and x86, with the release binaries: `-ma:bz2:9`, `-ma:zstd:19`, `-ma:lz5:9` and `-m1`: `t` and `x` pass, all 16 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, 1.0.1 and 1.0.2. A control-C cannot be sent to a Windows console over SSH, so control-C itself is still untested on Windows.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.0.1: 0 divergences.
+
 ### [1.0.1] - 2026-10-17
 
 Two library updates, `-ma:bz2` (experimental) to a newer bz2-ng and `-ma:lz5` to lz5-ex 1.5.3, and the licence notices that the Windows binaries were missing.
