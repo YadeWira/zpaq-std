@@ -33,6 +33,17 @@ extract through their ZPAQL decoder. lz5's plugin serves `-ma:lz5`, `lz5hc` and
 `lz5f` (the level carries the mode); `-ma:lz` writes LZMA blocks that the `lzma`
 plugin decodes.
 
+## Plugin-only codecs: Rust and Free Pascal
+
+A codec written in Rust or Free Pascal is, by rule, **never linked into zpaq-std**:
+it is always a plugin, in both builds. The full program loads these codecs
+(`ZS_PLUGIN_ONLY` in zpaq-std.cpp, today sylz) from `codecs/` as well, and
+`make fpc-plugins` builds the Free Pascal ones with `fpc` (for Windows x86, a cross
+`ppc386` and its RTL: `FPC=.../ppc386 FPCUNITS=-Fu.../units/i386-win32`). Their
+adapter is written in their own language and exports `zpaqstd_codec_v1` (sylz's is
+`compressors/sylz/sylz_zpaqstd.pas`). Like every `-ma` codec, their blocks carry a
+ZPAQL decoder inside zpaq-std, so any zpaq reads them without the plugin.
+
 ## A plugin from somewhere else
 
 The interface is plain C, so an adapter can be written in any language that exports

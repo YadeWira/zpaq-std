@@ -43,7 +43,7 @@ body:
     id: language
     attributes:
       label: Language
-      description: "C, C++, Rust (built with Rust 1.77.2, the last release that targets Windows 7) or Free Pascal (3.2.2). See [Languages](https://github.com/YadeWira/zpaq-std/wiki/Adding-a-compressor#languages)."
+      description: "C, C++, Rust (built with Rust 1.77.2, the last release that targets Windows 7) or Free Pascal (3.2.2). A Rust or Free Pascal codec ships only as a plugin (codecs/), never inside the program. See [Languages](https://github.com/YadeWira/zpaq-std/wiki/Adding-a-compressor#languages)."
       options:
         - C
         - C++

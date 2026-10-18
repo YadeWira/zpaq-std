@@ -53,6 +53,9 @@ folder under compressors/.
   kanzi 2.6.0             Frederic Langlet                        Apache-2.0
   libdivsufsort 2.0       Yuta Mori                               MIT
 
+sylz (syc v0.2.2, Yade Bravo, MIT) is in Free Pascal and, by rule, never linked into
+zpaq-std: it ships as a plugin (codecs/sylz.dll or sylz.so).
+
 LZ4 (Yann Collet, BSD-2-Clause) and LZAV (Aleksey Vaneev, MIT), used by `-m6`/`-m7`
 and `-ma:lz4`/`-ma:lzav`, come embedded in zpaq-std.cpp from zpaqfranz.
 
