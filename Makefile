@@ -369,6 +369,19 @@ BROTLI_ENC_OBJ := $(patsubst compressors/brotli/enc/%.c,compressors/brotli/enc/%
 BROTLI_DEC_OBJ := $(patsubst compressors/brotli/dec/%.c,compressors/brotli/dec/%.o,$(wildcard compressors/brotli/dec/*.c))
 BROTLIOBJ := $(BROTLI_COMMON_OBJ) $(BROTLI_ENC_OBJ) $(BROTLI_DEC_OBJ)
 SNAPPYOBJ := $(SNAPPYSRC:.cc=.o)
+# zxc (-ma:zxc, experimental): its codec (compress, decompress, huffman) is built
+# once per instruction set, as zxc's CMake does, and zxc_dispatch.c picks one at run
+# time: _default everywhere, _avx2 and _avx512 on x86.
+ZXCCORE := $(addprefix compressors/zxc/lib/zxc_,$(addsuffix .o,common pivco_tables dict driver dispatch pstream seekable))
+ZXCVARIANTS := default
+ifneq (,$(findstring x86_64,$(UFL2MACH))$(findstring i686,$(UFL2MACH))$(findstring i386,$(UFL2MACH)))
+  ZXCVARIANTS += avx2 avx512
+endif
+ZXCVAROBJ := $(foreach v,$(ZXCVARIANTS),$(addprefix compressors/zxc/lib/zxc_,$(addsuffix _$(v).o,compress decompress huffman)))
+ZXCOBJ := $(ZXCCORE) $(ZXCVAROBJ)
+ZXCCFLAGS = $(PICFLAG) $(CFLAGS) -O3 -std=gnu11 -DZXC_STATIC_DEFINE -Icompressors/zxc/include -Icompressors/zxc/lib -Icompressors/zxc/lib/vendors
+ZXC_avx2 := -mavx2 -mbmi -mbmi2 -mlzcnt
+ZXC_avx512 := -mavx512f -mavx512bw -mavx512vbmi -mavx512vbmi2 -mbmi -mbmi2 -mlzcnt
 LIBDEFLATE_CORE_OBJ := $(LIBDEFLATE_CORE_SRC:.c=.o)
 LIBDEFLATE_X86_OBJ  := $(LIBDEFLATE_X86_SRC:.c=.o)
 LIBDEFLATE_ARM_OBJ  := $(LIBDEFLATE_ARM_SRC:.c=.o)
@@ -386,7 +399,7 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi
+PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc
 PLUGLIB_zstd := compressors/zstd/zstd.c
 PLUGINC_zstd := -Icompressors/zstd
 PLUGLIB_flzma2 := $(FL2OBJ)
@@ -409,6 +422,8 @@ PLUGLIB_lz6 := $(LZ6OBJ)
 PLUGINC_lz6 := $(LZ6INC)
 PLUGLIB_snappy := $(SNAPPYOBJ)
 PLUGINC_snappy := $(SNAPPYINC)
+PLUGLIB_zxc := $(ZXCOBJ)
+PLUGINC_zxc := -Icompressors/zxc/include -DZXC_STATIC_DEFINE
 PLUGLIB_hs := $(HSOBJ)
 PLUGINC_hs := $(HSINC)
 PLUGLIB_lzfse := $(LZFSEOBJ)
@@ -445,7 +460,7 @@ ifdef PLUGINS
 endif
 # Everything the program links. make plugins leaves out CORE_DROP: the adapters
 # and the libraries that went into plugins.
-LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(WINRES)
+LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
 $(PROG): $(filter-out $(CORE_DROP),$(LINKOBJS))
 	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(filter-out $(CORE_DROP),$(LINKOBJS)) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
@@ -586,6 +601,15 @@ $(BROTLI_DEC_OBJ): compressors/brotli/dec/%.o: compressors/brotli/dec/%.c
 # Snappy is C++; uses g++ directly
 $(SNAPPYOBJ): compressors/snappy/%.o: compressors/snappy/%.cc
 	$(CXX) $(ZPAQ_CXXFLAGS) $(SNAPPYINC) -c $< -o $@
+
+$(ZXCCORE): compressors/zxc/lib/%.o: compressors/zxc/lib/%.c
+	$(CC) $(ZXCCFLAGS) -c $< -o $@
+compressors/zxc/lib/zxc_%_default.o: compressors/zxc/lib/zxc_%.c
+	$(CC) $(ZXCCFLAGS) -DZXC_FUNCTION_SUFFIX=_default -c $< -o $@
+compressors/zxc/lib/zxc_%_avx2.o: compressors/zxc/lib/zxc_%.c
+	$(CC) $(ZXCCFLAGS) $(ZXC_avx2) -DZXC_FUNCTION_SUFFIX=_avx2 -c $< -o $@
+compressors/zxc/lib/zxc_%_avx512.o: compressors/zxc/lib/zxc_%.c
+	$(CC) $(ZXCCFLAGS) $(ZXC_avx512) -DZXC_FUNCTION_SUFFIX=_avx512 -c $< -o $@
 
 # libdeflate: pure C, multi-subdir (like brotli). Use disjoint vars to avoid warnings.
 $(LIBDEFLATE_CORE_OBJ): compressors/libdeflate/lib/%.o: compressors/libdeflate/lib/%.c
