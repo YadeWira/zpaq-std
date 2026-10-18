@@ -30,7 +30,7 @@ PART 1 - BUNDLED COMPRESSORS
   PPMd var.H (Ppmd7)   7-Zip / LZMA SDK             Public domain
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
-  sylz                 syc v0.2.2                   MIT
+  sylz                 syc v0.2.3                   MIT
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -2118,7 +2118,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-sylz syc v0.2.2
+sylz syc v0.2.3
 Licence: MIT
 Copyright: Yade Bravo (YadeWira)
 Free Pascal, built only as a plugin (codecs/sylz.dll or sylz.so): it is in the

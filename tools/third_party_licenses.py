@@ -52,7 +52,7 @@ BUNDLED = [
     ('kanzi', '2.6.0', 'Apache-2.0', 'Frederic Langlet', ['compressors/kanzi/LICENSE'],
      'No NOTICE file is distributed with kanzi. kanzi_zpaqstd.cpp/.h are zpaq-std\'s own.'),
     ('libdivsufsort', '2.0 (stripped)', 'MIT', 'Yuta Mori', ['libdivsufsort/LICENSE'], ''),
-    ('sylz', 'syc v0.2.2', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
+    ('sylz', 'syc v0.2.3', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as a plugin (codecs/sylz.dll or sylz.so): it is in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],

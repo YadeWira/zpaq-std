@@ -67206,7 +67206,8 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq");
 		scrivi_riga(" ", "  bzip2: ZPAQBZIP2, BWT+HF (1=fast/100K, 9=best/900K, default 9); opens in any zpaq");
 		scrivi_riga(" ", "  sylz: ZPAQSYLZ, EXPERIMENTAL. syc's fast LZ (Free Pascal), only as a plugin:");
-		scrivi_riga(" ", "    codecs/sylz.dll or sylz.so; levels 1-12, default 1; opens in any zpaq");
+		scrivi_riga(" ", "    codecs/sylz.dll or sylz.so; levels 02 01 1-12 (02 = -2, the fastest), default 1;");
+		scrivi_riga(" ", "    opens in any zpaq");
 		scrivi_riga(" ", "  bz2: ZPAQBZ2, EXPERIMENTAL. bzip2's format with bz2-ng, faster (levels as bzip2);");
 		scrivi_riga(" ", "    opens in any zpaq");
 		scrivi_riga(" ", "  bzip3: ZPAQBZIP3, BWT+CM (level=block_size/100K, default 9); opens in any zpaq");
@@ -69837,6 +69838,17 @@ int Jidac::loadparameters(int argc, const char** argv)
 						seppuku(2);
 					}
 					g_ma_level=atoi(lv.c_str());
+					/// Fast levels below 1 are written with a leading zero: 01 is -1, 02 is
+					/// -2 (sylz's -2 and -1, its fastest). A plain 0 stays 0.
+					if (lv.size()>1 && lv[0]=='0')
+					{
+						if (g_ma_algorithm!="sylz")
+						{
+							myprintf("00563! -ma:%s has no fast levels below 1 (%s)\n", g_ma_algorithm.c_str(), lv.c_str());
+							seppuku(2);
+						}
+						g_ma_level= -atoi(lv.c_str()+1);
+					}
 				}
 				else
 				{
@@ -69883,6 +69895,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 				 || g_ma_algorithm=="brotli" || g_ma_algorithm=="deflate" || g_ma_algorithm=="lz")
 				{
 					if (g_ma_level<0) g_ma_level=0;
+				}
+				/// sylz: -2 and -1 (written 02 and 01) are its fastest levels; 0 is its
+				/// default, 1
+				else if (g_ma_algorithm=="sylz")
+				{
+					if (g_ma_level<-2) g_ma_level=-2;
+					if (g_ma_level==0) g_ma_level=1;
 				}
 				else if (g_ma_level<1) g_ma_level=1;
 				if (g_ma_algorithm=="zstd")
@@ -123819,7 +123838,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 					sb.reset();
 					sb.write(sybuf,(size_t)zr+4);
 					m="zpaqsylz:"+itos(libzpaq::zpaqsylz_ph(ctrl))+":"+itos(orig_size)+":"+hx;
-					ma_comment="zpaqstd-ma2:sylz2:"+itos(g_ma_level)+":"+itos(orig_size);
+					ma_comment="zpaqstd-ma2:sylz2:"+(g_ma_level<0 ? "-"+itos(-g_ma_level) : itos(g_ma_level))+":"+itos(orig_size);
 				}
 				delete[] sybuf;
 			}
