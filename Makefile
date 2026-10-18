@@ -490,7 +490,33 @@ plugins/codecs/%$(PLUGEXT): compressors/plug/zs_%.cpp compressors/plug/zs_codec.
 
 plugins:
 	@mkdir -p plugins/codecs
-	$(MAKE) --no-print-directory PLUGINS=1 plugins/zpaq-std $(PLUGIN_FILES)
+	$(MAKE) --no-print-directory PLUGINS=1 plugins/zpaq-std $(PLUGIN_FILES) $(FPC_PLUGIN_FILES)
+
+# Codecs in Free Pascal (or Rust) are, by rule, never linked into zpaq-std: both
+# builds load them from codecs/ (ZS_PLUGIN_ONLY in zpaq-std.cpp). make fpc-plugins
+# builds just them, into plugins/codecs/, for the release next to the full binary.
+# FPC is the compiler for the target: fpc for Linux x64 and Windows x64; for
+# Windows x86 a cross ppc386 and its RTL, FPC=.../ppc386 FPCUNITS=-Fu.../i386-win32.
+FPC ?= fpc
+FPCUNITS ?=
+FPC_PLUGIN_CODECS := sylz
+FPC_PLUGIN_FILES := $(addprefix plugins/codecs/,$(addsuffix $(PLUGEXT),$(FPC_PLUGIN_CODECS)))
+ifneq (,$(findstring x86_64-w64-mingw32,$(CROSS_COMPILE)))
+  FPCTARGET := -Twin64
+  FPCLIB := sylz_zpaqstd.dll
+else ifneq (,$(findstring i686-w64-mingw32,$(CROSS_COMPILE)))
+  FPCTARGET := -Twin32
+  FPCLIB := sylz_zpaqstd.dll
+else
+  FPCTARGET := -Cg
+  FPCLIB := libsylz_zpaqstd.so
+endif
+fpc-plugins: $(FPC_PLUGIN_FILES)
+
+plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylz_zpaqstd.pas
+	@mkdir -p plugins/codecs plugins/fpc-sylz
+	$(FPC) -O3 -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/sylz -FUplugins/fpc-sylz -FEplugins/fpc-sylz compressors/sylz/sylz_zpaqstd.pas
+	mv -f plugins/fpc-sylz/$(FPCLIB) $@
 
 compressors/plug/zs_%.o: compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
 	$(CXX) $(ZPAQ_CXXFLAGS) $(PLUGINC_$*) -c $< -o $@

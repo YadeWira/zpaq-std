@@ -1,0 +1,10 @@
+sylz (format v2), from syc v0.2.2 (tag v0.2.2, commit 2463867, 2026-10-17),
+https://github.com/YadeWira/syc. MIT, see LICENSE. Files copied unmodified:
+src/sylz.pas and plugin/sylz_zpaqstd.pas (the zpaq-std plugin adapter).
+
+Free Pascal: by the project's rule, a codec in Rust or Free Pascal is built only as a
+plugin (codecs/sylz.dll or sylz.so), never linked into zpaq-std itself. Its blocks
+carry ZPAQSYLZ (compressors/zpaqsylz), so any zpaq extracts them without the plugin.
+Experimental: a later sylz format gets a new decoder (ZPAQSYLZ3, tag sylz3), and
+blocks written now keep theirs.
+Do not patch these files here: send changes to the syc repository.
