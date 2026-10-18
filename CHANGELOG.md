@@ -1,3 +1,35 @@
+### [1.0.1] - 2026-10-17
+
+Two library updates, `-ma:bz2` (experimental) to a newer bz2-ng and `-ma:lz5` to lz5-ex 1.5.3, and the licence notices that the Windows binaries were missing.
+
+#### `-ma:bz2`: bz2-ng b2fbb2f
+
+[bz2-ng](https://github.com/tfenne/bz2-ng) goes from commit 63987e0 to b2fbb2f (it has no release yet): a new decoder, encoder and block sorter. Inside zpaq-std, on 22 MB of mixed files with one thread, `-ma:bz2:9` extracts about 10% faster than in 1.0.0 and compresses about as fast; against `-ma:bzip2:9` it is about 2.4× as fast to compress and 2× as fast to extract, for the same size.
+
+- The format is bzip2's, so the ZPAQL decoder (ZPAQBZ2) does not change: every zpaq extracts these archives as before, and `-ma:bz2` archives are byte for byte those of 1.0.0.
+- bz2-ng now applies three patches of its own to libsais. The build applies them to a copy, as bz2-ng's CMake does, and checks the result against bz2-ng's SHA-256 sums.
+- New in THIRD-PARTY-LICENSES.txt: sais-lite 2.4.1 (Yuta Mori, MIT), used by bz2-ng's sorter.
+
+`-ma:bz2` stays **experimental** until bz2-ng has a release: zpaq-std says so (`00603!`) every time it is used, and you use it at your own risk. Archives already written stay readable, by zpaq-std and by any other zpaq.
+
+#### `-ma:lz5`: lz5-ex 1.5.3
+
+[lz5-ex 1.5.3](https://github.com/YadeWira/lz5-ex/releases/tag/v1.5.3) changes its `lz5` program and `lz5frame.c`, which zpaq-std does not bundle; `lz5.c` and `lz5hc.c` are those of 1.5.2. `-ma:lz5` archives are byte for byte those of 1.0.0.
+
+#### Licences: the mingw-w64 runtime in the Windows binaries
+
+The Windows binaries and plugin DLLs link the mingw-w64 runtime statically, and its notices were missing from THIRD-PARTY-LICENSES.txt: the CRT and libmingwex (ZPL-2.1), gdtoa (Lucent, David M. Gay), the printf family (Keith Marshall) and winpthreads (MIT, with `pthread.h` under BSD-3-Clause, Lockless Inc.). They are now its part 3. This applies to the binaries of every earlier release too. Reported by the maintainer of the zpaq-std GUI.
+
+#### Checked
+
+- Linux, with the release binary: `-ma:bz2` at levels 1, 2, 5 and 9 and `-ma:lz5` at 1, 9 and 15, `lz5f` and `lz5hc` write archives byte for byte identical to 1.0.0's; the `-ma:bz2` plugin writes the same archive as the full binary. An archive of 82 mixed files written with `-ma:bz2:9` extracts identically with zpaq 7.15, zpaqfranz 65.4m and 65.11.
+- bz2-ng b2fbb2f, built as zpaq-std builds it: `codec_check` under AddressSanitizer, 840 blocks at levels 1, 5 and 9, 0 failures; its streams equal libbz2 1.0.8's on 736 of 738 file and level pairs, and the other two (an exactly periodic input at levels 1 and 2) are the case bz2-ng documents, decode identically, and are the same with the bz2-ng of 1.0.0.
+- Windows 7 x64 and x86, with the release binaries: `-ma:bz2:1`, `-ma:bz2:9`, `-ma:lz5:9`, `-ma:lz5f` and `-m1`: `t` and `x` pass, all 20 extractions have identical sha256, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, 1.0.0 and 1.0.1: 20/20.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.0.0: 0 divergences.
+
 ### [1.0.0] - 2026-10-17
 
 The first stable release of zpaq-std, after 64 pre-releases. It is the same program as 0.0.1-pre64, plus one fix for `-tar` inherited from zpaqfranz 65.4m (ZF's BUG-021).
