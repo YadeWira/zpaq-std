@@ -40,7 +40,7 @@ folder under compressors/.
                           sais-lite by Yuta Mori                  WITH LLVM-exception
   libdeflate 1.26         Eric Biggers                            MIT
   Lizard 2.1              Yann Collet, Przemyslaw Skibinski       BSD-2-Clause
-  lz5-ex 1.5.2            Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira
+  lz5-ex 1.5.3            Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira
                                                                   BSD-2-Clause
   lz6                     Yann Collet (LZ4), YadeWira             BSD-2-Clause
   Snappy 1.2.1            Google Inc.                             BSD-3-Clause

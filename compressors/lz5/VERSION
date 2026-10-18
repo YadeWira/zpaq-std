@@ -1,8 +1,9 @@
-lz5-ex v1.5.2 (tag v1.5.2, commit 1bcccdd, 2026-10-09), from
+lz5-ex v1.5.3 (tag v1.5.3, commit 7e4388e, 2026-10-17), from
 https://github.com/YadeWira/lz5-ex (a fork of LZ5 1.5 by Yann Collet and Przemyslaw
 Skibinski). BSD 2-Clause, see LICENSE. Files copied unmodified from lib/: lz5.c,
 lz5hc.c, lz5.h, lz5hc.h, lz5common.h, mem.h. zpaq-std 65.4m-pre56 and pre57 used
-lz5-ex commit 5541227; up to pre55 these were LZ5 1.5 (tag v1.5 of
+lz5-ex commit 5541227, pre58 to 1.0.0 lz5-ex v1.5.2 (lz5.c and lz5hc.c are the
+same in 1.5.3: it changes lz5frame.c, not bundled, and the version); up to pre55 these were LZ5 1.5 (tag v1.5 of
 inikep/lizard), byte for byte.
 
 Same block format as LZ5 1.5, so the ZPAQLZ5 decoder in every -ma:lz5 block is

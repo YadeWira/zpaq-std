@@ -32,4 +32,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return r >= 0 ? (long long)r : -1;
 }
 
-ZS_DEFINE_CODEC(lz5, "lz5-ex 1.5.2", 1, 15, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(lz5, "lz5-ex 1.5.3", 1, 15, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
