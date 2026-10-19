@@ -1,3 +1,9 @@
+lz6 lib/ v1.6.12-pre (tag v1.6.12-pre, commit ecbbaa7, 2026-10-19): lz6.c, lz6hc.c,
+lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since 52076b2 are in
+lz6's seq engine (the newer format); the LZ5 v1.5 "portable profile" that -ma:lz6
+writes comes out byte for byte the same at levels 0 to 15 (checked on 82 files).
+
+Before (up to zpaq-std 1.1.0):
 lz6 lib/, frozen at commit 52076b2 (lz6 master, 2026-09-27), with two HC fixes
 found through zpaq-std: c483e96 "never write past the output buffer" (the HC
 parsers could write more than LZ6_compressBound on data LZ cannot compress: 732 KB
