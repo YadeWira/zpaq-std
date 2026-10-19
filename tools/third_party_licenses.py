@@ -54,7 +54,7 @@ BUNDLED = [
     ('libdivsufsort', '2.0 (stripped)', 'MIT', 'Yuta Mori', ['libdivsufsort/LICENSE'], ''),
     ('zxc', '0.15.0', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
      ['compressors/zxc/LICENSE', 'compressors/zxc/LICENSE-rapidhash'], ''),
-    ('sylz', 'syc v0.2.5', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
+    ('sylz', 'syc v0.2.6', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as a plugin (codecs/sylz.dll or sylz.so): it is in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],
