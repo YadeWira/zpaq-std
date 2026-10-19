@@ -22,7 +22,7 @@ ok() { casos=$((casos+1)); [ "$2" = ok ] || malos=$((malos+1)); printf '  %-46s 
 
 sin/zpaq-std a n.zpaq $SRC/deep -ma:sylz </dev/null >n.log 2>&1; rc=$?
 [ $rc = 2 ] && grep -qa '00605' n.log && r=ok || r="rc=$rc sin 00605"; ok "sin plugin, a se niega" "$r"
-for l in 0 1 6 10; do
+for l in 0 1 2 3 6 10; do
   rm -rf x; con/zpaq-std a s$l.zpaq $SRC/tree -ma:sylz:$l </dev/null >a.log 2>&1; ra=$?
   r=ok; [ $ra = 0 ] || r="a rc=$ra"
   grep -qa '00603' a.log || r="$r sin-aviso-experimental"
