@@ -1,3 +1,42 @@
+### [1.2.0] - 2026-10-19
+
+A new experimental codec, `-ma:zxc`; sylz updated to syc v0.2.7, with its levels renumbered 0 to 10; and lz6 v1.6.12-pre.
+
+#### `-ma:zxc` (experimental)
+
+[zxc](https://github.com/hellobertrand/zxc) 0.15.0 by Bertrand Lebonnois (BSD-3-Clause), a fast LZ built for decompression speed. Levels 1 to 7, default 3; levels 6 and 7 add Huffman coding.
+
+- It is C, so it is inside the full program, and a plugin in the plugins download. Its core is built once per instruction set (default, AVX2, AVX-512) and the right one is chosen at run time, as zxc itself does.
+- **Any zpaq opens its archives.** Every block carries ZPAQZXC, a decoder in ZPAQL written for zpaq-std from zxc's format specification (format 9): its block types, RLE and Huffman literals, and Huffman tokens. zpaq 7.15 and zpaqfranz extract every level.
+- **Damaged blocks end quickly.** The decoder checks the Huffman tables and never writes more than the block's original size.
+- **It is experimental:** zpaq-std says so (`00603!`) each time it is used, and you use it at your own risk. zxc is at 0.x; a later format gets a new decoder, and archives already written stay readable through the decoder they carry.
+
+#### `-ma:sylz`: syc v0.2.7, levels 0 to 10
+
+- syc renumbered sylz's levels: `-ma:sylz:0` is now the fastest, up to `-ma:sylz:10`; the default is still 1. A level written with a leading zero is refused.
+- The plugin and zpaq-std both refuse a sylz block that claims to be sylz's newer format (v3). Such a block can only come from a crafted archive, and syc 0.2.4 to 0.2.6, never released in zpaq-std, wrote one byte out of bounds on one.
+- The format is the same (v2): ZPAQSYLZ does not change, and archives from 1.1.0 extract as before.
+
+#### `-ma:lz6`: lz6 v1.6.12-pre
+
+lz6's changes are in its newer "seq" engine. `-ma:lz6` writes lz6's portable profile, and its archives are byte for byte those of 1.1.0 at every level.
+
+#### Downloads
+
+As in 1.1.0: the full program, `extra-codecs.zip` (the plugin-only codecs, sylz, to put next to it) and `plugins.zip` (every codec as a plugin), per platform; `THIRD-PARTY-LICENSES.txt` (zxc and rapidhash added) and `SHA256SUMS.txt`.
+
+#### Checked
+
+- zxc's decoder in ZPAQL (4,804 bytes): 574 blocks (82 mixed files, levels 1 to 7) decode identically to the library, as frames of 512 KB and 2 MB blocks too; 600 damaged frames end in at most 0.03 s, never past the original size. In zpaq 7.15 it runs at 58–73 MB/s at level 3 and 27–33 MB/s at level 7 (with JIT).
+- Linux, release binary: `-ma:zxc` at every level passes `a`, `t` and `x`, and zpaq 7.15 and zpaqfranz 65.4m extract it identically; the full program and the plugins download write byte-identical archives (zxc 3 and 7, sylz 3).
+- sylz: the plugins are byte for byte those of syc's v0.2.7 release on all three platforms; `suite_sylz.sh` (levels 0, 1, 2, 3, 6, 10, with the plugin, without it and in zpaq 7.15): 8/8; a crafted sylz2 block marked as v3 is refused (31319) and the plugin never sees it; `-ma:sylz` archives written by 1.1.0 extract with 1.2.0, with and without the plugin.
+- lz6: `-ma:lz6` at levels 0 to 15 writes byte for byte the archives of 1.1.0.
+- Windows 7 x64 and x86, with the release binaries: `-ma:zxc:3`, `-ma:zxc:7`, `-ma:lz6:9` and `-m1`: 16/16 extractions identical, and archives made on Windows extract on Linux with zpaq 7.15, zpaqfranz, 1.1.0 and 1.2.0; `-ma:sylz:0` and `:10` with the extra-codecs DLLs: 15/15, and without the DLL `a` stops with `00605!`.
+- Full test battery:
+  - every suite has 0 cases to review (`suite_ma_corre` 39/39 and `suite_ma_hostil` 29/29, both with zxc now);
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.1.0: 0 divergences.
+
 ### [1.1.0] - 2026-10-18
 
 A new experimental codec, `-ma:sylz`, and a new rule: codecs written in Rust or Free Pascal ship only as plugins, never inside the program.
