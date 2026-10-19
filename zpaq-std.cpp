@@ -78867,7 +78867,12 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(sylzp_orig);
 				const zs_codec* zc=zs_get("sylz");
-				const long long zr=zc ? zc->decompress(out.data()+4, out.size()-4, &decomp2[0], (size_t)sylzp_orig, 0) : -1;
+				/// A sylz2 block is format v2: bit 31 of its first u32 is format v3's mark,
+				/// and a v3 block in a sylz2 slot can only come from a crafted archive.
+				/// Refused here, before any plugin sees it (syc 0.2.4 to 0.2.6 decoded v3
+				/// too, and wrote a byte out of bounds on one such chunk).
+				const bool v3=((unsigned char)out.data()[7] & 0x80)!=0;
+				const long long zr=(zc && !v3) ? zc->decompress(out.data()+4, out.size()-4, &decomp2[0], (size_t)sylzp_orig, 0) : -1;
 				if (zr!=sylzp_orig)
 					error("31319 sylz decompression failed");
 				out.reset();
