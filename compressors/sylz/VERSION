@@ -1,4 +1,4 @@
-sylz (format v2), from syc v0.2.6 (tag v0.2.6, commit e860d96, 2026-10-19; a pre-release),
+sylz (format v2), from syc v0.2.7 (tag v0.2.7, commit ba35329, 2026-10-19; a pre-release),
 https://github.com/YadeWira/syc. MIT, see LICENSE. Files copied unmodified:
 src/sylz.pas, src/sylzhuf.pas and plugin/sylz_zpaqstd.pas (the zpaq-std plugin adapter).
 

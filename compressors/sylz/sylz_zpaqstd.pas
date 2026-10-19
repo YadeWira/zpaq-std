@@ -100,6 +100,10 @@ begin
   { param: sylz needs nothing from the block header }
   if (n > SizeUInt(High(SizeInt))) or (cap > MAX_BLOCK) then
     Exit(ZS_ERR_DATA);
+  { format v2 only (the contract): bit 31 of a block's first u32 flags
+    format v3, which SylzDecompress would read too }
+  if (n >= 4) and (PByte(src)[3] and $80 <> 0) then
+    Exit(ZS_ERR_DATA);
   r := SylzDecompress(src, SizeInt(n), dst, SizeInt(cap));
   if r < 0 then
     Exit(ZS_ERR_DATA);
@@ -110,7 +114,7 @@ const
   Codec: TZsCodec = (
     abi: ZS_CODEC_ABI;
     name: 'sylz';
-    library_: 'sylz format v2 (syc 0.2.6)';
+    library_: 'sylz format v2 (syc 0.2.7)';
     min_level: SYLZ_MINLEVEL;   { 0 = fastest; the default is 1 }
     max_level: SYLZ_MAXLEVEL;
     bound: @CodecBound;
