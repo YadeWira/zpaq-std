@@ -229,6 +229,12 @@ per platform:
 The interface is a few C functions (`compressors/plug/zs_codec.h`); see
 [`compressors/plug/README.md`](compressors/plug/README.md).
 
+**A codec that is not part of zpaq-std** can be used without rebuilding it: put its
+plugin in `codecs/` and use `-mat:<file>:<codec>:<level>` to test it (every block is
+shown and checked) or `-mae:...` for a finished one (it must carry its own ZPAQL
+decoder, and zpaq-std warns that it is not an official codec). See
+[`compressors/plug/README.md`](compressors/plug/README.md#a-codec-that-is-not-part-of-zpaq-std--mae-and--mat).
+
 The Windows build is a self-contained `zpaq-std.exe` that runs on a clean Windows
 7+ box. The 32-bit Windows build compresses with at most 2 threads and is
 large-address-aware (4 GB of address space on 64-bit Windows). More in the

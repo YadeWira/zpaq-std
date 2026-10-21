@@ -33,6 +33,59 @@ extract through their ZPAQL decoder. lz5's plugin serves `-ma:lz5`, `lz5hc` and
 `lz5f` (the level carries the mode); `-ma:lz` writes LZMA blocks that the `lzma`
 plugin decodes.
 
+## A codec that is not part of zpaq-std: -mae and -mat
+
+A codec can be used in real archives without rebuilding zpaq-std. Put its plugin in
+`codecs/` and name it on the command line, without the extension:
+
+```
+zpaq-std a test.zpaq files -mat:<file>:<codec>[:<level>]     test (for its developer)
+zpaq-std a data.zpaq files -mae:<file>:<codec>[:<level>]     external (a finished codec)
+```
+
+`<file>` is `codecs/<file>.dll` or `.so`, `<codec>` one of the codecs in it, and
+`<level>` one of its levels (by default 1, or its lowest). The names may hold only
+letters, digits, `_`, `-` and `.`: a codec is loaded from `codecs/` and nowhere else.
+
+The plugin uses the interface above, with two optional additions (`zs_codec.h`):
+
+- **Several codecs in one file**: export `zpaqstd_codecs_v1(int i)`, returning the
+  i-th codec or NULL past the last one. A file with only `zpaqstd_codec_v1()` holds
+  one codec.
+- **Its ZPAQL decoder**: `data(ZS_DATA_ZPAQL, &size)` returns a whole ZPAQL
+  configuration as text. Every block carries it, so any zpaq opens the archive
+  without the plugin. It decodes a segment made of the original size (u32 little
+  endian) followed by what `compress()` wrote, and must output exactly the original
+  bytes. In the text, `$1` is log2 of the segment size and `$2` log2 of the original
+  size, both rounded up, for sizing H and M (`comp 0 0 0 $1+1 0`).
+
+| | `-mae` (external) | `-mat` (test) |
+|---|---|---|
+| for | finished codecs from third parties | developing a codec |
+| ZPAQL decoder | **required**: the archive opens in any zpaq, whatever happens to the plugin | optional |
+| message | `00606!`: not an official zpaq-std codec, its support is not guaranteed | the plugin's details, then every block |
+| block tag | `zpaqstd-mae:` | `zpaqstd-mat:` |
+
+**What `-mat` shows**: the plugin (path, the codecs in the file, library, interface,
+levels, whether it gives a ZPAQL decoder and its size), and for every block its sizes,
+ratio and compression time, decoded back by the plugin and by the ZPAQL decoder and
+compared (`OK`, `WRONG`, or the ZPAQL's error). Extracting a `-mat` archive says, for
+every block, whether the plugin or the ZPAQL decoded it.
+
+**A `-mat` codec without a ZPAQL decoder**: allowed, so that a compressor can be tried
+before its decoder is written. For safety, its blocks carry a decoder that writes
+nothing (ZPAQEXTNONE): any other zpaq reports them as damaged, instead of handing back
+the compressed bytes as if they were the file. Only zpaq-std with that plugin extracts
+them; without it, `31321` names the plugin it needs.
+
+**Extraction**: zpaq-std decodes a block with the plugin only if the block's ZPAQL
+program is, byte for byte, the one the plugin gives now. If a later version of the
+plugin changed its format (and so its decoder), the block's own decoder runs instead,
+which is always right.
+
+[`tools/plugin_example/zs_example.c`](../../tools/plugin_example/zs_example.c) is a
+complete plugin with two codecs: `rle`, with its ZPAQL decoder, and `rlenz`, without.
+
 ## Plugin-only codecs: Rust and Free Pascal
 
 A codec written in Rust or Free Pascal is, by rule, **never linked into zpaq-std**:
