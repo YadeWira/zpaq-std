@@ -21,6 +21,19 @@
 
   and zpaq-std refuses a plugin whose abi or name do not match.
 
+  Codecs that are not part of zpaq-std (-mae and -mat, see compressors/plug/
+  README.md) use the same interface, with two optional additions:
+  - several codecs in one file: the plugin also exports
+        const zs_codec* zpaqstd_codecs_v1(int i);
+    which returns its i-th codec (from 0), or NULL past the last one;
+  - the codec's own ZPAQL decoder: data(ZS_DATA_ZPAQL, &size) returns its text,
+    a whole configuration ("comp ... hcomp ... pcomp ... end"). zpaq-std writes
+    it into every block, so that any zpaq opens the archive without the plugin.
+    The segment it decodes is the original size (u32 little endian) followed by
+    what compress() wrote; it must output exactly the original bytes. $1 in the
+    text is log2 of the segment size and $2 log2 of the original size, both
+    rounded up, for sizing H and M (for instance "comp 0 0 0 $1+1 0").
+
   zpaq-std, 2026. MIT licence.
 */
 #ifndef ZS_CODEC_H
@@ -74,10 +87,13 @@ typedef struct zs_codec {
 
 #define ZS_QUERY_FIRST_PRE 1  /* kanzi: the length of the first pre-transform */
 #define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
+#define ZS_DATA_ZPAQL      2  /* -mae/-mat: the codec's ZPAQL decoder, as text */
 
 typedef const zs_codec* (*zs_codec_entry)(void);
 
 #define ZS_CODEC_ENTRY "zpaqstd_codec_v1"
+typedef const zs_codec* (*zs_codec_list_entry)(int i);
+#define ZS_CODEC_LIST_ENTRY "zpaqstd_codecs_v1"
 
 #ifdef _WIN32
 #define ZS_CODEC_EXPORT __declspec(dllexport)
