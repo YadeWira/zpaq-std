@@ -44,7 +44,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 | **yes** (ZPAQDEFLATE) |
 | `-ma:lizard:N` | [Lizard](https://github.com/inikep/lizard) 2.1 | 10–49 | 17 | **yes** (ZPAQLIZARD, ZPAQLIZARDH) |
 | `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.3 (fork of LZ5 1.5; same format) | 1–15 | 9 | **yes** (ZPAQLZ5) |
-| `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 1 | **yes** (ZPAQSNAPPY) |
+| `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 | **yes** (ZPAQSNAPPY) |
 | `-ma:lzfse` | [LZFSE](https://github.com/lzfse/lzfse) (Apple) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
 | `-ma:hs:N` | [heatshrink](https://github.com/atomicobject/heatshrink) 0.4.1 | 0–2 | 1 | **yes** (ZPAQHS) |
 | `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 | **yes** (ZPAQBZIP3) |

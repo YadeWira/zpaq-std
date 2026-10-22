@@ -30110,8 +30110,8 @@ static const zs_info_row ZS_INFO[]=
 	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "lz5's high-compression parser; same plugin as lz5"},
 	{"lz5f", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
 	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "same plugin as lz5"},
-	{"snappy", false, 1, 2, 1, "ZPAQSNAPPY", "Snappy 1.3.1", "Google Inc.", "https://github.com/google/snappy",
-	 "BSD-3-Clause", "release 1.3.1", "raw Snappy", ""},
+	{"snappy", false, 1, 2, 2, "ZPAQSNAPPY", "Snappy 1.3.1", "Google Inc.", "https://github.com/google/snappy",
+	 "BSD-3-Clause", "release 1.3.1", "raw Snappy", "level 2 compresses more, at the same decompression speed"},
 	{"lzfse", false, 0, 1, 1, "ZPAQLZFSE", "LZFSE", "Apple Inc.", "https://github.com/lzfse/lzfse",
 	 "BSD-3-Clause", "-", "LZFSE stream", "LZFSE has one internal level"},
 	{"hs", false, 0, 2, 1, "ZPAQHS", "heatshrink 0.4.1", "Scott Vokes", "https://github.com/atomicobject/heatshrink",
@@ -67955,7 +67955,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "    opens in any zpaq");
 		scrivi_riga(" ", "  bzip3: ZPAQBZIP3, BWT+CM (level=block_size/100K, default 9); opens in any zpaq");
 		scrivi_riga(" ", "  brotli: ZPAQBROTLI, Google (0=fast, 11=default/max); opens in any zpaq");
-		scrivi_riga(" ", "  snappy: ZPAQSNAPPY, Google (very fast, like lz4); opens in any zpaq");
+		scrivi_riga(" ", "  snappy: ZPAQSNAPPY, Google (very fast, like lz4; 1=fastest, 2=default); opens in any zpaq");
 		scrivi_riga(" ", "  deflate: ZPAQDEFLATE, libdeflate (0=stored, 6=default, 12=best); opens in any zpaq");
 		scrivi_riga(" ", "  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq");
 		scrivi_riga(" ", "  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq");
@@ -70741,7 +70741,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					else if (g_ma_algorithm=="kanzi") g_ma_level=2;
 					else if (g_ma_algorithm=="lizard") g_ma_level=17;
 					else if (g_ma_algorithm=="brotli") g_ma_level=11;
-					else if (g_ma_algorithm=="snappy") g_ma_level=1;
+					else if (g_ma_algorithm=="snappy") g_ma_level=2;
 					else if (g_ma_algorithm=="deflate") g_ma_level=6;
 					else if (g_ma_algorithm=="lz") g_ma_level=6;
 					else if (g_ma_algorithm=="lzav") g_ma_level=1;
