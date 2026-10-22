@@ -30130,7 +30130,7 @@ static const zs_info_row ZS_INFO[]=
 	 "BSD-2-Clause", "v1.6.12-pre, commit ecbbaa7", "LZ5 1.5 portable profile (frozen)", "its compression and levels may change; the block format does not"},
 	{"bz2", true, 1, 9, 9, "ZPAQBZ2", "bz2-ng a655623", "Tim Fennell; Julian R Seward (bzip2); Eric Biggers (libdeflate); Yuta Mori (sais-lite); Ilya Grebnov (libsais)", "https://github.com/tfenne/bz2-ng",
 	 "MIT; parts BSD-style, MIT and Apache-2.0 WITH LLVM-exception", "commit a655623 (no release yet)", "bzip2 stream", "libbz2 1.0.8's format with a new encoder and decoder"},
-	{"zxc", true, 1, 7, 3, "ZPAQZXC", "zxc 0.15.0", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
+	{"zxc", false, 1, 7, 3, "ZPAQZXC", "zxc 0.15.0", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
 	 "BSD-3-Clause; rapidhash MIT", "v0.15.0, commit 2d29ab6", "zxc format 9", "levels 6 and 7 add Huffman"},
 	{"sylz", true, 0, 10, 1, "ZPAQSYLZ", "sylz (syc v0.2.7)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
 	 "MIT", "syc v0.2.7, commit ba35329", "sylz format v2", "Free Pascal, so a plugin only (codecs/sylz)"},
@@ -67940,19 +67940,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)");
 		scrivi_riga(" ", "  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq");
 		scrivi_riga(" ", "  bzip2: ZPAQBZIP2, BWT+HF (1=fast/100K, 9=best/900K, default 9); opens in any zpaq");
-		scrivi_riga("-mae:file:codec:N", "A codec that is NOT part of zpaq-std, from codecs/file.dll or .so");
-		scrivi_riga(" ", "    (external, finished codecs): it must give its ZPAQL decoder, which every block");
-		scrivi_riga(" ", "    carries, so the archive opens in any zpaq. zpaq-std does not guarantee its support");
-		scrivi_riga("-mat:file:codec:N", "The same, to TEST a codec: shows the plugin and every block (sizes,");
-		scrivi_riga(" ", "    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its");
-		scrivi_riga(" ", "    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)");
-		scrivi_riga("-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):");
-		scrivi_riga(" ", "    each file goes, by its contents, to the first codec that takes it (more codecs:");
-		scrivi_riga(" ", "    -sae:file:c1+N:c2+N), alone in its block; the rest as -m/-ma say. Like -mae, it");
-		scrivi_riga(" ", "    needs their ZPAQL decoders. Every block is decoded back before it is written");
-		scrivi_riga("-sat:file:codec+N", "The same, to TEST such codecs: shows which codec took each file, sizes, times,");
-		scrivi_riga(" ", "    and the block decoded back by the plugin and by its ZPAQL (like -mat)");
-		scrivi_riga(" ", "  zxc: ZPAQZXC, EXPERIMENTAL. zxc's fast LZ (very fast to decompress); levels 1-7,");
+		scrivi_riga(" ", "  zxc: ZPAQZXC, zxc's fast LZ (very fast to decompress); levels 1-7,");
 		scrivi_riga(" ", "    default 3 (6-7 with Huffman); opens in any zpaq");
 		scrivi_riga(" ", "  sylz: ZPAQSYLZ, EXPERIMENTAL. syc's fast LZ (Free Pascal), only as a plugin:");
 		scrivi_riga(" ", "    codecs/sylz.dll or sylz.so; levels 0-10 (0 the fastest), default 1;");
@@ -67970,6 +67958,18 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: sort transform ST3..ST5, default 3); opens in any zpaq");
 		scrivi_riga(" ", "  lzh: ZPAQLZHAM, richgel999 LZHAM (1..4: fastest..better, default 4); opens in any zpaq");
 		scrivi_riga(" ", "  ppmd: ZPAQPPMD, PPMd var.H (level = model order 2..32, default 6; 64 MB); opens in any zpaq");
+		scrivi_riga("-mae:file:codec:N", "A codec that is NOT part of zpaq-std, from codecs/file.dll or .so");
+		scrivi_riga(" ", "    (external, finished codecs): it must give its ZPAQL decoder, which every block");
+		scrivi_riga(" ", "    carries, so the archive opens in any zpaq. zpaq-std does not guarantee its support");
+		scrivi_riga("-mat:file:codec:N", "The same, to TEST a codec: shows the plugin and every block (sizes,");
+		scrivi_riga(" ", "    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its");
+		scrivi_riga(" ", "    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)");
+		scrivi_riga("-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):");
+		scrivi_riga(" ", "    each file goes, by its contents, to the first codec that takes it (more codecs:");
+		scrivi_riga(" ", "    -sae:file:c1+N:c2+N), alone in its block; the rest as -m/-ma say. Like -mae, it");
+		scrivi_riga(" ", "    needs their ZPAQL decoders. Every block is decoded back before it is written");
+		scrivi_riga("-sat:file:codec+N", "The same, to TEST such codecs: shows which codec took each file, sizes, times,");
+		scrivi_riga(" ", "    and the block decoded back by the plugin and by its ZPAQL (like -mat)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -71648,10 +71648,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 		if (g_ma_algorithm=="sylz")
 			myprintf("00603! sylz is EXPERIMENTAL: its format may change in future releases. Archives\n"
 			         "       already written stay readable (each block carries its decoder)\n");
-		/// zxc: formato 9, version 0.x: experimental, como sylz.
-		if (g_ma_algorithm=="zxc")
-			myprintf("00603! zxc is EXPERIMENTAL: its format may change in future releases. Archives\n"
-			         "       already written stay readable (each block carries its decoder)\n");
+		/// zxc salio de experimental (2026-10-21): bloques de hasta 163 MB, 1.424
+		/// archivos reales, 33.600 bloques danados y Win7 x64/x86. Si zxc cambia de
+		/// formato, el nuevo lleva otro decodificador y otra etiqueta (zxc10).
 	}
 	else if ((g_ma_algorithm!="") && ((command=='a') || (command=='Z')))
 	{

@@ -4,6 +4,6 @@ is rapidhash V3 by Nicolas De Carli, MIT (LICENSE-rapidhash). Files copied unmod
 include/*.h, src/lib/*.c and *.h, src/lib/vendors/rapidhash.h (not the CLI).
 zxc_compress.c, zxc_decompress.c and zxc_huffman.c are built three times, as zxc's
 CMake does (_default, _avx2, _avx512 on x86), and zxc_dispatch.c picks one at run time.
-Experimental: zxc's format is 0.x (format version 9); a later format gets a new decoder
+Stable in zpaq-std (out of experimental since 2026-10-21). zxc is 0.x (format version 9); a later format gets a new decoder
 (ZPAQZXC10, tag zxc10), and blocks written now keep theirs (ZPAQZXC).
 Do not patch these files here: send changes to the zxc repository.

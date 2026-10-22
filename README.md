@@ -52,6 +52,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:lzh:N` | [LZHAM](https://github.com/richgel999/lzham_codec) 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
 | `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet), kanzi's own levels: 1 = LZX, 2 = DNA + LZ + Huffman, 3 = TEXT + UTF + PACK + MM + LZX with Huffman, 4 = TEXT + UTF + EXE + PACK + MM + ROLZ, 5 = TEXT + UTF + BWT + RANK + ZRLT with ANS, 6 = the same with SRT and FPAQ, 7 = LZP + TEXT + UTF + BWT + LZP with CM, 8 = EXE + RLT + TEXT + UTF + DNA with TPAQ, 9 = the same with TPAQX (8–9 are slow and need a lot of memory in other zpaqs) | 1–9 | 2 | **yes** (ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B) |
+| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 (format 9), a fast LZ built for decompression speed; 6–7 add Huffman | 1–7 | 3 | **yes** (ZPAQZXC) |
 
 #### Experimental
 
@@ -64,7 +65,6 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit a655623 (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
-| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 (format 9), a fast LZ built for decompression speed; 6–7 add Huffman | 1–7 | 3 | **yes** (ZPAQZXC) |
 | `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.7, format v2), a fast LZ in Free Pascal. **Plugin only**: `codecs/sylz.dll` or `.so` (see below). Level 0 is the fastest | 0–10 | 1 | **yes** (ZPAQSYLZ) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
