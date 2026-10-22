@@ -1,3 +1,35 @@
+### [1.3.0] - 2026-10-21
+
+Codecs that are not part of zpaq-std can now be used without rebuilding it: `-mae` for finished external codecs, `-mat` for testing one while it is being written.
+
+#### `-mae` and `-mat`
+
+Put the codec's plugin in `codecs/` next to zpaq-std and name it, without the extension:
+
+```
+zpaq-std a test.zpaq files -mat:<file>:<codec>[:<level>]     test
+zpaq-std a data.zpaq files -mae:<file>:<codec>[:<level>]     external
+```
+
+The plugin uses the same interface as zpaq-std's own codec plugins (`compressors/plug/zs_codec.h`), with two optional additions: one file may hold several codecs, and a codec may give its own ZPAQL decoder, which every block then carries.
+
+- **`-mae` (external)** is for finished codecs from third parties. It **requires** the codec's ZPAQL decoder, so the archive opens in any zpaq even if the plugin is lost or changes; without one it refuses (`00620!`). Each time it says (`00606!`) that the codec is **not an official zpaq-std codec and its support is not guaranteed**.
+- **`-mat` (test)** is for the codec's developer. It shows the plugin (the codecs in the file, library, interface, levels, its ZPAQL decoder) and, for every block, sizes, ratio and times, decoding it back with the plugin and with the ZPAQL decoder and comparing. Extracting says, for every block, which of the two decoded it.
+- **A `-mat` codec without a ZPAQL decoder** is allowed, so that a compressor can be tried before its decoder is written. **For safety**, its blocks carry a decoder that writes nothing: any other zpaq reports them as damaged instead of handing back the compressed bytes as if they were the file, and only zpaq-std with that plugin extracts them (`31321` names the plugin it needs).
+- zpaq-std decodes a block with the plugin only if the block's ZPAQL decoder is, byte for byte, the one the plugin gives now; otherwise the block's own decoder runs. Plugin names may hold only letters, digits, `_`, `-` and `.`: a codec is loaded from `codecs/` and nowhere else.
+
+`tools/plugin_example/zs_example.c` is a complete plugin with two codecs (one with its ZPAQL decoder, one without), and `compressors/plug/README.md` and the wiki (Adding a compressor) describe the interface.
+
+#### Checked
+
+- `tools/plugin_example` (two RLE codecs, `rle` with its ZPAQL decoder and `rlenz` without), Linux, release binary: with `-mat:example:rle` every block is decoded back by the plugin and by its ZPAQL (`OK`), and the archive extracts identically with the plugin, with zpaq-std without it and with zpaq 7.15; with `rlenz`, zpaq-std without the plugin stops with `31321` and zpaq 7.15 gives no wrong data; `-mae` warns (`00606!`) and extracts; `-mae` without a ZPAQL decoder is refused (`00620!`); a plugin name with a path is refused (`00619!`). Same with the small program of the plugins download. New `test/testlab/suite_ext.sh`, in the battery: 5/5.
+- Windows 7 x64 and x86, release binaries with the example built as a DLL: `-mat` and `-mae` compress (one external block each, `plugin OK; ZPAQL OK`), and the four archives test and extract identically with the x64 DLL, the x86 DLL and without any (12/12); on Linux, zpaq 7.15 and zpaq-std, with and without the plugin, extract them identically.
+- Windows 7: `-ma:zxc:3`, `-ma:zstd:19`, `-ma:bz2:9` and `-m1`: 16/16 extractions identical; sylz with the extra-codecs DLLs: 15/15.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.2.0: 0 divergences.
+
 ### [1.2.0] - 2026-10-19
 
 A new experimental codec, `-ma:zxc`; sylz updated to syc v0.2.7, with its levels renumbered 0 to 10; and lz6 v1.6.12-pre.
