@@ -33,7 +33,7 @@ BUNDLED = [
     ('lz5-ex', '1.5.3', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('lz6', 'see compressors/lz6/VERSION', 'BSD-2-Clause', 'Yann Collet (LZ4), YadeWira', ['compressors/lz6/LICENSE'], ''),
-    ('Snappy', '1.2.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
+    ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
     ('LZFSE', '-', 'BSD-3-Clause', 'Apple Inc.', ['compressors/lzfse/LICENSE'], ''),
     ('heatshrink', '0.4.1', 'ISC', 'Scott Vokes', ['compressors/hs/LICENSE'], ''),
     ('bzip3', '1.5.5', 'LGPL-3.0-or-later', 'Kamila Szewczyk',
