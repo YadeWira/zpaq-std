@@ -30210,6 +30210,9 @@ static std::string zs_sha256_file(const std::string& i_path)
 		snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r[q]);
 	return std::string(hx, 64);
 }
+#ifdef _WIN32
+std::string wtou(const wchar_t *s);	/// defined further down
+#endif
 /// the plugins in codecs/ that are not zpaq-std's own (their names, no extension)
 static std::vector<std::string> zs_external_plugins()
 {
