@@ -89,7 +89,8 @@ those archives. No other zpaq ever read them.
 
 **Upgrading:** new versions read every archive made with ZPAQL decoders and every
 native one, and every zpaq-std from pre20 on reads what this version writes (by
-running the ZPAQL decoders).
+running the ZPAQL decoders). The one exception is a `-mat` test archive made with a
+codec that has no ZPAQL decoder: only zpaq-std with that codec's plugin extracts it.
 
 ### Example
 
@@ -286,8 +287,8 @@ tools that measure different things:
 | `os_msgs.sh A B` | destination shapes and the numbered messages — bare relative name, nonexistent chain, UTF-8, long paths, symlinks, unwritable directories, `-append` on an existing archive |
 | `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
 
-`suite_*.sh` add round-trip sweeps over all 25 `-ma` codecs, every command, and
-corruption/robustness cases; the corpus, golden archives and reference binaries
+`suite_*.sh` add round-trip sweeps over every `-ma` codec, every command,
+corruption/robustness cases, `-tar`, Ctrl+C, the sylz plugin and `-mae`/`-mat`; the corpus, golden archives and reference binaries
 live outside the repo, with their sha256 manifests committed.
 
 ---
