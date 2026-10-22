@@ -12,7 +12,7 @@ PART 1 - BUNDLED COMPRESSORS
   zstd                 1.5.7                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
   brotli               1.2.1                        MIT
   LZMA SDK             26.05                        Public domain
-  fast-lzma2           1.0.1                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
+  fast-lzma2           1.1.1                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
   ultra-fast-lzma2     1.6.2                        BSD-3-Clause
   lzlib                1.16                         BSD-2-Clause
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
@@ -21,7 +21,7 @@ PART 1 - BUNDLED COMPRESSORS
   Lizard               2.1                          BSD-2-Clause (library)
   lz5-ex               1.5.3                        BSD-2-Clause
   lz6                  see compressors/lz6/VERSION  BSD-2-Clause
-  Snappy               1.2.1                        BSD-3-Clause
+  Snappy               1.3.1                        BSD-3-Clause
   LZFSE                -                            BSD-3-Clause
   heatshrink           0.4.1                        ISC
   bzip3                1.5.5                        LGPL-3.0-or-later
@@ -106,11 +106,11 @@ The LZMA SDK is placed in the public domain. Every source file used here
 carries the notice "Igor Pavlov : Public domain".
 
 ===============================================================================
-fast-lzma2 1.0.1
+fast-lzma2 1.1.1
 Licence: BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
-Copyright: Conor McCarthy
-Parts based on zstd, copyright Yann Collet. The decoder carries a patch
-backported from ultra-fast-lzma2: see compressors/fl2/PATCHES.
+Copyright: Conor McCarthy; maintained by YadeWira
+Parts based on zstd, copyright Yann Collet. Version 1.1.1 is maintained in
+ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.
 
 Copyright 2018-present Conor McCarthy
 
@@ -677,7 +677,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-Snappy 1.2.1
+Snappy 1.3.1
 Licence: BSD-3-Clause
 Copyright: Google Inc.
 
