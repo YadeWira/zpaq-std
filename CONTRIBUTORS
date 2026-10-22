@@ -32,7 +32,7 @@ folder under compressors/.
   zstd 1.5.7              Meta Platforms, Inc. and affiliates     BSD-3-Clause
   brotli 1.2.0            Google Inc.                             MIT
   LZMA SDK 26.03          Igor Pavlov                             public domain
-  fast-lzma2 1.0.1        Conor McCarthy                          BSD-3-Clause
+  fast-lzma2 1.1.1        Conor McCarthy; YadeWira                BSD-3-Clause
   ultra-fast-lzma2 1.6.2  Conor McCarthy (fast-lzma2), YadeWira   BSD-3-Clause
   lzlib 1.16              Antonio Diaz Diaz                       BSD-2-Clause
   bzip2 1.0.8             Julian R Seward                         BSD-style

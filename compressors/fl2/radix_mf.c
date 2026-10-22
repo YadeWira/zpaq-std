@@ -228,7 +228,12 @@ FL2_matchTable* RMF_createMatchTable(const RMF_parameters* const p, size_t const
     tbl->unreduced_dict_size = unreduced_dict_size;
     tbl->builders = NULL;
 
-    RMF_applyParameters_internal(tbl, &params);
+    /* the per-thread builders are allocated here; a table without them would be
+     * returned as usable and every thread would dereference a NULL builder */
+    if (FL2_isError(RMF_applyParameters_internal(tbl, &params))) {
+        RMF_freeMatchTable(tbl);
+        return NULL;
+    }
 
     RMF_initListHeads(tbl);
 
@@ -288,6 +293,7 @@ void RMF_initTable(FL2_matchTable* const tbl, const void* const data, size_t con
 
 static void RMF_handleRepeat(RMF_buildMatch* const match_buffer,
     const BYTE* const data_block,
+    const BYTE* const data_block_end,
     size_t const next,
     U32 count,
     U32 const rpt_len,
@@ -299,8 +305,9 @@ static void RMF_handleRepeat(RMF_buildMatch* const match_buffer,
 
     const BYTE* const data = data_block + match_buffer[pos].from;
     const BYTE* const data_2 = data - rpt_len;
+    U32 block_max_len = MIN(max_len, (U32)(data_block_end - data));
 
-    while (data[length] == data_2[length] && length < max_len)
+    while (length < block_max_len && data[length] == data_2[length])
         ++length;
 
     for (; length <= max_len && count; --count) {
@@ -390,6 +397,7 @@ FORCE_INLINE_TEMPLATE
 void RMF_recurseListChunk_generic(RMF_builder* const tbl,
     const BYTE* const data_block,
     size_t const block_start,
+    size_t const block_end,
     U32 depth,
     U32 const max_depth,
     U32 list_count,
@@ -559,7 +567,7 @@ void RMF_recurseListChunk_generic(RMF_builder* const tbl,
                 size_t const next_link = tbl->match_buffer[next_index].from;
                 if ((link - next_link) > rpt_depth) {
                     if (rpt > 0)
-                        RMF_handleRepeat(tbl->match_buffer, data_block, rpt_head_next, rpt, rpt_dist, rpt_depth, tbl->max_len);
+                        RMF_handleRepeat(tbl->match_buffer, data_block, data_block + block_end, rpt_head_next, rpt, rpt_dist, rpt_depth, tbl->max_len);
 
                     rpt = -1;
                     U32 const prev = tbl->tails_8[radix_8].prev_index;
@@ -581,7 +589,7 @@ void RMF_recurseListChunk_generic(RMF_builder* const tbl,
                     U32 const dist = (U32)(link - next_link);
                     if (rpt < 0 || dist != rpt_dist) {
                         if (rpt > 0)
-                            RMF_handleRepeat(tbl->match_buffer, data_block, rpt_head_next, rpt, rpt_dist, rpt_depth, tbl->max_len);
+                            RMF_handleRepeat(tbl->match_buffer, data_block, data_block + block_end, rpt_head_next, rpt, rpt_dist, rpt_depth, tbl->max_len);
 
                         rpt = 0;
                         rpt_head_next = next_index;
@@ -608,7 +616,7 @@ void RMF_recurseListChunk_generic(RMF_builder* const tbl,
             } while (--list_count != 0);
 
             if (rpt > 0)
-                RMF_handleRepeat(tbl->match_buffer, data_block, rpt_head_next, rpt, rpt_dist, rpt_depth, tbl->max_len);
+                RMF_handleRepeat(tbl->match_buffer, data_block, data_block + block_end, rpt_head_next, rpt, rpt_dist, rpt_depth, tbl->max_len);
 
             size_t const radix_8 = tbl->match_buffer[pos].src.chars[slot];
             U32 const prev = tbl->tails_8[radix_8].prev_index;
@@ -656,6 +664,7 @@ void RMF_recurseListChunk_generic(RMF_builder* const tbl,
 void RMF_recurseListChunk(RMF_builder* const tbl,
     const BYTE* const data_block,
     size_t const block_start,
+    size_t const block_end,
     U32 const depth,
     U32 const max_depth,
     U32 const list_count,
@@ -667,9 +676,9 @@ void RMF_recurseListChunk(RMF_builder* const tbl,
     if (list_count <= MAX_BRUTE_FORCE_LIST_SIZE)
         RMF_bruteForceBuffered(tbl, data_block, block_start, 0, list_count, 0, depth, max_depth);
     else if (max_depth > 6)
-        RMF_recurseListChunk_generic(tbl, data_block, block_start, depth, max_depth, list_count, stack_base);
+        RMF_recurseListChunk_generic(tbl, data_block, block_start, block_end, depth, max_depth, list_count, stack_base);
     else
-        RMF_recurseListChunk_generic(tbl, data_block, block_start, depth, 6, list_count, stack_base);
+        RMF_recurseListChunk_generic(tbl, data_block, block_start, block_end, depth, 6, list_count, stack_base);
 }
 
 /* Iterate the head table concurrently with other threads, and recurse each list until max_depth is reached */
@@ -685,7 +694,8 @@ int RMF_buildTable(FL2_matchTable* const tbl,
     else
         RMF_bitpackBuildTable(tbl, job, multi_thread, block);
 
-    if (job == 0 && tbl->st_index >= RADIX_CANCEL_INDEX) {
+    /* the other threads may still be taking lists: an atomic load */
+    if (job == 0 && FL2_atomic_load(tbl->st_index) >= RADIX_CANCEL_INDEX) {
         RMF_initListHeads(tbl);
         return 1;
     }

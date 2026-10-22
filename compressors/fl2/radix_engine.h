@@ -20,8 +20,8 @@ static size_t RMF_handleRepeat(RMF_builder* const tbl, const BYTE* const data_bl
 
     /* Find the start */
     i += (4 - (i & 3)) & 3;
-    U32 u = *(U32*)(data_block + i);
-    while (i != 0 && *(U32*)(data_block + i - 4) == u)
+    U32 u = MEM_read32(data_block + i);
+    while (i != 0 && MEM_read32(data_block + i - 4) == u)
       i -= 4;
     while (i != 0 && data_block[i - 1] == (BYTE)u)
       --i;
@@ -51,8 +51,8 @@ static size_t RMF_handleRepeat2(RMF_builder* const tbl, const BYTE* const data_b
     /* Find the start */
     ptrdiff_t realign = i & 1;
     i += (4 - (i & 3)) & 3;
-    U32 u = *(U32*)(data_block + i);
-    while (i != 0 && *(U32*)(data_block + i - 4) == u)
+    U32 u = MEM_read32(data_block + i);
+    while (i != 0 && MEM_read32(data_block + i - 4) == u)
         i -= 4;
     while (i != 0 && data_block[i - 1] == data_block[i + 1])
         --i;
@@ -176,6 +176,7 @@ RMF_structuredInit
 static void RMF_recurseListsBuffered(RMF_builder* const tbl,
     const BYTE* const data_block,
     size_t const block_start,
+    size_t const block_end,
     size_t link,
     U32 depth,
     U32 const max_depth,
@@ -256,7 +257,7 @@ static void RMF_recurseListsBuffered(RMF_builder* const tbl,
             overlap = list_count >> MATCH_BUFFER_OVERLAP;
             overlap += !overlap;
         }
-        RMF_recurseListChunk(tbl, data_block, block_start, depth, max_depth, list_count, stack_base);
+        RMF_recurseListChunk(tbl, data_block, block_start, block_end, depth, max_depth, list_count, stack_base);
         orig_list_count -= (U32)(list_count - start);
         /* Copy everything back, except the last link which never changes, and any extra overlap */
         count -= overlap + (overlap == 0);
@@ -483,6 +484,7 @@ static void RMF_bruteForce(RMF_builder* const tbl,
 static void RMF_recurseLists16(RMF_builder* const tbl,
     const BYTE* const data_block,
     size_t const block_start,
+    size_t const block_end,
     size_t link,
     U32 count,
     U32 const max_depth)
@@ -589,6 +591,7 @@ static void RMF_recurseLists16(RMF_builder* const tbl,
         RMF_recurseListsBuffered(tbl,
             data_block,
             block_start,
+            block_end,
             link,
             (BYTE)depth,
             (BYTE)max_depth,
@@ -897,7 +900,8 @@ static void RMF_recurseListsReference(RMF_builder* const tbl,
 /* Atomically take a list from the head table */
 static ptrdiff_t RMF_getNextList_mt(FL2_matchTable* const tbl)
 {
-    if (tbl->st_index < tbl->end_index) {
+    /* a relaxed load: the increment below decides, this only avoids it when done */
+    if (FL2_atomic_load(tbl->st_index) < tbl->end_index) {
         long pos = FL2_atomic_increment(tbl->st_index);
         if (pos < tbl->end_index)
             return pos;
@@ -972,10 +976,10 @@ RMF_structuredBuildTable
         if (best && list_head.count > tbl->builders[job]->match_buffer_limit)
         {
             /* Not worth buffering or too long */
-            RMF_recurseLists16(tbl->builders[job], block.data, block.start, list_head.head, list_head.count, max_depth);
+            RMF_recurseLists16(tbl->builders[job], block.data, block.start, block.end, list_head.head, list_head.count, max_depth);
         }
         else {
-            RMF_recurseListsBuffered(tbl->builders[job], block.data, block.start, list_head.head, 2, (BYTE)max_depth, list_head.count, 0);
+            RMF_recurseListsBuffered(tbl->builders[job], block.data, block.start, block.end, list_head.head, 2, (BYTE)max_depth, list_head.count, 0);
         }
     }
 }

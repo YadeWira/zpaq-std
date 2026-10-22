@@ -410,12 +410,14 @@ static size_t FL2_compressCurBlock(FL2_CCtx* const cctx, int const streamProp)
     cctx->encWeight = encWeight;
 
 #ifndef FL2_SINGLETHREAD
-    if(cctx->compressThread != NULL)
+    if(cctx->compressThread != NULL) {
+        cctx->asyncPending = 1;
         FL2POOL_add(cctx->compressThread, FL2_compressCurBlock_async, cctx, streamProp);
-    else
+        /* the job writes asyncRes when done; its result is read after a wait, not here */
+        return FL2_error_no_error;
+    }
 #endif
-        cctx->asyncRes = FL2_compressCurBlock_blocking(cctx, streamProp);
-
+    cctx->asyncRes = FL2_compressCurBlock_blocking(cctx, streamProp);
     return cctx->asyncRes;
 }
 
@@ -453,7 +455,8 @@ static size_t FL2_beginFrame(FL2_CCtx* const cctx, size_t const dictReduce)
     }
     else {
         DEBUGLOG(5, "Have compatible match table");
-        RMF_applyParameters(cctx->matchTable, &cctx->params.rParams, dictReduce);
+        /* it may reallocate the per-thread builders, and fail */
+        CHECK_F(RMF_applyParameters(cctx->matchTable, &cctx->params.rParams, dictReduce));
     }
 
     cctx->dictMax = 0;
@@ -463,6 +466,7 @@ static size_t FL2_beginFrame(FL2_CCtx* const cctx, size_t const dictReduce)
     cctx->progressOut = 0;
     RMF_initProgress(cctx->matchTable);
     cctx->asyncRes = 0;
+    cctx->asyncPending = 0;
     cctx->outThread = 0;
     cctx->threadCount = 0;
     cctx->outPos = 0;
@@ -477,6 +481,7 @@ static void FL2_endFrame(FL2_CCtx* const cctx)
 {
     cctx->dictMax = 0;
     cctx->asyncRes = 0;
+    cctx->asyncPending = 0;
     cctx->lockParams = 0;
 }
 
@@ -522,6 +527,11 @@ static size_t FL2_compressBuffer(FL2_CCtx* const cctx,
             dstCapacity -= cctx->jobs[u].cSize;
         }
         srcSize -= cctx->curBlock.end - cctx->curBlock.start;
+        /* Nothing left: stop before setting up a next block. Below, the overlap can
+         * exceed what remains of a small input, and stepping data past the input
+         * would be undefined even though it is never read. */
+        if (srcSize == 0)
+            break;
         if (cctx->params.cParams.reset_interval
             && blockTotal + MIN(dictionarySize - blockOverlap, srcSize) > dictionarySize * cctx->params.cParams.reset_interval) {
             /* periodically reset the dictionary for mt decompression */
@@ -569,12 +579,17 @@ FL2LIB_API size_t FL2LIB_CALL FL2_compressCCtx(FL2_CCtx* cctx,
     BYTE* const end = dstBuf + dstCapacity;
 
     dstBuf += cSize;
-    if(dstBuf >= end)
-        return FL2_ERROR(dstSize_tooSmall);
 
-    if (cSize == 0)
+    /* An empty input has written no property byte yet. Raw LZMA2 (omitProp) has
+     * none at all: it used to get one anyway, so an empty raw stream was malformed
+     * and one byte longer than the capacity the check above allows. */
+    if (cSize == 0 && !cctx->params.omitProp) {
+        if (dstBuf >= end)
+            return FL2_ERROR(dstSize_tooSmall);
         *dstBuf++ = FL2_getProp(cctx, 0);
-
+    }
+    if (dstBuf >= end)
+        return FL2_ERROR(dstSize_tooSmall);
     *dstBuf++ = LZMA2_END_MARKER;
 
 #ifndef NO_XXHASH
@@ -935,6 +950,33 @@ static size_t FL2_compressStream_internal(FL2_CStream* const fcs, int const endi
     return FL2_error_no_error;
 }
 
+#ifndef FL2_SINGLETHREAD
+/* A block handed to compressThread is still running; its results - the slice
+ * sizes, threadCount, the compressed data and asyncRes - are published only by
+ * the pool's lock, so until a wait sees it done they must not be read: on a
+ * weakly ordered processor they could be seen half written. FL2POOL_isIdle()
+ * takes that lock, so a read after it sees the pool idle is safe. */
+static int FL2_asyncRunning(const FL2_CStream *fcs)
+{
+    return fcs->asyncPending && !FL2POOL_isIdle(fcs->compressThread);
+}
+/* The result of the last compression, or no error while it is still running */
+static size_t FL2_asyncResult(const FL2_CStream *fcs)
+{
+    return FL2_asyncRunning(fcs) ? FL2_error_no_error : fcs->asyncRes;
+}
+/* Output slices are ready to read only once the compression that writes their
+ * count and sizes is done, so this reads threadCount only when not running. */
+static int FL2_hasOutput(const FL2_CStream *fcs)
+{
+    return !FL2_asyncRunning(fcs) && fcs->outThread < fcs->threadCount;
+}
+#else
+static int FL2_asyncRunning(const FL2_CStream *fcs) { (void)fcs; return 0; }
+static size_t FL2_asyncResult(const FL2_CStream *fcs) { return fcs->asyncRes; }
+static int FL2_hasOutput(const FL2_CStream *fcs) { return fcs->outThread < fcs->threadCount; }
+#endif
+
 /* Copy the compressed output stored in the match table buffer.
  * One slice exists per thread.
  */
@@ -965,7 +1007,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_copyCStreamOutput(FL2_CStream* fcs, FL2_outBuf
 
 static size_t FL2_compressStream_input(FL2_CStream* fcs, FL2_inBuffer* input)
 {
-    CHECK_F(fcs->asyncRes);
+    CHECK_F(FL2_asyncResult(fcs));
 
     DICT_buffer * const buf = &fcs->buf;
 
@@ -978,19 +1020,20 @@ static size_t FL2_compressStream_input(FL2_CStream* fcs, FL2_inBuffer* input)
             DICT_shift(buf);
         }
         
-        CHECK_F(fcs->asyncRes);
+        CHECK_F(FL2_asyncResult(fcs));
 
         DICT_put(buf, input);
         
         if (!DICT_availSpace(buf)) {
-            /* break if the compressor is not available */
-            if (fcs->outThread < fcs->threadCount)
+            /* break if the compressor is not available; one still running is
+             * waited for by FL2_compressStream_internal() */
+            if (!FL2_asyncRunning(fcs) && fcs->outThread < fcs->threadCount)
                 break;
 
             CHECK_F(FL2_compressStream_internal(fcs, 0));
         }
 
-        CHECK_F(fcs->asyncRes);
+        CHECK_F(FL2_asyncResult(fcs));
     }
 
     return FL2_error_no_error;
@@ -1019,17 +1062,17 @@ FL2LIB_API size_t FL2LIB_CALL FL2_compressStream(FL2_CStream* fcs, FL2_outBuffer
     size_t const prevIn = input->pos;
     size_t const prevOut = (output != NULL) ? output->pos : 0;
 
-    if (output != NULL && fcs->outThread < fcs->threadCount)
+    if (output != NULL && !FL2_asyncRunning(fcs) && fcs->outThread < fcs->threadCount)
         FL2_copyCStreamOutput(fcs, output);
 
     CHECK_F(FL2_compressStream_input(fcs, input));
 
-    if(output != NULL && fcs->outThread < fcs->threadCount)
+    if(output != NULL && !FL2_asyncRunning(fcs) && fcs->outThread < fcs->threadCount)
         FL2_copyCStreamOutput(fcs, output);
 
     CHECK_F(FL2_loopCheck(fcs, prevIn == input->pos && (output == NULL || prevOut == output->pos)));
 
-    return fcs->outThread < fcs->threadCount;
+    return FL2_hasOutput(fcs);
 }
 
 FL2LIB_API size_t FL2LIB_CALL FL2_getDictionaryBuffer(FL2_CStream * fcs, FL2_dictBuffer * dict)
@@ -1037,7 +1080,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_getDictionaryBuffer(FL2_CStream * fcs, FL2_dic
     if (!fcs->lockParams)
         return FL2_ERROR(init_missing);
 
-    CHECK_F(fcs->asyncRes);
+    CHECK_F(FL2_asyncResult(fcs));
 
     DICT_buffer *buf = &fcs->buf;
 
@@ -1057,7 +1100,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_updateDictionary(FL2_CStream * fcs, size_t add
     if (DICT_update(&fcs->buf, addedSize))
         CHECK_F(FL2_compressStream_internal(fcs, 0));
 
-    return fcs->outThread < fcs->threadCount;
+    return FL2_hasOutput(fcs);
 }
 
 FL2LIB_API size_t FL2LIB_CALL FL2_getNextCompressedBuffer(FL2_CStream* fcs, FL2_cBuffer* cbuf)
@@ -1096,9 +1139,10 @@ FL2LIB_API size_t FL2LIB_CALL FL2_waitCStream(FL2_CStream * fcs)
 #ifndef FL2_SINGLETHREAD
     if (FL2POOL_waitAll(fcs->compressThread, fcs->timeout) != 0)
         return FL2_ERROR(timedOut);
-    CHECK_F(fcs->asyncRes);
+    fcs->asyncPending = 0;
+    CHECK_F(FL2_asyncResult(fcs));
 #endif
-    return fcs->outThread < fcs->threadCount;
+    return FL2_hasOutput(fcs);
 }
 
 FL2LIB_API void FL2LIB_CALL FL2_cancelCStream(FL2_CStream *fcs)
@@ -1118,7 +1162,7 @@ FL2LIB_API void FL2LIB_CALL FL2_cancelCStream(FL2_CStream *fcs)
 
 FL2LIB_API size_t FL2LIB_CALL FL2_remainingOutputSize(const FL2_CStream* fcs)
 {
-    CHECK_F(fcs->asyncRes);
+    CHECK_F(FL2_asyncResult(fcs));
 
     size_t cSize = 0;
     for (size_t u = fcs->outThread; u < fcs->threadCount; ++u)
@@ -1174,7 +1218,7 @@ static void FL2_writeEnd(FL2_CStream* const fcs)
 
 static size_t FL2_flushStream_internal(FL2_CStream* fcs, int const ending)
 {
-    CHECK_F(fcs->asyncRes);
+    CHECK_F(FL2_asyncResult(fcs));
 
     DEBUGLOG(4, "FL2_flushStream_internal : %u to compress, %u to write",
         (U32)(fcs->buf.end - fcs->buf.start),
@@ -1182,7 +1226,7 @@ static size_t FL2_flushStream_internal(FL2_CStream* fcs, int const ending)
 
     CHECK_F(FL2_compressStream_internal(fcs, ending));
 
-    return fcs->outThread < fcs->threadCount;
+    return FL2_hasOutput(fcs);
 }
 
 FL2LIB_API size_t FL2LIB_CALL FL2_flushStream(FL2_CStream* fcs, FL2_outBuffer *output)
@@ -1192,7 +1236,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_flushStream(FL2_CStream* fcs, FL2_outBuffer *o
 
     size_t const prevOut = (output != NULL) ? output->pos : 0;
 
-    if (output != NULL && fcs->outThread < fcs->threadCount)
+    if (output != NULL && !FL2_asyncRunning(fcs) && fcs->outThread < fcs->threadCount)
         FL2_copyCStreamOutput(fcs, output);
 
     size_t res = FL2_flushStream_internal(fcs, 0);
@@ -1200,7 +1244,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_flushStream(FL2_CStream* fcs, FL2_outBuffer *o
 
     if (output != NULL && res != 0) {
         FL2_copyCStreamOutput(fcs, output);
-        res = fcs->outThread < fcs->threadCount;
+        res = FL2_hasOutput(fcs);
     }
 
     CHECK_F(FL2_loopCheck(fcs, output != NULL && prevOut == output->pos));
@@ -1215,7 +1259,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_endStream(FL2_CStream* fcs, FL2_outBuffer *out
 
     size_t const prevOut = (output != NULL) ? output->pos : 0;
     
-    if (output != NULL && fcs->outThread < fcs->threadCount)
+    if (output != NULL && !FL2_asyncRunning(fcs) && fcs->outThread < fcs->threadCount)
         FL2_copyCStreamOutput(fcs, output);
 
     CHECK_F(FL2_flushStream_internal(fcs, 1));
@@ -1230,7 +1274,7 @@ FL2LIB_API size_t FL2LIB_CALL FL2_endStream(FL2_CStream* fcs, FL2_outBuffer *out
 
     if (output != NULL && res != 0) {
         FL2_copyCStreamOutput(fcs, output);
-        res = fcs->outThread < fcs->threadCount || DICT_hasUnprocessed(&fcs->buf);
+        res = FL2_hasOutput(fcs) || DICT_hasUnprocessed(&fcs->buf);
     }
 
     CHECK_F(FL2_loopCheck(fcs, output != NULL && prevOut == output->pos));

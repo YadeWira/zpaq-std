@@ -37,7 +37,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 | **yes** (ZPAQZSTD) |
 | `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.1 | 0–11 | 11 | **yes** (ZPAQBROTLI) |
 | `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.05 | 0–9 | 6 | **yes** (ZPAQLZMA, decoder by kaitz) |
-| `-ma:flzma2:N` | [fast-lzma2](https://github.com/conor42/fast-lzma2) 1.0.1 (decoder patched, see `compressors/fl2/PATCHES`) | 1–10 | 5 | **yes** (ZPAQFLZMA2) |
+| `-ma:flzma2:N` | [fast-lzma2](https://github.com/conor42/fast-lzma2) 1.1.1 (maintained in [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2), with its decoder fixes) | 1–10 | 5 | **yes** (ZPAQFLZMA2) |
 | `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.2 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
 | `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 | **yes** (ZPAQLZIP) |
 | `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 | **yes** (ZPAQBZIP2) |

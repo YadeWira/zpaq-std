@@ -1,0 +1,13 @@
+fast-lzma2 1.1.1 (tag fast-lzma2-v1.1.1, commit 472331e, 2026-10-22), from the
+fast-lzma2/ directory of https://github.com/YadeWira/ultra-fast-lzma2: Conor
+McCarthy's fast-lzma2 1.0.1, maintained there with the robustness and correctness
+fixes found while fuzzing ultra-fast-lzma2 (decoder over-read, properties after a
+dictionary reset, unconsumed packed size, match finder, thread pool, empty and
+small inputs). BSD-3-Clause (dual BSD / GPLv2: BSD chosen), see LICENSE.
+Files copied unmodified (the .c and .h that the Makefile builds); not copied: its
+assembler decoders (zpaq-std uses the C one: no LZMA2_DEC_OPT), xxhash (built with
+NO_XXHASH), the build files, tests and tools.
+Compressed bytes are the same as 1.0.1's. Up to zpaq-std 1.5.0 this was 1.0.1 with
+one patch of ours (fl2-1.0.1-decoder-fixes.patch), a backport of three decoder
+fixes; 1.1.1 has them (its lzma2_dec.c is byte for byte the patched one), so the
+patch is gone. Do not use 1.1.0: its lzma2_dec.c lacked those fixes.
