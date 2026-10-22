@@ -1,3 +1,74 @@
+### [1.4.0] - 2026-10-22
+
+Codecs for specific formats from plugins (`-sae` and `-sat`), two commands that describe every codec (`codecinfo` and `codecinfoex`), `-ma:zxc` is no longer experimental, and bz2-ng a655623.
+
+#### `-sae` and `-sat`: codecs for specific formats
+
+Some codecs only make sense for one kind of file, such as a JPEG recompressor. `-sae` and `-sat` do for them what `-mae` and `-mat` do for general codecs: the codec compresses only the files it takes, and the rest of the archive is compressed as `-m`/`-ma` say.
+
+```
+zpaq-std a test.zpaq files -sat:<file>:<codec>[+<level>][:<codec>[+<level>]...]     test
+zpaq-std a data.zpaq files -sae:<file>:<codec>[+<level>][:<codec>[+<level>]...]     external
+```
+
+- **The plugin decides which files are its own, by their contents, never by their name.** It exports one more function, `zpaqstd_detect_v1`, which zpaq-std calls with each whole file (up to 64 MB) from the threads that read the files ahead of the main one. Each file goes to the first codec, in the order written, that takes it.
+- **Each such file goes alone in its block.** The codec runs in the compressing threads, several files at once. The archive is byte for byte the same with any number of threads.
+- **Every block is decoded back before it is written,** by the plugin (and, with `-sat`, by its ZPAQL decoder too). A block that does not come back identical (`00735!`), or that the codec cannot make smaller, is compressed as `-m` says. A file that is already partly in the archive is deduplicated as usual and does not go through the codec.
+- **`-sae` (external) requires the codec's ZPAQL decoder** and says (`00732!`) that the codec is not official. **`-sat` (test)** allows a codec without one; its blocks then fail cleanly in any other zpaq, as with `-mat`. It shows which codec took each file, the sizes, the times, and how each block decoded back.
+- `-sa` itself is reserved for zpaq-std's own codecs for specific formats. The first will be [pja](https://github.com/YadeWira/PJA), a JPEG and JPEG-LS recompressor, once its ZPAQL decoder is ready.
+
+`tools/plugin_example/zs_example.c` now also has a detection function, and `compressors/plug/README.md` describes the interface.
+
+#### `codecinfo` and `codecinfoex`
+
+- **`codecinfo`** lists the 28 `-ma` switches: whether each is stable or experimental, its levels and default, its ZPAQL decoder, the library and version, and whether it is built in, a plugin, or missing. Then it lists the plugins in `codecs/` that are not part of zpaq-std, marked as such.
+- **`codecinfoex [codec]`** shows each codec's card: author, repository, licence, the release or commit it comes from, format, levels, and three hashes: the commit of its source, the SHA-256 of its plugin file (computed by zpaq-std, not taken from the plugin), and the SHA-256 of each of its ZPAQL decoders.
+- **A plugin can give its own card** with `data(ZS_DATA_INFO)`, as `key=value` lines. It is optional, and the plugin interface stays at version 1.
+
+#### `-ma:zxc` is no longer experimental
+
+No more `00603!` warning. Before it left experimental, zxc 0.15.0 went through the following:
+- blocks of 16, 67 and 163 MB at every level, extracted identically by zpaq 7.15, zpaqfranz, and zpaq-std both natively and through ZPAQZXC;
+- 1,424 real files (13 kinds, 503 MB) at every level, with the same result;
+- 33,600 damaged blocks, none of them hanging or writing past the original size;
+- the library under AddressSanitizer, 236,800 blocks;
+- Windows 7 x64 and x86, a 64 MB block included.
+
+The rule for leaving experimental no longer requires a frozen format (see [issue #3](https://github.com/YadeWira/zpaq-std/issues/3)). Each format of a codec has its own ZPAQL decoder and tag (`zxc9`), so if zxc changes its format, archives written before stay readable.
+
+#### `-ma:bz2`: bz2-ng a655623
+
+bz2-ng goes from commit b2fbb2f to a655623 (it still has no release). This brings a faster sorter, encoder and decoder, and three more libsais patches. The output is the same: `-ma:bz2` at levels 1, 5 and 9 writes the archives of 1.3.0 byte for byte.
+
+#### Also
+
+- The help lists `-mae`, `-mat`, `-sae` and `-sat` after the `-ma` codecs, not in the middle of them.
+
+#### Known issue: brotli
+
+brotli 1.2.1 (2026-10-21) fixes CVE-2026-111497, an out-of-bounds write in its decoder. zpaq-std 1.4.0 and earlier decode `-ma:brotli` blocks natively with brotli 1.2.0, so do not extract `-ma:brotli` archives from untrusted sources with them. The fix comes in 1.5.0, with other codec updates. Other zpaqs decode those blocks through ZPAQBROTLI, whose ZPAQL cannot write outside its own memory.
+
+#### Downloads
+
+As in 1.3.0: the full program, `extra-codecs.zip` (the plugin-only codecs, sylz) and `plugins.zip` (every codec as a plugin), per platform; `THIRD-PARTY-LICENSES.txt` and `SHA256SUMS.txt`.
+
+#### Checked
+
+- `-sae`/`-sat` (`tools/plugin_example`, which now takes the files where at least half of the bytes are in runs), Linux release binary: every taken file goes alone in its block, is decoded back by the plugin and its ZPAQL (`OK`), and the archive extracts identically with the plugin, with zpaq-std without it and with zpaq 7.15. A codec without ZPAQL fails cleanly without the plugin (`31321`), and `-sae` refuses it (`00731!`). The archive is byte for byte the same with `-t1`, `-t2` and `-t8`; a repeated file is deduplicated, not compressed twice; and `-sae` runs together with `-ma:zstd`. New `test/testlab/suite_sa.sh`: 8/8.
+- `codecinfo`/`codecinfoex`, in the full program and in the plugins download (where it names each plugin and its SHA-256, identical to `sha256sum`'s): new `test/testlab/suite_codecinfo.sh`, which also checks every level range and default against the README's table: 6/6.
+- zxc: the tests listed above.
+- bz2-ng a655623: `codec_check` under AddressSanitizer, 8,211 blocks, 0 failures; its streams equal libbz2 1.0.8's on 736 of 738 file and level pairs (the other two are the exactly periodic case bz2-ng documents).
+- Windows 7 x64 and x86, release binaries:
+  - `-ma:zxc:3`, `-ma:zxc:7`, `-ma:bz2:9` and `-m1`: 16/16 extractions identical, and what Windows wrote extracts on Linux with zpaq 7.15, zpaqfranz, 1.3.0 and 1.4.0;
+  - sylz with the extra-codecs DLLs: 15/15;
+  - `-mae`/`-mat`: 12/12;
+  - `-sae`/`-sat`: 16/16, x64 and x86 write the same archives, and without the DLL a codec without ZPAQL stops with `31321`;
+  - `codecinfo`: 28 switches, zxc stable.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.3.0: 0 divergences.
+
 ### [1.3.0] - 2026-10-21
 
 Codecs that are not part of zpaq-std can now be used without rebuilding it: `-mae` for finished external codecs, `-mat` for testing one while it is being written.
