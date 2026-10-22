@@ -67,4 +67,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return (long long)len;
 }
 
-ZS_DEFINE_CODEC(brotli, "brotli 1.2.0", 0, 11, zs_bound, zs_compress, zs_decompress, nullptr, zs_data)
+ZS_DEFINE_CODEC(brotli, "brotli 1.2.1", 0, 11, zs_bound, zs_compress, zs_decompress, nullptr, zs_data)

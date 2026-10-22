@@ -14,8 +14,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUNDLED = [
     ('zstd', '1.5.7', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Meta Platforms, Inc. and affiliates',
      ['compressors/zstd/LICENSE'], ''),
-    ('brotli', '1.2.0', 'MIT', 'Google Inc.', ['compressors/brotli/LICENSE'], ''),
-    ('LZMA SDK', '26.03', 'Public domain', 'Igor Pavlov', ['compressors/lzmasdk/LICENSE'], ''),
+    ('brotli', '1.2.1', 'MIT', 'Google Inc.', ['compressors/brotli/LICENSE'], ''),
+    ('LZMA SDK', '26.05', 'Public domain', 'Igor Pavlov', ['compressors/lzmasdk/LICENSE'], ''),
     ('fast-lzma2', '1.0.1', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Conor McCarthy',
      ['compressors/fl2/LICENSE'], 'Parts based on zstd, copyright Yann Collet. The decoder carries a patch\n'
      'backported from ultra-fast-lzma2: see compressors/fl2/PATCHES.'),
@@ -36,14 +36,14 @@ BUNDLED = [
     ('Snappy', '1.2.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
     ('LZFSE', '-', 'BSD-3-Clause', 'Apple Inc.', ['compressors/lzfse/LICENSE'], ''),
     ('heatshrink', '0.4.1', 'ISC', 'Scott Vokes', ['compressors/hs/LICENSE'], ''),
-    ('bzip3', '1.5.4', 'LGPL-3.0-or-later', 'Kamila Szewczyk',
+    ('bzip3', '1.5.5', 'LGPL-3.0-or-later', 'Kamila Szewczyk',
      ['compressors/bzip3/LICENSE', 'compressors/bzip3/COPYING.GPL-3'],
      'bzip3 is linked statically. Its source, as built, is part of zpaq-std\'s source\n'
      'code (compressors/bzip3/ in https://github.com/YadeWira/zpaq-std), so a modified\n'
      'bzip3 can be built into zpaq-std from it. The LGPL is an addition to the GNU GPL,\n'
      'so the text of both follows. bzip3 includes libsais (Ilya Grebnov, Apache-2.0,\n'
      'text under libbsc below).'),
-    ('libbsc', '3.3.12', 'Apache-2.0', 'Ilya Grebnov', ['compressors/bsc/LICENSE'],
+    ('libbsc', '3.4.0', 'Apache-2.0', 'Ilya Grebnov', ['compressors/bsc/LICENSE'],
      'Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed\n'
      'with either.'),
     ('LZHAM', '1.0', 'MIT', 'Richard Geldreich, Jr.', ['compressors/lzham/LICENSE'], ''),

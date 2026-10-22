@@ -214,16 +214,18 @@ static s32 lzp_decode_block(const u8 * RESTRICT in, const u8 * in_end, s32 * RES
             // SAFETY: 'in' is advanced here, but it may have been at last index in the case of untrusted bad data.
             if (UNLIKELY(in == in_end)) return -1;
             if (*in != 255) {
+                // SAFETY: the match is clamped to the remaining output space anyway, so stop
+                // accumulating once past it. This keeps `len' from overflowing on untrusted data.
+                const s32 max_len = (s32)(out_end - out);
                 s32 len = LZP_MIN_MATCH;
                 while (1) {
                     if (UNLIKELY(in == in_end)) return -1;
-                    len += *in;
+                    if (LIKELY(len <= max_len)) len += *in;
                     if (*in++ != 254) break;
                 }
 
                 const u8 * ref = outs + val;
-                const u8 * oe = out + len;
-                if (UNLIKELY(oe > out_end)) oe = out_end;
+                const u8 * oe = UNLIKELY(len > max_len) ? out_end : out + len;
 
                 while (out < oe) *out++ = *ref++;
 
@@ -317,9 +319,14 @@ static int mrled(u8 * RESTRICT in, u8 * RESTRICT out, s32 outlen, s32 maxin) {
     while (op < outlen && ip < maxin) {
         c = in[ip++];
         if (t[c]) {
-            for (run = 0; ip < maxin && (pc = in[ip++]) == 255; run += 255)
-                ;
-            run += pc + 1;
+            // SAFETY: the run is clamped to outlen anyway, so stop accumulating once past it.
+            // This keeps `run' from overflowing on untrusted data. A truncated run is malformed.
+            run = 1;
+            do {
+                if (UNLIKELY(ip >= maxin)) return 1;
+                pc = in[ip++];
+                if (LIKELY(run <= outlen)) run += pc;
+            } while (pc == 255);
             for (; run > 0 && op < outlen; --run) out[op++] = c;
         } else
             out[op++] = c;
@@ -669,8 +676,14 @@ BZIP3_API s32 bz3_decode_block(struct bz3_state * state, u8 * buffer, size_t buf
         return -1;
     }
 
+    // The original size can never exceed the block size, regardless of the block type.
+    if (orig_size > state->block_size || orig_size < 0) {
+        state->last_error = BZ3_ERR_MALFORMED_HEADER;
+        return -1;
+    }
+
     if (bwt_idx == -1) {
-        if (compressed_size - 8 > 64 || compressed_size < 8) {
+        if (compressed_size - 8 > 64 || compressed_size < 8 || compressed_size - 8 != orig_size) {
             state->last_error = BZ3_ERR_MALFORMED_HEADER;
             return -1;
         }
@@ -709,11 +722,6 @@ BZIP3_API s32 bz3_decode_block(struct bz3_state * state, u8 * buffer, size_t buf
 
     if (((model & 2) && (lzp_size > bz3_bound(state->block_size) || lzp_size < 0)) ||
         ((model & 4) && (rle_size > bz3_bound(state->block_size) || rle_size < 0))) {
-        state->last_error = BZ3_ERR_MALFORMED_HEADER;
-        return -1;
-    }
-
-    if (orig_size > bz3_bound(state->block_size) || orig_size < 0) {
         state->last_error = BZ3_ERR_MALFORMED_HEADER;
         return -1;
     }
@@ -793,7 +801,8 @@ BZIP3_API s32 bz3_decode_block(struct bz3_state * state, u8 * buffer, size_t buf
 
     state->last_error = BZ3_OK;
 
-    if (size_src > state->block_size || size_src < 0) {
+    // Callers rely on orig_size bytes of `buffer' being initialised with decoded data.
+    if (size_src > state->block_size || size_src < 0 || size_src != orig_size) {
         state->last_error = BZ3_ERR_MALFORMED_HEADER;
         return -1;
     }
@@ -969,7 +978,7 @@ BZIP3_API int bz3_decompress(const uint8_t * in, uint8_t * out, size_t in_size, 
             return BZ3_ERR_TRUNCATED_DATA;
         }
         s32 orig_size = read_neutral_s32(in + 4);
-        if (orig_size < 0) goto malformed_header;
+        if (orig_size < 0 || orig_size > (s32)block_size) goto malformed_header;
         if (buf_max < *out_size + orig_size) {
             bz3_free(state);
             free(compression_buf);

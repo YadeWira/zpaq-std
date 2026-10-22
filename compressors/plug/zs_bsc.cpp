@@ -35,4 +35,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return r < 0 ? -1 : (long long)cap;
 }
 
-ZS_DEFINE_CODEC(bsc, "libbsc 3.3.12", 1, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(bsc, "libbsc 3.4.0", 1, 9, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

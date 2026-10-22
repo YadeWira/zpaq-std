@@ -1,6 +1,6 @@
-# LZMA SDK 26.03
+# LZMA SDK 26.05
 
-Origin: https://github.com/ip7z/7zip, tag `26.03` (2026-09-03), directory `C/`.
+Origin: https://github.com/ip7z/7zip, tag `26.05` (2026-10-21), directory `C/`.
 Igor Pavlov, **public domain**. Files copied unmodified.
 
 Used by `-ma:lzma`: `LzmaCompress` writes each block, and `LzmaUncompress`
