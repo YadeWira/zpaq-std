@@ -20,6 +20,24 @@
 #include "dec.h"
 
 /*
+ * The code-length counts and perm are filled in HT_PARTS parts of the
+ * alphabet, interleaved, each with counters of its own: neighbouring symbols
+ * mostly have equal lengths, so one part's increments form a chain of
+ * dependent loads and stores, and the parts' chains run in parallel.
+ */
+#define HT_PARTS 4
+
+/* Repeats X(k) for parts 0..3. */
+#define HT_PARTS_4(X) X(0) X(1) X(2) X(3)
+
+/* Counts symbol i of part k. */
+#define HT_COUNT(k) part_count[k][length[i + (k) * q]]++;
+
+/* Places symbol i of part k in perm. */
+#define HT_PLACE(k) \
+	t->perm[offs[k][length[i + (k) * q]]++] = (u16)(i + (k) * q);
+
+/*
  * Builds the decoding table for one code-length set. The result decodes
  * every bit pattern exactly as libbz2's limit/base/perm tables do
  * (huffman.c BZ2_hbCreateDecodeTables with decompress.c GET_MTF_VAL): codes
@@ -30,23 +48,36 @@
 void
 bzng_build_htable(bzng_htable *t, const u8 *length, s32 alpha_size)
 {
+	/* HT_PARTS_4 names the parts by number. */
+	STATIC_ASSERT(HT_PARTS == 4);
+	u32 part_count[HT_PARTS][BZNG_MAX_CODE + 2];
+	memset(part_count, 0, sizeof part_count);
+	const s32 q = alpha_size / HT_PARTS;
+	for (s32 i = 0; i < q; i++) {
+		HT_PARTS_4(HT_COUNT)
+	}
+	for (s32 i = HT_PARTS * q; i < alpha_size; i++)
+		part_count[HT_PARTS - 1][length[i]]++;
+
+	/*
+	 * Part k's symbols of length l follow those of the parts before it:
+	 * perm is ordered by length, then symbol.
+	 */
 	u32 count[BZNG_MAX_CODE + 2];
-	memset(count, 0, sizeof count);
-	for (s32 i = 0; i < alpha_size; i++)
-		count[length[i]]++;
+	s32 offs[HT_PARTS][BZNG_MAX_CODE + 2];
 	int maxlen = 0;
-	for (int l = 1; l <= BZNG_MAX_CODE; l++)
-		if (count[l])
-			maxlen = l;
-	t->maxlen = (u8)maxlen;
-	s32 offs[BZNG_MAX_CODE + 2];
 	s32 code = 0, idx = 0;
 	for (int l = 1; l <= BZNG_MAX_CODE; l++) {
 		t->first_code[l] = code;
 		t->first_idx[l] = idx;
-		offs[l] = idx;
+		for (int k = 0; k < HT_PARTS; k++) {
+			offs[k][l] = idx;
+			idx += (s32)part_count[k][l];
+		}
+		count[l] = (u32)(idx - t->first_idx[l]);
+		if (count[l])
+			maxlen = l;
 		code += (s32)count[l];
-		idx += (s32)count[l];
 		/*
 		 * code <= 258 * 2^(l-1), so the shifted value stays below 2^28
 		 */
@@ -54,13 +85,20 @@ bzng_build_htable(bzng_htable *t, const u8 *length, s32 alpha_size)
 		code <<= 1;
 	}
 	t->limit_lj[BZNG_MAX_CODE + 1] = 0;
-	for (s32 i = 0; i < alpha_size; i++)
-		t->perm[offs[length[i]]++] = (u16)i;
+	t->maxlen = (u8)maxlen;
+	for (s32 i = 0; i < q; i++) {
+		HT_PARTS_4(HT_PLACE)
+	}
+	for (s32 i = HT_PARTS * q; i < alpha_size; i++)
+		t->perm[offs[HT_PARTS - 1][length[i]]++] = (u16)i;
 
 	/*
 	 * Codes of length <= K fill the primary table in canonical order; a
 	 * code's slots start where the previous one's end, so stopping when the
 	 * table is full is exactly libbz2's truncation of oversubscribed sets.
+	 * A code of length l has 2^(K - l) slots, filled by whole stores of
+	 * four or eight entries from four slots on; spans are powers of two,
+	 * so the stores end at the code's last slot.
 	 */
 	const u32 size = 1u << BZNG_HUFF_K;
 	u32 pos = 0;
@@ -68,30 +106,38 @@ bzng_build_htable(bzng_htable *t, const u8 *length, s32 alpha_size)
 	for (int l = 1; l <= short_max && pos < size; l++) {
 		const u32 span = 1u << (BZNG_HUFF_K - l);
 		const u16 *sp = t->perm + t->first_idx[l];
-		for (u32 k = 0; k < count[l] && pos < size; k++) {
+		const u32 n = count[l];
+		for (u32 k = 0; k < n && pos < size; k++) {
 			const u16 e = (u16)(sp[k] << 5 | l);
-#if GCC_PREREQ(1, 0)
-			/*
-			 * gcc stores the entries one at a time; four per
-			 * 8-byte store (spans are powers of two, so the
-			 * stores end at the code's last slot).
-			 */
-			if (span >= 4) {
-				const u64 e4 = 0x0001000100010001ull * e;
-				for (u32 j = 0; j < span; j += 4)
-					memcpy(&t->prim[pos + j], &e4, 8);
-				pos += span;
-				continue;
+			const u16 e8[8] = {e, e, e, e, e, e, e, e};
+			if (span >= 32) {
+				for (u32 j = 0; j < span; j += 32) {
+					memcpy(&t->prim[pos + j], e8, 16);
+					memcpy(&t->prim[pos + j + 8], e8, 16);
+					memcpy(&t->prim[pos + j + 16], e8, 16);
+					memcpy(&t->prim[pos + j + 24], e8, 16);
+				}
+			} else if (span == 16) {
+				memcpy(&t->prim[pos], e8, 16);
+				memcpy(&t->prim[pos + 8], e8, 16);
+			} else if (span == 8) {
+				memcpy(&t->prim[pos], e8, 16);
+			} else if (span == 4) {
+				memcpy(&t->prim[pos], e8, 8);
+			} else {
+				t->prim[pos] = e;
+				t->prim[pos + span - 1] = e;
 			}
-#endif
-			for (u32 j = 0; j < span; j++)
-				t->prim[pos + j] = e;
 			pos += span;
 		}
 	}
 	if (pos < size)
 		memset(t->prim + pos, 0, (size - pos) * sizeof t->prim[0]);
 }
+
+#undef HT_PLACE
+#undef HT_COUNT
+#undef HT_PARTS_4
 
 /*
  * The table build splits L into BUILD_PARTS parts of q = n / BUILD_PARTS rows,
@@ -589,9 +635,18 @@ seg_done:
 	if (!lane_step(s, w, &c[i], &p##i, &o##i, tbl, pool, fsh, fit, pf)) \
 		dead |= 1u << (i);
 
-#define LANES_1(X) X(0)
-#define LANES_2(X) X(0) X(1)
-#define LANES_8(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+/* One step of lane i with its hot state left in the array. */
+#define LANE_STEP_MEM(i)                                                   \
+	if (!lane_step(s, w, &c[i], &h[i].p, &h[i].o, tbl, pool, fsh, fit, \
+		       pf))                                                \
+		dead |= 1u << (i);
+
+#define LANES_1(X)     X(0)
+#define LANES_2(X)     X(0) X(1)
+#define LANES_8(X)     X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7)
+#define LANES_8_15(X)  X(8) X(9) X(10) X(11) X(12) X(13) X(14) X(15)
+#define LANES_16_23(X) X(16) X(17) X(18) X(19) X(20) X(21) X(22) X(23)
+#define LANES_24(X)    LANES_8(X) LANES_8_15(X) LANES_16_23(X)
 
 /*
  * K lanes in lock step until one runs out of segments; returns the mask of
@@ -620,21 +675,28 @@ DEFINE_LOCKSTEP_REG(8)
 
 /*
  * lockstep_K for more lanes than there are registers for: the hot state
- * stays in its array.
+ * stays in its array.  clang unrolls the loop fully, and its code measured
+ * faster on Graviton4 than the written-out steps.  gcc 13 does not honour
+ * the pragma here, and the loop of one lane step per iteration it leaves
+ * took 30% more cycles on Zen 5 in some placements than in others, so other
+ * compilers get the 24 steps written out.
  */
 static forceinline u32
 lockstep_24(bzng_dstate *s, walk_pool *w, walk_hot *h, walk_cold *c,
 	    const u8 *tbl, u8 *pool, u32 fsh, int fit, int pf)
 {
 	u32 dead = 0;
+#if defined(__clang__)
 	while (!dead) {
 		UNROLL_FULL
-		for (int k = 0; k < 24; k++) {
-			if (!lane_step(s, w, &c[k], &h[k].p, &h[k].o, tbl, pool,
-				       fsh, fit, pf))
-				dead |= 1u << k;
-		}
+		for (int k = 0; k < 24; k++)
+			LANE_STEP_MEM(k)
 	}
+#else
+	do {
+		LANES_24(LANE_STEP_MEM)
+	} while (!dead);
+#endif
 	return dead;
 }
 
@@ -742,6 +804,33 @@ set_ll(bzng_dstate *s, u32 i, u32 v)
 }
 
 /*
+ * Blocks whose walk segments average fewer bytes than this are gathered
+ * (gather_text).  The copy costs every text byte once; what it saves is
+ * per piece, at each of which un-RLE1 goes byte by byte over up to 19 bytes
+ * and through a pending run for every run there.
+ */
+#define GATHER_SEG_BYTES 512u
+
+/*
+ * Copies the block's text, positions 0..n, from the pool into the table's
+ * memory, which nothing reads again before the next block's build, so that
+ * the output stage reads it as one piece.  It takes the pieces from the pool
+ * reader as the output stage would, so position n is the byte the reader
+ * gives after the text, as libbz2's walk goes on round the cycle.
+ */
+static void
+gather_text(bzng_dstate *s, u32 n)
+{
+	u8 *const text = s->tbl;
+	for (u32 pos = 0; pos < n; pos += s->rd_len) {
+		bzng_next_piece(s, n - pos);
+		memcpy(text + pos, s->rd_ptr, s->rd_len);
+	}
+	bzng_next_piece(s, 1);
+	text[n] = s->rd_ptr[0];
+}
+
+/*
  * Builds the inverse-BWT data for the block in s->L[0..n) and positions the
  * text reader at text position 0. No input or output is touched.
  */
@@ -796,6 +885,11 @@ bzng_finish_block(bzng_dstate *s)
 		s->rd_seg = s->seg_origin;
 		s->rd_off = s->seg_start[s->rd_seg];
 		s->rd_seg_left = s->seg_len[s->rd_seg];
+		/* a randomised block is read byte by byte through minibuf */
+		if (!s->randomised && n < GATHER_SEG_BYTES * s->n_seg) {
+			gather_text(s, n);
+			s->source = BZNG_SRC_TEXT;
+		}
 	}
 	s->text_left = n;
 	s->rd_len = 0;
@@ -860,12 +954,18 @@ rand_mask(bzng_dstate *s)
 
 /*
  * Makes the next piece of text (at most `limit` bytes) current in
- * s->rd_ptr/s->rd_len. Pool blocks that are not randomised hand out the pool
- * directly; everything else goes through minibuf.
+ * s->rd_ptr/s->rd_len. Gathered text and pool blocks that are not randomised
+ * are handed out directly; everything else goes through minibuf.
  */
 void
 bzng_next_piece(bzng_dstate *s, u32 limit)
 {
+	if (s->source == BZNG_SRC_TEXT) {
+		/* the rest of the text, or at its end position n */
+		s->rd_ptr = s->tbl + (s->nblock - s->text_left);
+		s->rd_len = limit;
+		return;
+	}
 	if (s->source == BZNG_SRC_POOL && !s->randomised) {
 		const u8 *p;
 		u32 l;

@@ -20,16 +20,16 @@
  * at a level whose alphabet k exceeds both 1000 and the level's free space.
  * Following the free space down the recursion shows that free space of at
  * least floor(n/2) - 2 at the top rules that out for every input of length n
- * (docs/spec.md section 4.3): each level's free space minus its
- * length never decreases, and its alphabet is smaller than its length. Patch
- * 0001 keeps the LMS positions in that free space only where what it leaves
- * the recursion satisfies the same argument, and patch 0003's recursion for
- * repetitive blocks (sort_recursion.h) needs at each level only free space
- * for the level's alphabet, which it has at every level given the free space
- * libsais gives its own recursion (see that file). The work array
- * leaves at least floor(n/2). libsais's malloc returns NULL here, so if that
- * bound were ever wrong a sort would fail with an internal error instead of
- * allocating behind the caller's bzalloc.
+ * (docs/spec.md section 4.3): each level's free space minus its length never
+ * decreases, and its alphabet is smaller than its length. Patches 0001 and
+ * 0004 keep the LMS positions in that free space, as a list or as a bitmap,
+ * only where what they leave the recursion satisfies the same argument, and
+ * patch 0003's recursion for repetitive blocks (sort_recursion.h) needs at
+ * each level only free space for the level's alphabet, which it has at every
+ * level given the free space libsais gives its own recursion (see that file).
+ * The work array leaves at least floor(n/2). libsais's malloc returns NULL
+ * here, so if that bound were ever wrong a sort would fail with an internal
+ * error instead of allocating behind the caller's bzalloc.
  */
 #include <limits.h>
 #include <stddef.h>
@@ -61,6 +61,14 @@
  * taken over the first BZNG_REC_SAMPLE entries, the last of them counted as
  * L-type. Decided from the block alone, so a block always takes the same
  * path.
+ *
+ * The number of LMS positions is bounded first, in one pass with no
+ * dependency from entry to entry, which compilers vectorise. An LMS position
+ * i has Tr[i - 1] > Tr[i] <= Tr[i + 1], and every strict valley,
+ * Tr[i - 1] > Tr[i] < Tr[i + 1], is one; the two counts differ only by runs
+ * of equal names after a step down, and they settle the rule on every block
+ * of the corpora. Otherwise the positions are counted exactly, each entry's
+ * type following the next entry's through a run.
  */
 static int
 bzng_rec_repetitive(const s32 *Tr, s32 m, s32 names)
@@ -68,14 +76,133 @@ bzng_rec_repetitive(const s32 *Tr, s32 m, s32 names)
 	if ((s64)names * 8 > m)
 		return 0;
 	s32 len = m < BZNG_REC_SAMPLE ? m : BZNG_REC_SAMPLE;
+	s64 threshold = (s64)len * 21;
+	s32 valleys = 0, at_most = 0;
+	for (s32 i = 1; i < len - 1; i++) {
+		s32 down = Tr[i - 1] > Tr[i];
+		valleys += down & (Tr[i] < Tr[i + 1]);
+		at_most += down & (Tr[i] <= Tr[i + 1]);
+	}
+	if ((s64)valleys * 50 > threshold)
+		return 1;
+	if ((s64)at_most * 50 <= threshold)
+		return 0;
+
 	s32 lms = 0, s1 = 0;
 	for (s32 i = len - 2; i >= 0; i--) {
-		s32 s0 = (Tr[i] < Tr[i + 1]) | ((Tr[i] == Tr[i + 1]) & s1);
+		s32 s0 = Tr[i] == Tr[i + 1] ? s1 : Tr[i] < Tr[i + 1];
 		lms += s1 & (s0 ^ 1);
 		s1 = s0;
 	}
-	return (s64)lms * 50 > (s64)len * 21;
+	return (s64)lms * 50 > threshold;
 }
+
+/*
+ * Ints of the bitmap of the LMS positions of a block of n bytes that patch
+ * 0004 keeps through the recursion where patch 0001's list does not fit: a
+ * bit per position, in whole machine words.
+ */
+static s32
+bzng_lms_bitmap_ints(s32 n)
+{
+	return (n / WORDBITS + 1) * (WORDBYTES / 4);
+}
+
+/*
+ * Sets the bit of position p in the bitmap whose word *word is being built in
+ * *w, first storing that word if p lies in a later one. The words are stored
+ * little-endian, so that position p is bit p % 8 of byte p / 8.
+ */
+static forceinline void
+bzng_lms_bitmap_mark(u8 *bitmap, machine_word_t *w, u32 *word, u32 p)
+{
+	if (p / WORDBITS != *word) {
+		put_unaligned_leword(*w, &bitmap[*word * WORDBYTES]);
+		*word = p / WORDBITS;
+		*w = 0;
+	}
+	*w |= (machine_word_t)1 << (p % WORDBITS);
+}
+
+/*
+ * Marks the m ascending LMS positions lms[0..m) in the bitmap of ints ints
+ * (bzng_lms_bitmap_ints), which need only be 4-byte aligned. Four positions
+ * that end in the word being built, and so lie in it, are set together; a
+ * group that crosses into a later word is marked one by one.
+ */
+static void
+bzng_lms_bitmap_store(const s32 *lms, s32 m, s32 *bitmap, s32 ints)
+{
+	/* Positions are not negative: unsigned arithmetic divides by shifts. */
+	const u32 *pos = (const u32 *)lms;
+	u8 *bytes = (u8 *)bitmap;
+	machine_word_t w = 0;
+	u32 word = 0;
+	s32 j = 0;
+
+	memset(bitmap, 0, (size_t)ints * sizeof(bitmap[0]));
+	for (; j + 4 <= m; j += 4) {
+		if (pos[j + 3] / WORDBITS == word) {
+			w |= ((machine_word_t)1 << (pos[j] % WORDBITS)) |
+			     ((machine_word_t)1 << (pos[j + 1] % WORDBITS)) |
+			     ((machine_word_t)1 << (pos[j + 2] % WORDBITS)) |
+			     ((machine_word_t)1 << (pos[j + 3] % WORDBITS));
+			continue;
+		}
+		for (s32 k = j; k < j + 4; k++)
+			bzng_lms_bitmap_mark(bytes, &w, &word, pos[k]);
+	}
+	for (; j < m; j++)
+		bzng_lms_bitmap_mark(bytes, &w, &word, pos[j]);
+	put_unaligned_leword(w, &bytes[word * WORDBYTES]);
+}
+
+/*
+ * Writes the positions marked in the bitmap of ints ints, ascending, to out.
+ * Each half byte stores its four table entries whatever its count, so out
+ * needs room for 4 entries beyond the positions marked.
+ */
+static void
+bzng_lms_bitmap_load(const s32 *bitmap, s32 ints, s32 *out)
+{
+	/* The set bits of each half byte, in order, and their count. */
+	static const s32 nibble_bits[16][4] = {
+		{0, 0, 0, 0}, {0, 0, 0, 0}, {1, 0, 0, 0}, {0, 1, 0, 0},
+		{2, 0, 0, 0}, {0, 2, 0, 0}, {1, 2, 0, 0}, {0, 1, 2, 0},
+		{3, 0, 0, 0}, {0, 3, 0, 0}, {1, 3, 0, 0}, {0, 1, 3, 0},
+		{2, 3, 0, 0}, {0, 2, 3, 0}, {1, 2, 3, 0}, {0, 1, 2, 3},
+	};
+	static const u8 nibble_count[16] = {0, 1, 1, 2, 1, 2, 2, 3,
+					    1, 2, 2, 3, 2, 3, 3, 4};
+	const u8 *bytes = (const u8 *)bitmap;
+
+	for (s32 i = 0; i < ints * 4; i++) {
+		u32 lo = bytes[i] & 15, hi = bytes[i] >> 4;
+
+		for (int k = 0; k < 4; k++)
+			out[k] = 8 * i + nibble_bits[lo][k];
+		out += nibble_count[lo];
+		for (int k = 0; k < 4; k++)
+			out[k] = 8 * i + 4 + nibble_bits[hi][k];
+		out += nibble_count[hi];
+	}
+}
+
+/*
+ * Largest block whose final induction, once bzng_rec_repetitive has judged
+ * it repetitive, is sort_recursion.h's (patch 0006). On x86-64 the register
+ * scans gained on MC:Z blocks of up to 64 KiB on every machine measured but
+ * lost to libsais's on 900 kB blocks on Granite Rapids; 2^17 covers every
+ * block of a 64 KiB stream, which RLE1 lengthens by at most a quarter. On
+ * AArch64 they gained at every size.
+ */
+#ifndef BZNG_REC_FINAL_MAX
+#  ifdef ARCH_X86_64
+#    define BZNG_REC_FINAL_MAX (1 << 17)
+#  else
+#    define BZNG_REC_FINAL_MAX INT32_MAX
+#  endif
+#endif
 
 /*
  * libsais's public functions, declared static before libsais.h declares
@@ -163,6 +290,15 @@ bzng_sais_free(void *ptr)
  */
 #ifdef BZNG_HAS_BUILTIN_STANDIN
 #  undef __has_builtin
+#endif
+
+/*
+ * Without the prefetches of libsais's recursion scans (patch 0005) on
+ * AArch64, where the M4 and Graviton4 measured faster without them
+ * (docs/spec.md section 4.3); x86-64 keeps them.
+ */
+#if defined(__aarch64__) || defined(_M_ARM64)
+#  define LIBSAIS_RECURSION_PREFETCH 0
 #endif
 
 /* Most of libsais's functions are not used here. */

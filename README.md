@@ -63,7 +63,7 @@ other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default | Opens in any zpaq |
 |---|---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
-| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit b2fbb2f (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
+| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit a655623 (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 (format 9), a fast LZ built for decompression speed; 6–7 add Huffman | 1–7 | 3 | **yes** (ZPAQZXC) |
 | `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.7, format v2), a fast LZ in Free Pascal. **Plugin only**: `codecs/sylz.dll` or `.so` (see below). Level 0 is the fastest | 0–10 | 1 | **yes** (ZPAQSYLZ) |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |

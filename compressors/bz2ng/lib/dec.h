@@ -41,6 +41,7 @@
 #define BZNG_FSYM_MAX	    16384u /* row -> F symbol guess table entries */
 #define BZNG_MINIBUF \
 	512u /* text staging for chain walks and randomised blocks */
+#define BZNG_LEN_SLACK 16 /* bytes after each code-length set */
 
 /*
  * Internal results of the decode and output stages (never returned to the
@@ -89,7 +90,8 @@ typedef enum {
 /* Text sources for the output stage. */
 typedef enum {
 	BZNG_SRC_POOL = 0,
-	BZNG_SRC_SMALL = 1
+	BZNG_SRC_SMALL = 1,
+	BZNG_SRC_TEXT = 2 /* the pool's text gathered in order into tbl */
 } bzng_source;
 
 /* Decoding table for one coding group. */
@@ -158,11 +160,16 @@ typedef struct bzng_dstate {
 	/* header parse loop variables (kept here so every read is resumable) */
 	s32 i, j, t, curr;
 	s32 n_in_use, alpha_size, n_groups, n_selectors;
+	u64 sel_mtf; /* selector MTF list: byte k is the group at position k */
+	u8 groups_used; /* bit g set if a kept selector names group g */
 	u8 in_use16[16];
 	u8 seq_to_unseq[256];
-	u8 sel_pos[BZ_N_GROUPS];
 	u8 selector[BZ_MAX_SELECTORS];
-	u8 len[BZ_N_GROUPS][BZ_MAX_ALPHA_SIZE];
+	/*
+	 * code lengths; the BZNG_LEN_SLACK bytes after each set take whole
+	 * stores of runs of equal lengths (decompress.c)
+	 */
+	u8 len[BZ_N_GROUPS][BZ_MAX_ALPHA_SIZE + BZNG_LEN_SLACK];
 	/*
 	 * Used from a block's header to the end of its symbol loop; from then
 	 * to the end of the block's output these bytes hold block finishing's
@@ -181,8 +188,8 @@ typedef struct bzng_dstate {
 	u8 *area, *area2;
 	size_t area_bytes, area2_bytes;
 	u8 *L;	 /* symbol-loop output; pool after the build */
-	u8 *tbl; /* inverse-BWT table (3- or 4-byte entries) or small-mode ll16
-		  */
+	u8 *tbl; /* inverse-BWT table (3- or 4-byte entries) or small-mode
+		    ll16; after the walk, a gathered block's text */
 	u8 *ll4; /* small mode: high nibbles of the 20-bit entries */
 	u32 *chunk_next;
 	u32 *seg_row, *seg_start, *seg_len, *seg_next;

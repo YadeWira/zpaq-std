@@ -256,11 +256,13 @@ copy_literals(u8 *dst, const u8 *src, size_t n)
  * and k + 2 are clear and ends at the next set bit, so successive runs come
  * from bit scans with no load between them; each mask is computed once, as
  * the lookahead of the window before.  Literal bytes are copied when a run
- * or the window's end comes, which may write RUN4_STEP bytes past limit.  It
- * stops at a unit boundary, or between windows inside a literal unit of <= 3
- * bytes that ends within this call (which writes the same bytes however it
- * is split), with the block at most at limit; it returns where it stopped,
- * every byte before which is in the block.
+ * or the window's end comes, which may write RUN4_STEP bytes past limit.  A
+ * run's 255-byte units are written as the windows pass it, each once a byte
+ * of the run follows it, so a run longer than the block's room is read only
+ * until the block is full.  It stops at a unit boundary, or between windows
+ * inside a literal unit of <= 3 bytes that ends within this call (which writes
+ * the same bytes however it is split), with the block at most at limit; it
+ * returns where it stopped, every byte before which is in the block.
  */
 static inline size_t
 rle_windows(const u8 *in, size_t avail, size_t p, u8 *blk, s32 *nbp, s32 limit)
@@ -316,7 +318,15 @@ rle_windows(const u8 *in, size_t avail, size_t p, u8 *blk, s32 *nbp, s32 limit)
 			ends = d & (~(u64)0 << k);
 			in_run = 1;
 		}
-		if (!in_run) {
+		if (in_run) {
+			/* in[lit..base + 64] are all the run's byte. */
+			while (base + 64 - lit >= 255) {
+				if (nb + 5 > limit)
+					goto stop;
+				nb = bzng_put_unit(blk, nb, in[lit], 255);
+				lit += 255;
+			}
+		} else {
 			if (nb + (s32)(base + 64 - lit) > limit)
 				goto stop;
 			copy_literals(blk + nb, in + lit, base + 64 - lit);
@@ -429,11 +439,14 @@ ADD_SUFFIX(bzng_rle_fill)(bzng_rle_state *st, const u8 *in, size_t avail,
 		s32 j = (s32)(bsf64(m) >> RUN4_SHIFT);
 		nb += j;
 		p += (size_t)j;
-		/* A maximal run of >= 4 starts at p. */
+		/*
+		 * A maximal run of >= 4 starts at p.  If it reaches the end of
+		 * the call, its last 1..255 bytes stay pending as one unit.
+		 */
 		u8 c = in[p];
 		size_t L = run_length(in + p, avail - p, c);
-		if (p + L == avail)
-			break; /* may continue in the next call */
+		size_t keep = p + L == avail ? (L - 1) % 255 + 1 : 0;
+		L -= keep;
 		while (L >= 255) {
 			if (nb + 5 > limit)
 				goto tail;
@@ -447,6 +460,8 @@ ADD_SUFFIX(bzng_rle_fill)(bzng_rle_state *st, const u8 *in, size_t avail,
 			nb = bzng_put_unit(blk, nb, c, (s32)L);
 			p += L;
 		}
+		if (keep > 0)
+			goto pending;
 	}
 
 tail:
@@ -460,13 +475,8 @@ tail:
 		size_t L = 1;
 		while (L < max && in[p + L] == c)
 			L++;
-		if (p + L == avail) {
-			st->ch = c;
-			st->len = (s32)L;
-			st->nblock = nb;
-			st->crc = bzng_crc32(crc, in + u, p - u);
-			return avail;
-		}
+		if (p + L == avail)
+			break;
 		nb = bzng_put_unit(blk, nb, c, (s32)L);
 		p += L;
 		if (nb >= nblock_max) {
@@ -477,6 +487,13 @@ tail:
 			return p + 1;
 		}
 	}
+pending:
+	/* in[p..avail) is one unit of at most 255 bytes, left pending. */
+	st->ch = in[p];
+	st->len = (s32)(avail - p);
+	st->nblock = nb;
+	st->crc = bzng_crc32(crc, in + u, p - u);
+	return avail;
 }
 
 /* ---- encoder: MTF + zero-run coding -------------------------------------- */
@@ -990,23 +1007,46 @@ ADD_SUFFIX(bzng_least_rotation)(const u8 *tt, s32 n, s32 *cand, int *periodic)
 
 #if VEC_ENABLED
 /*
- * For a list whose first 16 entries are held in a register: removes m[nn]
- * (nn >= 16), shifts m[16..nn-1] up by one, puts carry_byte (the old entry
- * 15) at m[16] and returns the removed byte. m needs 16 bytes of slack.
+ * The most symbols in use for which mtf_tail_move rewrites the whole tail on
+ * every move: past this a block's moves are mostly deep and spread (binary
+ * data), and the loop up to the moved entry costs less than the rewrite.
+ */
+#  define MTF_FULL_TAIL_MAX 160
+
+/*
+ * For a list whose first 16 entries are held in the register head: removes
+ * m[nn] (nn >= 16), shifts m[16..nn-1] up by one, puts head's last entry at
+ * m[16] and returns the removed byte. If tail_limit is zero the loop stops at
+ * nn's vector, and m needs 16 bytes of slack. Otherwise (the block's
+ * n_in_use, at most MTF_FULL_TAIL_MAX, rounded up to a multiple of 16) every
+ * vector of m[16..tail_limit) is rewritten whatever nn is, so the loop runs
+ * the same number of times on every move of a block: one that stopped at
+ * nn's vector would mispredict its exit on most moves of a block whose ranks
+ * spread over several vectors. The first case is the fall-through because
+ * its blocks make far more tail moves per byte (Silesia's mozilla about
+ * 690,000 per MB, QUAL about 13,000).
  */
 static inline u8
-mtf_tail_move(u8 *m, u32 nn, u8 carry_byte)
+mtf_tail_move(u8 *m, u32 nn, u32 tail_limit, vec_t head)
 {
 	const u8 c = m[nn];
-	vec_t carry = vec_dup(carry_byte); /* only its last lane is used */
-	u32 j = 16;
-	for (; j + 16 <= nn; j += 16) {
+	vec_t carry = head; /* only its last lane is used */
+	if (likely(!tail_limit)) {
+		u32 j = 16;
+		for (; j + 16 <= nn; j += 16) {
+			const vec_t v = vec_ld(m + j);
+			vec_st(m + j, vec_shift1(carry, v));
+			carry = v;
+		}
 		const vec_t v = vec_ld(m + j);
-		vec_st(m + j, vec_shift1(carry, v));
+		vec_st(m + j, vec_sel_upto(nn - j, vec_shift1(carry, v), v));
+		return c;
+	}
+	for (u32 j = 16; j < tail_limit; j += 16) {
+		const vec_t v = vec_ld(m + j);
+		vec_st(m + j, vec_sel_upto_at(j, nn, vec_shift1(carry, v), v));
 		carry = v;
 	}
-	const vec_t v = vec_ld(m + j);
-	vec_st(m + j, vec_sel_upto(nn - j, vec_shift1(carry, v), v));
 	return c;
 }
 
@@ -1035,10 +1075,11 @@ mtf_tail_move(u8 *m, u32 nn, u8 carry_byte)
 
 /*
  * Processes one decoded symbol sym_ on the symbol-loop locals (L, nmax, nb,
- * run, rshift, eob, head) and sets res_ to 0, BZNG_EOB or BZ_DATA_ERROR
- * (libbz2's checks at this symbol: N >= 2^21, or the block growing past
- * 100,000 x digit). RUNA/RUNB accumulate a run length in bijective base 2;
- * any other symbol first flushes a pending run of the list's front byte.
+ * run, rshift, eob, head, tail_limit) and sets res_ to 0, BZNG_EOB or
+ * BZ_DATA_ERROR (libbz2's checks at this symbol: N >= 2^21, or the block
+ * growing past 100,000 x digit). RUNA/RUNB accumulate a run length in
+ * bijective base 2; any other symbol first flushes a pending run of the
+ * list's front byte.
  * Run and literal symbols take the same branch-free path: a pending run is
  * flushed with 16-byte stores of the front byte (length 0 for a run symbol),
  * the literal is moved to the front (index 0, a no-op, for a run symbol) and
@@ -1085,7 +1126,7 @@ mtf_tail_move(u8 *m, u32 nn, u8 carry_byte)
 					      head);                          \
 			  c_ = vec_lane0(cv_);                                \
 		  } else {                                                    \
-			  c_ = mtf_tail_move(s->mtf, idx_, vec_lane15(head)); \
+			  c_ = mtf_tail_move(s->mtf, idx_, tail_limit, head); \
 			  head = vec_shift1(vec_dup(c_), head);               \
 		  }                                                           \
 		  L[nb] = c_;                                                 \
@@ -1151,6 +1192,10 @@ ADD_SUFFIX(bzng_symbols)(bzng_dstate *s, bzng_bits *br)
 	u32 nb = s->nblock, run = s->run, rshift = s->run_shift;
 #if VEC_ENABLED
 	vec_t head = vec_ld(s->mtf);
+	/* a literal's index is below n_in_use */
+	const u32 tail_limit = s->n_in_use <= MTF_FULL_TAIL_MAX ?
+				       ((u32)s->n_in_use + 15) & ~15u :
+				       0;
 #endif
 	int result;
 	for (;;) {

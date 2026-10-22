@@ -1,5 +1,6 @@
 /*
- * sort_recursion.h - the sorter's recursion below a repetitive block
+ * sort_recursion.h - the sorter's recursion and final induction for a
+ * repetitive block
  *
  * Derived from sais.c for sais-lite
  * Copyright (c) 2008-2010 Yuta Mori All Rights Reserved.
@@ -39,7 +40,9 @@
  * induction where the free space allows; the list of LMS positions is kept
  * through the recursion when there is room. This is the recursion of the
  * project's own earlier block sorter, for 32-bit names and register bucket
- * pointers only.
+ * pointers only. bzng_rec_final_bwt is sais-lite's final induction
+ * (computeBWT) for the top level of a repetitive block (patches/0006), on the
+ * bytes of the block, with the same register bucket pointers.
  *
  * Free space: a level of length n with alphabet k needs k <= fs, and every
  * level has fs >= n - 1 >= k. The first level has it because libsais gives
@@ -163,6 +166,32 @@ bzng_rec_get_counts(const s32 *T, s32 *C, s32 n, s32 k)
 		C[i] = 0;
 	for (s32 i = 0; i < n; ++i)
 		++C[T[i]];
+}
+
+/*
+ * Symbol counts of T[0..n) over [0, k) into C, as get_counts, with the
+ * increments spread over C and three more tables in scratch[0..3k): a
+ * repetitive string increments one counter at nearby positions, and with a
+ * single table each such increment waits for the store of the one before.
+ */
+static void
+bzng_rec_get_counts4(const s32 *T, s32 *C, s32 *scratch, s32 n, s32 k)
+{
+	s32 *C1 = scratch, *C2 = scratch + k, *C3 = scratch + 2 * k;
+	s32 i;
+
+	memset(C, 0, (size_t)k * sizeof(s32));
+	memset(scratch, 0, 3 * (size_t)k * sizeof(s32));
+	for (i = 0; i + 4 <= n; i += 4) {
+		++C[T[i]];
+		++C1[T[i + 1]];
+		++C2[T[i + 2]];
+		++C3[T[i + 3]];
+	}
+	for (; i < n; ++i)
+		++C[T[i]];
+	for (i = 0; i < k; ++i)
+		C[i] += C1[i] + C2[i] + C3[i];
 }
 
 /* Bucket starts (end = 0) or ends (end = 1) from the counts C[0..k). */
@@ -502,7 +531,15 @@ bzng_rec_sais_reduce(const s32 *T, s32 *SA, s32 fs, s32 n, s32 k, s32 **Cp,
 	}
 	lmssort2 = !recount && (2 <= (n / k)) && (4 * k < fs);
 
-	bzng_rec_get_counts(T, C, n, k);
+	/*
+	 * SA[0..n) is free until it is cleared below, and C and B lie beyond
+	 * it, so a level with at least 8 entries per name counts with spare
+	 * tables there.
+	 */
+	if (8 <= n / k)
+		bzng_rec_get_counts4(T, C, SA, n, k);
+	else
+		bzng_rec_get_counts(T, C, n, k);
 	bzng_rec_get_buckets(C, B, k, 1);
 	memset(SA, 0, (size_t)n * sizeof(s32));
 	/*
@@ -680,6 +717,82 @@ bzng_rec_sort_main(const s32 *T, s32 *SA, s32 fs, s32 n, s32 k)
 		return -2;
 	bzng_rec_induce_sa(T, SA, C, B, n, k);
 	return 0;
+}
+
+/*
+ * The final induction of a repetitive block's top level, which libsais's
+ * patched main loop calls in place of its own (patches/0006): sais-lite's
+ * computeBWT, with the bucket arrays libsais has built and the row of one
+ * suffix noted. Each scan keeps the current bucket's pointer in a register,
+ * as the scans above do; consecutive steps on a repetitive block mostly
+ * write to one bucket, where a counter in memory would make each step's
+ * load wait for the last step's store. Each step clears a marked entry with
+ * a select before it tests for an inducing one, which leaves it one
+ * data-dependent branch where computeBWT has two. Nor do the scans
+ * prefetch, which on the blocks that come here costs more than it saves.
+ *
+ * T[0..n), n >= 2, is the block. On entry SA[0..n) holds its sorted LMS
+ * suffixes, positive, at the ends of their buckets and 0 elsewhere, and
+ * start[c] and end[c] are the first row of bucket c and one past its last.
+ * On return every row holds the byte before its suffix, except suffix 0's,
+ * which holds 0 and is returned; start and end are advanced past what each
+ * scan wrote; and the row into which suffix q was induced is stored in
+ * *row.
+ */
+static s32
+bzng_rec_final_bwt(const u8 *T, s32 *SA, s32 n, s32 q, s32 *row, s32 *start,
+		   s32 *end)
+{
+	s32 *B, *b, i, j, t, c0, c1, pidx = -1, qrow = -1;
+
+	/* Left to right: each L-type suffix from its successor's row. */
+	B = start;
+	j = n - 1;
+	c1 = T[j];
+	REC_BUCKET_BEGIN();
+	if (j == q)
+		qrow = (s32)(b - SA);
+	REC_PUT_INC(REC_MARK_IF(T[j - 1] < c1, j));
+	for (i = 0; i < n; ++i) {
+		j = SA[i];
+		SA[i] = REC_SEL(j < 0, ~j, j);
+		if (0 < j) {
+			--j;
+			SA[i] = ~(c0 = T[j]);
+			REC_BUCKET_SWITCH(c0);
+			if (j == q)
+				qrow = (s32)(b - SA);
+			/* T[j - 1], or T[0] when j = 0, which gives no mark */
+			t = T[j - (j > 0)];
+			REC_PUT_INC(REC_MARK_IF(t < c1, j));
+		}
+	}
+	B[c1] = (s32)(b - SA);
+
+	/* Right to left: each S-type suffix from its successor's row. */
+	B = end;
+	c1 = 0;
+	REC_BUCKET_BEGIN();
+	for (i = n - 1; 0 <= i; --i) {
+		j = SA[i];
+		pidx = j == 0 ? i : pidx;
+		SA[i] = REC_SEL(j < 0, ~j, j);
+		if (0 < j) {
+			--j;
+			SA[i] = c0 = T[j];
+			REC_BUCKET_SWITCH(c0);
+			/* T[j - 1], or T[0] when j = 0: not above c1 */
+			t = T[j - (j > 0)];
+			REC_PUT_DEC(REC_SEL(c1 < t, ~t, j));
+			if (j == q)
+				qrow = (s32)(b - SA);
+		}
+	}
+	B[c1] = (s32)(b - SA);
+
+	if (qrow >= 0)
+		*row = qrow;
+	return pidx;
 }
 
 #undef REC_SEL
