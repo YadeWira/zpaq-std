@@ -235,6 +235,12 @@ plugin in `codecs/` and use `-mat:<file>:<codec>:<level>` to test it (every bloc
 shown and checked) or `-mae:...` for a finished one (it must carry its own ZPAQL
 decoder, and zpaq-std warns that it is not an official codec). See
 [`compressors/plug/README.md`](compressors/plug/README.md#a-codec-that-is-not-part-of-zpaq-std--mae-and--mat).
+**Codecs for specific formats** work the same way with `-sat:<file>:<codec>+<level>`
+and `-sae:...`: the plugin says, from each file's contents (never its name), which
+files it takes, and each of those goes alone in its block, compressed by that codec
+and decoded back before it is written; everything else is compressed as `-m`/`-ma`
+say. See
+[`compressors/plug/README.md`](compressors/plug/README.md#codecs-for-specific-formats--sae-and--sat).
 
 The Windows build is a self-contained `zpaq-std.exe` that runs on a clean Windows
 7+ box. The 32-bit Windows build compresses with at most 2 threads and is
@@ -288,7 +294,7 @@ tools that measure different things:
 | `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
 
 `suite_*.sh` add round-trip sweeps over every `-ma` codec, every command,
-corruption/robustness cases, `-tar`, Ctrl+C, the sylz plugin and `-mae`/`-mat`; the corpus, golden archives and reference binaries
+corruption/robustness cases, `-tar`, Ctrl+C, the sylz plugin, `-mae`/`-mat` and `-sae`/`-sat`; the corpus, golden archives and reference binaries
 live outside the repo, with their sha256 manifests committed.
 
 ---

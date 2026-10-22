@@ -86,6 +86,46 @@ which is always right.
 [`tools/plugin_example/zs_example.c`](../../tools/plugin_example/zs_example.c) is a
 complete plugin with two codecs: `rle`, with its ZPAQL decoder, and `rlenz`, without.
 
+## Codecs for specific formats: -sae and -sat
+
+Some codecs only make sense for one kind of file (a JPEG recompressor, for instance).
+`-sae` and `-sat` are `-mae` and `-mat` for them: the codec compresses only the files
+it takes, each one alone in its block, and the rest of the archive is compressed as
+`-m`/`-ma` say.
+
+```
+zpaq-std a test.zpaq files -sat:<file>:<codec>[+<level>][:<codec>[+<level>]...]
+zpaq-std a data.zpaq files -sae:<file>:<codec>[+<level>][:<codec>[+<level>]...]
+```
+
+- **Which files**: the plugin exports one more function,
+  `int zpaqstd_detect_v1(const char* codec, const void* src, size_t n)`, which gets a
+  whole file and returns 1 if that codec takes it. It looks **only at the bytes**:
+  never at the name or the extension, which can lie. It must give the same answer on
+  every machine, never read outside `src`, and be safe on damaged or hostile files
+  and when several threads call it at once (it runs in the threads that read the files
+  ahead of the main one). Each file goes to the first codec, in the order written,
+  that takes it. Files up to 64 MB are shown to the codecs.
+- **What compress() gets**: the file's block, that is the file followed by zpaq-std's
+  list of fragments (8 + 4 × fragments bytes). The codec must give those bytes back
+  too, so it has to keep whatever follows the end of its format, and so must its ZPAQL
+  decoder. The segment is, as for `-mae`, the size (u32 little endian) and the codec's
+  output.
+- **Decoded back before writing**: zpaq-std decodes every such block with the plugin
+  (and, with `-sat`, with its ZPAQL) and compares; a block that does not come back
+  identical (`00735!`), or that the codec cannot make smaller, is compressed as `-m`
+  says (not by a `-ma` codec). A file already partly in the archive (deduplicated) is
+  compressed as usual, since the codec needs it whole.
+- **Threads**: the codec runs in the compressing threads, several files at once. The
+  archive is byte for byte the same with any number of threads.
+- `-sae` requires the ZPAQL decoder and says (`00732!`) that the codecs are not
+  official; `-sat` allows a codec without one (its blocks then fail cleanly in any
+  other zpaq, as with `-mat`) and shows which codec took each file, its sizes and
+  times, and how it decoded back. Tags: `zpaqstd-sae:` and `zpaqstd-sat:`.
+
+`zs_example.c` also has a `zpaqstd_detect_v1`: its two codecs take a file where at
+least half of the bytes are in runs of three or more.
+
 ## Plugin-only codecs: Rust and Free Pascal
 
 A codec written in Rust or Free Pascal is, by rule, **never linked into zpaq-std**:
