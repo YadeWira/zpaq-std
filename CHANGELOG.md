@@ -1,3 +1,44 @@
+### [1.5.1] - 2026-10-22
+
+fast-lzma2 1.1.1, snappy 1.3.1 with its level 2 as the default, and `codecinfo <codec>`.
+
+#### `-ma:flzma2`: fast-lzma2 1.1.1
+
+fast-lzma2 now comes from the `fast-lzma2/` directory of [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2), where Conor McCarthy's 1.0.1 is maintained with the fixes found while fuzzing ultra-fast-lzma2: in the decoder, the match finder and the thread pool, and for small inputs.
+
+- Until now zpaq-std used 1.0.1 with a patch of its own that carried three of those decoder fixes. In 1.1.1, `lzma2_dec.c` is byte for byte the patched one, so the patch is gone.
+- 1.1.0 is not used: its `lzma2_dec.c` lacked those fixes. `codec_check` under AddressSanitizer caught it, and ultra-fast-lzma2 published 1.1.1 the same day.
+- `-ma:flzma2` writes the very bytes of 1.5.0.
+
+#### `-ma:snappy`: snappy 1.3.1, and level 2 by default
+
+- snappy 1.3.1 fixes an overflow in the decompressor on malformed input. Since 1.2.2 it also fixes a data corruption when the compressed size exceeds 4 GB.
+- **Levels now work.** snappy's C API has had levels only since 1.3.0, so until now every `-ma:snappy` level wrote level 1. **The default is now 2**, which made the test corpus about 4% smaller, with the same decompression speed.
+- The format is the same at both levels. ZPAQSNAPPY, zpaq 7.15 and zpaq-std 1.5.0 all extract level 2, and `-ma:snappy:1` writes the very bytes of 1.5.0.
+
+#### `codecinfo <codec>`
+
+`codecinfo zstd` showed the general help instead of the codec. Now `codecinfo <codec>` shows that codec's card, the same as `codecinfoex <codec>`. The codec can be a `-ma` name, an external plugin file (all its codecs) or `file:codec`. `h codecinfoex` has its own help, the command list includes `codecinfoex`, and the `-ma` help points to `codecinfo`.
+
+#### Downloads
+
+As in 1.5.0: the full program, `extra-codecs.zip` (the plugin-only codecs, sylz) and `plugins.zip` (every codec as a plugin), per platform; `THIRD-PARTY-LICENSES.txt` and `SHA256SUMS.txt`.
+
+#### Checked
+
+- fast-lzma2 1.1.1: `codec_check` under AddressSanitizer and UBSan (exact-size buffers, damaged input), 700 real files: 69,285 blocks, 0 failures (1.1.0, by the same test, read past its input on damaged blocks). `-ma:flzma2` at levels 1, 3, 5, 7 and 10, with `-m1`, `-m5` and `-m16` blocks: byte for byte the archives of 1.5.0.
+- snappy 1.3.1, the same test: 22,789 blocks, 0 failures. `-ma:snappy:1`, also with `-m16` blocks, writes the archives of 1.5.0. Level 2 extracts identically with zpaq 7.15, zpaq-std 1.5.0 and 1.5.1.
+- `codecinfo <codec>`: `test/testlab/suite_codecinfo.sh`, now 7/7.
+- Windows 7 x64 and x86, release binaries:
+  - `-ma:flzma2:5`, `-ma:flzma2:10`, `-ma:snappy` (level 2), `-ma:snappy:1` and `-m1`: 20/20 extractions identical, and what Windows wrote extracts on Linux with zpaq 7.15, zpaqfranz, 1.5.0 and 1.5.1;
+  - sylz with the extra-codecs DLLs: 15/15;
+  - `-mae`/`-mat`: 12/12;
+  - `-sae`/`-sat`: 16/16.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.5.0: the only divergences are the 5 `-ma:snappy` cases, now level 2 by default and smaller; each version reads the other's archives.
+
 ### [1.5.0] - 2026-10-22
 
 Codec updates, two of them security fixes: **brotli 1.2.1** (CVE-2026-111497) and **bzip3 1.5.5**. Also LZMA SDK 26.05 and libbsc 3.4.0. **Updating is recommended for everyone**, and especially if you extract `-ma:brotli` or `-ma:bzip3` archives that you did not make yourself.
