@@ -1,3 +1,40 @@
+### [1.5.0] - 2026-10-22
+
+Codec updates, two of them security fixes: **brotli 1.2.1** (CVE-2026-111497) and **bzip3 1.5.5**. Also LZMA SDK 26.05 and libbsc 3.4.0. **Updating is recommended for everyone**, and especially if you extract `-ma:brotli` or `-ma:bzip3` archives that you did not make yourself.
+
+Nothing changes in what zpaq-std writes. Every `-ma:brotli`, `bzip3`, `lzma`, `lz`, `bsc` and `ppmd` archive tested is byte for byte the one 1.4.0 writes, and archives from any earlier version read as before.
+
+#### Security
+
+- **brotli 1.2.1** fixes CVE-2026-111497, an out-of-bounds write in its decoder. zpaq-std 1.4.0 and earlier decode `-ma:brotli` blocks natively with brotli 1.2.0, so a crafted archive could exploit it while being extracted. Other zpaqs decode those blocks through ZPAQBROTLI, whose ZPAQL cannot write outside its own memory.
+- **bzip3 1.5.5** fixes two signed overflows in its decoder, in the LZP match length and the MRLE run length (bzip3 #191 and #192), and checks block headers more strictly. In C these overflows are undefined behaviour, reachable with a crafted `-ma:bzip3` block.
+- **bzip3's `bz3_bound()`** is too small for incompressible inputs of 64 to about 1,500 bytes: `bz3_compress()` writes up to 4 bytes past a buffer of that size. This was found while testing 1.5.5 and is reported upstream as [bzip3 #193](https://github.com/iczelia/bzip3/issues/193). It is also in 1.5.4. zpaq-std's blocks never reached it in testing, because their list of fragments always compresses a little. Even so, zpaq-std now reserves 64 bytes more than `bz3_bound()`. bzip3 itself is not patched, and its output is the same.
+
+#### Other updates
+
+- **LZMA SDK 26.05**, from 7-Zip 26.05. Of the files zpaq-std uses, only the version and one macro change. The vulnerabilities fixed in 7-Zip 26.04 and 26.05 are in archive formats that zpaq-std does not use.
+- **libbsc 3.4.0**, with libsais 2.12.1 and faster LZP and QLFC. With zpaq-std's settings (one thread, no LZP, sort transforms ST3 to ST5) it writes the very bytes of 3.3.12, so the ZPAQBSC decoder does not change. Its fix for corrupted multithreaded compression does not concern zpaq-std, which runs bsc in one thread.
+
+#### Downloads
+
+As in 1.4.0: the full program, `extra-codecs.zip` (the plugin-only codecs, sylz) and `plugins.zip` (every codec as a plugin), per platform; `THIRD-PARTY-LICENSES.txt` (new versions) and `SHA256SUMS.txt`.
+
+#### Checked
+
+- brotli 1.2.1 under AddressSanitizer and UBSan (`codec_check`, exact-size buffers, damaged input), 700 real files: 53,517 blocks, 0 failures.
+- bzip3 1.5.5, the same: no memory error once the output buffer has the 64-byte margin (without it, the `bz3_bound()` overflow described above). The two signed-overflow fixes come from bzip3 itself.
+- libbsc 3.4.0 against 3.3.12, with zpaq-std's settings: 315 streams from 105 files at ST3, ST4 and ST5, plus 16 MB and 64 MB blocks, byte for byte identical, and each version decodes the other's.
+- `-ma:brotli` 5 and 11, `bzip3` 1 and 9, `lzma` 6 and 9, `bsc` 1 and 9, `lz` 6 and `ppmd` 6 on 60 MB of mixed files: byte for byte the archives of 1.4.0.
+- Windows 7 x64 and x86, release binaries:
+  - `-ma:brotli:11`, `-ma:bzip3:9`, `-ma:bsc:5`, `-ma:lzma:9`, `-ma:zxc:3` and `-m1`: 24/24 extractions identical, and what Windows wrote extracts on Linux with zpaq 7.15, zpaqfranz, 1.4.0 and 1.5.0;
+  - sylz with the extra-codecs DLLs: 15/15;
+  - `-mae`/`-mat`: 12/12;
+  - `-sae`/`-sat`: 16/16.
+- Full test battery:
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.4.0: 0 divergences.
+
 ### [1.4.0] - 2026-10-22
 
 Codecs for specific formats from plugins (`-sae` and `-sat`), two commands that describe every codec (`codecinfo` and `codecinfoex`), `-ma:zxc` is no longer experimental, and bz2-ng a655623.
