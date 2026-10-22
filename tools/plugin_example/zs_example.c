@@ -1,10 +1,11 @@
-/* zs_example: a codec plugin for zpaq-std's -mae and -mat, as small as it gets.
+/* zs_example: a codec plugin for zpaq-std's -mae/-mat and -sae/-sat, as small as it gets.
    Two codecs in one file (zpaqstd_codecs_v1): "rle", a byte run-length coder that
    gives its ZPAQL decoder, and "rlenz", the same coder without one (for -mat).
    Build:  cc -O2 -shared -fPIC -I../../compressors/plug zs_example.c -o example.so
            x86_64-w64-mingw32-gcc -O2 -shared -I../../compressors/plug zs_example.c -o example.dll
    Use:    put it in codecs/ next to zpaq-std, then
            zpaq-std a test.zpaq files -mat:example:rle:1
+           zpaq-std a test.zpaq files -sat:example:rle+1     (only the files it takes)
    Stream: a control byte c; c < 128: c+1 literal bytes follow; c >= 128: the next
    byte repeats c-125 times (3..130). zpaq-std puts the original size (u32) first.
    zpaq-std, 2026. MIT licence. */
@@ -90,4 +91,20 @@ static const zs_codec ex_rlenz = { ZS_CODEC_ABI, "rlenz", "zs_example rlenz 1.0"
 ZS_CODEC_EXPORT const zs_codec* zpaqstd_codecs_v1(int i)
 {
 	return i == 0 ? &ex_rle : i == 1 ? &ex_rlenz : NULL;
+}
+
+/* -sae/-sat: a "format" for the example: a file where at least half of the bytes
+   are in runs of 3 or more, so that RLE pays. It looks only at the bytes. */
+ZS_CODEC_EXPORT int zpaqstd_detect_v1(const char* codec, const void* src, size_t n)
+{
+	const unsigned char* s = (const unsigned char*)src;
+	size_t i = 0, inrun = 0;
+	if (strcmp(codec, "rle") != 0 && strcmp(codec, "rlenz") != 0) return 0;
+	while (i < n) {
+		size_t run = 1;
+		while (i + run < n && s[i + run] == s[i]) run++;
+		if (run >= 3) inrun += run;
+		i += run;
+	}
+	return n > 0 && inrun * 2 >= n;
 }

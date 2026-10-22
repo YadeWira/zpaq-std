@@ -34,6 +34,19 @@
     text is log2 of the segment size and $2 log2 of the original size, both
     rounded up, for sizing H and M (for instance "comp 0 0 0 $1+1 0").
 
+  Codecs for specific formats (-sae and -sat) add one more export:
+        int zpaqstd_detect_v1(const char* codec, const void* src, size_t n);
+  zpaq-std calls it with each whole file (n bytes) and the name of one of the
+  plugin's codecs; it returns 1 if that codec takes the file, else 0. The
+  answer must depend only on the bytes (never on a name, the time or the
+  machine), and it must never read outside src: it runs on whatever the user
+  archives, damaged or hostile files included. A file the codec takes goes
+  alone in a block, and compress() then gets that block: the file followed by
+  zpaq-std's list of fragments (8 + 4 x fragments bytes), which it must give
+  back too, so a codec has to keep bytes that follow the end of its format.
+  zpaq-std decodes every block back and compares before writing it; one that
+  does not come back identical is compressed as usual.
+
   zpaq-std, 2026. MIT licence.
 */
 #ifndef ZS_CODEC_H
@@ -94,6 +107,8 @@ typedef const zs_codec* (*zs_codec_entry)(void);
 #define ZS_CODEC_ENTRY "zpaqstd_codec_v1"
 typedef const zs_codec* (*zs_codec_list_entry)(int i);
 #define ZS_CODEC_LIST_ENTRY "zpaqstd_codecs_v1"
+typedef int (*zs_detect_entry)(const char* codec, const void* src, size_t n);
+#define ZS_DETECT_ENTRY "zpaqstd_detect_v1"
 
 #ifdef _WIN32
 #define ZS_CODEC_EXPORT __declspec(dllexport)
