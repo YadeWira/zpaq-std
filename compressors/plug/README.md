@@ -123,6 +123,12 @@ zpaq-std a data.zpaq files -sae:<file>:<codec>[+<level>][:<codec>[+<level>]...]
   other zpaq, as with `-mat`) and shows which codec took each file, its sizes and
   times, and how it decoded back. Tags: `zpaqstd-sae:` and `zpaqstd-sat:`.
 
+**A codec's card**: `data(ZS_DATA_INFO, &size)` may return `key=value` lines (`author`,
+`repo`, `license`, `version`, `commit`, `format`, `notes`, or any other key), which
+`zpaq-std codecinfoex <file>:<codec>` shows next to what zpaq-std works out itself:
+the SHA-256 of the plugin file and of the ZPAQL decoder's text, and which of
+`-mae`/`-mat`/`-sae`/`-sat` can use the codec. A card is only shown, never acted on.
+
 `zs_example.c` also has a `zpaqstd_detect_v1`: its two codecs take a file where at
 least half of the bytes are in runs of three or more.
 

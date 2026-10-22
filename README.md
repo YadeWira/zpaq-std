@@ -271,6 +271,11 @@ The classic 7z-style verbs:
 - `i` show all versions and their stats
 - `c` compare / verify
 - `t` test the archive (recomputes the stored hashes)
+- `codecinfo` the `-ma` codecs at a glance (status, levels, default, ZPAQL decoder,
+  library, and whether each is built in, a plugin, or missing), then the plugins in
+  `codecs/` that are not part of zpaq-std; `codecinfoex [codec]` gives each codec's
+  card: author, repository, licence, the release or commit it comes from, format,
+  and the SHA-256 of its plugin file and of its ZPAQL decoder
 
 Those are the common ones; the built-in help documents **57** commands in total
 (`backup`, `testbackup`, `trim`, `crop`, `find`, `redu`, `dirsize`, `sum`,
