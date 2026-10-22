@@ -9,7 +9,8 @@
 # coinciden con la tabla del README; (3) codecinfoex <codec> funciona con cada
 # uno y da su decodificador; (4) los plugins externos de codecs/ aparecen
 # marcados, con su ficha (ZS_DATA_INFO) y el SHA-256 real del archivo; uno roto
-# se informa sin romper nada; (5) un nombre desconocido da 00736 y rc 2.
+# se informa sin romper nada; (5) codecinfo <codec> da su ficha; (6) un
+# nombre desconocido da 00736 y rc 2.
 #
 #   uso: suite_codecinfo.sh          (usa Z=... o el binario del repo)
 # ============================================================================
@@ -67,6 +68,10 @@ grep -q "plugin hash  SHA-256 $h" ex_ext.txt || r="hash"
 grep -q 'repository   https://github.com/YadeWira/zpaq-std' ex_ext.txt || r="$r ficha"
 grep -q 'NOT an official' ex_ext.txt || r="$r sin-aviso"
 ok "codecinfoex example:rle: ficha y SHA-256 real" "$r"
+./zpaq-std codecinfo zstd > ci_zstd.txt 2>&1; rc=$?
+r=ok; [ $rc = 0 ] || r="rc=$rc"; grep -q '^-ma:zstd$' ci_zstd.txt && grep -q '  decoder      ZPAQZSTD' ci_zstd.txt || r="$r sin-ficha"
+./zpaq-std codecinfo example:rle | grep -q 'NOT an official' || r="$r externo"
+ok "codecinfo <codec> da su ficha (como codecinfoex)" "$r"
 ./zpaq-std codecinfoex nada > ex_nada.txt 2>&1; rc=$?
 [ $rc = 2 ] && grep -q 00736 ex_nada.txt && r=ok || r="rc=$rc"; ok "nombre desconocido: 00736" "$r"
 echo "--- $casos casos, $((casos-malos)) bien, $malos a revisar ---"

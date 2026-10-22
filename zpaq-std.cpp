@@ -30454,7 +30454,7 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 	}
 	if (i_ex && shown==0)
 	{
-		myprintf("00736! codecinfoex: no codec named %s (codecinfo lists them)\n", i_only.c_str());
+		myprintf("00736! no codec named %s (codecinfo lists them)\n", i_only.c_str());
 		return 2;
 	}
 	return 0;
@@ -66239,20 +66239,26 @@ string help_codecinfo(bool i_usage, bool i_example)
 {
 	if (i_usage)
 	{
-		scrivi_riga("CMD codecinfo", "The -ma codecs: status, levels, default, ZPAQL decoder, library, and");
-		scrivi_riga(" ", "    where each one comes from (built in, a plugin, or missing); then the");
-		scrivi_riga(" ", "    plugins in codecs/ that are NOT part of zpaq-std (-mae/-mat, -sae/-sat)");
-		scrivi_riga("CMD codecinfoex [x]", "Every codec's card (or only codec x, or an external plugin file or");
-		scrivi_riga(" ", "    file:codec): author, repository, licence, source (release or commit),");
-		scrivi_riga(" ", "    format, levels, the SHA-256 of its plugin file and of its ZPAQL decoder");
+		scrivi_riga("CMD codecinfo", "The -ma codecs at a glance: stable or experimental, levels, default,");
+		scrivi_riga(" ", "    ZPAQL decoder, library and version, and where each one comes from");
+		scrivi_riga(" ", "    (built in, a plugin in codecs/, or MISSING); then the plugins in codecs/");
+		scrivi_riga(" ", "    that are NOT part of zpaq-std (for -mae/-mat and -sae/-sat)");
+		scrivi_riga("CMD codecinfo x", "The card of codec x: author, repository, licence, the release or commit");
+		scrivi_riga(" ", "    it comes from, format, levels, and the SHA-256 of its plugin file and of");
+		scrivi_riga(" ", "    its ZPAQL decoder(s). x is a -ma name (zstd, kanzi...), or, for");
+		scrivi_riga(" ", "    an external plugin, its file name (all its codecs) or file:codec");
+		scrivi_riga("CMD codecinfoex", "Every card, official and external");
+		scrivi_riga("CMD codecinfoex x", "The same as codecinfo x");
 	}
 	if (i_usage && i_example)
 		scrivi_examples();
 	if (i_example)
 	{
 		scrivi_esempio("The codecs at a glance", "codecinfo");
-		scrivi_esempio("zstd's card", "codecinfoex zstd");
-		scrivi_esempio("An external plugin's card", "codecinfoex example:rle");
+		scrivi_esempio("zstd's card", "codecinfo zstd");
+		scrivi_esempio("Every card", "codecinfoex");
+		scrivi_esempio("The codecs of codecs/example.dll", "codecinfo example");
+		scrivi_esempio("One external codec's card", "codecinfo example:rle");
 	}
 	return ("Information about the codecs");
 }
@@ -66392,7 +66398,7 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-nodedup", "Turn off deduplicator");
 		scrivi_riga("-store", "Store mode: no deduplication, no compression");
 		scrivi_riga("-ma:algo:N", "Compress with a bundled library: zstd, brotli, lzma, bzip2, kanzi...");
-		scrivi_riga(" ", "  any zpaq extracts the archive; every codec and level: h voodoo");
+		scrivi_riga(" ", "  any zpaq extracts the archive; every codec and level: codecinfo");
 		scrivi_riga("-touch", "Re-hash unchanged files without a usable hash (7.15, other algo)");
 		scrivi_riga("-norecursion", "Do not recurse into folders (default: YES)");
 #ifdef _WIN32
@@ -67813,7 +67819,7 @@ string help_mainswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  -m7 default, -m7h LZAV hi (smaller, slower), -m76: 64 MB blocks");
 #endif // ZPAQLZAV
 		scrivi_riga("-ma:algo:N", "A bundled library compresses each block (any zpaq extracts it)");
-		scrivi_riga(" ", "  -ma:zstd:19 -ma:brotli -ma:lzma:9 -ma:kanzi:5 ... list: h voodoo");
+		scrivi_riga(" ", "  -ma:zstd:19 -ma:brotli -ma:lzma:9 -ma:kanzi:5 ... list: codecinfo");
 		scrivi_riga(" ", "  block size from -m: -ma:zstd:19 -m16 = 64 MB blocks");
 		scrivi_riga("-force", "Overwrite");
 		scrivi_riga("-test", "Verify (extract/add)");
@@ -67970,6 +67976,8 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "    needs their ZPAQL decoders. Every block is decoded back before it is written");
 		scrivi_riga("-sat:file:codec+N", "The same, to TEST such codecs: shows which codec took each file, sizes, times,");
 		scrivi_riga(" ", "    and the block decoded back by the plugin and by its ZPAQL (like -mat)");
+		scrivi_riga(" ", "  codecinfo lists the -ma codecs and the plugins in codecs/; codecinfo x");
+		scrivi_riga(" ", "    shows the card of one (author, repository, versions, hashes)");
 		scrivi_riga("-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:");
 		scrivi_riga(" ", "x=journaling (default). s=streaming (no dedupe)");
 		scrivi_riga(" ", "  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9");
@@ -68231,6 +68239,7 @@ void Jidac::load_help_map()
 #endif ///NOSFTPEND
 	help_map.insert(std::pair<string, HelpInfo>("pause", HelpInfo("Utils    ", help_pause, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("codecinfo", HelpInfo("Utils    ", help_codecinfo, 8)));
+	help_map.insert(std::pair<string, HelpInfo>("codecinfoex", HelpInfo("Utils    ", help_codecinfo, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("rsync", HelpInfo("Utils    ", help_rsync, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("utf", HelpInfo("Utils    ", help_utf, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("versum", HelpInfo("Utils    ", help_versum, 8)));
@@ -70261,7 +70270,16 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if ((opt=="autotest"))						command='8';
 		else if ((opt=="pause")) 						command='0';
 		/// codecinfo: the -ma codecs and the plugins in codecs/; codecinfoex [name]: their cards
-		else if ((opt=="codecinfo"))					command='h';
+		/// codecinfo <x> is codecinfoex <x>: one codec's card
+		else if ((opt=="codecinfo"))
+		{
+			command='h';
+			if (i+1<argc && argv[i+1][0]!='-')
+			{
+				g_codecinfo_name=argv[++i];
+				command='J';
+			}
+		}
 		else if ((opt=="codecinfoex"))
 		{
 			command='J';
