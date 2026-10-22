@@ -78,15 +78,31 @@ static const char ex_zpaql[] =
 	"  halt\n"
 	"end\n";
 
+/* The codec's card, shown by codecinfoex: "key=value" lines. */
+static const char ex_info[] =
+	"author=zpaq-std\n"
+	"repo=https://github.com/YadeWira/zpaq-std (tools/plugin_example)\n"
+	"license=MIT\n"
+	"version=1.0\n"
+	"format=byte run-length: control byte c < 128: c+1 literals; c >= 128: next byte c-125 times\n"
+	"notes=an example plugin, as small as it gets\n";
+
 static const void* ex_data(int what, size_t* size)
 {
+	if (what == ZS_DATA_INFO) { *size = sizeof(ex_info); return ex_info; }
 	if (what != ZS_DATA_ZPAQL) return NULL;
 	*size = sizeof(ex_zpaql);
 	return ex_zpaql;
 }
+static const void* ex_data_nz(int what, size_t* size)	/* rlenz: the card, no ZPAQL */
+{
+	if (what != ZS_DATA_INFO) return NULL;
+	*size = sizeof(ex_info);
+	return ex_info;
+}
 
 static const zs_codec ex_rle   = { ZS_CODEC_ABI, "rle",   "zs_example rle 1.0",   1, 1, ex_bound, ex_compress, ex_decompress, NULL, ex_data };
-static const zs_codec ex_rlenz = { ZS_CODEC_ABI, "rlenz", "zs_example rlenz 1.0", 1, 1, ex_bound, ex_compress, ex_decompress, NULL, NULL };
+static const zs_codec ex_rlenz = { ZS_CODEC_ABI, "rlenz", "zs_example rlenz 1.0", 1, 1, ex_bound, ex_compress, ex_decompress, NULL, ex_data_nz };
 
 ZS_CODEC_EXPORT const zs_codec* zpaqstd_codecs_v1(int i)
 {

@@ -101,6 +101,9 @@ typedef struct zs_codec {
 #define ZS_QUERY_FIRST_PRE 1  /* kanzi: the length of the first pre-transform */
 #define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
 #define ZS_DATA_ZPAQL      2  /* -mae/-mat: the codec's ZPAQL decoder, as text */
+#define ZS_DATA_INFO       3  /* optional: the codec's card for codecinfoex, as
+                                 "key=value" lines: name, version, author, repo,
+                                 license, commit, format, notes (and any other key) */
 
 typedef const zs_codec* (*zs_codec_entry)(void);
 

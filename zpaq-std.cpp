@@ -21326,6 +21326,7 @@ struct zs_sa_codec
 	std::string cfg;	/// its ZPAQL configuration, "" if it gives none (-sat only)
 };
 int						 g_sa_mode= 0;	/// 'e' (-sae), 't' (-sat) or 0
+std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
 /// The decoder of a -mat block whose codec gives no ZPAQL decoder: it writes
 /// nothing, so any other zpaq reports the block as damaged (its SHA-1 check)
@@ -30064,6 +30065,396 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 	const zs_ext* r=&g_zs_ext[key];
 	zs_ext_lock().leave();
 	return r;
+}
+/// ---- codecinfo / codecinfoex ------------------------------------------------
+/// One card per -ma switch. Levels and defaults are the ones the -ma parser
+/// applies (and README's table says); the library's version is read from the
+/// loaded codec when there is one. Keep this table in step with both.
+struct zs_info_row
+{
+	const char* ma;			/// the -ma name
+	bool		experimental;
+	int			lmin, lmax, ldef;
+	const char* decoder;	/// its ZPAQL decoder(s)
+	const char* library;	/// name and version, when the codec is not loaded
+	const char* author;
+	const char* repo;
+	const char* license;
+	const char* source;		/// the release or commit it comes from
+	const char* format;
+	const char* notes;
+};
+static const zs_info_row ZS_INFO[]=
+{
+	{"zstd", false, 1, 22, 3, "ZPAQZSTD", "zstd 1.5.7", "Yann Collet; Meta Platforms, Inc. and affiliates", "https://github.com/facebook/zstd",
+	 "BSD-3-Clause (dual BSD / GPLv2: BSD chosen)", "release v1.5.7", "zstd frame (RFC 8878)", ""},
+	{"brotli", false, 0, 11, 11, "ZPAQBROTLI", "brotli 1.2.0", "Google Inc.", "https://github.com/google/brotli",
+	 "MIT", "release v1.2.0", "brotli stream (RFC 7932)", "the block carries brotli's static dictionary prefix the decoder reads"},
+	{"lzma", false, 0, 9, 6, "ZPAQLZMA", "LZMA SDK 26.03", "Igor Pavlov", "https://www.7-zip.org/sdk.html",
+	 "public domain", "release 26.03", "raw LZMA", "the ZPAQLZMA decoder is by kaitz"},
+	{"flzma2", false, 1, 10, 5, "ZPAQFLZMA2", "fast-lzma2 1.0.1", "Conor McCarthy", "https://github.com/conor42/fast-lzma2",
+	 "BSD-3-Clause (dual BSD / GPLv2: BSD chosen)", "release v1.0.1, decoder patched (compressors/fl2/PATCHES)", "LZMA2", ""},
+	{"uflzma2", false, 1, 11, 5, "ZPAQUFLZMA2", "ultra-fast-lzma2 1.6.2", "Conor McCarthy (fast-lzma2), fork by YadeWira", "https://github.com/YadeWira/ultra-fast-lzma2",
+	 "BSD-3-Clause", "v1.6.2, commit bd4682f", "LZMA2", "level 11 also picks lc/lp/pb per block"},
+	{"lz", false, 0, 9, 6, "ZPAQLZIP", "lzlib 1.16", "Antonio Diaz Diaz", "https://www.nongnu.org/lzip/lzlib.html",
+	 "BSD-2-Clause", "release 1.16", "lzip member, kept as its LZMA stream", "decoded by ZPAQLZMA's program"},
+	{"bzip2", false, 1, 9, 9, "ZPAQBZIP2", "bzip2 1.0.8", "Julian R Seward", "https://sourceware.org/bzip2/",
+	 "bzip2 licence (BSD-style)", "release 1.0.8", "bzip2 stream", ""},
+	{"deflate", false, 0, 12, 6, "ZPAQDEFLATE", "libdeflate 1.26", "Eric Biggers", "https://github.com/ebiggers/libdeflate",
+	 "MIT", "release v1.26", "raw DEFLATE (RFC 1951)", ""},
+	{"lizard", false, 10, 49, 17, "ZPAQLIZARD, ZPAQLIZARDH (levels 30-49)", "Lizard 2.1", "Yann Collet, Przemyslaw Skibinski", "https://github.com/inikep/lizard",
+	 "BSD-2-Clause", "release v2.1", "Lizard block", "levels 30-49 add Huffman"},
+	{"lz5", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
+	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "lz5-ex is a fork of LZ5 1.5 with the same format"},
+	{"lz5hc", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
+	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "lz5's high-compression parser; same plugin as lz5"},
+	{"lz5f", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
+	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "same plugin as lz5"},
+	{"snappy", false, 1, 2, 1, "ZPAQSNAPPY", "Snappy 1.2.1", "Google Inc.", "https://github.com/google/snappy",
+	 "BSD-3-Clause", "release 1.2.1", "raw Snappy", ""},
+	{"lzfse", false, 0, 1, 1, "ZPAQLZFSE", "LZFSE", "Apple Inc.", "https://github.com/lzfse/lzfse",
+	 "BSD-3-Clause", "-", "LZFSE stream", "LZFSE has one internal level"},
+	{"hs", false, 0, 2, 1, "ZPAQHS", "heatshrink 0.4.1", "Scott Vokes", "https://github.com/atomicobject/heatshrink",
+	 "ISC", "release v0.4.1", "heatshrink stream", "the level picks the window"},
+	{"bzip3", false, 1, 9, 9, "ZPAQBZIP3", "bzip3 1.5.4", "Kamila Szewczyk", "https://github.com/iczelia/bzip3",
+	 "LGPL-3.0-or-later", "release 1.5.4", "bzip3 blocks", ""},
+	{"bsc", false, 1, 9, 3, "ZPAQBSC", "libbsc 3.3.12", "Ilya Grebnov", "https://github.com/IlyaGrebnov/libbsc",
+	 "Apache-2.0", "release v3.3.12", "bsc block", "the level picks the block sorter (ST3 to ST5)"},
+	{"lzh", false, 1, 4, 4, "ZPAQLZHAM", "LZHAM 1.0", "Richard Geldreich, Jr.", "https://github.com/richgel999/lzham_codec",
+	 "MIT", "release 1.0", "LZHAM stream", "4 is LZHAM's uber level"},
+	{"ppmd", false, 2, 32, 6, "ZPAQPPMD", "PPMd var.H (Ppmd7)", "Dmitry Shkarin, Igor Pavlov", "https://www.7-zip.org/sdk.html",
+	 "public domain", "7-Zip / LZMA SDK", "PPMd7 (var.H) with 7-Zip's range coder", "the level is the model order"},
+	{"kanzi", false, 1, 9, 2, "ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B (by level)", "kanzi 2.6.0", "Frederic Langlet", "https://github.com/flanglet/kanzi-cpp",
+	 "Apache-2.0", "2.6.0, commit 2d17ca0", "kanzi bitstream 7, one kanzi block per zpaq block", "levels 8 and 9 (TPAQ) are slow and need a lot of memory in other zpaqs"},
+	{"lz6", true, 0, 15, 0, "ZPAQLZ6", "lz6 1.6.12-pre", "Yann Collet (LZ4); YadeWira", "https://github.com/YadeWira/lz6",
+	 "BSD-2-Clause", "v1.6.12-pre, commit ecbbaa7", "LZ5 1.5 portable profile (frozen)", "its compression and levels may change; the block format does not"},
+	{"bz2", true, 1, 9, 9, "ZPAQBZ2", "bz2-ng a655623", "Tim Fennell; Julian R Seward (bzip2); Eric Biggers (libdeflate); Yuta Mori (sais-lite); Ilya Grebnov (libsais)", "https://github.com/tfenne/bz2-ng",
+	 "MIT; parts BSD-style, MIT and Apache-2.0 WITH LLVM-exception", "commit a655623 (no release yet)", "bzip2 stream", "libbz2 1.0.8's format with a new encoder and decoder"},
+	{"zxc", true, 1, 7, 3, "ZPAQZXC", "zxc 0.15.0", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
+	 "BSD-3-Clause; rapidhash MIT", "v0.15.0, commit 2d29ab6", "zxc format 9", "levels 6 and 7 add Huffman"},
+	{"sylz", true, 0, 10, 1, "ZPAQSYLZ", "sylz (syc v0.2.7)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
+	 "MIT", "syc v0.2.7, commit ba35329", "sylz format v2", "Free Pascal, so a plugin only (codecs/sylz)"},
+	{"lz4", true, 1, 12, 9, "none: written as zpaqfranz's -m6", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
+	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "1-4 as -m6a, 5-12 as -m6h"},
+	{"lz4hc", true, 1, 12, 9, "none: written as zpaqfranz's -m6", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
+	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "written as -m6h"},
+	{"lz4f", true, 1, 12, 9, "none: written as zpaqfranz's -m6", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
+	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "written as -m6a"},
+	{"lzav", true, 0, 1, 1, "none: written as zpaqfranz's -m7", "LZAV 5.17", "Aleksey Vaneev", "https://github.com/avaneev/lzav",
+	 "MIT", "5.17, inside zpaqfranz", "zpaqfranz -m7", "0 as -m7, 1 as -m7h"},
+};
+/// the program of a codec's ZPAQL decoder(s), for their SHA-256
+static void zs_info_bytecodes(const std::string& i_ma, std::vector<std::pair<std::string, const std::string*> >& o_bc)
+{
+	using namespace libzpaq;
+	o_bc.clear();
+	const std::string& m=i_ma;
+	if (m=="zstd") o_bc.push_back(std::make_pair("ZPAQZSTD", &zpaqzstd_bytecode()));
+	else if (m=="brotli") o_bc.push_back(std::make_pair("ZPAQBROTLI", &zpaqbrotli_bytecode()));
+	else if (m=="lzma" || m=="lz") o_bc.push_back(std::make_pair(m=="lz" ? "ZPAQLZIP" : "ZPAQLZMA", &zpaqlzma_bytecode()));
+	else if (m=="flzma2") o_bc.push_back(std::make_pair("ZPAQFLZMA2", &zpaqflzma2_bytecode()));
+	else if (m=="uflzma2") o_bc.push_back(std::make_pair("ZPAQUFLZMA2", &zpaquflzma2_bytecode()));
+	else if (m=="bzip2") o_bc.push_back(std::make_pair("ZPAQBZIP2", &zpaqbzip2_bytecode()));
+	else if (m=="bz2") o_bc.push_back(std::make_pair("ZPAQBZ2", &zpaqbz2_bytecode()));
+	else if (m=="deflate") o_bc.push_back(std::make_pair("ZPAQDEFLATE", &zpaqdeflate_bytecode()));
+	else if (m=="lizard")
+	{
+		o_bc.push_back(std::make_pair("ZPAQLIZARD", &zpaqlizard_bytecode()));
+		o_bc.push_back(std::make_pair("ZPAQLIZARDH", &zpaqlizardh_bytecode()));
+	}
+	else if (m=="lz5" || m=="lz5hc" || m=="lz5f") o_bc.push_back(std::make_pair("ZPAQLZ5", &zpaqlz5_bytecode()));
+	else if (m=="lz6") o_bc.push_back(std::make_pair("ZPAQLZ6", &zpaqlz6_bytecode()));
+	else if (m=="snappy") o_bc.push_back(std::make_pair("ZPAQSNAPPY", &zpaqsnappy_bytecode()));
+	else if (m=="lzfse") o_bc.push_back(std::make_pair("ZPAQLZFSE", &zpaqlzfse_bytecode()));
+	else if (m=="hs") o_bc.push_back(std::make_pair("ZPAQHS", &zpaqhs_bytecode()));
+	else if (m=="bzip3") o_bc.push_back(std::make_pair("ZPAQBZIP3", &zpaqbzip3_bytecode()));
+	else if (m=="bsc") o_bc.push_back(std::make_pair("ZPAQBSC", &zpaqbsc_bytecode()));
+	else if (m=="lzh") o_bc.push_back(std::make_pair("ZPAQLZHAM", &zpaqlzham_bytecode()));
+	else if (m=="ppmd") o_bc.push_back(std::make_pair("ZPAQPPMD", &zpaqppmd_bytecode()));
+	else if (m=="kanzi")
+	{
+		o_bc.push_back(std::make_pair("ZPAQKANZI1B", &zpaqkanzi1b_bytecode()));
+		o_bc.push_back(std::make_pair("ZPAQKANZI3B", &zpaqkanzi3b_bytecode()));
+		o_bc.push_back(std::make_pair("ZPAQKANZI5C", &zpaqkanzi5c_bytecode()));
+		o_bc.push_back(std::make_pair("ZPAQKANZI7B", &zpaqkanzi7b_bytecode()));
+		o_bc.push_back(std::make_pair("ZPAQKANZI8B", &zpaqkanzi8b_bytecode()));
+	}
+	else if (m=="sylz") o_bc.push_back(std::make_pair("ZPAQSYLZ", &zpaqsylz_bytecode()));
+	else if (m=="zxc") o_bc.push_back(std::make_pair("ZPAQZXC", &zpaqzxc_bytecode()));
+}
+static std::string zs_sha256_hex(const char* i_p, size_t i_n)
+{
+	libzpaq::SHA256 sh;
+	sh.write(i_p, (int64_t)i_n);
+	const char* r=sh.result();
+	char hx[65];
+	for (int q=0; q<32; ++q)
+		snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r[q]);
+	return std::string(hx, 64);
+}
+/// SHA-256 of a file, "" if it cannot be read
+static std::string zs_sha256_file(const std::string& i_path)
+{
+	FILE* f=fopen(i_path.c_str(), "rb");
+	if (!f)
+		return "";
+	libzpaq::SHA256 sh;
+	char buf[65536];
+	size_t n;
+	while ((n=fread(buf, 1, sizeof(buf), f))>0)
+		sh.write(buf, (int64_t)n);
+	fclose(f);
+	const char* r=sh.result();
+	char hx[65];
+	for (int q=0; q<32; ++q)
+		snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r[q]);
+	return std::string(hx, 64);
+}
+/// the plugins in codecs/ that are not zpaq-std's own (their names, no extension)
+static std::vector<std::string> zs_external_plugins()
+{
+	std::vector<std::string> r;
+	const std::string ext=ZS_PLUGIN_EXT;
+	std::vector<std::string> all;
+#ifdef _WIN32
+	WIN32_FIND_DATAW fd;
+	HANDLE h=FindFirstFileW(utow((g_zs_dir+"*"+ext).c_str()).c_str(), &fd);
+	if (h!=INVALID_HANDLE_VALUE)
+	{
+		do
+			if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+				all.push_back(wtou(fd.cFileName));
+		while (FindNextFileW(h, &fd));
+		FindClose(h);
+	}
+#else
+	DIR* d=opendir(g_zs_dir.c_str());
+	if (d)
+	{
+		struct dirent* e;
+		while ((e=readdir(d))!=NULL)
+			all.push_back(e->d_name);
+		closedir(d);
+	}
+#endif
+	for (size_t i=0; i<all.size(); i++)
+	{
+		const std::string& n=all[i];
+		if (n.size()<=ext.size() || n.compare(n.size()-ext.size(), ext.size(), ext)!=0)
+			continue;
+		const std::string b=n.substr(0, n.size()-ext.size());
+		bool own=false;
+		for (size_t k=0; k<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++k)
+			own=own || b==ZS_NAMES[k];
+		for (size_t k=0; k<sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0]); ++k)
+			own=own || b==ZS_PLUGIN_ONLY[k];
+		if (!own && zs_ext_name_ok(b))
+			r.push_back(b);
+	}
+	std::sort(r.begin(), r.end());
+	return r;
+}
+/// where an official codec comes from: built in, its plugin, or missing
+static std::string zs_info_where(const zs_info_row& i_r, std::string* o_path)
+{
+	if (o_path)
+		*o_path="";
+	const std::string plug=zs_plugin_name(i_r.ma);
+	if (plug=="")
+		return "inside zpaq-std (zpaqfranz)";
+	bool only=false;
+	for (size_t k=0; k<sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0]); ++k)
+		only=only || plug==ZS_PLUGIN_ONLY[k];
+#ifndef ZS_PLUGINS
+	if (!only)
+		return "built in";
+#endif
+	const std::string path=zs_plugin_dir()+plug+ZS_PLUGIN_EXT;
+	if (o_path)
+		*o_path=path;
+	return zs_get(plug.c_str()) ? "codecs/"+plug+ZS_PLUGIN_EXT : "MISSING codecs/"+plug+ZS_PLUGIN_EXT;
+}
+/// a plugin's own card (ZS_DATA_INFO): "key=value" lines
+static std::vector<std::pair<std::string, std::string> > zs_info_card(const zs_codec* i_c)
+{
+	std::vector<std::pair<std::string, std::string> > r;
+	if (!i_c || !i_c->data)
+		return r;
+	size_t n=0;
+	const char* p=(const char*)i_c->data(ZS_DATA_INFO, &n);
+	if (!p || !n)
+		return r;
+	const std::string t(p, strnlen(p, n<65536 ? n : 65536));
+	size_t from=0;
+	while (from<t.size())
+	{
+		size_t e=t.find('\n', from);
+		if (e==std::string::npos)
+			e=t.size();
+		std::string line=t.substr(from, e-from);
+		from=e+1;
+		if (!line.empty() && line[line.size()-1]=='\r')
+			line.erase(line.size()-1);
+		const size_t eq=line.find('=');
+		if (eq==std::string::npos || eq==0)
+			continue;
+		std::string v=line.substr(eq+1);
+		for (size_t q=0; q<v.size(); q++)
+			if ((unsigned char)v[q]<32)
+				v[q]=' ';	/// a card is shown, never interpreted
+		r.push_back(std::make_pair(line.substr(0, eq), v));
+	}
+	return r;
+}
+static void zs_card_line(const char* i_key, const std::string& i_value)
+{
+	if (!i_value.empty())
+		myprintf("  %-12s %s\n", i_key, i_value.c_str());
+}
+/// codecinfo (i_ex false: a table) and codecinfoex (the full cards; i_only
+/// limits them to one -ma name, or to an external "file" or "file:codec")
+int zs_codecinfo(bool i_ex, const std::string& i_only)
+{
+	const size_t nrows=sizeof(ZS_INFO)/sizeof(ZS_INFO[0]);
+	int shown=0;
+	if (!i_ex)
+	{
+		myprintf("%-8s %-12s %-6s %-4s %-14s %-27s %s\n", "-ma", "status", "levels", "def", "ZPAQL decoder", "library", "where");
+		for (size_t i=0; i<nrows; i++)
+		{
+			const zs_info_row& r=ZS_INFO[i];
+			const std::string plug=zs_plugin_name(r.ma);
+			const zs_codec* c=plug=="" ? NULL : zs_get(plug.c_str());
+			std::string dec=r.decoder;
+			if (dec.compare(0, 5, "none:")==0)
+				dec=dec.substr(dec.size()-3);	/// "-m6" / "-m7"
+			else if (dec.find(',')!=std::string::npos)
+				dec=dec.substr(0, dec.find(','))+"+";
+			char lv[16];
+			snprintf(lv, sizeof(lv), "%d-%d", r.lmin, r.lmax);
+			myprintf("%-8s %-12s %-6s %-4d %-14s %-27s %s\n", r.ma, r.experimental ? "experimental" : "stable", lv, r.ldef,
+			         dec.c_str(), c && c->library ? c->library : r.library, zs_info_where(r, NULL).c_str());
+			shown++;
+		}
+	}
+	else
+		for (size_t i=0; i<nrows; i++)
+		{
+			const zs_info_row& r=ZS_INFO[i];
+			if (!i_only.empty() && i_only!=r.ma)
+				continue;
+			const std::string plug=zs_plugin_name(r.ma);
+			const zs_codec* c=plug=="" ? NULL : zs_get(plug.c_str());
+			std::string path;
+			const std::string where=zs_info_where(r, &path);
+			myprintf("-ma:%s\n", r.ma);
+			zs_card_line("status", r.experimental ? "EXPERIMENTAL: its encoder may change; what is written stays readable" : "stable");
+			zs_card_line("library", c && c->library ? c->library : r.library);
+			zs_card_line("author", r.author);
+			zs_card_line("repository", r.repo);
+			zs_card_line("licence", r.license);
+			zs_card_line("source", r.source);
+			zs_card_line("format", r.format);
+			char lv[64];
+			snprintf(lv, sizeof(lv), "%d to %d, default %d", r.lmin, r.lmax, r.ldef);
+			zs_card_line("levels", lv);
+			zs_card_line("where", where);
+			if (c)
+				zs_card_line("interface", libzpaq::itos(c->abi)+(c->min_level!=r.lmin || c->max_level!=r.lmax
+				             ? " (the library itself takes "+libzpaq::itos(c->min_level)+" to "+libzpaq::itos(c->max_level)+")" : std::string("")));
+			if (!path.empty() && c)
+				zs_card_line("plugin hash", "SHA-256 "+zs_sha256_file(path)+" (of the file)");
+			std::vector<std::pair<std::string, const std::string*> > bc;
+			zs_info_bytecodes(r.ma, bc);
+			if (bc.empty())
+				zs_card_line("decoder", r.decoder);
+			for (size_t k=0; k<bc.size(); k++)
+				zs_card_line(k==0 ? "decoder" : "", bc[k].first+", "+std::string(migliaia((int64_t)bc[k].second->size()))+" bytes, SHA-256 "
+				             +zs_sha256_hex(bc[k].second->data(), bc[k].second->size()));
+			zs_card_line("notes", r.notes);
+			myprintf("\n");
+			shown++;
+		}
+	/// the plugins that are not zpaq-std's own
+	const std::vector<std::string> ext=zs_external_plugins();
+	bool head=false;
+	for (size_t i=0; i<ext.size(); i++)
+	{
+		const zs_ext* xf=zs_ext_get(ext[i], "-");	/// loads the file and lists its codecs
+		std::vector<std::string> names;
+		std::string w=xf->names;
+		while (!w.empty())
+		{
+			const size_t sp=w.find(' ');
+			names.push_back(w.substr(0, sp));
+			w=sp==std::string::npos ? "" : w.substr(sp+1);
+		}
+		const std::string path=zs_plugin_dir()+ext[i]+ZS_PLUGIN_EXT;
+		if (names.empty())
+		{
+			if (i_ex && !i_only.empty() && i_only!=ext[i])
+				continue;
+			if (!head)
+				myprintf("%sEXTERNAL plugins in %s (NOT part of zpaq-std; -mae/-mat, -sae/-sat):\n", i_ex ? "" : "\n", zs_plugin_dir().c_str());
+			head=true;
+			myprintf("  %s%s: not a usable codec (%s)\n", ext[i].c_str(), ZS_PLUGIN_EXT, xf->why.c_str());
+			continue;
+		}
+		for (size_t k=0; k<names.size(); k++)
+		{
+			const std::string full=ext[i]+":"+names[k];
+			if (i_ex && !i_only.empty() && i_only!=ext[i] && i_only!=full)
+				continue;
+			const zs_ext* xe=zs_ext_get(ext[i], names[k]);
+			if (!head)
+				myprintf("%sEXTERNAL plugins in %s (NOT part of zpaq-std; -mae/-mat, -sae/-sat):\n", i_ex ? "" : "\n", zs_plugin_dir().c_str());
+			head=true;
+			const zs_codec* c=xe->c;
+			if (!c)
+			{
+				myprintf("  %s: %s\n", full.c_str(), xe->why.c_str());
+				continue;
+			}
+			const std::string uses=std::string(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
+			if (!i_ex)
+			{
+				myprintf("  %-24s %s, levels %d-%d, ZPAQL %s, for %s\n", full.c_str(), c->library ? c->library : "?",
+				         c->min_level, c->max_level, xe->zpaql.empty() ? "no" : "yes", uses.c_str());
+				shown++;
+				continue;
+			}
+			myprintf("%s (external: NOT an official zpaq-std codec)\n", full.c_str());
+			zs_card_line("library", c->library ? c->library : "?");
+			const std::vector<std::pair<std::string, std::string> > card=zs_info_card(c);
+			for (size_t q=0; q<card.size(); q++)
+				if (card[q].first!="name")
+				{
+					/// the same labels as zpaq-std's own cards
+					const std::string& k=card[q].first;
+					const std::string lab=k=="repo" ? "repository" : k=="license" ? "licence" : k=="commit" ? "source" : k;
+					zs_card_line(lab.c_str(), card[q].second);
+				}
+			if (card.empty())
+				zs_card_line("card", "none (the plugin gives no data(ZS_DATA_INFO))");
+			char lv[64];
+			snprintf(lv, sizeof(lv), "%d to %d", c->min_level, c->max_level);
+			zs_card_line("levels", lv);
+			zs_card_line("interface", libzpaq::itos(c->abi));
+			zs_card_line("used by", uses);
+			zs_card_line("plugin", path);
+			zs_card_line("plugin hash", "SHA-256 "+zs_sha256_file(path)+" (of the file)");
+			zs_card_line("decoder", xe->zpaql.empty() ? std::string("none (its blocks open only with this plugin)")
+			                 : std::string(migliaia((int64_t)xe->zpaql.size()))+" bytes of ZPAQL, SHA-256 "+zs_sha256_hex(xe->zpaql.data(), xe->zpaql.size())+" (of its text)");
+			myprintf("\n");
+			shown++;
+		}
+	}
+	if (i_ex && shown==0)
+	{
+		myprintf("00736! codecinfoex: no codec named %s (codecinfo lists them)\n", i_only.c_str());
+		return 2;
+	}
+	return 0;
 }
 /// -sae/-sat: the first codec of g_sa that takes this whole file, or -1. Called
 /// from the prefetch workers (the classifier) and from the main thread.
@@ -59522,6 +59913,7 @@ class Jidac
 	int benchmark();
 	int autotest();
 	int pause();
+	int codecinfo();
 	int versum();
 	int last2();
 #ifdef ZPAQMOUNT ///NOSFTPSTART
@@ -65840,6 +66232,27 @@ string help_last(bool i_usage, bool i_example)
 	return ("Get latest multipart filename");
 }
 
+string help_codecinfo(bool i_usage, bool i_example)
+{
+	if (i_usage)
+	{
+		scrivi_riga("CMD codecinfo", "The -ma codecs: status, levels, default, ZPAQL decoder, library, and");
+		scrivi_riga(" ", "    where each one comes from (built in, a plugin, or missing); then the");
+		scrivi_riga(" ", "    plugins in codecs/ that are NOT part of zpaq-std (-mae/-mat, -sae/-sat)");
+		scrivi_riga("CMD codecinfoex [x]", "Every codec's card (or only codec x, or an external plugin file or");
+		scrivi_riga(" ", "    file:codec): author, repository, licence, source (release or commit),");
+		scrivi_riga(" ", "    format, levels, the SHA-256 of its plugin file and of its ZPAQL decoder");
+	}
+	if (i_usage && i_example)
+		scrivi_examples();
+	if (i_example)
+	{
+		scrivi_esempio("The codecs at a glance", "codecinfo");
+		scrivi_esempio("zstd's card", "codecinfoex zstd");
+		scrivi_esempio("An external plugin's card", "codecinfoex example:rle");
+	}
+	return ("Information about the codecs");
+}
 string help_pause(bool i_usage, bool i_example)
 {
 	if (i_usage)
@@ -67814,6 +68227,7 @@ void Jidac::load_help_map()
 	help_map.insert(std::pair<string, HelpInfo>("mount", HelpInfo("Utils    ", help_mount, 8)));
 #endif ///NOSFTPEND
 	help_map.insert(std::pair<string, HelpInfo>("pause", HelpInfo("Utils    ", help_pause, 8)));
+	help_map.insert(std::pair<string, HelpInfo>("codecinfo", HelpInfo("Utils    ", help_codecinfo, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("rsync", HelpInfo("Utils    ", help_rsync, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("utf", HelpInfo("Utils    ", help_utf, 8)));
 	help_map.insert(std::pair<string, HelpInfo>("versum", HelpInfo("Utils    ", help_versum, 8)));
@@ -69843,6 +70257,14 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if ((opt=="benchmark") || (opt=="b"))		command='b';
 		else if ((opt=="autotest"))						command='8';
 		else if ((opt=="pause")) 						command='0';
+		/// codecinfo: the -ma codecs and the plugins in codecs/; codecinfoex [name]: their cards
+		else if ((opt=="codecinfo"))					command='h';
+		else if ((opt=="codecinfoex"))
+		{
+			command='J';
+			if (i+1<argc && argv[i+1][0]!='-')
+				g_codecinfo_name=argv[++i];
+		}
 		else if (cli_filesandcommand(opt,"d",			'd',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"dir",			'2',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"tree",		2,argc,argv,&i));
@@ -75242,6 +75664,7 @@ int Jidac::doCommand()
 	else if (command==')') return oneonone();
 
 	else if (command=='0') return pause();
+	else if (command=='h' || command=='J') return codecinfo();
 	else if (command=='1') return summa();
 	else if (command=='2') return dir();
 	else if (command==2)   return tree();
@@ -83832,6 +84255,11 @@ int bittino(int i)
 */
 
 
+int zs_codecinfo(bool i_ex, const std::string& i_only);
+int Jidac::codecinfo()
+{
+	return zs_codecinfo(command=='J', g_codecinfo_name);
+}
 int Jidac::pause()
 {
 	int thekey= 0;
