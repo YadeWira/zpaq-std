@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **21 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (28 `-ma` switches), and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **21 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (28 `-ma` switches); **lossless JPEG and JPEG-LS recompression** with `-sa` ([PJA](https://github.com/YadeWira/PJA), a plugin); and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -297,7 +297,7 @@ The classic 7z-style verbs:
 - `t` test the archive (recomputes the stored hashes)
 - `codecinfo` the `-ma` codecs at a glance (status, levels, default, ZPAQL decoder,
   library, and whether each is built in, a plugin, or missing), then the plugins in
-  `codecs/` that are not part of zpaq-std; `codecinfo <codec>` gives that codec's
+  `codecs/`: zpaq-std's `-sa` codecs (pja, pjals) and those that are not part of zpaq-std; `codecinfo <codec>` gives that codec's
   card (author, repository, licence, the release or commit it comes from, format,
   and the SHA-256 of its plugin file and of its ZPAQL decoder), and `codecinfoex`
   every card
@@ -324,7 +324,7 @@ tools that measure different things:
 | `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
 
 `suite_*.sh` add round-trip sweeps over every `-ma` codec, every command,
-corruption/robustness cases, `-tar`, Ctrl+C, the sylz plugin, `-mae`/`-mat` and `-sae`/`-sat`; the corpus, golden archives and reference binaries
+corruption/robustness cases, `-tar`, Ctrl+C, the sylz plugin, `-mae`/`-mat`, `-sae`/`-sat` (several files per block included) and `-sa` with PJA; the corpus, golden archives and reference binaries
 live outside the repo, with their sha256 manifests committed.
 
 ---
