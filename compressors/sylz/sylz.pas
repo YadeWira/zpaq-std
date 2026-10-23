@@ -57,7 +57,7 @@ const
   SYLZ_MAXDIST  = 65536;
   { Levels 0..10: 0-1 are the fast single-hash levels (1 has the bigger
     table); 2-3 use two hash tables (2 greedy, 3 lazy); 4-8 hash chains
-    with lazy matching; 9 and 10 a decode-aware optimal parser. 1 is the
+    with lz4hc's parse; 9 and 10 a decode-aware optimal parser. 1 is the
     default. }
   SYLZ_MINLEVEL = 0;
   SYLZ_MAXLEVEL = 10;
@@ -113,7 +113,7 @@ type
     scratch: PByte;
     scratchSize: SizeInt;
     table: PUInt16;      { levels 0-3: hash tables (low 16 bits of positions) }
-    head: PInt32;        { levels 4+: hash heads }
+    head: PUInt16;       { levels 4+: hash heads (low 16 bits of positions) }
     chain: PUInt16;      { levels 4+: chain deltas }
     opt: PByte;          { optimal parser: nodes, candidates, path }
     flags: Integer;      { of the current call }
@@ -139,7 +139,7 @@ function SylzBound(n: SizeInt): SizeInt;
 
 { Compresses src[0..n) into dst (capacity cap, at least SylzBound(n)).
   level 0..1 = fast greedy, 2..3 = two hash tables (2 greedy, 3 lazy),
-  4..8 = hash chains with lazy matching, 9..SYLZ_MAXLEVEL = optimal
+  4..8 = hash chains with lz4hc's parse, 9..SYLZ_MAXLEVEL = optimal
   parsing (see SYLZ_MINLEVEL).
   Returns the compressed size, or -1 if cap is too small. }
 function SylzCompress(src: PByte; n: SizeInt; dst: PByte; cap: SizeInt;
@@ -201,12 +201,12 @@ const
     compression; the ratio lost is won back by the table size per level. }
   FAST_HASH_BYTES = 6;
   SKIP_STRENGTH = 6;
-  HC_HASHLOG   = 17;
+  HC_HASHLOG   = 16;
   HC_MAXDIST   = 65535; { chain deltas are UInt16 }
   HC_CHAINSIZE = 1 shl 16;
   HC_CHAINMASK = HC_CHAINSIZE - 1;
-  { hash chain depth of the lazy levels 4..8 }
-  HC_ATTEMPTS: array[4..8] of Integer = (4, 8, 16, 64, 256);
+  { hash chain depth of levels 4..8 }
+  HC_ATTEMPTS: array[4..8] of Integer = (2, 4, 8, 16, 64);
   { levels 2-3: two hash tables, one keyed on 6 bytes (long matches), one
     on 4; 2^15 entries each at level 2, 2^16 at level 3 }
   MID_MAXLOG   = 16;
@@ -1490,122 +1490,442 @@ begin
     hashLog, level = 3);
 end;
 
-{ ── levels 4-8: hash chains, lazy matching ────────────────────────────────── }
+{ ── levels 4-8: hash chains, lz4hc's parse ──────────────────────────────── }
 
 type
+  { Hash-chain match finder state. Fixed field order: HcSearchX64 reads
+    it by offset. }
   THcState = record
-    src: PByte;
-    head: PInt32;             { last position with this hash, -1 = none }
-    chain: PUInt16;           { distance to the previous position with the same hash }
-    nextToInsert: SizeInt;
-    attempts: Integer;
+    src, iend: PByte;         {  0,  8 }
+    head: PUInt16;            { 16: last position with this hash, low 16 bits (FastDist) }
+    chain: PUInt16;           { 24: distance to the previous position with the same hash }
+    nextToInsert: SizeInt;    { 32 }
+    pos, lowLimit: SizeInt;   { 40, 48: HcSearch's arguments }
+    longest: SizeInt;         { 56: in/out }
+    mpos, spos: SizeInt;      { 64, 72: out }
+    attempts: SizeInt;        { 80 }
   end;
+  PHcState = ^THcState;
 
 procedure HcInsertUpTo(var s: THcState; pos: SizeInt); inline;
 var
-  i, prev, delta: SizeInt;
+  i, delta: SizeInt;
   h: UInt32;
+  src: PByte;
+  head, chain: PUInt16;
 begin
   i := s.nextToInsert;
+  src := s.src;
+  head := s.head;
+  chain := s.chain;
   while i < pos do
   begin
-    h := Hash4(Read32(s.src + i), HC_HASHLOG);
-    prev := s.head[h];
-    delta := i - prev;
-    if (prev < 0) or (delta > HC_MAXDIST) then
+    h := Hash4(Read32(src + i), HC_HASHLOG);
+    delta := FastDist(i, head[h]);
+    if (delta > i) or (delta > HC_MAXDIST) then
       delta := 0;               { 0 terminates the chain }
-    s.chain[i and HC_CHAINMASK] := UInt16(delta);
-    s.head[h] := Int32(i);
+    chain[i and HC_CHAINMASK] := UInt16(delta);
+    head[h] := UInt16(i);
     Inc(i);
   end;
   s.nextToInsert := pos;
 end;
 
-{ Longest match for position pos; returns its length (0 if < MINMATCH) and
-  its distance in dist. }
-function HcFindBest(var s: THcState; pos: SizeInt; matchlimit: PByte;
-  out dist: SizeInt): SizeInt;
+{ The head candidate for pos, whose hash is h, or -1. }
+function HcHead(const s: THcState; h: UInt32; pos: SizeInt): SizeInt; inline;
+begin
+  Result := FastDist(pos, s.head[h]);
+  if (Result > pos) or (Result > HC_MAXDIST) then
+    Result := -1
+  else
+    Result := pos - Result;
+end;
+
+{ The longest match through s.pos longer than s.longest, among s.attempts
+  candidates of its hash chain; a match may start before s.pos, back to
+  s.lowLimit (with lowLimit = pos, only at pos). Inserts the positions up
+  to s.pos first. Returns the new s.longest, with the match's start in
+  s.spos and its source in s.mpos when it grew. }
+function HcSearchPas(var s: THcState): SizeInt;
 var
-  ip, ref: PByte;
-  cand, delta, len, best: SizeInt;
-  tries: Integer;
+  ip, ref, src: PByte;
+  pos, cand, delta, fwd, back, tries, longest: SizeInt;
   first: UInt32;
 begin
-  HcInsertUpTo(s, pos);
-  ip := s.src + pos;
+  HcInsertUpTo(s, s.pos);
+  src := s.src;
+  pos := s.pos;
+  longest := s.longest;
+  ip := src + pos;
   first := Read32(ip);
-  best := 0;
-  dist := 0;
-  cand := s.head[Hash4(first, HC_HASHLOG)];
-  if (cand >= 0) and (cand < pos) then
+  cand := HcHead(s, Hash4(first, HC_HASHLOG), pos);
+  tries := s.attempts;
+  while (tries > 0) and (cand >= 0) and (pos - cand <= HC_MAXDIST) do
   begin
-    tries := s.attempts;
-    { the head entry for pos itself is inserted only later, so cand < pos }
-    while (tries > 0) and (pos - cand <= HC_MAXDIST) do
+    ref := src + cand;
+    if Read32(ref) = first then
     begin
-      ref := s.src + cand;
-      { check the byte that would extend the best match first: cheap reject;
-        ip + best < matchlimit here, see the Break below }
-      if (ref[best] = ip[best]) and (Read32(ref) = first) then
+      fwd := SYLZ_MINMATCH + CountMatch(ip + SYLZ_MINMATCH, ref + SYLZ_MINMATCH, s.iend);
+      back := 0;
+      while (pos - back > s.lowLimit) and (cand - back > 0)
+            and (src[pos - back - 1] = src[cand - back - 1]) do
+        Inc(back);
+      if fwd + back > longest then
       begin
-        len := SYLZ_MINMATCH + CountMatch(ip + SYLZ_MINMATCH, ref + SYLZ_MINMATCH, matchlimit);
-        if len > best then
-        begin
-          best := len;
-          dist := pos - cand;
-          if ip + len >= matchlimit then
-            Break;
-        end;
+        longest := fwd + back;
+        s.mpos := cand - back;
+        s.spos := pos - back;
       end;
-      Dec(tries);
-      delta := s.chain[cand and HC_CHAINMASK];
-      if delta = 0 then
-        Break;
-      Dec(cand, delta);
     end;
+    Dec(tries);
+    delta := s.chain[cand and HC_CHAINMASK];
+    if delta = 0 then
+      Break;
+    Dec(cand, delta);
   end;
-  if best < SYLZ_MINMATCH then
-    best := 0;
-  Result := best;
+  s.longest := longest;
+  Result := longest;
 end;
+
+{$ifdef SYLZ_ASM_X64}
+{ HcSearchPas in x86_64 assembler, same results (tests check it).
+  Registers: r8 src, r9 iend, r10 head, r11 chain, r12 pos, r13 lowLimit,
+  r14 longest, r15 tries, rbx candidate, rdi ip; rax, rcx, rdx, rsi
+  scratch; the state pointer on the stack ([rsp]). }
+procedure HcSearchX64(st: PHcState); assembler; nostackframe;
+asm
+  push rbx
+  push r12
+  push r13
+  push r14
+  push r15
+{$ifdef WIN64}
+  push rsi
+  push rdi
+  mov rax, rcx
+{$else}
+  mov rax, rdi
+{$endif}
+  push rax                        { [rsp]: state }
+  mov r8, [rax]
+  mov r9, [rax + 8]
+  mov r10, [rax + 16]
+  mov r11, [rax + 24]
+  mov r12, [rax + 40]
+  mov r13, [rax + 48]
+  mov r14, [rax + 56]
+  mov r15, [rax + 80]
+  mov rcx, [rax + 32]
+  mov [rax + 32], r12             { nextToInsert = pos }
+  { insert the positions before pos }
+  cmp rcx, r12
+  jae @inserted
+@ins:
+  mov eax, [r8 + rcx]
+  imul eax, eax, -1640531535
+  shr eax, 32 - HC_HASHLOG
+  movzx edx, word ptr [r10 + rax * 2]
+  mov [r10 + rax * 2], cx
+  mov esi, ecx
+  sub esi, edx
+  and esi, $FFFF                  { distance; 0 would be 65536: none }
+  xor edx, edx
+  cmp rsi, rcx
+  cmova esi, edx                  { before the input: none }
+  movzx eax, cx
+  mov [r11 + rax * 2], si
+  add rcx, 1
+  cmp rcx, r12
+  jb @ins
+@inserted:
+  lea rdi, [r8 + r12]             { ip }
+  mov eax, [rdi]
+  imul eax, eax, -1640531535
+  shr eax, 32 - HC_HASHLOG
+  movzx edx, word ptr [r10 + rax * 2]
+  mov eax, r12d
+  sub eax, edx
+  and eax, $FFFF
+  jz @done
+  cmp rax, r12
+  ja @done
+  mov rbx, r12
+  sub rbx, rax                    { first candidate }
+  test r15, r15
+  jle @done
+
+@walk:
+  mov eax, [r8 + rbx]
+  cmp eax, [rdi]
+  jne @next
+  { forward length, from 4 on }
+  lea rdx, [rdi + SYLZ_MINMATCH]
+  lea rsi, [r8 + rbx + SYLZ_MINMATCH]
+@cm:
+  lea rax, [rdx + 8]
+  cmp rax, r9
+  ja @cmTail
+  mov rax, [rdx]
+  xor rax, [rsi]
+  jnz @cmDiff
+  add rdx, 8
+  add rsi, 8
+  jmp @cm
+@cmDiff:
+  bsf rax, rax
+  shr eax, 3
+  add rdx, rax
+  jmp @cmDone
+@cmTail:
+  cmp rdx, r9
+  jae @cmDone
+  movzx eax, byte ptr [rdx]
+  cmp al, [rsi]
+  jne @cmDone
+  add rdx, 1
+  add rsi, 1
+  jmp @cmTail
+@cmDone:
+  sub rdx, rdi                    { fwd }
+  { backwards, down to lowLimit and the start of the input }
+  xor ecx, ecx                    { back }
+@bk:
+  mov rax, r12
+  sub rax, rcx
+  cmp rax, r13
+  jle @bkDone
+  mov rsi, rbx
+  sub rsi, rcx
+  jle @bkDone
+  movzx eax, byte ptr [r8 + rax - 1]
+  cmp al, [r8 + rsi - 1]
+  jne @bkDone
+  add rcx, 1
+  jmp @bk
+@bkDone:
+  add rdx, rcx                    { fwd + back }
+  cmp rdx, r14
+  jle @next
+  mov r14, rdx
+  mov rsi, [rsp]
+  mov rax, rbx
+  sub rax, rcx
+  mov [rsi + 64], rax             { mpos }
+  mov rax, r12
+  sub rax, rcx
+  mov [rsi + 72], rax             { spos }
+@next:
+  sub r15, 1
+  jz @done
+  movzx eax, bx
+  movzx eax, word ptr [r11 + rax * 2]
+  test eax, eax
+  jz @done
+  sub rbx, rax
+  js @done
+  mov rax, r12
+  sub rax, rbx
+  cmp rax, HC_MAXDIST
+  jbe @walk
+
+@done:
+  pop rax
+  mov [rax + 56], r14
+{$ifdef WIN64}
+  pop rdi
+  pop rsi
+{$endif}
+  pop r15
+  pop r14
+  pop r13
+  pop r12
+  pop rbx
+end;
+{$endif}
+
+function HcSearch(var s: THcState; pos, lowLimit, longest: SizeInt): SizeInt; inline;
+begin
+  s.pos := pos;
+  s.lowLimit := lowLimit;
+  s.longest := longest;
+{$ifdef SYLZ_ASM_X64}
+  if SylzUseAsm then
+  begin
+    HcSearchX64(@s);
+    Exit(s.longest);
+  end;
+{$endif}
+  Result := HcSearchPas(s);
+end;
+
+{ The parse of levels 4-8 is lz4hc's (LZ4HC_compress_hashChain): after a
+  match, search at its end for a "wider" one, which may start inside it
+  and extend backwards; with three overlapping candidates, trim the
+  earlier ones so each still pays for itself (an overlap is cut at
+  HCW_OPTIMAL_ML bytes). Against the plain lazy parse with the same
+  attempts, silesia.tar: 4 attempts 39.35% -> 37.74%, 64 attempts 36.89%
+  -> 36.38%, at 10-15% less speed per attempt count (far more speed at
+  equal ratio). }
+const
+  HCW_OPTIMAL_ML = 18;
 
 function CompressHCCore(src: PByte; n: SizeInt; var e: TEmit; var s: THcState;
   level: Integer): SizeInt;
 var
-  iend, mflimit: PByte;
-  pos, anchor, len, dist, len2, dist2: SizeInt;
+  iend: PByte;
+  mfl, pos, anchor, ml, ref, ml0, ref0, start0, ml2, ref2, start2,
+    ml3, ref3, start3, newMl, corr: SizeInt;
+  state: Integer;   { 0 search at pos, 2 / 3 lz4hc's _Search2 / _Search3 }
+
+  function Emit(p, len, r: SizeInt): Boolean;
+  begin
+    Result := True;
+    if len < SYLZ_MINMATCH then
+      Exit;   { left as literals }
+    Result := EmitSequence(e, src + anchor, p - anchor, p - r, len);
+    anchor := p + len;
+  end;
+
 begin
   iend := src + n;
   anchor := 0;
   if n >= SEARCH_TAIL + 1 then
   begin
     s.src := src;
+    s.iend := iend;
     s.nextToInsert := 0;
     s.attempts := HC_ATTEMPTS[level];
-    mflimit := iend - SEARCH_TAIL;
+    mfl := n - SEARCH_TAIL;
     pos := 0;
-    while src + pos < mflimit do
+    ml := 0; ref := 0; ml0 := 0; ref0 := 0; start0 := 0;
+    ml2 := 0; ref2 := 0; start2 := 0; ml3 := 0; ref3 := 0; start3 := 0;
+    state := 0;
+    while pos < mfl do
     begin
-      len := HcFindBest(s, pos, iend, dist);
-      if len = 0 then
+      if state = 0 then
       begin
-        Inc(pos);
+        ml := HcSearch(s, pos, pos, SYLZ_MINMATCH - 1);
+        if ml < SYLZ_MINMATCH then
+        begin
+          Inc(pos);
+          Continue;
+        end;
+        ref := s.mpos;
+        start0 := pos; ref0 := ref; ml0 := ml;
+        state := 2;
+      end;
+      if state = 2 then
+      begin
+        if pos + ml <= mfl then
+        begin
+          ml2 := HcSearch(s, pos + ml - 2, pos, ml);
+          ref2 := s.mpos;
+          start2 := s.spos;
+        end
+        else
+          ml2 := ml;
+        if ml2 = ml then
+        begin
+          if not Emit(pos, ml, ref) then
+            Exit(-1);
+          pos := pos + ml;
+          state := 0;
+          Continue;
+        end;
+        if (start0 < pos) and (start2 < pos + ml0) then
+        begin
+          pos := start0; ref := ref0; ml := ml0;
+        end;
+        if start2 - pos < 3 then
+        begin
+          ml := ml2; pos := start2; ref := ref2;
+          Continue;   { state 2 again }
+        end;
+        state := 3;
+      end;
+      { state 3: ml2 > ml, ml >= MINMATCH }
+      if start2 - pos < HCW_OPTIMAL_ML then
+      begin
+        newMl := ml;
+        if newMl > HCW_OPTIMAL_ML then
+          newMl := HCW_OPTIMAL_ML;
+        if pos + newMl > start2 + ml2 - SYLZ_MINMATCH then
+          newMl := start2 - pos + ml2 - SYLZ_MINMATCH;
+        corr := newMl - (start2 - pos);
+        if corr > 0 then
+        begin
+          Inc(start2, corr); Inc(ref2, corr); Dec(ml2, corr);
+        end;
+      end;
+      if start2 + ml2 <= mfl then
+      begin
+        ml3 := HcSearch(s, start2 + ml2 - 3, start2, ml2);
+        ref3 := s.mpos;
+        start3 := s.spos;
+      end
+      else
+        ml3 := ml2;
+      if ml3 = ml2 then
+      begin
+        { no better match: ML1 then ML2 }
+        if start2 < pos + ml then
+          ml := start2 - pos;
+        if not Emit(pos, ml, ref) then
+          Exit(-1);
+        if not Emit(start2, ml2, ref2) then
+          Exit(-1);
+        pos := start2 + ml2;
+        state := 0;
         Continue;
       end;
-      { lazy: a longer match one byte later is worth a literal }
-      while src + pos + 1 < mflimit do
+      if start3 < pos + ml + 3 then
       begin
-        len2 := HcFindBest(s, pos + 1, iend, dist2);
-        if len2 <= len then
-          Break;
-        Inc(pos);
-        len := len2;
-        dist := dist2;
+        { no room for match 2 }
+        if start3 >= pos + ml then
+        begin
+          if start2 < pos + ml then
+          begin
+            corr := pos + ml - start2;
+            Inc(start2, corr); Inc(ref2, corr); Dec(ml2, corr);
+            if ml2 < SYLZ_MINMATCH then
+            begin
+              start2 := start3; ref2 := ref3; ml2 := ml3;
+            end;
+          end;
+          if not Emit(pos, ml, ref) then
+            Exit(-1);
+          pos := start3; ref := ref3; ml := ml3;
+          start0 := start2; ref0 := ref2; ml0 := ml2;
+          state := 2;
+          Continue;
+        end;
+        start2 := start3; ref2 := ref3; ml2 := ml3;
+        state := 3;
+        Continue;
       end;
-      if not EmitSequence(e, src + anchor, pos - anchor, dist, len) then
+      { three ascending matches: write the first }
+      if start2 < pos + ml then
+      begin
+        if start2 - pos < HCW_OPTIMAL_ML then
+        begin
+          if ml > HCW_OPTIMAL_ML then
+            ml := HCW_OPTIMAL_ML;
+          if pos + ml > start2 + ml2 - SYLZ_MINMATCH then
+            ml := start2 - pos + ml2 - SYLZ_MINMATCH;
+          corr := ml - (start2 - pos);
+          if corr > 0 then
+          begin
+            Inc(start2, corr); Inc(ref2, corr); Dec(ml2, corr);
+          end;
+        end
+        else
+          ml := start2 - pos;
+      end;
+      if not Emit(pos, ml, ref) then
         Exit(-1);
-      Inc(pos, len);
-      anchor := pos;
+      pos := start2; ref := ref2; ml := ml2;
+      start2 := start3; ref2 := ref3; ml2 := ml3;
+      state := 3;
     end;
   end;
   Result := EmitFinish(e, src + anchor, n - anchor);
@@ -1619,13 +1939,13 @@ var
   i: Integer;
 begin
   if ctx.head = nil then
-    ctx.head := GetMem(SizeOf(Int32) shl HC_HASHLOG);
+    ctx.head := GetMem(SizeOf(UInt16) shl HC_HASHLOG);
   if ctx.chain = nil then
     ctx.chain := GetMem(SizeOf(UInt16) * HC_CHAINSIZE);
   s.head := ctx.head;
   s.chain := ctx.chain;
   for i := 0 to (1 shl HC_HASHLOG) - 1 do
-    s.head[i] := -1;
+    s.head[i] := 0;
   EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
   Result := CompressHCCore(src, n, e, s, level);
 end;
@@ -1699,8 +2019,8 @@ begin
   ip := s.src + pos;
   first := Read32(ip);
   best := SYLZ_MINMATCH - 1;
-  cand := s.head[Hash4(first, HC_HASHLOG)];
-  if (cand < 0) or (cand >= pos) then
+  cand := HcHead(s, Hash4(first, HC_HASHLOG), pos);
+  if cand < 0 then
     Exit;
   tries := s.attempts;
   while (tries > 0) and (pos - cand <= HC_MAXDIST) do
@@ -1909,7 +2229,7 @@ var
   i: Integer;
 begin
   if ctx.head = nil then
-    ctx.head := GetMem(SizeOf(Int32) shl HC_HASHLOG);
+    ctx.head := GetMem(SizeOf(UInt16) shl HC_HASHLOG);
   if ctx.chain = nil then
     ctx.chain := GetMem(SizeOf(UInt16) * HC_CHAINSIZE);
   if ctx.opt = nil then
@@ -1917,7 +2237,7 @@ begin
   s.head := ctx.head;
   s.chain := ctx.chain;
   for i := 0 to (1 shl HC_HASHLOG) - 1 do
-    s.head[i] := -1;
+    s.head[i] := 0;
   EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
   Result := CompressOptCore(src, n, e, s, ctx.opt, p);
 end;
