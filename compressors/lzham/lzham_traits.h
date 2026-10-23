@@ -1,5 +1,5 @@
 // File: lzham_traits.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 
 namespace lzham
@@ -20,7 +20,7 @@ namespace lzham
       enum { cFlag = true };
       static inline void construct(T** p) { memset(p, 0, sizeof(T*)); }
       static inline void construct(T** p, T* init) { *p = init; }
-      static inline void construct_array(T** p, uint n) { memset(p, 0, sizeof(T*) * n); }
+      static inline void construct_array(T** p, uint n) { if (n) memset(p, 0, sizeof(T*) * n); }
       static inline void destruct(T** p) { LZHAM_NOTE_UNUSED(p); }
       static inline void destruct_array(T** p, uint n) { LZHAM_NOTE_UNUSED(p); LZHAM_NOTE_UNUSED(n); }
    };
@@ -30,7 +30,7 @@ namespace lzham
    enum { cFlag = true }; \
    static inline void construct(X* p) { memset(p, 0, sizeof(X)); } \
    static inline void construct(X* p, const X& init) { memcpy(p, &init, sizeof(X)); } \
-   static inline void construct_array(X* p, uint n) { memset(p, 0, sizeof(X) * n); } \
+   static inline void construct_array(X* p, uint n) { if (n) memset(p, 0, sizeof(X) * n); } \
    static inline void destruct(X* p) { LZHAM_NOTE_UNUSED(p); } \
    static inline void destruct_array(X* p, uint n) { LZHAM_NOTE_UNUSED(p); LZHAM_NOTE_UNUSED(n); } };
 
@@ -67,6 +67,8 @@ namespace lzham
    // Defines type Q as bitwise copyable.
 #define LZHAM_DEFINE_BITWISE_COPYABLE(Q) template<> struct bitwise_copyable<Q> { enum { cFlag = true }; };
 
+// __is_pod() is a builtin in GCC, Clang and MSVC. libc++ removed std::__is_pod, which used to be
+// needed on Apple/NetBSD and broke every modern macOS build of the codec.
 #define LZHAM_IS_POD(T) __is_pod(T)
 
 #define LZHAM_IS_SCALAR_TYPE(T) (scalar_type<T>::cFlag)
@@ -75,7 +77,7 @@ namespace lzham
 
 #define LZHAM_IS_BITWISE_MOVABLE(T) (LZHAM_IS_BITWISE_COPYABLE(T) || (bitwise_movable<T>::cFlag))
 
-#define LZHAM_HAS_DESTRUCTOR(T) ((!scalar_type<T>::cFlag) && (!__is_pod(T)))
+#define LZHAM_HAS_DESTRUCTOR(T) ((!scalar_type<T>::cFlag) && (!LZHAM_IS_POD(T)))
 
    // From yasli_traits.h:
    // Credit goes to Boost;
@@ -112,7 +114,8 @@ namespace lzham
       {
          if (LZHAM_IS_SCALAR_TYPE(T))
          {
-            memset(p, 0, sizeof(T) * n);
+            if (n)
+               memset(p, 0, sizeof(T) * n);
          }
          else
          {

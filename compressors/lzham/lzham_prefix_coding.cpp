@@ -1,5 +1,5 @@
 // File: lzham_prefix_coding.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
 #include "lzham_prefix_coding.h"
 
@@ -54,7 +54,8 @@ namespace lzham
          for (uint i = max_code_size + 1; i <= cMaxEverCodeSize; i++)
             num_codes[max_code_size] += num_codes[i];
          
-         // Technique of adjusting tree to enforce maximum code size from LHArc.
+         // Technique of adjusting tree to enforce maximum code size from LHArc. 
+			// (If you remember what LHArc was, you've been doing this for a LONG time.)
          
          uint total = 0;
          for (uint i = max_code_size; i; --i)
@@ -148,7 +149,7 @@ namespace lzham
          {
             uint c = pCodesizes[i];
             
-            LZHAM_ASSERT(!c || (next_code[c] <= UINT16_MAX));
+            LZHAM_ASSERT(!c || (next_code[c] <= LZHAM_UINT16_MAX));
             
             pCodes[i] = static_cast<uint16>(next_code[c]++);
             
@@ -295,7 +296,7 @@ namespace lzham
                      
                      LZHAM_ASSERT(t < (1U << table_bits));
                      
-                     LZHAM_ASSERT(pTables->m_lookup[t] == UINT32_MAX);
+                     LZHAM_ASSERT(pTables->m_lookup[t] == LZHAM_UINT32_MAX);
                      
                      pTables->m_lookup[t] = sym_index | (codesize << 16U);
                   }

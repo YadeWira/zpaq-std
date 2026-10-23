@@ -1,6 +1,7 @@
-/* -ma:lzh: LZHAM's memory API, as zpaq-std called it: a 1 MB dictionary and no
-   helper threads (the output must not depend on them); level 1..4 is
-   LZHAM_COMP_LEVEL_FASTEST..UBER. See zs_codec.h. */
+/* -ma:lzh: LZHAM 1.0 (lzham-ex) through its memory API, as zpaq-std calls it: a
+   1 MB dictionary, no helper threads (the output must not depend on them) and the
+   default table update rate (ZPAQLZHAM10 assumes it); level 1..4 is
+   LZHAM_COMP_LEVEL_FASTEST..BETTER. See zs_codec.h. */
 #include "zs_plugin.h"
 #include <string.h>
 extern "C" {
@@ -33,4 +34,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return (long long)len;
 }
 
-ZS_DEFINE_CODEC(lzh, "LZHAM 1.0", 1, 4, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(lzh, "lzham-ex 1.0.2", 1, 4, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

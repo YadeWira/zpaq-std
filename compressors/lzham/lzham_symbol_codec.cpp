@@ -1,12 +1,15 @@
 // File: lzham_symbol_codec.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
 #include "lzham_symbol_codec.h"
 #include "lzham_huffman_codes.h"
-#include "lzham_polar_codes.h"
 
-// Set to 1 to enable ~2x more frequent Huffman table updating (at slower decompression).
-#define LZHAM_MORE_FREQUENT_TABLE_UPDATING 1
+// Was 16 in previous versions.
+#define LZHAM_DEFAULT_MAX_UPDATE_INTERVAL 64
+
+// Was 40 in previous versions
+// Keep in sync with default setting in g_table_update_settings[]
+#define LZHAM_DEFAULT_ADAPT_RATE 64U
 
 namespace lzham
 {
@@ -225,7 +228,7 @@ namespace lzham
    static arith_prob_cost_initializer g_prob_cost_initializer;
 #endif
 
-   raw_quasi_adaptive_huffman_data_model::raw_quasi_adaptive_huffman_data_model(bool encoding, uint total_syms, bool fast_updating, bool use_polar_codes) :
+   raw_quasi_adaptive_huffman_data_model::raw_quasi_adaptive_huffman_data_model(bool encoding, uint total_syms, uint max_update_interval, uint adapt_rate) :
       m_pDecode_tables(NULL),
       m_total_syms(0),
       m_max_cycle(0),
@@ -233,13 +236,13 @@ namespace lzham
       m_symbols_until_update(0),
       m_total_count(0),
       m_decoder_table_bits(0),
-      m_encoding(encoding),
-      m_fast_updating(false),
-      m_use_polar_codes(false)
+      m_max_update_interval(static_cast<uint16>(max_update_interval)),
+      m_adapt_rate(static_cast<uint16>(adapt_rate)),
+      m_encoding(encoding)
    {
       if (total_syms)
       {
-         init(encoding, total_syms, fast_updating, use_polar_codes);
+         init2(encoding, total_syms, max_update_interval, adapt_rate, NULL);
       }
    }
 
@@ -251,9 +254,9 @@ namespace lzham
       m_symbols_until_update(0),
       m_total_count(0),
       m_decoder_table_bits(0),
-      m_encoding(false),
-      m_fast_updating(false),
-      m_use_polar_codes(false)
+      m_max_update_interval(0),
+      m_adapt_rate(0),
+      m_encoding(false)
    {
       *this = other;
    }
@@ -311,8 +314,8 @@ namespace lzham
 
       m_decoder_table_bits = rhs.m_decoder_table_bits;
       m_encoding = rhs.m_encoding;
-      m_fast_updating = rhs.m_fast_updating;
-      m_use_polar_codes = rhs.m_use_polar_codes;
+      m_max_update_interval = rhs.m_max_update_interval;
+      m_adapt_rate = rhs.m_adapt_rate;
 
       return true;
    }
@@ -343,15 +346,18 @@ namespace lzham
          m_pDecode_tables = NULL;
       }
 
-      m_fast_updating = false;
-      m_use_polar_codes = false;
+      m_max_update_interval = 0;
+      m_adapt_rate = 0;
    }
 
-   bool raw_quasi_adaptive_huffman_data_model::init(bool encoding, uint total_syms, bool fast_updating, bool use_polar_codes, const uint16 *pInitial_sym_freq)
+   bool raw_quasi_adaptive_huffman_data_model::init2(bool encoding, uint total_syms, uint max_update_interval, uint adapt_rate, const uint16 *pInitial_sym_freq)
    {
+      LZHAM_ASSERT(max_update_interval <= 0xFFFF);
+      LZHAM_ASSERT(adapt_rate <= 0xFFFF);
+
       m_encoding = encoding;
-      m_fast_updating = fast_updating;
-      m_use_polar_codes = use_polar_codes;
+      m_max_update_interval = static_cast<uint16>(max_update_interval);
+      m_adapt_rate = static_cast<uint16>(adapt_rate);
       m_symbols_until_update = 0;
 
       if (!m_sym_freq.try_resize(total_syms))
@@ -377,12 +383,16 @@ namespace lzham
       }
 
       m_total_syms = total_syms;
+      
+      uint max_table_bits = 0;
 
-      if (m_total_syms <= 16)
-         m_decoder_table_bits = 0;
+      if (m_total_syms <= 8)
+         max_table_bits = 4;
       else
-         m_decoder_table_bits = static_cast<uint8>(math::minimum(1 + math::ceil_log2i(m_total_syms), prefix_coding::cMaxTableBits));
+         max_table_bits = 1 + math::ceil_log2i(m_total_syms);
 
+      m_decoder_table_bits = static_cast<uint8>(math::minimum(max_table_bits, prefix_coding::cMaxTableBits));
+      
       if (m_encoding)
       {
          lzham_delete(m_pDecode_tables);
@@ -404,17 +414,7 @@ namespace lzham
          }
       }
 
-      // TODO: Make this setting a user controllable parameter?
-      if (m_fast_updating)
-         m_max_cycle = (LZHAM_MAX(64, m_total_syms) + 6) << 5;
-      else
-      {
-#if LZHAM_MORE_FREQUENT_TABLE_UPDATING
-         m_max_cycle = (LZHAM_MAX(24, m_total_syms) + 6) * 12;
-#else
-         m_max_cycle = (LZHAM_MAX(32, m_total_syms) + 6) * 16;
-#endif
-      }
+      m_max_cycle = (LZHAM_MAX(24, m_total_syms) + 6) * (m_max_update_interval ? m_max_update_interval : LZHAM_DEFAULT_MAX_UPDATE_INTERVAL);
 
       m_max_cycle = LZHAM_MIN(m_max_cycle, 32767);
 
@@ -428,6 +428,8 @@ namespace lzham
       if (!m_total_syms)
          return true;
 
+      bool sym_freq_all_ones = false;
+
       if (m_initial_sym_freq.size())
       {
          m_update_cycle = 0;
@@ -435,6 +437,8 @@ namespace lzham
          {
             uint sym_freq = m_initial_sym_freq[i];
             m_sym_freq[i] = static_cast<uint16>(sym_freq);
+            
+            // Slam m_update_cycle to a specific value so update_tables() sets m_total_count to the proper value
             m_update_cycle += sym_freq;
          }
       }
@@ -442,16 +446,19 @@ namespace lzham
       {
          for (uint i = 0; i < m_total_syms; i++)
             m_sym_freq[i] = 1;
+         
+         // Slam m_update_cycle to a specific value so update_tables() sets m_total_count to the proper value
          m_update_cycle = m_total_syms;
+         
+         sym_freq_all_ones = true;
       }
 
       m_total_count = 0;
       m_symbols_until_update = 0;
-
-      if (!update())
+            
+      if (!update_tables(LZHAM_MIN(m_max_cycle, 16), sym_freq_all_ones)) // this was 8 in the alphas
          return false;
-
-      m_symbols_until_update = m_update_cycle = 8;
+                           
       return true;
    }
 
@@ -485,8 +492,8 @@ namespace lzham
 
       m_symbols_until_update = m_update_cycle = LZHAM_MIN(8, m_update_cycle);
    }
-
-   bool raw_quasi_adaptive_huffman_data_model::update()
+      
+   bool raw_quasi_adaptive_huffman_data_model::update_tables(int force_update_cycle, bool sym_freq_all_ones)
    {
       LZHAM_ASSERT(!m_symbols_until_update);
       m_total_count += m_update_cycle;
@@ -495,72 +502,96 @@ namespace lzham
       while (m_total_count >= 32768)
          rescale();
 
-      uint table_size = m_use_polar_codes ? get_generate_polar_codes_table_size() : get_generate_huffman_codes_table_size();
-      void *pTables = alloca(table_size);
+      uint max_code_size = 0;
 
-      uint max_code_size, total_freq;
-      bool status;
-      if (m_use_polar_codes)
-         status = generate_polar_codes(pTables, m_total_syms, &m_sym_freq[0], &m_code_sizes[0], max_code_size, total_freq);
-      else
-         status = generate_huffman_codes(pTables, m_total_syms, &m_sym_freq[0], &m_code_sizes[0], max_code_size, total_freq);
-      LZHAM_ASSERT(status);
-      LZHAM_ASSERT(total_freq == m_total_count);
-      if ((!status) || (total_freq != m_total_count))
-         return false;
-
-      if (max_code_size > prefix_coding::cMaxExpectedCodeSize)
+      if ((sym_freq_all_ones) && (m_total_syms >= 2))
       {
-         status = prefix_coding::limit_max_code_size(m_total_syms, &m_code_sizes[0], prefix_coding::cMaxExpectedCodeSize);
-         LZHAM_ASSERT(status);
-         if (!status)
-            return false;
+         // Shortcut building the Huffman codes if we know all the sym freqs are 1.
+         uint base_code_size = math::floor_log2i(m_total_syms);
+         uint num_left = m_total_syms - (1 << base_code_size);
+         num_left *= 2;
+         if (num_left > m_total_syms)
+            num_left = m_total_syms;
+
+         memset(&m_code_sizes[0], base_code_size + 1, num_left);
+         memset(&m_code_sizes[num_left], base_code_size, m_total_syms - num_left);  
+            
+         max_code_size = base_code_size + (num_left ? 1 : 0);
       }
 
+      bool status = false;
+      if (!max_code_size)
+      {
+         uint table_size = get_generate_huffman_codes_table_size();
+         void *pTables = alloca(table_size);
+
+         uint total_freq = 0;                  
+         status = generate_huffman_codes(pTables, m_total_syms, &m_sym_freq[0], &m_code_sizes[0], max_code_size, total_freq);
+         LZHAM_ASSERT(status);
+         LZHAM_ASSERT(total_freq == m_total_count);
+         if ((!status) || (total_freq != m_total_count))
+            return false;
+
+         if (max_code_size > prefix_coding::cMaxExpectedCodeSize)
+         {
+            status = prefix_coding::limit_max_code_size(m_total_syms, &m_code_sizes[0], prefix_coding::cMaxExpectedCodeSize);
+            LZHAM_ASSERT(status);
+            if (!status)
+               return false;
+         }
+      }
+
+      if (force_update_cycle >= 0)
+         m_symbols_until_update = m_update_cycle = force_update_cycle;
+      else
+      {
+         m_update_cycle = (31U + m_update_cycle * LZHAM_MAX(32U, (m_adapt_rate ? m_adapt_rate : LZHAM_DEFAULT_ADAPT_RATE))) >> 5U;
+
+         if (m_update_cycle > m_max_cycle)
+            m_update_cycle = m_max_cycle;
+
+         m_symbols_until_update = m_update_cycle;
+      }
+            
       if (m_encoding)
          status = prefix_coding::generate_codes(m_total_syms, &m_code_sizes[0], &m_codes[0]);
       else
-         status = prefix_coding::generate_decoder_tables(m_total_syms, &m_code_sizes[0], m_pDecode_tables, m_decoder_table_bits);
+      {
+         uint actual_table_bits = m_decoder_table_bits;
+
+         // Try to see if using the accel table is actually worth the trouble of constructing it.
+         uint cost_to_use_table = (1 << actual_table_bits) + 64;
+         uint cost_to_not_use_table = m_symbols_until_update * math::floor_log2i(m_total_syms);
+         if (cost_to_not_use_table <= cost_to_use_table)
+            actual_table_bits = 0;
+
+         status = prefix_coding::generate_decoder_tables(m_total_syms, &m_code_sizes[0], m_pDecode_tables, actual_table_bits);
+      }
 
       LZHAM_ASSERT(status);
       if (!status)
          return false;
-
-      if (m_fast_updating)
-         m_update_cycle = 2 * m_update_cycle;
-      else
-         m_update_cycle = (5 * m_update_cycle) >> 2;
-
-      if (m_update_cycle > m_max_cycle)
-         m_update_cycle = m_max_cycle;
-
-      m_symbols_until_update = m_update_cycle;
-
+               
       return true;
    }
 
-   bool raw_quasi_adaptive_huffman_data_model::update(uint sym)
+   bool raw_quasi_adaptive_huffman_data_model::update_sym(uint sym)
    {
       uint freq = m_sym_freq[sym];
       freq++;
       m_sym_freq[sym] = static_cast<uint16>(freq);
 
-      LZHAM_ASSERT(freq <= UINT16_MAX);
+      LZHAM_ASSERT(freq <= LZHAM_UINT16_MAX);
 
       if (--m_symbols_until_update == 0)
       {
-         if (!update())
+         if (!update_tables())
             return false;
       }
 
       return true;
    }
-
-   adaptive_bit_model::adaptive_bit_model()
-   {
-      clear();
-   }
-
+	   
    adaptive_bit_model::adaptive_bit_model(float prob0)
    {
       set_probability_0(prob0);
@@ -797,12 +828,12 @@ namespace lzham
       freq++;
       model.m_sym_freq[sym] = static_cast<uint16>(freq);
       
-      LZHAM_ASSERT(freq <= UINT16_MAX);
+      LZHAM_ASSERT(freq <= LZHAM_UINT16_MAX);
 
       if (--model.m_symbols_until_update == 0)
       {
          m_total_model_updates++;
-         if (!model.update())
+         if (!model.update_tables())
             return false;
       }
       return true;
@@ -1234,8 +1265,8 @@ namespace lzham
       {
          uint32 t = pTables->m_lookup[m_bit_buf >> (cBitBufSize - pTables->m_table_bits)];
 
-         LZHAM_ASSERT(t != UINT32_MAX);
-         sym = t & UINT16_MAX;
+         LZHAM_ASSERT(t != LZHAM_UINT32_MAX);
+         sym = t & LZHAM_UINT16_MAX;
          len = t >> 16;
 
          LZHAM_ASSERT(model.m_code_sizes[sym] == len);
@@ -1270,12 +1301,12 @@ namespace lzham
       freq++;
       model.m_sym_freq[sym] = static_cast<uint16>(freq);
       
-      LZHAM_ASSERT(freq <= UINT16_MAX);
+      LZHAM_ASSERT(freq <= LZHAM_UINT16_MAX);
       
       if (--model.m_symbols_until_update == 0)
       {
          m_total_model_updates++;
-         model.update();
+         model.update_tables();
       }
 
       return sym;

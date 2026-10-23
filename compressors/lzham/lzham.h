@@ -1,5 +1,5 @@
 // File: lzham.h - Copyright (c) 2009-2012 Richard Geldreich, Jr. <richgel99@gmail.com>
-// LZHAM uses the MIT License. See Copyright Notice and license at the end of this file.
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of this file.
 //
 // This is the main header file, includable from C or C++ files, which defines all the publically available API's, structs, and types used by the LZHAM codec.
 //
@@ -26,7 +26,7 @@
 
 // Upper byte = major version
 // Lower byte = minor version
-#define LZHAM_DLL_VERSION 0x1008
+#define LZHAM_DLL_VERSION 0x1010
 
 #if defined(_WIN64) || defined(__MINGW64__) || defined(_LP64) || defined(__LP64__)
 	#define LZHAM_64BIT 1
@@ -38,8 +38,16 @@
    #define LZHAM_CDECL
 #endif
 
-#ifdef LZHAM_EXPORTS
-   #define LZHAM_DLL_EXPORT __declspec(dllexport)
+#if defined(_WIN32) || defined(__CYGWIN__)
+   #ifdef LZHAM_EXPORTS
+      // Building the DLL.
+      #define LZHAM_DLL_EXPORT __declspec(dllexport)
+   #else
+      #define LZHAM_DLL_EXPORT
+   #endif
+#elif defined(__GNUC__) || defined(__clang__)
+   // Required when the shared library is built with -fvisibility=hidden.
+   #define LZHAM_DLL_EXPORT __attribute__((visibility("default")))
 #else
    #define LZHAM_DLL_EXPORT
 #endif
@@ -77,10 +85,15 @@ extern "C" {
       LZHAM_TABLE_FLUSH = 10
    } lzham_flush_t;
 
-   // Compression
+   // Compression (keep in sync with g_num_lzx_position_slots[])
    #define LZHAM_MIN_DICT_SIZE_LOG2 15
    #define LZHAM_MAX_DICT_SIZE_LOG2_X86 26
    #define LZHAM_MAX_DICT_SIZE_LOG2_X64 29
+
+   // Used when lzham_compress_params/lzham_decompress_params::m_dict_size_log2 is 0: 64 MB, the largest
+   // dictionary that every supported build (including x86 and 32-bit ARM) can use, so a default stream can
+   // be decompressed everywhere.
+   #define LZHAM_DEFAULT_DICT_SIZE_LOG2 26
 
    #define LZHAM_MAX_HELPER_THREADS 64
 
@@ -100,6 +113,12 @@ extern "C" {
       LZHAM_COMP_STATUS_FAILED_INITIALIZING,
       LZHAM_COMP_STATUS_INVALID_PARAMETER,
       LZHAM_COMP_STATUS_OUTPUT_BUF_TOO_SMALL,
+
+      // The compressed stream would exceed the 4 GB limit of the codec's internal (32-bit sized) buffers.
+      // Split the input or use the streaming API.
+      LZHAM_COMP_STATUS_FAILED_OUTPUT_LIMIT,
+      // A host memory allocation failed.
+      LZHAM_COMP_STATUS_FAILED_ALLOC,
 
       LZHAM_COMP_STATUS_FORCE_DWORD = 0xFFFFFFFF
    } lzham_compress_status_t;
@@ -122,7 +141,6 @@ extern "C" {
 
    typedef enum
    {
-      LZHAM_COMP_FLAG_FORCE_POLAR_CODING = 1,      // Forces Polar codes vs. Huffman, for a slight increase in decompression speed.
       LZHAM_COMP_FLAG_EXTREME_PARSING = 2,         // Improves ratio by allowing the compressor's parse graph to grow "higher" (up to 4 parent nodes per output node), but is much slower.
       LZHAM_COMP_FLAG_DETERMINISTIC_PARSING = 4,   // Guarantees that the compressed output will always be the same given the same input and parameters (no variation between runs due to kernel threading scheduling).
 
@@ -132,18 +150,42 @@ extern "C" {
       
       LZHAM_COMP_FLAG_WRITE_ZLIB_STREAM = 32,
    } lzham_compress_flags;
+		
+	typedef enum 
+	{
+		LZHAM_INSANELY_SLOW_TABLE_UPDATE_RATE = 1, // 1=insanely slow decompression, here for reference, use 2!
+		LZHAM_SLOWEST_TABLE_UPDATE_RATE = 2,
+		LZHAM_DEFAULT_TABLE_UPDATE_RATE = 8,
+		LZHAM_FASTEST_TABLE_UPDATE_RATE = 20
+	} lzham_table_update_rate;
 
+	// Compression parameters struct.
+	// IMPORTANT: The values of m_dict_size_log2, m_table_update_rate, m_table_max_update_interval, and m_table_update_interval_slow_rate MUST
+	// match during compression and decompression. The codec does not verify these values for you, if you don't use the same settings during
+	// decompression it will fail (usually with a LZHAM_DECOMP_STATUS_FAILED_BAD_CODE error).
+	// The seed buffer's contents and size must match the seed buffer used during decompression.
    typedef struct
    {
       lzham_uint32 m_struct_size;            // set to sizeof(lzham_compress_params)
-      lzham_uint32 m_dict_size_log2;         // set to the log2(dictionary_size), must range between [LZHAM_MIN_DICT_SIZE_LOG2, LZHAM_MAX_DICT_SIZE_LOG2_X86] for x86 LZHAM_MAX_DICT_SIZE_LOG2_X64 for x64
+      lzham_uint32 m_dict_size_log2;         // set to the log2(dictionary_size), or 0 for LZHAM_DEFAULT_DICT_SIZE_LOG2 (64 MB).
+                                             // Must range between [LZHAM_MIN_DICT_SIZE_LOG2, LZHAM_MAX_DICT_SIZE_LOG2_X86] on x86/x86-ARM
+                                             // and [LZHAM_MIN_DICT_SIZE_LOG2, LZHAM_MAX_DICT_SIZE_LOG2_X64] on x64/ARM64.
       lzham_compress_level m_level;          // set to LZHAM_COMP_LEVEL_FASTEST, etc.
+		lzham_uint32 m_table_update_rate;		// Controls tradeoff between ratio and decompression throughput. 0=default, or [1,LZHAM_MAX_TABLE_UPDATE_RATE], higher=faster but lower ratio.
       lzham_int32 m_max_helper_threads;      // max # of additional "helper" threads to create, must range between [-1,LZHAM_MAX_HELPER_THREADS], where -1=max practical
-      lzham_uint32 m_cpucache_total_lines;   // set to 0 (optimize compressed stream to avoid L1/L2 cache misses - not currently supported)
-      lzham_uint32 m_cpucache_line_size;     // set to 0
       lzham_uint32 m_compress_flags;         // optional compression flags (see lzham_compress_flags enum)
       lzham_uint32 m_num_seed_bytes;         // for delta compression (optional) - number of seed bytes pointed to by m_pSeed_bytes
       const void *m_pSeed_bytes;             // for delta compression (optional) - pointer to seed bytes buffer, must be at least m_num_seed_bytes long
+						      
+      // Advanced settings - set to 0 if you don't care.
+		// m_table_max_update_interval/m_table_update_interval_slow_rate override m_table_update_rate and allow finer control over the table update settings.
+		// If either are non-zero they will override whatever m_table_update_rate is set to. Just leave them 0 unless you are specifically customizing them for your data.
+						
+		// def=0, typical range 12-128 (LZHAM_DEFAULT_TABLE_UPDATE_RATE=64), controls the max interval between table updates, higher=longer max interval (faster decode/lower ratio). Was 16 in prev. releases.
+		lzham_uint32 m_table_max_update_interval;
+		// def=0, 32 or higher (LZHAM_DEFAULT_TABLE_UPDATE_RATE=64), scaled by 32, controls the slowing of the update update freq, higher=more rapid slowing (faster decode/lower ratio). Was 40 in prev. releases.
+		lzham_uint32 m_table_update_interval_slow_rate;
+
    } lzham_compress_params;
    
    // Initializes a compressor. Returns a pointer to the compressor's internal state, or NULL on failure.
@@ -171,7 +213,12 @@ extern "C" {
    //    LZHAM_COMP_STATUS_NEEDS_MORE_INPUT - Compression can contintue, but the compressor has no more output, and has no input but we're not at EOF. Supply more input to continue.
    // Success/failure return status codes:
    //    LZHAM_COMP_STATUS_SUCCESS - Compression has completed successfully.
-   //    LZHAM_COMP_STATUS_FAILED, LZHAM_COMP_STATUS_FAILED_INITIALIZING, LZHAM_COMP_STATUS_INVALID_PARAMETER - Something went wrong.
+   //    LZHAM_COMP_STATUS_FAILED - Something went wrong while compressing.
+   //    LZHAM_COMP_STATUS_FAILED_INITIALIZING - The compressor could not be initialized.
+   //    LZHAM_COMP_STATUS_INVALID_PARAMETER - A parameter or the buffer combination is invalid.
+   //    LZHAM_COMP_STATUS_FAILED_ALLOC - A memory allocation failed.
+   //    LZHAM_COMP_STATUS_FAILED_OUTPUT_LIMIT - The compressed stream would exceed the codec's 4 GB internal buffer
+   //        limit (upstream issue #19). Split the input into smaller pieces or use the streaming API.
    LZHAM_DLL_EXPORT lzham_compress_status_t LZHAM_CDECL lzham_compress(
       lzham_compress_state_ptr pState,
       const lzham_uint8 *pIn_buf, size_t *pIn_buf_size,
@@ -185,7 +232,14 @@ extern "C" {
       lzham_flush_t flush_type);
 
    // Single function call compression interface.
-   // Same return codes as lzham_compress, except this function can also return LZHAM_COMP_STATUS_OUTPUT_BUF_TOO_SMALL.
+   // Same return codes as lzham_compress, except this function can also return LZHAM_COMP_STATUS_OUTPUT_BUF_TOO_SMALL
+   // and LZHAM_COMP_STATUS_FAILED_OUTPUT_LIMIT.
+   // Notes:
+   //    src_len must not exceed 0xFFFFFFFF, and the compressed result must fit in 4 GB. LZHAM keeps the whole
+   //    compressed stream in memory during this call, so incompressible inputs larger than ~4 GB cannot be
+   //    compressed in one call (the codec reports FAILED_OUTPUT_LIMIT instead of overrunning its buffers).
+   //    On success (and when the destination buffer is too small) *pDst_len is set to the number of bytes the
+   //    compressed stream occupies.
    LZHAM_DLL_EXPORT lzham_compress_status_t LZHAM_CDECL lzham_compress_memory(
       const lzham_compress_params *pParams,
       lzham_uint8* pDst_buf,
@@ -246,13 +300,27 @@ extern "C" {
    // m_dict_size_log2 MUST match the value used during compression!
    // If m_num_seed_bytes != 0, LZHAM_DECOMP_FLAG_OUTPUT_UNBUFFERED must not be set (i.e. static "seed" dictionaries are not compatible with unbuffered decompression).
    // The seed buffer's contents and size must match the seed buffer used during compression.
+   // m_table_update_rate (or m_table_max_update_interval/m_table_update_interval_slow_rate) MUST match the values used for compression!
    typedef struct
    {
       lzham_uint32 m_struct_size;            // set to sizeof(lzham_decompress_params)
-      lzham_uint32 m_dict_size_log2;         // set to the log2(dictionary_size), must range between [LZHAM_MIN_DICT_SIZE_LOG2, LZHAM_MAX_DICT_SIZE_LOG2_X86] for x86 LZHAM_MAX_DICT_SIZE_LOG2_X64 for x64
+      lzham_uint32 m_dict_size_log2;         // set to the log2(dictionary_size), or 0 for LZHAM_DEFAULT_DICT_SIZE_LOG2 (64 MB).
+                                             // Must range between [LZHAM_MIN_DICT_SIZE_LOG2, LZHAM_MAX_DICT_SIZE_LOG2_X86] on x86/x86-ARM
+                                             // and [LZHAM_MIN_DICT_SIZE_LOG2, LZHAM_MAX_DICT_SIZE_LOG2_X64] on x64/ARM64.
+		lzham_uint32 m_table_update_rate;		// Controls tradeoff between ratio and decompression throughput. 0=default, or [1,LZHAM_MAX_TABLE_UPDATE_RATE], higher=faster but lower ratio.
       lzham_uint32 m_decompress_flags;       // optional decompression flags (see lzham_decompress_flags enum)
       lzham_uint32 m_num_seed_bytes;         // for delta compression (optional) - number of seed bytes pointed to by m_pSeed_bytes
       const void *m_pSeed_bytes;             // for delta compression (optional) - pointer to seed bytes buffer, must be at least m_num_seed_bytes long
+
+      // Advanced settings - set to 0 if you don't care.
+		// m_table_max_update_interval/m_table_update_interval_slow_rate override m_table_update_rate and allow finer control over the table update settings.
+		// If either are non-zero they will override whatever m_table_update_rate is set to. Just leave them 0 unless you are specifically customizing them for your data.
+
+      // def=0, typical range 12-128 (LZHAM_DEFAULT_TABLE_UPDATE_RATE=64), controls the max interval between table updates, higher=longer max interval (faster decode/lower ratio). Was 16 in prev. releases.
+      lzham_uint32 m_table_max_update_interval;
+      // def=0, 32 or higher (LZHAM_DEFAULT_TABLE_UPDATE_RATE=64), scaled by 32, controls the slowing of the update update freq, higher=more rapid slowing (faster decode/lower ratio). Was 40 in prev. releases.
+      lzham_uint32 m_table_update_interval_slow_rate;
+
    } lzham_decompress_params;
    
    // Initializes a decompressor.
@@ -681,6 +749,7 @@ public:
       this->lzham_z_inflateInit2 = NULL;
       this->lzham_z_inflate = NULL;
       this->lzham_z_inflateEnd = NULL;
+      this->lzham_z_inflateReset = NULL;
       this->lzham_z_uncompress = NULL;
       this->lzham_z_error = NULL;
    }
@@ -723,25 +792,61 @@ public:
 
 #endif // #ifndef __LZHAM_H__
 
-// Copyright (c) 2009-2012 Richard Geldreich, Jr. <richgel99@gmail.com>
-//
-// LZHAM uses the MIT License:
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+/*
+   THIS SOFTWARE IS IN THE PUBLIC DOMAIN
 
+   THIS IS FREE AND UNENCUMBERED SOFTWARE EXPLICITLY AND OVERTLY RELEASED AND
+   CONTRIBUTED TO THE PUBLIC DOMAIN, PERMANENTLY, IRREVOCABLY AND UNCONDITIONALLY
+   WAIVING ANY AND ALL CLAIM OF COPYRIGHT, IN PERPETUITY ON SEPTEMBER 15, 2020.
+
+   1. FALLBACK CLAUSES
+
+   THIS SOFTWARE MAY BE FREELY USED, DERIVED FROM, EXECUTED, LINKED WITH, MODIFIED
+   AND DISTRIBUTED FOR ANY PURPOSE, COMMERCIAL OR NON-COMMERCIAL, BY ANYONE, FOR
+   ANY REASON, WITH NO ATTRIBUTION, IN PERPETUITY.
+
+   THE AUTHOR OR AUTHORS OF THIS WORK HEREBY OVERTLY, FULLY, PERMANENTLY,
+   IRREVOCABLY AND UNCONDITIONALLY FORFEITS AND WAIVES ALL CLAIM OF COPYRIGHT
+   (ECONOMIC AND MORAL), ANY AND ALL RIGHTS OF INTEGRITY, AND ANY AND ALL RIGHTS OF
+   ATTRIBUTION. ANYONE IS FREE TO COPY, MODIFY, ENHANCE, OPTIMIZE, PUBLISH, USE,
+   COMPILE, DECOMPILE, ASSEMBLE, DISASSEMBLE, DOWNLOAD, UPLOAD, TRANSMIT, RECEIVE,
+   SELL, FORK, DERIVE FROM, LINK, LINK TO, CALL, REFERENCE, WRAP, THUNK, ENCODE,
+   ENCRYPT, TRANSFORM, STORE, RETRIEVE, DISTORT, DESTROY, RENAME, DELETE,
+   BROADCAST, OR DISTRIBUTE THIS SOFTWARE, EITHER IN SOURCE CODE FORM, IN A
+   TRANSLATED FORM, AS A LIBRARY, AS TEXT, IN PRINT, OR AS A COMPILED BINARY OR
+   EXECUTABLE PROGRAM, OR IN DIGITAL FORM, OR IN ANALOG FORM, OR IN PHYSICAL FORM,
+   OR IN ANY OTHER REPRESENTATION, FOR ANY PURPOSE, COMMERCIAL OR NON-COMMERCIAL,
+   AND BY ANY MEANS, WITH NO ATTRIBUTION, IN PERPETUITY.
+
+   2. ANTI-COPYRIGHT WAIVER AND STATEMENT OF INTENT
+
+   IN JURISDICTIONS THAT RECOGNIZE COPYRIGHT LAWS, THE AUTHOR OR AUTHORS OF THIS
+   SOFTWARE OVERTLY, FULLY, PERMANENTLY, IRREVOCABLY AND UNCONDITIONALLY DEDICATE,
+   FORFEIT, AND WAIVE ANY AND ALL COPYRIGHT INTEREST IN THE SOFTWARE TO THE PUBLIC
+   DOMAIN. WE MAKE THIS DEDICATION AND WAIVER FOR THE BENEFIT OF THE PUBLIC AT
+   LARGE AND TO THE DETRIMENT OF OUR HEIRS AND SUCCESSORS. WE INTEND THIS
+   DEDICATION AND WAIVER TO BE AN OVERT ACT OF RELINQUISHMENT IN PERPETUITY OF ALL
+   PRESENT AND FUTURE RIGHTS TO THIS SOFTWARE UNDER COPYRIGHT LAW. WE INTEND THIS
+   SOFTWARE TO BE FREELY USED, COMPILED, EXECUTED, MODIFIED, PUBLISHED, DERIVED
+   FROM, OR DISTRIBUTED BY ANYONE, FOR ANY COMMERCIAL OR NON-COMMERCIAL USE, WITH
+   NO ATTRIBUTION, IN PERPETUITY.
+
+   3. NO WARRANTY CLAUSE
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+   FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR OR
+   AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+   WITH THE SOFTWARE, OR DERIVING FROM THE SOFTWARE, OR LINKING WITH THE SOFTWARE,
+   OR CALLING THE SOFTWARE, OR EXECUTING THE SOFTWARE, OR THE USE OR OTHER DEALINGS
+   IN THE SOFTWARE.
+
+   4. FINAL ANTI-COPYRIGHT AND INTENT FALLBACK CLAUSE
+
+   SHOULD ANY PART OF THIS PUBLIC DOMAIN DECLARATION, OR THE FALLBACK CLAUSES, OR
+   THE ANTI-COPYRIGHT WAIVER FOR ANY REASON BE JUDGED LEGALLY INVALID OR
+   INEFFECTIVE UNDER APPLICABLE LAW, THEN THE PUBLIC DOMAIN DECLARATION, THE
+   FALLBACK CLAUSES, AND ANTI-COPYRIGHT WAIVER SHALL BE PRESERVED TO THE MAXIMUM
+   EXTENT PERMITTED BY LAW TAKING INTO ACCOUNT THE ABOVE STATEMENT OF INTENT.
+*/

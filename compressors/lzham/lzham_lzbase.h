@@ -1,5 +1,5 @@
 // File: lzham_lzbase.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 
 #include "lzham_lzdecompbase.h"
@@ -11,9 +11,9 @@ namespace lzham
 {
    struct CLZBase : CLZDecompBase
    {
-      uint8 m_slot_tab0[4096];
-      uint8 m_slot_tab1[512];
-      uint8 m_slot_tab2[256];
+      static uint8 m_slot_tab0[4096];
+      static uint8 m_slot_tab1[512];
+      static uint8 m_slot_tab2[256];
 
       void init_slot_tabs();
 

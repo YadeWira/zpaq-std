@@ -38,8 +38,9 @@ for a in $ALGOS; do
   # "zpaqstd-ma2:" = bloque que lleva su propio decodificador ZPAQL (ZPAQLZ5).
   # lz6 se etiqueta "zpaqstd-ma2:lz5-lz6:" (formato LZ5, compresor lz6), de ahi
   # el prefijo opcional; "lz5" no calza con "lz5-lz6:".
-  # zxc lleva el formato en la etiqueta (zxc9), como sylz (sylz2)
-  ta=${a/#zxc/zxc9}
+  # zxc lleva el formato en la etiqueta (zxc9), como sylz (sylz2); lzh tambien desde
+  # 1.6.0 (lzh10 = LZHAM 1.0; "lzh:" era el formato alpha)
+  ta=${a/#zxc/zxc9}; ta=${ta/#lzh/lzh10}
   n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2?:([a-z0-9]+-)?$ta:")
   # lz (lzlib) se guarda como el LZMA de adentro del miembro lzip, con la etiqueta
   # de -ma:lzma (ZPAQLZIP): "zpaqstd-ma2:lzma:<nivel>:<tamano>:lzip".
@@ -64,7 +65,7 @@ for a in $ALGOS; do
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz4|lz4hc|lz4f|lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav|deflate|hs|lizard|lizard:45|bzip2|zstd|lzfse|brotli|bzip3|zxc|zxc:*)
+  case "$a" in lz4|lz4hc|lz4f|lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav|deflate|hs|lizard|lizard:45|bzip2|zstd|lzfse|brotli|bzip3|lzh|zxc|zxc:*)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1

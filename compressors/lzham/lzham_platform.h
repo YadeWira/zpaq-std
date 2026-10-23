@@ -1,6 +1,13 @@
 // File: lzham_platform.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
+
+#include <string.h>
+
+#if defined(_MSC_VER)
+   // _mm_pause(), _byteswap_ulong() and _InterlockedCompareExchange64().
+   #include <intrin.h>
+#endif
 
 bool lzham_is_debugger_present(void);
 void lzham_debug_break(void);
@@ -10,23 +17,26 @@ void lzham_output_debug_string(const char* p);
 void lzham_assert(const char* pExp, const char* pFile, unsigned line);
 void lzham_fail(const char* pExp, const char* pFile, unsigned line);
 
-#ifdef WIN32
+#if LZHAM_PLATFORM_X360
    #define LZHAM_BREAKPOINT DebuggerBreak();
-   #define LZHAM_BUILTIN_EXPECT(c, v) c
-#elif defined(__GNUC__)
-   #define LZHAM_BREAKPOINT asm("int $3");
-   #define LZHAM_BUILTIN_EXPECT(c, v) __builtin_expect(c, v)
+#elif defined(_MSC_VER)
+   #define LZHAM_BREAKPOINT __debugbreak();
+#elif LZHAM_CPU_X86 || LZHAM_CPU_X64
+   #define LZHAM_BREAKPOINT __asm__ __volatile__("int $3");
+#elif defined(__GNUC__) || defined(__clang__)
+   #define LZHAM_BREAKPOINT __builtin_trap();
 #else
    #define LZHAM_BREAKPOINT
-   #define LZHAM_BUILTIN_EXPECT(c, v) c
 #endif
 
-#if defined(__GNUC__) && LZHAM_PLATFORM_PC
-extern __inline__ __attribute__((__always_inline__,__gnu_inline__)) void lzham_yield_processor()
-{
-   __asm__ __volatile__("pause");
-}
-#elif LZHAM_PLATFORM_X360
+#if defined(__GNUC__) || defined(__clang__)
+   #define LZHAM_BUILTIN_EXPECT(c, v) __builtin_expect(c, v)
+#else
+   #define LZHAM_BUILTIN_EXPECT(c, v) (c)
+#endif
+
+// Spins the CPU for a moment. Used by the compressor's spinlocks.
+#if LZHAM_PLATFORM_X360
 #define lzham_yield_processor() \
    YieldProcessor(); \
    __asm { or r0, r0, r0 } \
@@ -39,24 +49,38 @@ extern __inline__ __attribute__((__always_inline__,__gnu_inline__)) void lzham_y
    YieldProcessor(); \
    __asm { or r0, r0, r0 } \
    YieldProcessor(); \
-   __asm { or r1, r1, r1 } \
-   YieldProcessor(); \
-   __asm { or r0, r0, r0 } \
-   YieldProcessor(); \
    __asm { or r1, r1, r1 }
-#else
-LZHAM_FORCE_INLINE void lzham_yield_processor()
-{
-#if LZHAM_USE_MSVC_INTRINSICS
-   #if LZHAM_PLATFORM_PC_X64
-      _mm_pause();
+#elif defined(__GNUC__) || defined(__clang__)
+   #if LZHAM_CPU_X86 || LZHAM_CPU_X64
+      LZHAM_FORCE_INLINE void lzham_yield_processor()
+      {
+         __asm__ __volatile__("pause");
+      }
+   #elif LZHAM_CPU_ARM64
+      LZHAM_FORCE_INLINE void lzham_yield_processor()
+      {
+         __asm__ __volatile__("yield");
+      }
+   #elif LZHAM_CPU_ARM && defined(__ARM_ARCH) && (__ARM_ARCH >= 7)
+      LZHAM_FORCE_INLINE void lzham_yield_processor()
+      {
+         __asm__ __volatile__("yield");
+      }
    #else
-      YieldProcessor();
+      // No implementation for this CPU.
+      LZHAM_FORCE_INLINE void lzham_yield_processor() { }
    #endif
+#elif LZHAM_USE_MSVC_INTRINSICS
+   LZHAM_FORCE_INLINE void lzham_yield_processor()
+   {
+      #if LZHAM_CPU_X64
+         _mm_pause();
+      #else
+         YieldProcessor();
+      #endif
+   }
 #else
-   // No implementation
-#endif
-}
+   LZHAM_FORCE_INLINE void lzham_yield_processor() { }
 #endif
 
 #ifndef _MSC_VER
@@ -64,35 +88,57 @@ LZHAM_FORCE_INLINE void lzham_yield_processor()
    int vsprintf_s(char *buffer, size_t sizeOfBuffer, const char *format, va_list args);
 #endif
 
+// Memory barriers. x86/x64 only needs a compiler barrier (and the atomics already imply one),
+// weakly ordered CPUs such as ARM need a real barrier.
 #if LZHAM_PLATFORM_X360
    #define LZHAM_MEMORY_EXPORT_BARRIER MemoryBarrier();
-#else
-   // Barriers shouldn't be necessary on x86/x64.
-   // TODO: Should use __sync_synchronize() on other platforms that support GCC.
+   #define LZHAM_MEMORY_IMPORT_BARRIER MemoryBarrier();
+#elif LZHAM_CPU_X86 || LZHAM_CPU_X64
    #define LZHAM_MEMORY_EXPORT_BARRIER
-#endif
-
-#if LZHAM_PLATFORM_X360
+   #define LZHAM_MEMORY_IMPORT_BARRIER
+#elif defined(__GNUC__) || defined(__clang__)
+   #define LZHAM_MEMORY_EXPORT_BARRIER __sync_synchronize();
+   #define LZHAM_MEMORY_IMPORT_BARRIER __sync_synchronize();
+#elif defined(_MSC_VER)
+   #define LZHAM_MEMORY_EXPORT_BARRIER MemoryBarrier();
    #define LZHAM_MEMORY_IMPORT_BARRIER MemoryBarrier();
 #else
-   // Barriers shouldn't be necessary on x86/x64.
-   // TODO: Should use __sync_synchronize() on other platforms that support GCC.
+   #define LZHAM_MEMORY_EXPORT_BARRIER
    #define LZHAM_MEMORY_IMPORT_BARRIER
 #endif
+
+// Unaligned 32-bit load. Implemented with memcpy so that the compiler emits a single load on
+// every architecture while staying correct on strict-alignment targets.
+namespace lzham
+{
+   LZHAM_FORCE_INLINE uint32 load_unaligned_uint32(const void* p)
+   {
+      uint32 v;
+      memcpy(&v, p, sizeof(v));
+      return v;
+   }
+
+   LZHAM_FORCE_INLINE uint64 load_unaligned_uint64(const void* p)
+   {
+      uint64 v;
+      memcpy(&v, p, sizeof(v));
+      return v;
+   }
+}
 
 // Note: It's very important that LZHAM_READ_BIG_ENDIAN_UINT32() is fast on the target platform.
 // This is used to read every DWORD from the input stream.
 
 #if LZHAM_USE_UNALIGNED_INT_LOADS
    #if LZHAM_BIG_ENDIAN_CPU
-      #define LZHAM_READ_BIG_ENDIAN_UINT32(p) *reinterpret_cast<const uint32*>(p)
+      #define LZHAM_READ_BIG_ENDIAN_UINT32(p) lzham::load_unaligned_uint32(p)
    #else
-      #if defined(LZHAM_USE_MSVC_INTRINSICS)
-         #define LZHAM_READ_BIG_ENDIAN_UINT32(p) _byteswap_ulong(*reinterpret_cast<const uint32*>(p))
-      #elif defined(__GNUC__)
-         #define LZHAM_READ_BIG_ENDIAN_UINT32(p) __builtin_bswap32(*reinterpret_cast<const uint32*>(p))
+      #if defined(__GNUC__) || defined(__clang__)
+         #define LZHAM_READ_BIG_ENDIAN_UINT32(p) __builtin_bswap32(lzham::load_unaligned_uint32(p))
+      #elif defined(LZHAM_USE_MSVC_INTRINSICS)
+         #define LZHAM_READ_BIG_ENDIAN_UINT32(p) _byteswap_ulong(lzham::load_unaligned_uint32(p))
       #else
-         #define LZHAM_READ_BIG_ENDIAN_UINT32(p) utils::swap32(*reinterpret_cast<const uint32*>(p))
+         #define LZHAM_READ_BIG_ENDIAN_UINT32(p) utils::swap32(lzham::load_unaligned_uint32(p))
       #endif
    #endif
 #else
@@ -100,9 +146,10 @@ LZHAM_FORCE_INLINE void lzham_yield_processor()
 #endif
 
 #if LZHAM_USE_WIN32_ATOMIC_FUNCTIONS
-   extern "C" __int64 _InterlockedCompareExchange64(__int64 volatile * Destination, __int64 Exchange, __int64 Comperand);
    #if defined(_MSC_VER)
       #pragma intrinsic(_InterlockedCompareExchange64)
+   #else
+      extern "C" __int64 _InterlockedCompareExchange64(__int64 volatile * Destination, __int64 Exchange, __int64 Comperand);
    #endif
 #endif // LZHAM_USE_WIN32_ATOMIC_FUNCTIONS
 

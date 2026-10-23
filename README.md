@@ -49,7 +49,7 @@ each block**, without installing anything — everything is bundled under `compr
 | `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.5.0 (a maintained fork of heatshrink 0.4.1, same stream) | 0–2 | 1 | **yes** (ZPAQHS) |
 | `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 | **yes** (ZPAQBZIP3) |
 | `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 | 1–9 | 3 | **yes** (ZPAQBSC) |
-| `-ma:lzh:N` | [LZHAM](https://github.com/richgel999/lzham_codec) 1.0 | 1–4 | 4 | **yes** (ZPAQLZHAM) |
+| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.0.2 (a maintained fork of LZHAM 1.0); archives from 1.5.1 and earlier hold LZHAM's older alpha format and are still read | 1–4 | 4 | **yes** (ZPAQLZHAM10; ZPAQLZHAM for the alpha) |
 | `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet), kanzi's own levels: 1 = LZX, 2 = DNA + LZ + Huffman, 3 = TEXT + UTF + PACK + MM + LZX with Huffman, 4 = TEXT + UTF + EXE + PACK + MM + ROLZ, 5 = TEXT + UTF + BWT + RANK + ZRLT with ANS, 6 = the same with SRT and FPAQ, 7 = LZP + TEXT + UTF + BWT + LZP with CM, 8 = EXE + RLT + TEXT + UTF + DNA with TPAQ, 9 = the same with TPAQX (8–9 are slow and need a lot of memory in other zpaqs) | 1–9 | 2 | **yes** (ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B) |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 (format 9), a fast LZ built for decompression speed; 6–7 add Huffman | 1–7 | 3 | **yes** (ZPAQZXC) |

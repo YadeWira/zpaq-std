@@ -1,5 +1,5 @@
 // File: lzham_symbol_codec.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 #include "lzham_prefix_coding.h"
 
@@ -19,7 +19,7 @@ namespace lzham
    typedef uint64 bit_cost_t;
    const uint32 cBitCostScaleShift = 24;
    const uint32 cBitCostScale = (1U << cBitCostScaleShift);
-   const bit_cost_t cBitCostMax = UINT64_MAX;
+   const bit_cost_t cBitCostMax = LZHAM_UINT64_MAX;
 
    inline bit_cost_t convert_to_scaled_bitcost(uint bits) { LZHAM_ASSERT(bits <= 255); uint32 scaled_bits = bits << cBitCostScaleShift; return static_cast<bit_cost_t>(scaled_bits); }
 
@@ -28,7 +28,7 @@ namespace lzham
    class raw_quasi_adaptive_huffman_data_model
    {
    public:
-      raw_quasi_adaptive_huffman_data_model(bool encoding = true, uint total_syms = 0, bool fast_encoding = false, bool use_polar_codes = false);
+      raw_quasi_adaptive_huffman_data_model(bool encoding = false, uint total_syms = 0, uint max_update_interval = 0, uint adapt_rate = 0);
       raw_quasi_adaptive_huffman_data_model(const raw_quasi_adaptive_huffman_data_model& other);
       ~raw_quasi_adaptive_huffman_data_model();
 
@@ -37,7 +37,7 @@ namespace lzham
       
       void clear();
 
-      bool init(bool encoding, uint total_syms, bool fast_encoding, bool use_polar_codes, const uint16 *pInitial_sym_freq = NULL);
+      bool init2(bool encoding, uint total_syms, uint max_update_interval, uint adapt_rate, const uint16 *pInitial_sym_freq);
       bool reset();
 
       inline uint get_total_syms() const { return m_total_syms; }
@@ -45,7 +45,7 @@ namespace lzham
       void rescale();
       void reset_update_rate();
 
-      bool update(uint sym);
+      bool update_sym(uint sym);
 
       inline bit_cost_t get_cost(uint sym) const { return convert_to_scaled_bitcost(m_code_sizes[sym]); }
 
@@ -68,11 +68,11 @@ namespace lzham
       uint                             m_total_count;
 
       uint8                            m_decoder_table_bits;
+      uint16                           m_max_update_interval; // def=16, typical range 12-128, controls the max interval between table updates, higher=longer max interval (faster decode/lower ratio)
+      uint16                           m_adapt_rate; // def=10, 8 or higher, scaled by 8, controls the slowing of the update update freq, higher=more rapid slowing (faster decode/lower ratio)
       bool                             m_encoding;
-      bool                             m_fast_updating;
-      bool                             m_use_polar_codes;
 
-      bool update();
+      bool update_tables(int force_update_cycle = -1, bool sym_freq_all_ones = false);
 
       friend class symbol_codec;
    };
@@ -88,7 +88,7 @@ namespace lzham
    class adaptive_bit_model
    {
    public:
-      adaptive_bit_model();
+      inline adaptive_bit_model() { clear(); }
       adaptive_bit_model(float prob0);
       adaptive_bit_model(const adaptive_bit_model& other);
 
@@ -130,7 +130,7 @@ namespace lzham
       void clear();
 
       bool init(bool encoding, uint total_syms);
-      bool init(bool encoding, uint total_syms, bool fast_encoding, bool use_polar_codes = false) { LZHAM_NOTE_UNUSED(fast_encoding), LZHAM_NOTE_UNUSED(use_polar_codes); return init(encoding, total_syms); }
+      bool init(bool encoding, uint total_syms, bool fast_encoding) { LZHAM_NOTE_UNUSED(fast_encoding); return init(encoding, total_syms); }
       void reset();
 
       void reset_update_rate();
@@ -444,7 +444,7 @@ namespace lzham
    if (LZHAM_BUILTIN_EXPECT(k <= pTables->m_table_max_code, 1)) \
    { \
       uint32 t = pTables->m_lookup[bit_buf >> (symbol_codec::cBitBufSize - pTables->m_table_bits)]; \
-      result = t & UINT16_MAX; \
+      result = t & LZHAM_UINT16_MAX; \
       len = t >> 16; \
    } \
    else \
@@ -465,10 +465,10 @@ namespace lzham
    uint freq = pModel->m_sym_freq[result]; \
    freq++; \
    pModel->m_sym_freq[result] = static_cast<uint16>(freq); \
-   LZHAM_ASSERT(freq <= UINT16_MAX); \
+   LZHAM_ASSERT(freq <= LZHAM_UINT16_MAX); \
    if (LZHAM_BUILTIN_EXPECT(--pModel->m_symbols_until_update == 0, 0)) \
    { \
-      pModel->update(); \
+      pModel->update_tables(); \
    } \
 }
 #else
@@ -501,7 +501,7 @@ namespace lzham
    if (LZHAM_BUILTIN_EXPECT(k <= pTables->m_table_max_code, 1)) \
    { \
       uint32 t = pTables->m_lookup[bit_buf >> (symbol_codec::cBitBufSize - pTables->m_table_bits)]; \
-      result = t & UINT16_MAX; \
+      result = t & LZHAM_UINT16_MAX; \
       len = t >> 16; \
    } \
    else \
@@ -522,10 +522,10 @@ namespace lzham
    uint freq = pModel->m_sym_freq[result]; \
    freq++; \
    pModel->m_sym_freq[result] = static_cast<uint16>(freq); \
-   LZHAM_ASSERT(freq <= UINT16_MAX); \
+   LZHAM_ASSERT(freq <= LZHAM_UINT16_MAX); \
    if (LZHAM_BUILTIN_EXPECT(--pModel->m_symbols_until_update == 0, 0)) \
    { \
-      pModel->update(); \
+      pModel->update_tables(); \
    } \
 }
 #endif

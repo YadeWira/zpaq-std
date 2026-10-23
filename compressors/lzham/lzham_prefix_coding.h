@@ -1,5 +1,5 @@
 // File: lzham_prefix_coding.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 
 namespace lzham
@@ -8,6 +8,8 @@ namespace lzham
    {
       const uint cMaxExpectedCodeSize = 16;
       const uint cMaxSupportedSyms = 1024;
+      
+      // This value can be tuned for a specific CPU.
       const uint cMaxTableBits = 11;
 
       bool limit_max_code_size(uint num_syms, uint8* pCodesizes, uint max_code_size);

@@ -1,5 +1,5 @@
-# Generador de ZPAQLZHAM: flujos de LZHAM 1.0 (el de zpaq-std -ma:lzh: diccionario de
-# 2^20, niveles 1-4) en ZPAQL, escrito para zpaq-std desde el codigo de lzham_decomp.
+# Generador de ZPAQLZHAM: flujos del formato alpha de LZHAM (0x1008, el de zpaq-std -ma:lzh
+# hasta 1.5.1; NO es el de LZHAM 1.0, ver ../zpaqlzham10: diccionario de 2^20, niveles 1-4) en ZPAQL, escrito para zpaq-std desde el codigo de lzham_decomp.
 # ZPAQL no tiene subrutinas: todo son macros expandidas en linea. Mismo algoritmo que la
 # referencia en Python con la que se probo (ref.py).
 #   python3 gen.py salida.txt

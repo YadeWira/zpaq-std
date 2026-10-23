@@ -1,5 +1,5 @@
 // File: lzham_vector.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
 #include "lzham_vector.h"
 
@@ -20,9 +20,16 @@ namespace lzham
       if (m_capacity >= min_new_capacity)
          return true;
 
-      size_t new_capacity = min_new_capacity;
+      // new_capacity must be 64-bit when compiling on x64.
+		size_t new_capacity = (size_t)min_new_capacity;
       if ((grow_hint) && (!math::is_power_of_2(static_cast<uint64>(new_capacity))))
-         new_capacity = math::next_pow2(static_cast<uint64>(new_capacity));
+         new_capacity = static_cast<uint>(math::next_pow2(static_cast<uint64>(new_capacity)));
+
+      // m_capacity is 32-bit, so the rounded-up capacity must be clamped instead of truncated: next_pow2()
+      // turns a request just above 2 GB into 4 GB, which would wrap to zero and make the vector report room
+      // it does not have. Clamping keeps every capacity the caller actually asked for.
+      if (new_capacity > (size_t)LZHAM_MAX_VECTOR_ELEMENTS)
+         new_capacity = (size_t)LZHAM_MAX_VECTOR_ELEMENTS;
 
       LZHAM_ASSERT(new_capacity && (new_capacity > m_capacity));
 

@@ -1,8 +1,8 @@
 // File: lzham_config.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 
-#ifdef _DEBUG
+#if defined(_DEBUG) || defined(DEBUG)
    #define LZHAM_BUILD_DEBUG
    
    #ifndef DEBUG

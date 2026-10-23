@@ -1,5 +1,5 @@
 // File: lzham_lzcomp_state.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
 #include "lzham_lzcomp_internal.h"
 
@@ -66,7 +66,14 @@ namespace lzham
 
    lzcompressor::state::state()
    {
-      clear();
+		m_cur_ofs = 0;
+		m_cur_state = 0;
+		m_block_start_dict_ofs = 0;
+
+		m_match_hist[0] = 1;
+		m_match_hist[1] = 1;
+		m_match_hist[2] = 1;
+		m_match_hist[3] = 1;
    }
 
    void lzcompressor::state::clear()
@@ -83,11 +90,8 @@ namespace lzham
       m_main_table.clear();
       m_dist_lsb_table.clear();
 
-      for (uint i = 0; i < (1 << CLZBase::cNumLitPredBits); i++)
-         m_lit_table[i].clear();
-
-      for (uint i = 0; i < (1 << CLZBase::cNumDeltaLitPredBits); i++)
-         m_delta_lit_table[i].clear();
+		m_lit_table.clear();
+      m_delta_lit_table.clear();
 
       m_match_hist[0] = 1;
       m_match_hist[1] = 1;
@@ -122,53 +126,41 @@ namespace lzham
       m_main_table.reset();
       m_dist_lsb_table.reset();
 
-      // Only reset the first table in the array, then just clone it to the others because they're all the same when reset. (This is ~9x faster than resetting each one.)
-      m_lit_table[0].reset();
-      for (uint i = 1; i < LZHAM_ARRAY_SIZE(m_lit_table); i++)
-         m_lit_table[i] = m_lit_table[0];
-
-      m_delta_lit_table[0].reset();
-      for (uint i = 1; i < LZHAM_ARRAY_SIZE(m_delta_lit_table); i++)
-         m_delta_lit_table[i] = m_delta_lit_table[0];
-
+      m_lit_table.reset();
+      m_delta_lit_table.reset();
+      
       m_match_hist[0] = 1;
       m_match_hist[1] = 1;
       m_match_hist[2] = 1;
       m_match_hist[3] = 1;
    }
 
-   bool lzcompressor::state::init(CLZBase& lzbase, bool fast_adaptive_huffman_updating, bool use_polar_codes)
+   bool lzcompressor::state::init(CLZBase& lzbase, uint table_max_update_interval, uint table_update_interval_slow_rate)
    {
       m_cur_ofs = 0;
       m_cur_state = 0;
 
-      if (!m_rep_len_table[0].init(true, CLZBase::cNumHugeMatchCodes + (CLZBase::cMaxMatchLen - CLZBase::cMinMatchLen + 1), fast_adaptive_huffman_updating, use_polar_codes)) 
+      if (!m_rep_len_table[0].init2(true, CLZBase::cNumHugeMatchCodes + (CLZBase::cMaxMatchLen - CLZBase::cMinMatchLen + 1), table_max_update_interval, table_update_interval_slow_rate, NULL))
          return false;
       if (!m_rep_len_table[1].assign(m_rep_len_table[0])) 
          return false;
       
-      if (!m_large_len_table[0].init(true, CLZBase::cNumHugeMatchCodes + CLZBase::cLZXNumSecondaryLengths, fast_adaptive_huffman_updating, use_polar_codes)) 
+      if (!m_large_len_table[0].init2(true, CLZBase::cNumHugeMatchCodes + CLZBase::cLZXNumSecondaryLengths, table_max_update_interval, table_update_interval_slow_rate, NULL))
          return false;
       if (!m_large_len_table[1].assign(m_large_len_table[0])) 
          return false;
 
-      if (!m_main_table.init(true, CLZBase::cLZXNumSpecialLengths + (lzbase.m_num_lzx_slots - CLZBase::cLZXLowestUsableMatchSlot) * 8, fast_adaptive_huffman_updating, use_polar_codes)) 
+      if (!m_main_table.init2(true, CLZBase::cLZXNumSpecialLengths + (lzbase.m_num_lzx_slots - CLZBase::cLZXLowestUsableMatchSlot) * 8, table_max_update_interval, table_update_interval_slow_rate, NULL))
          return false;
-      if (!m_dist_lsb_table.init(true, 16, fast_adaptive_huffman_updating, use_polar_codes)) 
+      if (!m_dist_lsb_table.init2(true, 16, table_max_update_interval, table_update_interval_slow_rate, NULL))
          return false;
 
-      if (!m_lit_table[0].init(true, 256, fast_adaptive_huffman_updating, use_polar_codes)) 
+      if (!m_lit_table.init2(true, 256, table_max_update_interval, table_update_interval_slow_rate, NULL))
          return false;
-      for (uint i = 1; i < (1 << CLZBase::cNumLitPredBits); i++)
-         if (!m_lit_table[i].assign(m_lit_table[0]))
-            return false;
-
-      if (!m_delta_lit_table[0].init(true, 256, fast_adaptive_huffman_updating, use_polar_codes)) 
+      
+      if (!m_delta_lit_table.init2(true, 256, table_max_update_interval, table_update_interval_slow_rate, NULL))
          return false;
-      for (uint i = 1; i < (1 << CLZBase::cNumDeltaLitPredBits); i++)
-         if (!m_delta_lit_table[i].assign(m_delta_lit_table[0]))
-            return false;
-
+      
       m_match_hist[0] = 1;
       m_match_hist[1] = 1;
       m_match_hist[2] = 1;
@@ -254,9 +246,9 @@ namespace lzham
 
    bit_cost_t lzcompressor::state::get_cost(CLZBase& lzbase, const search_accelerator& dict, const lzdecision& lzdec) const
    {
-      const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
+      //const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
 
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(lit_pred0, m_cur_state);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(m_cur_state);
       LZHAM_ASSERT(is_match_model_index < LZHAM_ARRAY_SIZE(m_is_match_model));
       bit_cost_t cost = m_is_match_model[is_match_model_index].get_cost(lzdec.is_match());
 
@@ -266,26 +258,17 @@ namespace lzham
 
          if (m_cur_state < CLZBase::cNumLitStates)
          {
-            const uint lit_pred1 = get_pred_char(dict, lzdec.m_pos, 2);
-
-            uint lit_pred = (lit_pred0 >> (8 - CLZBase::cNumLitPredBits/2)) |
-               (((lit_pred1 >> (8 - CLZBase::cNumLitPredBits/2)) << CLZBase::cNumLitPredBits/2));
-
             // literal
-            cost += m_lit_table[lit_pred].get_cost(lit);
+            cost += m_lit_table.get_cost(lit);
          }
          else
          {
             // delta literal
             const uint rep_lit0 = dict[(lzdec.m_pos - m_match_hist[0]) & dict.m_max_dict_size_mask];
-            const uint rep_lit1 = dict[(lzdec.m_pos - m_match_hist[0] - 1) & dict.m_max_dict_size_mask];
-
+            
             uint delta_lit = rep_lit0 ^ lit;
-
-            uint lit_pred = (rep_lit0 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) |
-               ((rep_lit1 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) << CLZBase::cNumDeltaLitPredBits/2);
-
-            cost += m_delta_lit_table[lit_pred].get_cost(delta_lit);
+				            
+            cost += m_delta_lit_table.get_cost(delta_lit);
          }
       }
       else
@@ -449,8 +432,11 @@ namespace lzham
       return cost;
    }
 
-   bit_cost_t lzcompressor::state::get_lit_cost(const search_accelerator& dict, uint dict_pos, uint lit_pred0, uint is_match_model_index) const
+   bit_cost_t lzcompressor::state::get_lit_cost(CLZBase& lzbase, const search_accelerator& dict, uint dict_pos, uint lit_pred0, uint is_match_model_index) const
    {
+		LZHAM_NOTE_UNUSED(lzbase);
+		LZHAM_NOTE_UNUSED(lit_pred0);
+
       bit_cost_t cost = m_is_match_model[is_match_model_index].get_cost(0);
 
       const uint lit = dict[dict_pos];
@@ -458,25 +444,16 @@ namespace lzham
       if (m_cur_state < CLZBase::cNumLitStates)
       {
          // literal
-         const uint lit_pred1 = get_pred_char(dict, dict_pos, 2);
-
-         uint lit_pred = (lit_pred0 >> (8 - CLZBase::cNumLitPredBits/2)) |
-            (((lit_pred1 >> (8 - CLZBase::cNumLitPredBits/2)) << CLZBase::cNumLitPredBits/2));
-
-         cost += m_lit_table[lit_pred].get_cost(lit);
+         cost += m_lit_table.get_cost(lit);
       }
       else
       {
          // delta literal
          const uint rep_lit0 = dict[(dict_pos - m_match_hist[0]) & dict.m_max_dict_size_mask];
-         const uint rep_lit1 = dict[(dict_pos - m_match_hist[0] - 1) & dict.m_max_dict_size_mask];
-
+         
          uint delta_lit = rep_lit0 ^ lit;
 
-         uint lit_pred = (rep_lit0 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) |
-            ((rep_lit1 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) << CLZBase::cNumDeltaLitPredBits/2);
-
-         cost += m_delta_lit_table[lit_pred].get_cost(delta_lit);
+         cost += m_delta_lit_table.get_cost(delta_lit);
       }
 
       return cost;
@@ -486,7 +463,7 @@ namespace lzham
    {
       LZHAM_NOTE_UNUSED(dict_pos);
       // match
-      const sym_data_model &rep_len_table = m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates];
+      const quasi_adaptive_huffman_data_model &rep_len_table = m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates];
 
       bit_cost_t base_cost = m_is_match_model[is_match_model_index].get_cost(1);
 
@@ -591,7 +568,7 @@ namespace lzham
 
       uint match_high_sym = match_slot - CLZBase::cLZXLowestUsableMatchSlot;
 
-      const sym_data_model &large_len_table = m_large_len_table[m_cur_state >= CLZBase::cNumLitStates];
+      const quasi_adaptive_huffman_data_model &large_len_table = m_large_len_table[m_cur_state >= CLZBase::cNumLitStates];
 
       for (int match_len = min_len; match_len <= max_len; match_len++)
       {
@@ -621,9 +598,9 @@ namespace lzham
 
    bool lzcompressor::state::advance(CLZBase& lzbase, const search_accelerator& dict, const lzdecision& lzdec)
    {
-      const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
+      //const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
 
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(lit_pred0, m_cur_state);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(m_cur_state);
       m_is_match_model[is_match_model_index].update(lzdec.is_match());
 
       if (!lzdec.is_match())
@@ -632,26 +609,17 @@ namespace lzham
 
          if (m_cur_state < CLZBase::cNumLitStates)
          {
-            const uint lit_pred1 = get_pred_char(dict, lzdec.m_pos, 2);
-
-            uint lit_pred = (lit_pred0 >> (8 - CLZBase::cNumLitPredBits/2)) |
-               (((lit_pred1 >> (8 - CLZBase::cNumLitPredBits/2)) << CLZBase::cNumLitPredBits/2));
-
             // literal
-            if (!m_lit_table[lit_pred].update(lit)) return false;
+            if (!m_lit_table.update_sym(lit)) return false;
          }
          else
          {
             // delta literal
             const uint rep_lit0 = dict[(lzdec.m_pos - m_match_hist[0]) & dict.m_max_dict_size_mask];
-            const uint rep_lit1 = dict[(lzdec.m_pos - m_match_hist[0] - 1) & dict.m_max_dict_size_mask];
-
+            
             uint delta_lit = rep_lit0 ^ lit;
-
-            uint lit_pred = (rep_lit0 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) |
-               ((rep_lit1 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) << CLZBase::cNumDeltaLitPredBits/2);
-
-            if (!m_delta_lit_table[lit_pred].update(delta_lit)) return false;
+				            
+            if (!m_delta_lit_table.update_sym(delta_lit)) return false;
          }
 
          if (m_cur_state < 4) m_cur_state = 0; else if (m_cur_state < 10) m_cur_state -= 3; else m_cur_state -= 6;
@@ -685,11 +653,11 @@ namespace lzham
 
                   if (lzdec.m_len > CLZBase::cMaxMatchLen)
                   {
-                     if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update((CLZBase::cMaxMatchLen + 1) - CLZBase::cMinMatchLen)) return false;
+                     if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update_sym((CLZBase::cMaxMatchLen + 1) - CLZBase::cMinMatchLen)) return false;
                   }
                   else
                   {
-                     if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update(lzdec.m_len - CLZBase::cMinMatchLen)) return false;
+                     if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update_sym(lzdec.m_len - CLZBase::cMinMatchLen)) return false;
                   }
 
                   m_cur_state = (m_cur_state < CLZBase::cNumLitStates) ? 8 : 11;
@@ -702,11 +670,11 @@ namespace lzham
 
                if (lzdec.m_len > CLZBase::cMaxMatchLen)
                {
-                  if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update((CLZBase::cMaxMatchLen + 1) - CLZBase::cMinMatchLen)) return false;
+                  if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update_sym((CLZBase::cMaxMatchLen + 1) - CLZBase::cMinMatchLen)) return false;
                }
                else
                {
-                  if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update(lzdec.m_len - CLZBase::cMinMatchLen)) return false;
+                  if (!m_rep_len_table[m_cur_state >= CLZBase::cNumLitStates].update_sym(lzdec.m_len - CLZBase::cMinMatchLen)) return false;
                }
 
                if (match_hist_index == 1)
@@ -774,24 +742,24 @@ namespace lzham
 
             uint main_sym = match_low_sym | (match_high_sym << 3);
 
-            if (!m_main_table.update(CLZBase::cLZXNumSpecialLengths + main_sym)) return false;
+            if (!m_main_table.update_sym(CLZBase::cLZXNumSpecialLengths + main_sym)) return false;
 
             if (large_len_sym >= 0)
             {
                if (lzdec.m_len > CLZBase::cMaxMatchLen)
                {
-                  if (!m_large_len_table[m_cur_state >= CLZBase::cNumLitStates].update((CLZBase::cMaxMatchLen + 1) - 9)) return false;
+                  if (!m_large_len_table[m_cur_state >= CLZBase::cNumLitStates].update_sym((CLZBase::cMaxMatchLen + 1) - 9)) return false;
                }
                else
                {
-                  if (!m_large_len_table[m_cur_state >= CLZBase::cNumLitStates].update(large_len_sym)) return false;
+                  if (!m_large_len_table[m_cur_state >= CLZBase::cNumLitStates].update_sym(large_len_sym)) return false;
                }
             }
 
             uint num_extra_bits = lzbase.m_lzx_position_extra_bits[match_slot];
             if (num_extra_bits >= 3)
             {
-               if (!m_dist_lsb_table.update(match_extra & 15)) return false;
+               if (!m_dist_lsb_table.update_sym(match_extra & 15)) return false;
             }
 
             update_match_hist(lzdec.m_dist);
@@ -806,9 +774,9 @@ namespace lzham
 
    bool lzcompressor::state::encode(symbol_codec& codec, CLZBase& lzbase, const search_accelerator& dict, const lzdecision& lzdec)
    {
-      const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
+      //const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
 
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(lit_pred0, m_cur_state);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(m_cur_state);
       if (!codec.encode(lzdec.is_match(), m_is_match_model[is_match_model_index])) return false;
 
       if (!lzdec.is_match())
@@ -821,30 +789,21 @@ namespace lzham
 
          if (m_cur_state < CLZBase::cNumLitStates)
          {
-            const uint lit_pred1 = get_pred_char(dict, lzdec.m_pos, 2);
-
-            uint lit_pred = (lit_pred0 >> (8 - CLZBase::cNumLitPredBits/2)) |
-               (((lit_pred1 >> (8 - CLZBase::cNumLitPredBits/2)) << CLZBase::cNumLitPredBits/2));
-
             // literal
-            if (!codec.encode(lit, m_lit_table[lit_pred])) return false;
+            if (!codec.encode(lit, m_lit_table)) return false;
          }
          else
          {
             // delta literal
             const uint rep_lit0 = dict[(lzdec.m_pos - m_match_hist[0]) & dict.m_max_dict_size_mask];
-            const uint rep_lit1 = dict[(lzdec.m_pos - m_match_hist[0] - 1) & dict.m_max_dict_size_mask];
-
+            
             uint delta_lit = rep_lit0 ^ lit;
-
-            uint lit_pred = (rep_lit0 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) |
-               ((rep_lit1 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) << CLZBase::cNumDeltaLitPredBits/2);
 
 #ifdef LZHAM_LZDEBUG
             if (!codec.encode_bits(rep_lit0, 8)) return false;
 #endif
 
-            if (!codec.encode(delta_lit, m_delta_lit_table[lit_pred])) return false;
+            if (!codec.encode(delta_lit, m_delta_lit_table)) return false;
          }
 
          if (m_cur_state < 4) m_cur_state = 0; else if (m_cur_state < 10) m_cur_state -= 3; else m_cur_state -= 6;
@@ -1019,7 +978,7 @@ namespace lzham
 
       const uint lit_pred0 = get_pred_char(dict, lzdec.m_pos, 1);
 
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(lit_pred0, m_cur_state);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(m_cur_state);
 
       printf("  pos: %u, state: %u, match_pred: %u, is_match_model_index: %u, is_match: %u, cost: %f\n",
          lzdec.m_pos,
@@ -1032,30 +991,20 @@ namespace lzham
 
          if (m_cur_state < CLZBase::cNumLitStates)
          {
-            const uint lit_pred1 = get_pred_char(dict, lzdec.m_pos, 2);
-
-            uint lit_pred = (lit_pred0 >> (8 - CLZBase::cNumLitPredBits/2)) |
-               (((lit_pred1 >> (8 - CLZBase::cNumLitPredBits/2)) << CLZBase::cNumLitPredBits/2));
-
-            printf("---Regular lit: %u '%c', lit_pred: %u '%c'\n",
-               lit, ((lit >= 32) && (lit <= 127)) ? lit : '.',
-               lit_pred, ((lit_pred >= 32) && (lit_pred <= 127)) ? lit_pred : '.');
+            printf("---Regular lit: %u '%c'\n",
+               lit, ((lit >= 32) && (lit <= 127)) ? lit : '.');
          }
          else
          {
             // delta literal
             const uint rep_lit0 = dict[(lzdec.m_pos - m_match_hist[0]) & dict.m_max_dict_size_mask];
-            const uint rep_lit1 = dict[(lzdec.m_pos - m_match_hist[0] - 1) & dict.m_max_dict_size_mask];
-
+            
             uint delta_lit = rep_lit0 ^ lit;
 
-            uint lit_pred = (rep_lit0 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) |
-               ((rep_lit1 >> (8 - CLZBase::cNumDeltaLitPredBits/2)) << CLZBase::cNumDeltaLitPredBits/2);
-
-            printf("***Delta lit: %u '%c', Mismatch: %u '%c', Delta: 0x%02X, lit_pred: %u\n",
+            printf("***Delta lit: %u '%c', Mismatch: %u '%c', Delta: 0x%02X\n",
                lit, ((lit >= 32) && (lit <= 127)) ? lit : '.',
                rep_lit0, ((rep_lit0 >= 32) && (rep_lit0 <= 127)) ? rep_lit0 : '.',
-               delta_lit, lit_pred);
+               delta_lit);
          }
       }
       else
@@ -1132,6 +1081,8 @@ namespace lzham
 
    bool lzcompressor::state::encode_eob(symbol_codec& codec, const search_accelerator& dict, uint dict_pos)
    {
+      LZHAM_NOTE_UNUSED(dict);
+      LZHAM_NOTE_UNUSED(dict_pos);
 #ifdef LZHAM_LZDEBUG
       if (!codec.encode_bits(CLZBase::cLZHAMDebugSyncMarkerValue, CLZBase::cLZHAMDebugSyncMarkerBits)) return false;
       if (!codec.encode_bits(1, 1)) return false;
@@ -1139,8 +1090,8 @@ namespace lzham
       if (!codec.encode_bits(m_cur_state, 4)) return false;
 #endif
 
-      const uint match_pred = get_pred_char(dict, dict_pos, 1);
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(match_pred, m_cur_state);
+      //const uint match_pred = get_pred_char(dict, dict_pos, 1);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(m_cur_state);
       if (!codec.encode(1, m_is_match_model[is_match_model_index])) return false;
 
       // full match
@@ -1151,6 +1102,8 @@ namespace lzham
 
    bool lzcompressor::state::encode_reset_state_partial(symbol_codec& codec, const search_accelerator& dict, uint dict_pos)
    {
+      LZHAM_NOTE_UNUSED(dict);
+      LZHAM_NOTE_UNUSED(dict_pos);
 #ifdef LZHAM_LZDEBUG
       if (!codec.encode_bits(CLZBase::cLZHAMDebugSyncMarkerValue, CLZBase::cLZHAMDebugSyncMarkerBits)) return false;
       if (!codec.encode_bits(1, 1)) return false;
@@ -1158,8 +1111,8 @@ namespace lzham
       if (!codec.encode_bits(m_cur_state, 4)) return false;
 #endif
 
-      const uint match_pred = get_pred_char(dict, dict_pos, 1);
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(match_pred, m_cur_state);
+      //const uint match_pred = get_pred_char(dict, dict_pos, 1);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(m_cur_state);
       if (!codec.encode(1, m_is_match_model[is_match_model_index])) return false;
 
       // full match
@@ -1212,11 +1165,8 @@ namespace lzham
 
    void lzcompressor::state::reset_update_rate()
    {
-      for (uint i = 0; i < LZHAM_ARRAY_SIZE(m_lit_table); i++)
-         m_lit_table[i].reset_update_rate();
-
-      for (uint i = 0; i < LZHAM_ARRAY_SIZE(m_delta_lit_table); i++)
-         m_delta_lit_table[i].reset_update_rate();
+      m_lit_table.reset_update_rate();
+      m_delta_lit_table.reset_update_rate();
 
       m_main_table.reset_update_rate();
 
@@ -1358,8 +1308,8 @@ namespace lzham
 
       m_context_stats.update(cost_in_bits);
 
-      uint match_pred = cur_state.get_pred_char(dict, lzdec.m_pos, 1);
-      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(match_pred, cur_state.m_cur_state);
+      //uint match_pred = cur_state.get_pred_char(dict, lzdec.m_pos, 1);
+      uint is_match_model_index = LZHAM_IS_MATCH_MODEL_INDEX(cur_state.m_cur_state);
 
       if (lzdec.m_len == 0)
       {

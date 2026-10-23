@@ -1,11 +1,14 @@
 // File: platform.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
 #include "lzham_timer.h"
+#include <assert.h>
 
 #if LZHAM_PLATFORM_X360
 #include <xbdm.h>
 #endif
+
+#define LZHAM_FORCE_DEBUGGER_PRESENT 1
 
 #ifndef _MSC_VER
 int sprintf_s(char *buffer, size_t sizeOfBuffer, const char *format, ...)
@@ -21,7 +24,7 @@ int sprintf_s(char *buffer, size_t sizeOfBuffer, const char *format, ...)
    buffer[sizeOfBuffer - 1] = '\0';
 
    if (c < 0)
-      return sizeOfBuffer - 1;
+      return static_cast<int>(sizeOfBuffer - 1);
 
    return LZHAM_MIN(c, (int)sizeOfBuffer - 1);
 }
@@ -35,7 +38,7 @@ int vsprintf_s(char *buffer, size_t sizeOfBuffer, const char *format, va_list ar
    buffer[sizeOfBuffer - 1] = '\0';
 
    if (c < 0)
-      return sizeOfBuffer - 1;
+      return static_cast<int>(sizeOfBuffer - 1);
 
    return LZHAM_MIN(c, (int)sizeOfBuffer - 1);
 }
@@ -47,8 +50,10 @@ bool lzham_is_debugger_present(void)
    return DmIsDebuggerPresent() != 0;
 #elif LZHAM_USE_WIN32_API
    return IsDebuggerPresent() != 0;
+#elif LZHAM_FORCE_DEBUGGER_PRESENT
+   return true;
 #else
-   return false;   
+   return false;
 #endif
 }
 
@@ -56,7 +61,23 @@ void lzham_debug_break(void)
 {
 #if LZHAM_USE_WIN32_API
    DebugBreak();
-#endif   
+#elif defined(__has_builtin)
+   #if __has_builtin(__builtin_debugtrap)
+      __builtin_debugtrap();
+   #elif __has_builtin(__builtin_trap)
+      __builtin_trap();
+   #else
+      assert(0);
+   #endif
+#elif defined(__GNUC__) || defined(__clang__)
+   #if LZHAM_CPU_X86 || LZHAM_CPU_X64
+      __asm__ __volatile__("int $3");
+   #else
+      __builtin_trap();
+   #endif
+#else
+   assert(0);
+#endif
 }
 
 void lzham_output_debug_string(const char* p)
@@ -64,7 +85,9 @@ void lzham_output_debug_string(const char* p)
    LZHAM_NOTE_UNUSED(p);
 #if LZHAM_USE_WIN32_API
    OutputDebugStringA(p);
-#endif   
+#else
+   fputs(p, stderr);
+#endif
 }
 
 #if LZHAM_BUFFERED_PRINTF

@@ -1,13 +1,30 @@
 // File: lzham_mem.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
-#include <malloc.h>
+
+#ifdef __APPLE__
+   #include <malloc/malloc.h>
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+   #include <malloc_np.h>
+   #if defined(__FreeBSD__)
+      #define malloc(size) aligned_alloc((LZHAM_MIN_ALLOC_ALIGNMENT), (size))
+   #endif
+#else
+   #include <malloc.h>
+#endif
 
 using namespace lzham;
 
 #define LZHAM_MEM_STATS 0
 
-#ifndef LZHAM_USE_WIN32_API
+// _msize() is the whole-allocation-size query. It comes from the C runtime, not from the threading
+// backend, so this must be keyed on the platform (a Windows build with LZHAM_ANSI_CPLUSPLUS has no
+// LZHAM_USE_WIN32_API but still uses the MSVC/UCRT heap).
+#if defined(_WIN32) || defined(__CYGWIN__)
+   // _msize() is provided by the CRT.
+#elif defined(__APPLE__)
+   #define _msize malloc_size
+#else
    #define _msize malloc_usable_size
 #endif
 

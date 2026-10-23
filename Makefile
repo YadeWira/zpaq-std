@@ -155,7 +155,7 @@ ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
 else
   LZHAM_THREADING := compressors/lzham/lzham_pthreads_threading.cpp
 endif
-LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp compressors/lzham/lzham_lzcomp.cpp compressors/lzham/lzham_lzcomp_internal.cpp compressors/lzham/lzham_lzcomp_state.cpp compressors/lzham/lzham_match_accel.cpp $(LZHAM_THREADING) compressors/lzham/lzham_assert.cpp compressors/lzham/lzham_checksum.cpp compressors/lzham/lzham_huffman_codes.cpp compressors/lzham/lzham_lzdecomp.cpp compressors/lzham/lzham_lzdecompbase.cpp compressors/lzham/lzham_mem.cpp compressors/lzham/lzham_polar_codes.cpp compressors/lzham/lzham_prefix_coding.cpp compressors/lzham/lzham_symbol_codec.cpp compressors/lzham/lzham_vector.cpp compressors/lzham/lzham_platform.cpp compressors/lzham/lzham_timer.cpp
+LZHAMSRC := compressors/lzham/lzham_lib.cpp compressors/lzham/lzham_lzbase.cpp compressors/lzham/lzham_lzcomp.cpp compressors/lzham/lzham_lzcomp_internal.cpp compressors/lzham/lzham_lzcomp_state.cpp compressors/lzham/lzham_match_accel.cpp $(LZHAM_THREADING) compressors/lzham/lzham_assert.cpp compressors/lzham/lzham_checksum.cpp compressors/lzham/lzham_huffman_codes.cpp compressors/lzham/lzham_lzdecomp.cpp compressors/lzham/lzham_lzdecompbase.cpp compressors/lzham/lzham_mem.cpp compressors/lzham/lzham_prefix_coding.cpp compressors/lzham/lzham_symbol_codec.cpp compressors/lzham/lzham_vector.cpp compressors/lzham/lzham_platform.cpp compressors/lzham/lzham_timer.cpp
 
 ZSTDINC := -Icompressors/zstd
 FL2INC  := -Icompressors/fl2 -DNO_XXHASH -DNDEBUG -U_FORTIFY_SOURCE
@@ -646,9 +646,10 @@ $(BSCOBJ): compressors/bsc/%.o: compressors/bsc/%.cpp
 $(KANZIOBJ): compressors/kanzi/%.o: compressors/kanzi/%.cpp
 	$(CXX) $(ZPAQ_CXXFLAGS) $(KANZIINC) -c $< -o $@
 
-# LZHAM (richgel999): LZMA-class codec. C++ library, all .cpp files.
+# LZHAM 1.0 (lzham-ex, the maintained fork of richgel999's): LZMA-class codec. C++
+# library, all .cpp files. -fno-strict-aliasing is mandatory: the codec type-puns.
 $(LZHAMOBJ): compressors/lzham/%.o: compressors/lzham/%.cpp
-	$(CXX) $(ZPAQ_CXXFLAGS) $(LZHAMINC) -c $< -o $@
+	$(CXX) $(ZPAQ_CXXFLAGS) -fno-strict-aliasing $(LZHAMINC) -c $< -o $@
 
 # 32-bit build (i386/i686 Linux). Uses g++-multilib's 32-bit libstdc++ +
 # zlib via the _GLIBCXX_USE_CXX11_ABI=0 override (added to ZPAQ_CXXFLAGS)

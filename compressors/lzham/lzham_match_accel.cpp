@@ -1,5 +1,5 @@
 // File: lzham_match_accel.cpp
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #include "lzham_core.h"
 #include "lzham_match_accel.h"
 #include "lzham_timer.h"
@@ -153,7 +153,7 @@ namespace lzham
          c0 = c1;
          c1 = c2;
 
-         LZHAM_ASSERT(!m_hash_thread_index.size() || (m_hash_thread_index[h] != UINT8_MAX));
+         LZHAM_ASSERT(!m_hash_thread_index.size() || (m_hash_thread_index[h] != LZHAM_UINT8_MAX));
 
          // Only process those strings that this worker thread was assigned to - this allows us to manipulate multiple trees in parallel with no worries about synchronization.
          if (m_hash_thread_index.size() && (m_hash_thread_index[h] != thread_index))
@@ -195,23 +195,25 @@ namespace lzham
             uint match_len = 0;
             const uint8* pComp = &pDict[pos];
 
-#if LZHAM_PLATFORM_X360
+#if LZHAM_PLATFORM_X360 || (LZHAM_USE_UNALIGNED_INT_LOADS == 0)
             for ( ; match_len < max_match_len; match_len++)
                if (pComp[match_len] != pIns[match_len])
                   break;
 #else
             // Compare a qword at a time for a bit more efficiency.
-            const uint64* pComp_end = reinterpret_cast<const uint64*>(pComp + max_match_len - 7);
-            const uint64* pComp_cur = reinterpret_cast<const uint64*>(pComp);
-            const uint64* pIns_cur = reinterpret_cast<const uint64*>(pIns);
+            // The loads must go through lzham::load_unaligned_uint64(): a plain uint64* dereference
+            // makes GCC emit LDRD, which faults on unaligned addresses on 32-bit ARM.
+            const uint8* pComp_end = pComp + max_match_len - 7;
+            const uint8* pComp_cur = pComp;
+            const uint8* pIns_cur = pIns;
             while (pComp_cur < pComp_end)
             {
-               if (*pComp_cur != *pIns_cur)
+               if (lzham::load_unaligned_uint64(pComp_cur) != lzham::load_unaligned_uint64(pIns_cur))
                   break;
-               pComp_cur++;
-               pIns_cur++;
+               pComp_cur += sizeof(uint64);
+               pIns_cur += sizeof(uint64);
             }
-            uint alt_match_len = static_cast<uint>(reinterpret_cast<const uint8*>(pComp_cur) - reinterpret_cast<const uint8*>(pComp));
+            uint alt_match_len = static_cast<uint>(pComp_cur - pComp);
             for ( ; alt_match_len < max_match_len; alt_match_len++)
                if (pComp[alt_match_len] != pIns[alt_match_len])
                   break;
@@ -309,7 +311,7 @@ namespace lzham
 
             const uint num_matches_to_write = LZHAM_MIN(num_matches, m_max_matches);
 
-            const uint match_ref_ofs = atomic_exchange_add(&m_next_match_ref, num_matches_to_write);
+            const uint match_ref_ofs = static_cast<uint>(atomic_exchange_add(&m_next_match_ref, num_matches_to_write));
 
             memcpy(&m_matches[match_ref_ofs],
                    temp_matches + (num_matches - num_matches_to_write),
@@ -449,7 +451,7 @@ namespace lzham
 
                pDict++;
 
-               if (m_hash_thread_index[t] == UINT8_MAX)
+               if (m_hash_thread_index[t] == LZHAM_UINT8_MAX)
                {
                   num_unique_trigrams++;
 
@@ -515,7 +517,7 @@ namespace lzham
       // This may spin until the match finder job(s) catch up to the caller's lookahead position.
       for ( ; ; )
       {
-         match_ref = m_match_refs[match_ref_ofs];
+         match_ref = static_cast<int>(m_match_refs[match_ref_ofs]);
          if (match_ref == -2)
             return NULL;
          else if (match_ref != -1)

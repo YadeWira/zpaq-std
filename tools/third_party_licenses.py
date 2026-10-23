@@ -46,7 +46,8 @@ BUNDLED = [
     ('libbsc', '3.4.0', 'Apache-2.0', 'Ilya Grebnov', ['compressors/bsc/LICENSE'],
      'Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed\n'
      'with either.'),
-    ('LZHAM', '1.0', 'MIT', 'Richard Geldreich, Jr.', ['compressors/lzham/LICENSE'], ''),
+    ('lzham-ex (LZHAM 1.0)', '1.0.2', 'Public domain', 'Richard Geldreich, Jr.; maintained by YadeWira',
+     ['compressors/lzham/LICENSE'], ''),
     ('PPMd var.H (Ppmd7)', '7-Zip / LZMA SDK', 'Public domain', 'Dmitry Shkarin, Igor Pavlov',
      ['compressors/ppmd/LICENSE-PPMD.txt'], ''),
     ('kanzi', '2.6.0', 'Apache-2.0', 'Frederic Langlet', ['compressors/kanzi/LICENSE'],

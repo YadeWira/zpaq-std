@@ -1,5 +1,5 @@
 // File: lzham_task_pool_pthreads.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 
 #if LZHAM_USE_PTHREADS_API
@@ -8,12 +8,112 @@
 #error No atomic operations defined in lzham_platform.h!
 #endif
 
+#ifdef __APPLE__
+   #include <libkern/OSAtomic.h>
+#endif
+
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#include <sys/time.h>
+
+#define LZHAM_RND_CONG(jcong)  (69069U * jcong + 1234567U)
 
 namespace lzham
 {
+   // semaphore
+
+#ifdef __APPLE__
+   class semaphore
+   {
+      LZHAM_NO_COPY_OR_ASSIGNMENT_OP(semaphore);
+
+   public:
+      inline semaphore(long initialCount, long maximumCount)
+      {
+         LZHAM_NOTE_UNUSED(maximumCount);
+         LZHAM_ASSERT(maximumCount >= initialCount);
+
+         for (uint tries = 0; tries < 16; tries++)
+         {
+            struct timeval tp;
+            struct timezone tzp;
+            gettimeofday(&tp, &tzp);
+            uint x = tp.tv_usec;
+
+            // Argh this stinks. Try to choose a name that won't conflict with anything the calling process uses.
+            for (uint i = 0; i < sizeof(m_name) - 1; i++)
+            {
+               x = LZHAM_RND_CONG(x);
+               char c = 'A' + (static_cast<uint8>(x ^ (x >> 20)) % 26);
+               m_name[i] = c;
+            }
+            m_name[sizeof(m_name) - 1] = '\0';
+
+            m_pSem = sem_open(m_name, O_CREAT | O_EXCL, S_IRWXU, initialCount);
+            if (m_pSem != SEM_FAILED)
+               break;
+         }
+
+         if (m_pSem == SEM_FAILED)
+         {
+            LZHAM_FAIL("semaphore: sem_init() failed");
+         }
+      }
+
+      inline ~semaphore()
+      {
+         sem_close(m_pSem);
+         sem_unlink(m_name);
+      }
+
+      inline void release(long releaseCount = 1)
+      {
+         LZHAM_ASSERT(releaseCount >= 1);
+
+         int status = 0;
+#ifdef WIN32
+         if (1 == releaseCount)
+            status = sem_post(m_pSem);
+         else
+            status = sem_post_multiple(m_pSem, releaseCount);
+#else
+         while (releaseCount > 0)
+         {
+            status = sem_post(m_pSem);
+            if (status)
+               break;
+            releaseCount--;
+         }
+#endif
+
+         if (status)
+         {
+            LZHAM_FAIL("semaphore: sem_post() or sem_post_multiple() failed");
+         }
+      }
+
+      inline bool wait()
+      {
+         int status = sem_wait(m_pSem);
+
+         if (status)
+         {
+            if (errno != ETIMEDOUT)
+            {
+               LZHAM_FAIL("semaphore: sem_wait() or sem_timedwait() failed");
+            }
+            return false;
+         }
+
+         return true;
+      }
+
+   private:
+      sem_t *m_pSem;
+      char m_name[16];
+   };
+#else
    class semaphore
    {
       LZHAM_NO_COPY_OR_ASSIGNMENT_OP(semaphore);
@@ -60,10 +160,10 @@ namespace lzham
          }
       }
 
-      inline bool wait(uint32 milliseconds = UINT32_MAX)
+      inline bool wait(uint32 milliseconds = LZHAM_UINT32_MAX)
       {
          int status;
-         if (milliseconds == UINT32_MAX)
+         if (milliseconds == LZHAM_UINT32_MAX)
          {
             status = sem_wait(&m_sem);
          }
@@ -90,7 +190,37 @@ namespace lzham
    private:
       sem_t m_sem;
    };
+#endif
+   
+   // spinlock   
 
+#ifdef __APPLE__
+   class spinlock
+   {
+   public:
+      inline spinlock() : m_lock(0)
+      {
+      }
+
+      inline ~spinlock()
+      {
+      }
+
+      inline void lock()
+      {
+         OSSpinLockLock(&m_lock);
+      }
+
+      inline void unlock()
+      {
+         OSSpinLockUnlock(&m_lock);
+      }
+
+   private:
+
+      OSSpinLock m_lock;
+   };
+#else
    class spinlock
    {
    public:
@@ -126,6 +256,9 @@ namespace lzham
    private:
       pthread_spinlock_t m_spinlock;
    };
+#endif // __APPLE__
+
+   // Thread safe stack
 
    template<typename T, uint cMaxSize>
    class tsstack
@@ -177,6 +310,8 @@ namespace lzham
       T m_stack[cMaxSize];
       int m_top;
    };
+   
+   // Simple task pool
 
    class task_pool
    {
@@ -190,7 +325,7 @@ namespace lzham
       void deinit();
 
       inline uint get_num_threads() const { return m_num_threads; }
-      inline uint get_num_outstanding_tasks() const { return m_num_outstanding_tasks; }
+      inline uint get_num_outstanding_tasks() const { return static_cast<uint>(m_num_outstanding_tasks); }
 
       // C-style task callback
       typedef void (*task_callback_func)(uint64 data, void* pData_ptr);
@@ -357,6 +492,8 @@ namespace lzham
 
       return status;
    }
+   
+   // Sleep
 
    inline void lzham_sleep(unsigned int milliseconds)
    {
@@ -375,7 +512,7 @@ namespace lzham
 #endif
    }
 
-   // TODO: Implement
+   // Returns number of helper threads we can add to the process on the current system (i.e. for a 4 CPU system this returns 3).
    uint lzham_get_max_helper_threads();
 
 } // namespace lzham

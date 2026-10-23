@@ -1,24 +1,7 @@
 // File: lzham_task_pool_pthreads.cpp
 //
-// Copyright (c) 2009-2010 Richard Geldreich, Jr. <richgel99@gmail.com>
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
+
 #include "lzham_core.h"
 #include "lzham_pthreads_threading.h"
 #include "lzham_timer.h"
@@ -27,7 +10,7 @@
 #include <process.h>
 #endif
 
-#if defined(__GNUC__)
+#if defined(__GNUC__) && !defined(__APPLE__) && !defined(__MINGW32__) && !defined(__FreeBSD__)
 #include <sys/sysinfo.h>
 #endif
 
@@ -211,12 +194,14 @@ namespace lzham
 
    uint lzham_get_max_helper_threads()
    {
-#if defined(__GNUC__)
+#if defined(__APPLE__) || defined(__FreeBSD__)
+      int num_procs = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
+      return (num_procs >= 1) ? (num_procs - 1) : 0;
+#elif (1)
       uint num_procs = get_nprocs();
       return num_procs ? (num_procs - 1) : 0;
 #else
       printf("TODO: lzham_get_max_helper_threads(): Implement system specific func to determine the max # of helper threads\n");
-
       // Just assume a dual-core machine.
       return 1;
 #endif

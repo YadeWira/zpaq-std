@@ -1,9 +1,16 @@
 // File: lzham_vector.h
-// See Copyright Notice and license at the end of include/lzham.h
+// LZHAM is in the Public Domain. Please see the Public Domain declaration at the end of include/lzham.h
 #pragma once
 
 namespace lzham
 {
+   // Maximum number of elements a vector can hold. The size/capacity counters are 32-bit, so this cannot be
+   // raised past 0xFFFFFFFF (see upstream issue #19). Tests lower it to exercise the limit without having to
+   // allocate gigabytes.
+   #ifndef LZHAM_MAX_VECTOR_ELEMENTS
+      #define LZHAM_MAX_VECTOR_ELEMENTS 0xFFFFFFFFU
+   #endif
+
    struct elemental_vector
    {
       void* m_p;
@@ -53,7 +60,7 @@ namespace lzham
 
          m_size = other.m_size;
 
-         if (LZHAM_IS_BITWISE_COPYABLE(T))
+         if ((m_size) && (LZHAM_IS_BITWISE_COPYABLE(T)))
             memcpy(m_p, other.m_p, m_size * sizeof(T));
          else
          {
@@ -98,7 +105,7 @@ namespace lzham
             }
          }
 
-         if (LZHAM_IS_BITWISE_COPYABLE(T))
+         if ((other.m_size) && (LZHAM_IS_BITWISE_COPYABLE(T)))
             memcpy(m_p, other.m_p, other.m_size * sizeof(T));
          else
          {
@@ -246,7 +253,12 @@ namespace lzham
          LZHAM_ASSERT(index <= m_size);
          if (!n)
             return true;
-                  
+
+         // m_size and m_capacity are 32-bit: "m_size + n" would wrap around and turn a >4 GB append into a
+         // small allocation followed by an out-of-bounds memcpy (upstream issue #19).
+         if (n > (LZHAM_MAX_VECTOR_ELEMENTS - m_size))
+            return false;
+
          const uint orig_size = m_size;
          if (!try_resize(m_size + n, true))
             return false;
@@ -320,7 +332,7 @@ namespace lzham
 
          const T* pSrc = m_p + start + n;
 
-         if (LZHAM_IS_BITWISE_COPYABLE(T))
+         if ((num_to_move) && (LZHAM_IS_BITWISE_COPYABLE(T)))
             memmove(pDst, pSrc, num_to_move * sizeof(T));
          else
          {
@@ -532,7 +544,7 @@ namespace lzham
 
       inline void set_all(const T& o)
       {
-         if ((sizeof(T) == 1) && (scalar_type<T>::cFlag))
+         if ((m_size) && (sizeof(T) == 1) && (scalar_type<T>::cFlag))
             memset(m_p, *reinterpret_cast<const uint8*>(&o), m_size);
          else
          {

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Decodificador de referencia de LZHAM 1.0 (el de zpaq-std: dict 2^20, sin zlib,
+# Decodificador de referencia del formato alpha de LZHAM (0x1008, el de zpaq-std -ma:lzh
+# hasta 1.5.1; NO es LZHAM 1.0, ver ../zpaqlzham10: dict 2^20, sin zlib,
 # salida unbuffered). Sirve de especificacion ejecutable para el ZPAQL.
 import sys
 
