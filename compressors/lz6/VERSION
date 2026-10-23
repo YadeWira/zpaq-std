@@ -1,7 +1,11 @@
-lz6 lib/ v1.6.12-pre (tag v1.6.12-pre, commit ecbbaa7, 2026-10-19): lz6.c, lz6hc.c,
-lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since 52076b2 are in
-lz6's seq engine (the newer format); the LZ5 v1.5 "portable profile" that -ma:lz6
-writes comes out byte for byte the same at levels 0 to 15 (checked on 82 files).
+lz6 lib/ v1.6.13-pre (tag v1.6.13-pre, commit a082a99, 2026-10-22): lz6.c, lz6hc.c,
+lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since v1.6.12-pre are
+in the encoder of levels 2 to 7 of lz6's seq engine (the newer format); the LZ5 v1.5
+"portable profile" that -ma:lz6 writes comes out byte for byte the same at levels 0 to
+15 (checked on two corpora, and on 64 MB blocks at levels 0, 9 and 15).
+
+Before (zpaq-std 1.2.0 to 1.5.1): v1.6.12-pre (tag v1.6.12-pre, commit ecbbaa7,
+2026-10-19), whose changes since 52076b2 were also in the seq engine; the same bytes.
 
 Before (up to zpaq-std 1.1.0):
 lz6 lib/, frozen at commit 52076b2 (lz6 master, 2026-09-27), with two HC fixes
