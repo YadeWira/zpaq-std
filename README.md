@@ -104,6 +104,29 @@ zpaq-std a mixed.zpaq *.txt -ma:brotli:11        # one algo per run, in one arch
 The codec and the original size are recorded in each block's comment, so one
 archive can mix codecs freely.
 
+### JPEG and JPEG-LS: `-sa`
+
+`-sa` adds zpaq-std's **codecs for specific formats**: today
+[PJA](https://github.com/YadeWira/PJA) 0.0.1, which recompresses **JPEG** (`pja`:
+baseline, progressive and arithmetic-coded) and **JPEG-LS** (`pjals`) losslessly,
+byte for byte. It works on top of any `-m`/`-ma`: a file goes to the codec that
+takes it, judged by its contents and never by its name, and everything else is
+compressed as usual.
+
+```bash
+zpaq-std a photos.zpaq /photos -sa                   # pja and pjals, with their defaults
+zpaq-std a photos.zpaq /photos -sa:pja+2 -ma:zstd    # only JPEG; the rest with zstd
+```
+
+- PJA is in Free Pascal, so it comes as a plugin: put the `codecs/` folder of the
+  `extra-codecs` download next to zpaq-std.
+- Every block carries PJA's ZPAQL decoder, so **any zpaq extracts the archive
+  without the plugin** (slowly: the decoder is big). zpaq-std with the plugin
+  decodes natively. Consecutive files go into one block, one segment each, so the
+  decoder is written once per block, not once per photo.
+- Every block is decoded back by the plugin before it is written; one that does not
+  come back identical is compressed as `-m` says.
+
 `-ytool` and `-pc` were removed (v64.8j-pre19 and pre14); see the
 [wiki](https://github.com/YadeWira/zpaq-std/wiki/ytool-Precompressor) if you have
 archives written with them.
@@ -207,14 +230,14 @@ plugins/codecs/zstd.dll  brotli.dll  kanzi.dll ...  (.so on Linux), 22 of them
 ```
 
 **Codecs in Rust or Free Pascal are always plugins**, never linked into the
-program: both builds load them from `codecs/`. Today that is sylz. Each release has,
+program: both builds load them from `codecs/`. Today that is sylz and PJA (`-sa`). Each release has,
 per platform:
 
 | Download | What it is |
 |---|---|
 | `zpaq-std-<version>-<platform>` | the full program, every C/C++ codec inside |
-| `...-extra-codecs.zip` | `codecs/` with the plugin-only codecs (sylz), to put next to the full program |
-| `...-plugins.zip` | the small program and every codec as a plugin, sylz included |
+| `...-extra-codecs.zip` | `codecs/` with the plugin-only codecs (sylz and pja), to put next to the full program |
+| `...-plugins.zip` | the small program and every codec as a plugin, sylz and pja included |
 
 - zpaq-std loads the plugins from the `codecs` folder next to the executable, by
   absolute path, once at start-up. Nothing is looked up in the current folder or
@@ -237,9 +260,10 @@ decoder, and zpaq-std warns that it is not an official codec). See
 [`compressors/plug/README.md`](compressors/plug/README.md#a-codec-that-is-not-part-of-zpaq-std--mae-and--mat).
 **Codecs for specific formats** work the same way with `-sat:<file>:<codec>+<level>`
 and `-sae:...`: the plugin says, from each file's contents (never its name), which
-files it takes, and each of those goes alone in its block, compressed by that codec
-and decoded back before it is written; everything else is compressed as `-m`/`-ma`
-say. See
+files it takes, and each of those goes alone in its block (or, if the codec's ZPAQL
+decoder allows it, with the next files it takes, one segment each, so that the
+decoder travels once per block), compressed by that codec and decoded back before
+it is written; everything else is compressed as `-m`/`-ma` say. See
 [`compressors/plug/README.md`](compressors/plug/README.md#codecs-for-specific-formats--sae-and--sat).
 
 The Windows build is a self-contained `zpaq-std.exe` that runs on a clean Windows

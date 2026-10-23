@@ -21317,15 +21317,27 @@ std::string g_ext_cfg;			/// the codec's ZPAQL configuration, "" if it gives non
 /// -sae (external) and -sat (test): codecs for specific formats, from plugins.
 /// Each one says, from a file's contents, whether it takes the file (the
 /// plugin's zpaqstd_detect_v1); the first in the order written wins, and the
-/// file goes alone in a block compressed by that codec. Set while the switches
+/// file goes alone in a block compressed by that codec (or, since 1.7.0, with the next
+/// files it takes, one segment each, if its ZPAQL handles that). Set while the switches
 /// are read.
 struct zs_sa_codec
 {
 	std::string file, algo;
 	int			level;
 	std::string cfg;	/// its ZPAQL configuration, "" if it gives none (-sat only)
+	bool		segs;	/// its ZPAQL handles several segments: consecutive files share a block
+	zs_sa_codec() : level(0), segs(false) {}
 };
-int						 g_sa_mode= 0;	/// 'e' (-sae), 't' (-sat) or 0
+int						 g_sa_mode= 0;	/// 'e' (-sae, and -sa), 't' (-sat) or 0
+bool					 g_sa_official= false;	/// -sa: zpaq-std's own codecs (ZS_SA_OFFICIAL)
+/// -sa: zpaq-std's codecs for specific formats, from the extra-codecs plugin
+/// codecs/<file>; the default level of each. Their blocks are -sae blocks (the same
+/// tags), so any version that reads -sae reads them
+struct zs_sa_official { const char* file; const char* algo; int level; const char* what; };
+static const zs_sa_official ZS_SA_OFFICIAL[]={
+	{"pja", "pja",   2, "JPEG (baseline, progressive, arithmetic)"},
+	{"pja", "pjals", 2, "JPEG-LS"},
+};
 std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
 /// The decoder of a -mat block whose codec gives no ZPAQL decoder: it writes
@@ -29676,6 +29688,21 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
+    /// -sae/-sat, several files in one block: ":s<size>,<size>..." after the SHA-1,
+    /// the bytes of each segment (sa_comprimir_grupo)
+    std::vector<int64_t> segs;
+    if (es_sa) {
+      const char* q=method_+7;
+      for (int k=0; k<6 && q; ++k) { q=strchr(q, ':'); if (q) ++q; }
+      if (q && *q=='s') {
+        ++q;
+        while (isdigit((unsigned char)*q)) {
+          segs.push_back(atoll(q));
+          while (isdigit((unsigned char)*q)) ++q;
+          if (*q==',') ++q;
+        }
+      }
+    }
     const std::string& ecfg=es_sa ? g_sa[sa].cfg : g_ext_cfg;
     const std::string cfg=ecfg.empty() ? std::string(ZPAQEXTNONE) : ecfg;
     int args[9]={0};
@@ -29694,9 +29721,21 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     co.startSegment(filename, cs.c_str());
     co.setInput(in);
     co.setProgress(prog);
-    co.compress();
+    if (segs.size()>1) {
+      /// the ZPAQL goes only in the first segment; the others have no name, no
+      /// comment and no SHA-1 (the fragments' SHA-1 in the index checks the data)
+      for (size_t i=0; i<segs.size(); ++i) {
+        if (i) co.startSegment(0, 0);
+        if (segs[i]<=0 || segs[i]>0x7FFFFFFF) error("bad zpaqsa segments");
+        co.compress((int)segs[i]);
+        co.endSegment(0);
+      }
+    }
+    else {
+      co.compress();
+      co.endSegment(sha1bin);
+    }
     if (prog) *prog+= prog_n - co.progressCredited();
-    co.endSegment(sha1bin);
     co.endBlock();
     return;
   }
@@ -29981,6 +30020,7 @@ struct zs_ext
 	std::string names;	/// the codecs in the file
 	zs_detect_entry det;	/// -sae/-sat: zpaqstd_detect_v1, NULL if the plugin has none
 	bool zargs;			/// zpaql came from ZS_DATA_ZPAQL_ARGS: $3..$5 from query()
+	bool segs;			/// -sae/-sat: its ZPAQL handles several segments (ZS_QUERY_SEGMENTS)
 };
 static std::map<std::string, zs_ext> g_zs_ext;
 /// a lock that works in both builds (Win32 critical section, pthread mutex),
@@ -30026,6 +30066,7 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 	e.c=NULL;
 	e.det=NULL;
 	e.zargs=false;
+	e.segs=false;
 	if (!zs_ext_name_ok(i_file) || !zs_ext_name_ok(i_algo))
 		e.why="a file or codec name holds only letters, digits, '_', '-' and '.'";
 	else
@@ -30082,6 +30123,9 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 			{
 				e.c=found;
 				e.det=de;
+				/// only an exact 1: an older query() may not look at "what"
+				if (found->query && found->query(ZS_QUERY_SEGMENTS, "", 0)==1)
+					e.segs=true;
 				if (found->data)
 				{
 					size_t n=0;
@@ -30439,7 +30483,7 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 			if (i_ex && !i_only.empty() && i_only!=ext[i])
 				continue;
 			if (!head)
-				myprintf("%sEXTERNAL plugins in %s (NOT part of zpaq-std; -mae/-mat, -sae/-sat):\n", i_ex ? "" : "\n", zs_plugin_dir().c_str());
+				myprintf("%sPlugins in %s (EXTERNAL, NOT part of zpaq-std, but the -sa codecs; -mae/-mat, -sae/-sat):\n", i_ex ? "" : "\n", zs_plugin_dir().c_str());
 			head=true;
 			myprintf("  %s%s: not a usable codec (%s)\n", ext[i].c_str(), ZS_PLUGIN_EXT, xf->why.c_str());
 			continue;
@@ -30451,7 +30495,7 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				continue;
 			const zs_ext* xe=zs_ext_get(ext[i], names[k]);
 			if (!head)
-				myprintf("%sEXTERNAL plugins in %s (NOT part of zpaq-std; -mae/-mat, -sae/-sat):\n", i_ex ? "" : "\n", zs_plugin_dir().c_str());
+				myprintf("%sPlugins in %s (EXTERNAL, NOT part of zpaq-std, but the -sa codecs; -mae/-mat, -sae/-sat):\n", i_ex ? "" : "\n", zs_plugin_dir().c_str());
 			head=true;
 			const zs_codec* c=xe->c;
 			if (!c)
@@ -30459,7 +30503,12 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				myprintf("  %s: %s\n", full.c_str(), xe->why.c_str());
 				continue;
 			}
-			const std::string uses=std::string(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
+			/// zpaq-std's own -sa codecs (ZS_SA_OFFICIAL) come in a plugin too
+			bool oficial=false;
+			for (size_t q=0; q<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); q++)
+				if (ext[i]==ZS_SA_OFFICIAL[q].file && names[k]==ZS_SA_OFFICIAL[q].algo)
+					oficial=true;
+			const std::string uses=std::string(oficial ? "-sa:"+names[k]+" (zpaq-std's), " : "")+(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
 			if (!i_ex)
 			{
 				myprintf("  %-24s %s, levels %d-%d, ZPAQL %s, for %s\n", full.c_str(), c->library ? c->library : "?",
@@ -30467,7 +30516,10 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				shown++;
 				continue;
 			}
-			myprintf("%s (external: NOT an official zpaq-std codec)\n", full.c_str());
+			if (oficial)
+				myprintf("-sa:%s (zpaq-std's codec for specific formats, plugin %s%s from the extra-codecs download)\n", names[k].c_str(), ext[i].c_str(), ZS_PLUGIN_EXT);
+			else
+				myprintf("%s (external: NOT an official zpaq-std codec)\n", full.c_str());
 			zs_card_line("library", c->library ? c->library : "?");
 			const std::vector<std::pair<std::string, std::string> > card=zs_info_card(c);
 			for (size_t q=0; q<card.size(); q++)
@@ -30558,7 +30610,10 @@ static bool zs_ext_compile(const std::string& i_cfg, int i_a1, int i_a2, int i_a
 	}
 }
 /// -mat: runs the codec's ZPAQL decoder on a segment, as another zpaq would
-static bool zs_ext_run(const std::string& i_cfg, int i_a1, int i_a2, int i_a345, const char* i_seg, size_t i_n, std::string& o_out, std::string* o_err)
+/// i_cuts: the ends of all segments but the last (several in one block, -sa): the
+/// program gets a > 255 at each, as every zpaq gives it
+static bool zs_ext_run(const std::string& i_cfg, int i_a1, int i_a2, int i_a345, const char* i_seg, size_t i_n, std::string& o_out, std::string* o_err,
+                       const std::vector<size_t>* i_cuts=NULL)
 {
 	try
 	{
@@ -30574,8 +30629,16 @@ static bool zs_ext_run(const std::string& i_cfg, int i_a1, int i_a2, int i_a345,
 		pz.output=&out;
 		pz.sha1=NULL;
 		pz.initp();
+		size_t k=0;
 		for (size_t i=0; i<i_n; i++)
+		{
+			while (i_cuts && k<i_cuts->size() && (*i_cuts)[k]==i)
+			{
+				pz.run((U32)-1);
+				k++;
+			}
 			pz.run((unsigned char)i_seg[i]);
+		}
 		pz.run((U32)-1);
 		pz.flush();
 		o_out.assign((const char*)out.c_str(), out.size());
@@ -68020,9 +68083,13 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga("-mat:file:codec:N", "The same, to TEST a codec: shows the plugin and every block (sizes,");
 		scrivi_riga(" ", "    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its");
 		scrivi_riga(" ", "    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)");
+		scrivi_riga("-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS: pja (JPEG) and pjals (JPEG-LS),");
+		scrivi_riga(" ", "    from codecs/pja.dll or .so (the extra-codecs download); -sa alone uses both.");
+		scrivi_riga(" ", "    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say");
 		scrivi_riga("-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):");
 		scrivi_riga(" ", "    each file goes, by its contents, to the first codec that takes it (more codecs:");
-		scrivi_riga(" ", "    -sae:file:c1+N:c2+N), alone in its block; the rest as -m/-ma say. Like -mae, it");
+		scrivi_riga(" ", "    -sae:file:c1+N:c2+N), alone in its block (or, if its ZPAQL allows, with the next");
+		scrivi_riga(" ", "    files it takes, one segment each); the rest as -m/-ma say. Like -mae, it");
 		scrivi_riga(" ", "    needs their ZPAQL decoders. Every block is decoded back before it is written");
 		scrivi_riga("-sat:file:codec+N", "The same, to TEST such codecs: shows which codec took each file, sizes, times,");
 		scrivi_riga(" ", "    and the block decoded back by the plugin and by its ZPAQL (like -mat)");
@@ -70735,11 +70802,79 @@ int Jidac::loadparameters(int argc, const char** argv)
 				seppuku(2);
 			}
 		}
+		/// -sa[:<codec>[+<level>]...]: zpaq-std's own codecs for specific formats
+		/// (ZS_SA_OFFICIAL), all of them if none is written; -sae with them, without the
+		/// warning: the same blocks and tags
 		else if (opt=="-sa" || opt.rfind("-sa:",0)==0)
 		{
-			myprintf("00730! -sa: zpaq-std has no codec for specific formats yet (pja is coming).\n"
-			         "       To use or try one from a plugin, write -sae or -sat\n");
-			seppuku(2);
+			if (g_sa_mode)
+			{
+				myprintf("00730! %s: write -sa, -sae or -sat once, with all its codecs\n", opt.c_str());
+				seppuku(2);
+			}
+			g_sa_mode='e';
+			g_sa_official=true;
+			const size_t nof=sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]);
+			string lista;
+			for (size_t k=0; k<nof; k++)
+				lista+=string(k ? ", " : "")+ZS_SA_OFFICIAL[k].algo;
+			vector<string> part;
+			if (opt.size()>4)
+			{
+				const string v=opt.substr(4);
+				size_t from=0;
+				while (true)
+				{
+					const size_t p=v.find(':', from);
+					part.push_back(v.substr(from, p==string::npos ? string::npos : p-from));
+					if (p==string::npos)
+						break;
+					from=p+1;
+				}
+			}
+			else
+				for (size_t k=0; k<nof; k++)
+					part.push_back(ZS_SA_OFFICIAL[k].algo);
+			for (size_t q=0; q<part.size(); q++)
+			{
+				const size_t plus=part[q].find('+');
+				const string algo=part[q].substr(0, plus);
+				const zs_sa_official* of=NULL;
+				for (size_t k=0; k<nof; k++)
+					if (algo==ZS_SA_OFFICIAL[k].algo)
+						of=&ZS_SA_OFFICIAL[k];
+				if (!of)
+				{
+					myprintf("00730! %s: '%s' is not one of zpaq-std's codecs for specific formats (%s).\n"
+					         "       A codec from another plugin goes with -sae or -sat\n", opt.c_str(), algo.c_str(), lista.c_str());
+					seppuku(2);
+				}
+				zs_sa_codec sc;
+				sc.file=of->file;
+				sc.algo=algo;
+				sc.level=of->level;
+				if (plus!=string::npos)
+				{
+					const string lv=part[q].substr(plus+1);
+					bool num=!lv.empty() && lv.size()<=4;
+					for (size_t k=0; k<lv.size(); ++k)
+						if (!(isdigit((unsigned char)lv[k]) || (k==0 && lv[k]=='-' && lv.size()>1)))
+							num=false;
+					if (!num)
+					{
+						myprintf("00730! %s: the level of %s must be a number, not '%s'\n", opt.c_str(), algo.c_str(), lv.c_str());
+						seppuku(2);
+					}
+					sc.level=atoi(lv.c_str());
+				}
+				for (size_t k=0; k<g_sa.size(); k++)
+					if (g_sa[k].algo==sc.algo)
+					{
+						myprintf("00730! %s: %s is written twice\n", opt.c_str(), sc.algo.c_str());
+						seppuku(2);
+					}
+				g_sa.push_back(sc);
+			}
 		}
 		else if ((opt=="-ma"||opt.rfind("-ma:",0)==0) && opt!="-maxsize")
 		{
@@ -71601,6 +71736,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 		{
 			zs_sa_codec& sc=g_sa[q];
 			const zs_ext* xe=zs_ext_get(sc.file, sc.algo);
+			if (!xe->c && g_sa_official)
+			{
+				myprintf("00730! -sa:%s needs codecs/%s%s, from the extra-codecs download of zpaq-std:\n"
+				         "       %s\n", sc.algo.c_str(), sc.file.c_str(), ZS_PLUGIN_EXT, xe->why.c_str());
+				seppuku(2);
+			}
 			if (!xe->c)
 			{
 				myprintf("00730! -sa%c:%s:%s: %s\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), xe->why.c_str());
@@ -71617,7 +71758,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 				sc.level=(c->min_level<=1 && c->max_level>=1) ? 1 : c->min_level;
 			if (sc.level<c->min_level || sc.level>c->max_level)
 			{
-				myprintf("00730! -sa%c:%s:%s: level %d, but %s takes %d to %d\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(),
+				const string sw=g_sa_official ? "-sa:"+sc.algo : string("-sa")+(char)g_sa_mode+":"+sc.file+":"+sc.algo;
+				myprintf("00730! %s: level %d, but %s takes %d to %d\n", sw.c_str(),
 				         sc.level, sc.algo.c_str(), c->min_level, c->max_level);
 				seppuku(2);
 			}
@@ -71641,7 +71783,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 				seppuku(2);
 			}
 			sc.cfg=xe->zpaql;
-			if (g_sa_mode=='e')
+			sc.segs=xe->segs && !xe->zpaql.empty();
+			if (g_sa_mode=='e' && !g_sa_official)
 				myprintf("00732! -sae:%s:%s is NOT an official zpaq-std codec: zpaq-std does not guarantee\n"
 				         "       its support. Its blocks carry the codec's own ZPAQL decoder, so they open in any\n"
 				         "       zpaq; with codecs/%s, zpaq-std also decodes them natively\n",
@@ -71654,7 +71797,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 					myprintf("00733:   plugin    %s%s%s\n", zs_plugin_dir().c_str(), sc.file.c_str(), ZS_PLUGIN_EXT);
 					myprintf("00733:   codecs    %s\n", xe->names.c_str());
 					myprintf("00733:   files     each file is shown to the codecs in this order; the first that\n"
-					         "             takes it compresses it, alone in its block. Files up to %s bytes\n", migliaia(ZS_SA_MAXFILE));
+					         "             takes it compresses it, alone in its block (or with the next files\n"
+					         "             it takes, one segment each, if its ZPAQL allows). Files up to %s bytes\n", migliaia(ZS_SA_MAXFILE));
 				}
 				myprintf("00733:   codec %d   %s (%s), interface %d, levels %d to %d, this archive %d\n", (int)q+1, c->name,
 				         c->library ? c->library : "?", c->abi, c->min_level, c->max_level, sc.level);
@@ -71662,6 +71806,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 					myprintf("00733:     ZPAQL   yes, %d bytes of text, %d bytes of bytecode: every block carries it,\n"
 					         "             and each block is decoded by it and by the plugin, and compared%s\n",
 					         (int)xe->zpaql.size(), (int)bc.size(), xe->zargs ? ";\n             $3..$5 from the codec's query() for each block" : "");
+				if (sc.segs)
+					myprintf("00733:     segments yes: consecutive files it takes share a block, one segment\n"
+					         "             each, and the ZPAQL travels once per block (ZS_QUERY_SEGMENTS)\n");
 				else
 					myprintf("00733:     ZPAQL   NO. For safety, every block carries a decoder that writes nothing\n"
 					         "             (ZPAQEXTNONE): another zpaq reports the block as damaged instead\n"
@@ -79506,6 +79653,7 @@ ThreadReturn decompressThread(void *arg)
 			bool	extp_sa= false;	/// a -sae/-sat block
 			char	extp_file[65]={0}, extp_algo[65]={0};
 			int		extp_lvl= 0, extp_a1= 0, extp_a2= 0, extp_z= 0, extp_a345= 0;
+			std::vector<std::pair<int64_t, int64_t> > extp_segs;	/// -sa, several files: original/segment bytes
 			int64_t zstp_orig= 0;
 			int64_t lzfp_orig= 0;
 			int64_t brop_orig= 0;
@@ -79700,6 +79848,54 @@ ThreadReturn decompressThread(void *arg)
 						}
 						else
 							extp_orig=0;
+						/// -sae/-sat with several files in the block, one segment each (since 1.7.0):
+						/// "zpaqstd-sm<e|t>:" + the same fields + ":<segments>:<orig>/<bytes>,...".
+						/// The segments are read whole (ma_leer_todo): the plugin decodes each one
+						extp_segs.clear();
+						size_t mm=cs.find("zpaqstd-sme:");
+						if (mm==string::npos)
+							mm=cs.find("zpaqstd-smt:");
+						int nseg=0, used=0;
+						if (mm!=string::npos && sscanf(cs.c_str()+mm+12, "%64[^:]:%64[^:]:%d:%" SCNd64 ":%d:%d:%d:%d:%d:%n",
+						                               extp_file, extp_algo, &extp_lvl, &extp_orig, &extp_a1, &extp_a2, &extp_z, &extp_a345, &nseg, &used)>=9
+						    && used>0 && nseg>1 && nseg<=1000000)
+						{
+							const char* q=cs.c_str()+mm+12+used;
+							int64_t tot=0;
+							while (isdigit((unsigned char)*q))
+							{
+								int64_t o=0, c=0;
+								while (isdigit((unsigned char)*q)) o=o*10+(*q++-'0');
+								if (*q!='/') break;
+								++q;
+								while (isdigit((unsigned char)*q)) c=c*10+(*q++-'0');
+								extp_segs.push_back(std::make_pair(o, c));
+								tot+=o;
+								if (*q!=',') break;
+								++q;
+							}
+							if ((int)extp_segs.size()!=nseg || tot!=extp_orig)
+							{
+								extp_segs.clear();
+								extp_orig=0;
+							}
+							else
+							{
+								extp_mode=cs[mm+10];
+								extp_sa=true;
+								ma_leer_todo=true;
+								const zs_ext* xe=zs_ext_get(extp_file, extp_algo);
+								if (xe && xe->c && extp_z && !xe->zpaql.empty())
+								{
+									std::string bc;
+									if (zs_ext_compile(xe->zpaql, extp_a1, extp_a2, extp_a345, &bc, NULL))
+									{
+										d.setExtraBytecode(bc);
+										d.setNativeShortcut(true);
+									}
+								}
+							}
+						}
 					}
 					auto m6 = cs.find("zpaqstd-ma2:lz5-lz6:");
 					if (m6 != string::npos)
@@ -79959,9 +80155,29 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(extp_orig);
 				const int64_t t0=mtime();
+				if (!extp_segs.empty())
+				{
+					/// several files: each segment is the size (u32) and what the codec wrote
+					int64_t ip=0, op=0;
+					for (size_t i=0; i<extp_segs.size(); i++)
+					{
+						const int64_t o=extp_segs[i].first, c=extp_segs[i].second;
+						if (c<4 || ip+c>(int64_t)out.size() || op+o>extp_orig)
+							error("31322 external codec decompression failed");
+						if (o>0 && xe->c->decompress(out.data()+ip+4, (size_t)(c-4), &decomp2[(size_t)op], (size_t)o, 0)!=o)
+							error("31322 external codec decompression failed");
+						ip+=c;
+						op+=o;
+					}
+					if (ip!=(int64_t)out.size() || op!=extp_orig)
+						error("31322 external codec decompression failed");
+				}
+				else
+				{
 				const long long zr=xe->c->decompress(out.data()+4, out.size()-4, &decomp2[0], (size_t)extp_orig, 0);
 				if (zr!=extp_orig)
 					error("31322 external codec decompression failed");
+				}
 				if (extp_mode=='t')
 					myprintf("%s: -%cat block %s:%s level %d, %s bytes: decoded by the plugin in %d ms\n", extp_sa ? "00734" : "00621", extp_sa ? 's' : 'm',
 					         extp_file, extp_algo, extp_lvl, migliaia(extp_orig), (int)(mtime()-t0));
@@ -124775,11 +124991,174 @@ static void sa_name_set(const std::string& i_block, const std::string& i_file)
 	g_ext_print().leave();
 }
 static std::atomic<int> g_sa_taken(0);	/// blocks a -sa codec compressed
+/// -sae/-sat, several files in one block (the codec's ZPAQL handles several
+/// segments, ZS_QUERY_SEGMENTS): each file is compressed alone, into the segment
+/// it would be alone (original size u32 + the codec's output; the last file also
+/// has the list of fragments), and the segments go one after the other in sb.
+/// The block carries the ZPAQL once; $1..$5 are the largest any segment needs.
+/// Tag "zpaqstd-sm<e|t>:", which zpaq-std 1.4.0 to 1.6.0 do not know: they run the
+/// block's ZPAQL instead of their native shortcut, which takes one segment.
+static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, const string& i_names, int idx, const std::vector<size_t>& i_cuts)
+{
+	const zs_sa_codec& sc=g_sa[idx];
+	const zs_ext* xe=zs_ext_get(sc.file, sc.algo);
+	if (!xe || !xe->c || sc.cfg.empty() || sb.size()<=16 || sb.size()>0x7FFFFFFF)
+		return;
+	const zs_codec* zc=xe->c;
+	const int64_t orig_size=sb.size();
+	std::vector<size_t> from(1, 0);
+	for (size_t i=0; i<i_cuts.size(); i++)
+	{
+		if (i_cuts[i]<=from.back() || (int64_t)i_cuts[i]>=orig_size)
+			return;
+		from.push_back(i_cuts[i]);
+	}
+	const size_t nseg=from.size();
+	string fname=i_names;
+	{
+		const size_t nl=fname.find('\n');
+		if (nl!=string::npos)
+			fname=fname.substr(0, nl)+" and "+itos((int64_t)nseg-1)+" more";
+	}
+	std::string out;
+	std::vector<int64_t> osz, csz;
+	std::vector<size_t> segcuts;
+	int a1=0, a2=0, f3=0, f4=0, f5=0;
+	const int64_t t0=mtime();
+	for (size_t i=0; i<nseg; i++)
+	{
+		const size_t n=(i+1<nseg ? from[i+1] : (size_t)orig_size)-from[i];
+		const size_t cap=zc->bound(n, sc.level);
+		if (cap==0 || cap>(size_t)1<<31)
+			return;
+		std::string t(cap+4, '\0');
+		const long long r=zc->compress((const char*)sb.data()+from[i], n, &t[4], cap, sc.level);
+		int q=0;
+		if (r<=0 || !zs_ext_args(xe, &t[4], (size_t)r, &q))
+		{
+			if (g_sa_mode=='t')
+			{
+				g_ext_print().enter();
+				myprintf("00734: %s: %s, %s bytes in %d files: %s, compressed as -m says\n", fname.c_str(), sc.algo.c_str(), migliaia(orig_size),
+				         (int)nseg, r<=0 ? "the codec failed" : "no $3..$5 from query()");
+				g_ext_print().leave();
+			}
+			return;
+		}
+		const uint32_t o=(uint32_t)n;
+		t[0]=(char)(o&255); t[1]=(char)((o>>8)&255); t[2]=(char)((o>>16)&255); t[3]=(char)(o>>24);
+		t.resize((size_t)r+4);
+		if (i>0)
+			segcuts.push_back(out.size());
+		out+=t;
+		osz.push_back((int64_t)n);
+		csz.push_back((int64_t)t.size());
+		a1=std::max(a1, zs_ext_log2((int64_t)t.size()));
+		a2=std::max(a2, zs_ext_log2((int64_t)n));
+		f3=std::max(f3, q&255);
+		f4=std::max(f4, (q>>8)&255);
+		f5=std::max(f5, (q>>16)&255);
+	}
+	const int64_t t1=mtime();
+	const int a345=f3|(f4<<8)|(f5<<16);
+	const int64_t zbc=zs_ext_bcsize(xe, a1, a2, a345);
+	if ((int64_t)out.size()+zbc>=orig_size-16)
+	{
+		if (g_sa_mode=='t')
+		{
+			g_ext_print().enter();
+			myprintf("00734: %s: %s, %s -> %s bytes in %d files, plus %s of its ZPAQL decoder: no gain, compressed as -m says\n",
+			         fname.c_str(), sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), (int)nseg, migliaia3(zbc));
+			g_ext_print().leave();
+		}
+		return;
+	}
+	/// always back with the plugin, segment by segment: a block that does not come back is not written
+	const int64_t t2=mtime();
+	bool pok=true;
+	{
+		size_t off=0;
+		for (size_t i=0; i<nseg && pok; i++)
+		{
+			std::string back((size_t)osz[i], '\0');
+			const long long d=zc->decompress(out.data()+off+4, (size_t)csz[i]-4, &back[0], (size_t)osz[i], 0);
+			pok=(d==osz[i]) && memcmp(back.data(), (const char*)sb.data()+from[i], (size_t)osz[i])==0;
+			off+=(size_t)csz[i];
+		}
+	}
+	const int64_t t3=mtime();
+	std::string zres="no ZPAQL";
+	bool zok=true;
+	int64_t t5=t3;
+	if (g_sa_mode=='t' && pok)
+	{
+		/// -sat: and with the ZPAQL over all the segments, as another zpaq would
+		std::string zout, zerr;
+		const bool ran=zs_ext_run(sc.cfg, a1, a2, a345, out.data(), out.size(), zout, &zerr, &segcuts);
+		t5=mtime();
+		zok=ran && zout.size()==(size_t)orig_size && memcmp(zout.data(), sb.data(), (size_t)orig_size)==0;
+		zres=!ran ? "ZPAQL ERROR ("+zerr+")" : zok ? "ZPAQL OK" : "ZPAQL WRONG ("+std::string(migliaia((int64_t)zout.size()))+" bytes)";
+	}
+	if (!pok || !zok)
+	{
+		g_ext_print().enter();
+		myprintf("00735! -sa%c:%s:%s: a block of %s bytes in %d files (%s) did not decode back to itself (%s%s%s):\n"
+		         "       it is compressed as -m says\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), migliaia(orig_size), (int)nseg,
+		         fname.c_str(), pok ? "plugin OK" : "plugin WRONG", pok ? ", " : "", pok ? zres.c_str() : "");
+		g_ext_print().leave();
+		return;
+	}
+	if (g_sa_mode=='t')
+	{
+		g_ext_print().enter();
+		myprintf("00734: %s: %s, %s -> %s bytes (%.1f%%) in %d files, one segment each, compress %d ms; plugin decode %d ms OK; %s %d ms\n",
+		         fname.c_str(), sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), 100.0*out.size()/orig_size, (int)nseg,
+		         (int)(t1-t0), (int)(t3-t2), zres.c_str(), (int)(t5-t3));
+		g_ext_print().leave();
+	}
+	++g_sa_taken;
+	libzpaq::SHA1 sh1;
+	sh1.write((const char*)sb.data(), orig_size);
+	const char* r1=sh1.result();
+	char hx[41];
+	for (int q=0; q<20; ++q)
+		snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+	sb.reset();
+	sb.write(out.data(), out.size());
+	string ss, st;
+	for (size_t i=0; i<nseg; i++)
+	{
+		ss+=(i ? "," : "s")+itos(csz[i]);
+		st+=(i ? "," : "")+itos(osz[i])+"/"+itos(csz[i]);
+	}
+	m="zpaqsa:"+itos(idx)+":"+itos(a1)+":"+itos(a2)+":"+itos(a345)+":"+itos(orig_size)+":"+hx+":"+ss;
+	comment=std::string("zpaqstd-sm")+(char)g_sa_mode+":"+sc.file+":"+sc.algo+":"
+	        +(sc.level<0 ? "-"+itos(-sc.level) : itos(sc.level))+":"+itos(orig_size)+":"+itos(a1)+":"+itos(a2)+":1:"+itos(a345)
+	        +":"+itos((int64_t)nseg)+":"+st+" "+comment;
+}
 void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const string& i_block)
 {
 	int idx=-1, used=0;
 	if (sscanf(m.c_str(), "zsapend:%d:%n", &idx, &used)!=1 || used<=0 || idx<0 || idx>=(int)g_sa.size())
 		return;
+	/// several files: "k<cut>,<cut>...:" before the method
+	std::vector<size_t> cuts;
+	if (m[used]=='k')
+	{
+		size_t q=used+1;
+		while (q<m.size() && isdigit((unsigned char)m[q]))
+		{
+			size_t v=0;
+			while (q<m.size() && isdigit((unsigned char)m[q]))
+				v=v*10+(m[q++]-'0');
+			cuts.push_back(v);
+			if (q<m.size() && m[q]==',')
+				q++;
+		}
+		if (q>=m.size() || m[q]!=':')
+			return;
+		used=(int)q+1;
+	}
 	const string fallback=m.substr(used);
 	m=fallback;
 	string fname;
@@ -124793,6 +125172,11 @@ void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const str
 			g_sa_names().erase(it);
 		}
 		g_ext_print().leave();
+	}
+	if (!cuts.empty())
+	{
+		sa_comprimir_grupo(sb, m, comment, fname, idx, cuts);
+		return;
 	}
 	const zs_sa_codec& sc=g_sa[idx];
 	const zs_ext* xe=zs_ext_get(sc.file, sc.algo);
@@ -126527,11 +126911,15 @@ int Jidac::add()
 		                MAX_FRAGMENT, MIN_FRAGMENT, h_threshold, check_boundary);
 	}
 
-	/// -sae/-sat: the block being filled holds only file sa_blk_fi, which codec
-	/// sa_blk_codec took; sa_blk_ok stays true while every fragment of it is new
-	/// (a deduplicated fragment means the file is not whole in the block)
+	/// -sae/-sat: the block being filled holds only files that codec sa_blk_codec
+	/// took, the last one sa_blk_fi; sa_blk_ok stays true while every fragment of
+	/// them is new (a deduplicated fragment means a file is not whole in the block).
+	/// Several files only if the codec's ZPAQL handles several segments: then
+	/// sa_cuts has where each file after the first starts in sb (sa_comprimir_bloque)
 	int  sa_blk_fi= -1, sa_blk_codec= -1;
 	bool sa_blk_ok= false;
+	std::vector<size_t> sa_cuts;
+	std::string sa_names;
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
 	{
 		int sa_file= -1;	/// -sae/-sat: the codec that takes this file, or -1
@@ -127183,12 +127571,19 @@ int Jidac::add()
 						newblock= true;
 				}
 				/// -sae/-sat: a file a codec takes goes alone in its block, whatever its
-				/// size (up to ZS_SA_MAXFILE); so a new block before it and after it
+				/// size (up to ZS_SA_MAXFILE); so a new block before it and after it.
+				/// Unless the same codec took the files of the block being filled and its
+				/// ZPAQL handles several segments (sa_join): then the file joins them, if
+				/// the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				const bool sa_join= sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
+				                    && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (int64_t)blocksize;
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
 				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
 					newblock= true;
+				if (sa_join)
+					newblock= false;
 				if (fi == vf.size())
 					newblock= true;
 				if (frags < 1)
@@ -127223,14 +127618,20 @@ int Jidac::add()
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
 					if (sa_blk_fi >= 0 && sa_blk_ok)
 					{
-						/// -sae/-sat: the codec runs in the compressing thread (sa_comprimir_bloque)
-						m= "zsapend:" + itos(sa_blk_codec) + ":" + m;
+						/// -sae/-sat: the codec runs in the compressing thread (sa_comprimir_bloque);
+						/// "k<cut>,<cut>...:" where each file after the first starts
+						string k;
+						for (size_t c= 0; c < sa_cuts.size(); ++c)
+							k+= (c ? "," : "k") + itos((int64_t)sa_cuts[c]);
+						m= "zsapend:" + itos(sa_blk_codec) + ":" + (k.empty() ? "" : k + ":") + m;
 						if (g_sa_mode == 't')
-							sa_name_set(fn, vf[sa_blk_fi]->first);
+							sa_name_set(fn, sa_names);
 					}
 					else
 						ma_comprimir_bloque(sb, m, ma_comment);
 					sa_blk_fi= -1;
+					sa_cuts.clear();
+					sa_names.clear();
 
 					if (flagdebug3)
 						myprintf("02087: operating on %s\n", fn.c_str());
@@ -127320,11 +127721,20 @@ int Jidac::add()
 
 				if (sa_start)
 				{
+					if (sa_join)
+					{
+						sa_cuts.push_back(sb.size());
+						sa_names+= "\n" + vf[fi]->first;
+					}
+					else
+						sa_names= vf[fi]->first;
 					sa_blk_fi	 = (int)fi;
 					sa_blk_codec= sa_file;
-					sa_blk_ok	 = true;
+					if (!sa_join)
+						sa_blk_ok= true;
 					if (g_sa_mode == 't')
-						myprintf("00734: %s: %s takes it\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+						         sa_join ? ", in the same block as the previous file" : "");
 				}
 				assert(sz == 0 || fi < vf.size());
 				sb.write(&fragbuf[0], sz);

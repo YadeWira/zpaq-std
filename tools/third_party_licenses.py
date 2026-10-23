@@ -58,6 +58,11 @@ BUNDLED = [
     ('sylz', 'syc v0.2.10', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as a plugin (codecs/sylz.dll or sylz.so): it is in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
+    ('PJA', '0.0.1', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
+     ['compressors/pja/LICENSE', 'compressors/pja/NOTICE'],
+     'The -sa codecs pja (JPEG) and pjals (JPEG-LS). Free Pascal, built only as a plugin\n'
+     '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'
+     'the full program. NOTICE has the third-party notes (IJG, CharLS).'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],
      'The ZPAQL program that decodes -ma:lzma blocks in any zpaq.'),
 ]

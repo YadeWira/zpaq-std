@@ -514,7 +514,7 @@ plugins:
 # Windows x86 a cross ppc386 and its RTL, FPC=.../ppc386 FPCUNITS=-Fu.../i386-win32.
 FPC ?= fpc
 FPCUNITS ?=
-FPC_PLUGIN_CODECS := sylz
+FPC_PLUGIN_CODECS := sylz pja
 FPC_PLUGIN_FILES := $(addprefix plugins/codecs/,$(addsuffix $(PLUGEXT),$(FPC_PLUGIN_CODECS)))
 ifneq (,$(findstring x86_64-w64-mingw32,$(CROSS_COMPILE)))
   FPCTARGET := -Twin64
@@ -532,6 +532,15 @@ plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhu
 	@mkdir -p plugins/codecs plugins/fpc-sylz
 	$(FPC) -O3 -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/sylz -FUplugins/fpc-sylz -FEplugins/fpc-sylz compressors/sylz/sylz_zpaqstd.pas
 	mv -f plugins/fpc-sylz/$(FPCLIB) $@
+
+# PJA (-sa: pja and pjals), as its compressors/pja/VENDOR.md builds it; PJA_COMMIT is
+# what its card (codecinfoex) shows
+PJASRC := $(wildcard compressors/pja/pas/*.pas compressors/pja/pas/*.inc compressors/pja/pas/plugin/*.pas compressors/pja/pas/plugin/*.inc)
+plugins/codecs/pja$(PLUGEXT): $(PJASRC)
+	@mkdir -p plugins/codecs plugins/fpc-pja
+	PJA_COMMIT=0776d32 $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
+	  -Fucompressors/pja/pas/plugin -Ficompressors/pja/pas/plugin -FUplugins/fpc-pja -oplugins/fpc-pja/pja$(PLUGEXT) compressors/pja/pas/plugin/pja_zpaqstd.pas
+	mv -f plugins/fpc-pja/pja$(PLUGEXT) $@
 
 compressors/plug/zs_%.o: compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
 	$(CXX) $(ZPAQ_CXXFLAGS) $(PLUGINC_$*) -c $< -o $@

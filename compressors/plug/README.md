@@ -93,14 +93,35 @@ plugin changed its format (and so its decoder), the block's own decoder runs ins
 which is always right.
 
 [`tools/plugin_example/zs_example.c`](../../tools/plugin_example/zs_example.c) is a
-complete plugin with two codecs: `rle`, with its ZPAQL decoder, and `rlenz`, without.
+complete plugin with four codecs: `rle`, with its ZPAQL decoder; `rlenz`, without;
+`rlea`, whose decoder takes `$3` from `query()`; and `rles`, whose decoder handles
+several segments in one block (see below).
 
 ## Codecs for specific formats: -sae and -sat
+
+zpaq-std's own codecs of this kind are switched on with plain `-sa` (since 1.7.0:
+PJA's `pja` for JPEG and `pjals` for JPEG-LS, from `codecs/pja.dll` or `.so` in the
+extra-codecs download; `compressors/pja`). `-sa` is `-sae` with them, without the
+warning: the blocks and their tags are the same. What follows is for other plugins.
 
 Some codecs only make sense for one kind of file (a JPEG recompressor, for instance).
 `-sae` and `-sat` are `-mae` and `-mat` for them: the codec compresses only the files
 it takes, each one alone in its block, and the rest of the archive is compressed as
 `-m`/`-ma` say.
+
+**Several files in one block** (since 1.7.0): every block carries the codec's ZPAQL
+decoder, and a big one (a JPEG recompressor's is about 60 KB) can cost more than a
+small file saves. A codec whose decoder starts afresh at the end of each segment
+(when it gets `a > 255`) answers 1 to `query(ZS_QUERY_SEGMENTS, "", 0)`. zpaq-std then
+puts consecutive files that codec takes into one block, while they fit in it, one
+segment each, and the decoder travels once, in the first segment. Each segment is
+exactly what the file's block would be alone (its size, u32, and what `compress()`
+wrote for it; the last one also has the list of fragments); `$1` to `$5` are the
+largest any segment needs. Every zpaq runs the program over all the segments of a
+block, keeping H, M and the registers. Those blocks are tagged `zpaqstd-sm<e|t>:`:
+zpaq-std 1.4.0 to 1.6.0 do not know the tag and run the block's ZPAQL even with the
+plugin, so they read them too. A codec that does not answer 1 gets one file per
+block, as before.
 
 ```
 zpaq-std a test.zpaq files -sat:<file>:<codec>[+<level>][:<codec>[+<level>]...]

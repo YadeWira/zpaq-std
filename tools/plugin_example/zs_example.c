@@ -1,6 +1,9 @@
 /* zs_example: a codec plugin for zpaq-std's -mae/-mat and -sae/-sat, as small as it gets.
-   Two codecs in one file (zpaqstd_codecs_v1): "rle", a byte run-length coder that
-   gives its ZPAQL decoder, and "rlenz", the same coder without one (for -mat).
+   Four codecs in one file (zpaqstd_codecs_v1): "rle", a byte run-length coder that
+   gives its ZPAQL decoder; "rlenz", the same coder without one (for -mat); "rlea",
+   whose decoder takes $3 from query(); and "rles", which tells zpaq-std that its
+   decoder handles several segments in one block (-sae/-sat put consecutive files
+   it takes together).
    Build:  cc -O2 -shared -fPIC -I../../compressors/plug zs_example.c -o example.so
            x86_64-w64-mingw32-gcc -O2 -shared -I../../compressors/plug zs_example.c -o example.dll
    Use:    put it in codecs/ next to zpaq-std, then
@@ -110,6 +113,13 @@ static long long ex_query(int what, const void* src, size_t n)
 	(void)src; (void)n;
 	return what == ZS_QUERY_ZPAQL_ARGS ? 7 : -1;
 }
+/* rles: the decoder starts afresh at the end of each segment (a > 255: r1 = r2 = 0,
+   so it skips the next 4-byte size), so it handles several segments in one block */
+static long long ex_query_seg(int what, const void* src, size_t n)
+{
+	(void)src; (void)n;
+	return what == ZS_QUERY_SEGMENTS ? 1 : -1;
+}
 static const void* ex_data_nz(int what, size_t* size)	/* rlenz: the card, no ZPAQL */
 {
 	if (what != ZS_DATA_INFO) return NULL;
@@ -120,10 +130,11 @@ static const void* ex_data_nz(int what, size_t* size)	/* rlenz: the card, no ZPA
 static const zs_codec ex_rle   = { ZS_CODEC_ABI, "rle",   "zs_example rle 1.0",   1, 1, ex_bound, ex_compress, ex_decompress, NULL, ex_data };
 static const zs_codec ex_rlenz = { ZS_CODEC_ABI, "rlenz", "zs_example rlenz 1.0", 1, 1, ex_bound, ex_compress, ex_decompress, NULL, ex_data_nz };
 static const zs_codec ex_rlea  = { ZS_CODEC_ABI, "rlea",  "zs_example rlea 1.0",  1, 1, ex_bound, ex_compress, ex_decompress, ex_query, ex_data_args };
+static const zs_codec ex_rles  = { ZS_CODEC_ABI, "rles",  "zs_example rles 1.0",  1, 1, ex_bound, ex_compress, ex_decompress, ex_query_seg, ex_data };
 
 ZS_CODEC_EXPORT const zs_codec* zpaqstd_codecs_v1(int i)
 {
-	return i == 0 ? &ex_rle : i == 1 ? &ex_rlenz : i == 2 ? &ex_rlea : NULL;
+	return i == 0 ? &ex_rle : i == 1 ? &ex_rlenz : i == 2 ? &ex_rlea : i == 3 ? &ex_rles : NULL;
 }
 
 /* -sae/-sat: a "format" for the example: a file where at least half of the bytes
@@ -132,7 +143,7 @@ ZS_CODEC_EXPORT int zpaqstd_detect_v1(const char* codec, const void* src, size_t
 {
 	const unsigned char* s = (const unsigned char*)src;
 	size_t i = 0, inrun = 0;
-	if (strcmp(codec, "rle") != 0 && strcmp(codec, "rlenz") != 0 && strcmp(codec, "rlea") != 0) return 0;
+	if (strcmp(codec, "rle") != 0 && strcmp(codec, "rlenz") != 0 && strcmp(codec, "rlea") != 0 && strcmp(codec, "rles") != 0) return 0;
 	while (i < n) {
 		size_t run = 1;
 		while (i + run < n && s[i + run] == s[i]) run++;

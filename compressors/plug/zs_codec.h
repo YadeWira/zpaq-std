@@ -47,6 +47,16 @@
   zpaq-std decodes every block back and compares before writing it; one that
   does not come back identical is compressed as usual.
 
+  Several files in one block (since zpaq-std 1.7.0): a codec whose ZPAQL decoder
+  starts afresh at the end of each segment (when it gets a > 255) answers 1 to
+  query(ZS_QUERY_SEGMENTS, "", 0). zpaq-std then puts consecutive files that
+  codec takes in one block, one segment each, and the decoder travels only once,
+  in the first segment. Each segment is what it would be alone (the original
+  size, u32, and what compress() wrote for that file; the last file also has the
+  list of fragments), and $1..$5 are the largest that any of the segments needs.
+  Every zpaq runs the program over all the segments of a block, in order,
+  keeping H, M and the registers, and with a > 255 at the end of each one.
+
   zpaq-std, 2026. MIT licence.
 */
 #ifndef ZS_CODEC_H
@@ -103,6 +113,10 @@ typedef struct zs_codec {
                                  the 4 bytes of the size), the values of $3, $4 and $5
                                  for this block's ZPAQL decoder, in bits 0-7, 8-15 and
                                  16-23 (each 0 to 255); negative if it cannot tell */
+#define ZS_QUERY_SEGMENTS 3   /* -sae/-sat (since zpaq-std 1.7.0): 1 if the codec's ZPAQL
+                                 decoder handles several segments in one block (it starts
+                                 afresh at the end of each), anything else if not;
+                                 zpaq-std asks with src "" and n 0 */
 #define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
 #define ZS_DATA_ZPAQL      2  /* -mae/-mat: the codec's ZPAQL decoder, as text */
 #define ZS_DATA_ZPAQL_ARGS 4  /* the same, for a decoder that uses $3..$5 (since zpaq-std

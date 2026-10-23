@@ -60,7 +60,7 @@ r=ok
 grep -q 'example:rle .*ZPAQL yes, for -mae/-mat, -sae/-sat' ci.txt || r="rle"
 grep -q 'example:rlenz .*ZPAQL no, for -mat, -sat' ci.txt || r="$r rlenz"
 grep -q 'roto.so: not a usable codec' ci.txt || r="$r roto"
-grep -q 'EXTERNAL plugins' ci.txt || r="$r sin-marca"
+grep -q 'EXTERNAL, NOT part of zpaq-std' ci.txt || r="$r sin-marca"
 ok "codecinfo: externos marcados, el roto informado" "$r"
 ./zpaq-std codecinfoex example:rle > ex_ext.txt 2>&1
 r=ok; h=$(sha256sum codecs/example.so | cut -d' ' -f1)
