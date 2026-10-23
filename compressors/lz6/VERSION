@@ -1,4 +1,10 @@
-lz6 lib/ v1.6.13-pre (tag v1.6.13-pre, commit a082a99, 2026-10-22): lz6.c, lz6hc.c,
+lz6 lib/ v1.6.14-pre (tag v1.6.14-pre, commit 3106c73, 2026-10-23): lz6.c, lz6hc.c,
+lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since v1.6.13-pre
+are in the table of lz6's seq engine (levels 9 to 13 of the newer format); the HC table
+of the LZ5 v1.5 "portable profile" that -ma:lz6 writes is untouched, and -ma:lz6 comes
+out byte for byte the same at levels 0, 1, 5 and 9 to 15.
+
+Before (never released: on main between 1.5.1 and 1.6.0): v1.6.13-pre (tag v1.6.13-pre, commit a082a99, 2026-10-22): lz6.c, lz6hc.c,
 lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since v1.6.12-pre are
 in the encoder of levels 2 to 7 of lz6's seq engine (the newer format); the LZ5 v1.5
 "portable profile" that -ma:lz6 writes comes out byte for byte the same at levels 0 to
