@@ -120,6 +120,21 @@ zpaq-std a photos.zpaq /photos -sa                   # pja and pjals, with their
 zpaq-std a photos.zpaq /photos -sa:pja+2 -ma:zstd    # only JPEG; the rest with zstd
 ```
 
+#### Stable
+
+None yet.
+
+#### Experimental
+
+Not recommended yet: their **format** is new. What they write stays readable (every
+block carries the codec's frozen ZPAQL decoder, so any zpaq extracts it), but keep
+another copy of what you archive with them.
+
+| Switch | Library | Takes | Levels | Default | Opens in any zpaq |
+|---|---|---|---|---|---|
+| `-sa:pja+N` | [PJA](https://github.com/YadeWira/PJA) 0.0.1, Free Pascal. **Plugin only**: `codecs/pja.dll` or `.so` | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 | **yes** (PJA's own ZPAQL, ~62 KB) |
+| `-sa:pjals+N` | the same plugin | JPEG-LS: lossless and near-lossless, any interleave | 2 | 2 | **yes** (PJA's own ZPAQL, ~56 KB) |
+
 - PJA is in Free Pascal, so it comes as a plugin: put the `codecs/` folder of the
   `extra-codecs` download next to zpaq-std.
 - Every block carries PJA's ZPAQL decoder, so **any zpaq extracts the archive
