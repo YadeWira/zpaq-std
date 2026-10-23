@@ -124625,6 +124625,16 @@ static bool zs_ext_args(const zs_ext* i_xe, const char* i_out, size_t i_n, int* 
 	*o_a345=(int)q;
 	return true;
 }
+/// Bytes of the ZPAQL program the block will carry: a block gains only if the
+/// codec's output AND its decoder beat the original (pja's decoder is ~62 KB, more
+/// than all a small JPEG saves)
+static int64_t zs_ext_bcsize(const zs_ext* i_xe, int i_a1, int i_a2, int i_a345)
+{
+	std::string bc;
+	const bool ok=i_xe->zpaql.empty() ? zs_ext_compile(ZPAQEXTNONE, 0, 0, 0, &bc, NULL)
+	                                  : zs_ext_compile(i_xe->zpaql, i_a1, i_a2, i_a345, &bc, NULL);
+	return ok ? (int64_t)bc.size() : 0;
+}
 static void ext_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 {
 	const zs_ext* xe=zs_ext_get(g_ext_file, g_ext_algo);
@@ -124665,6 +124675,19 @@ static void ext_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment
 		{
 			g_ext_print().enter();
 			myprintf("00621: block %d: %s bytes: the codec gave no $3..$5 for its ZPAQL (query), stored as -m%s compressed it\n", nb, migliaia(orig_size), "1..5");
+			g_ext_print().leave();
+		}
+		delete[] buf;
+		return;
+	}
+	const int64_t zbc=zs_ext_bcsize(xe, a1, a2, a345);
+	if (r+4+zbc>=orig_size-16)
+	{
+		if (g_ext_mode=='t')
+		{
+			g_ext_print().enter();
+			myprintf("00621: block %d: %s -> %s bytes, plus %s of its ZPAQL decoder: no gain, stored as -m%s compressed it\n",
+			         nb, migliaia(orig_size), migliaia2(r), migliaia3(zbc), "1..5");
 			g_ext_print().leave();
 		}
 		delete[] buf;
@@ -124782,6 +124805,19 @@ void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const str
 		         "       (query): it is compressed as -m says\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), migliaia(orig_size),
 		         fname.empty() ? "" : ", ", fname.c_str());
 		g_ext_print().leave();
+		delete[] buf;
+		return;
+	}
+	const int64_t zbc=zs_ext_bcsize(xe, a1, a2, a345);
+	if (r+4+zbc>=orig_size-16)
+	{
+		if (g_sa_mode=='t')
+		{
+			g_ext_print().enter();
+			myprintf("00734: %s: %s, %s -> %s bytes, plus %s of its ZPAQL decoder: no gain, compressed as -m says\n",
+			         fname.c_str(), sc.algo.c_str(), migliaia(orig_size), migliaia2(r), migliaia3(zbc));
+			g_ext_print().leave();
+		}
 		delete[] buf;
 		return;
 	}
