@@ -99,7 +99,8 @@ several segments in one block (see below).
 
 ## Codecs for specific formats: -sae and -sat
 
-zpaq-std's own codecs of this kind are switched on with plain `-sa` (since 1.7.0:
+zpaq-std's own codecs of this kind are switched on with plain `-sa` (since 1.7.0,
+experimental and not recommended yet:
 PJA's `pja` for JPEG and `pjals` for JPEG-LS, from `codecs/pja.dll` or `.so` in the
 extra-codecs download; `compressors/pja`). `-sa` is `-sae` with them, without the
 warning: the blocks and their tags are the same. What follows is for other plugins.

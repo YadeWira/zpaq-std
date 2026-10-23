@@ -21333,10 +21333,10 @@ bool					 g_sa_official= false;	/// -sa: zpaq-std's own codecs (ZS_SA_OFFICIAL)
 /// -sa: zpaq-std's codecs for specific formats, from the extra-codecs plugin
 /// codecs/<file>; the default level of each. Their blocks are -sae blocks (the same
 /// tags), so any version that reads -sae reads them
-struct zs_sa_official { const char* file; const char* algo; int level; const char* what; };
+struct zs_sa_official { const char* file; const char* algo; int level; const char* what; bool experimental; };
 static const zs_sa_official ZS_SA_OFFICIAL[]={
-	{"pja", "pja",   2, "JPEG (baseline, progressive, arithmetic)"},
-	{"pja", "pjals", 2, "JPEG-LS"},
+	{"pja", "pja",   2, "JPEG (baseline, progressive, arithmetic)", true},
+	{"pja", "pjals", 2, "JPEG-LS", true},
 };
 std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
@@ -30504,11 +30504,14 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				continue;
 			}
 			/// zpaq-std's own -sa codecs (ZS_SA_OFFICIAL) come in a plugin too
-			bool oficial=false;
+			bool oficial=false, experimental=false;
 			for (size_t q=0; q<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); q++)
 				if (ext[i]==ZS_SA_OFFICIAL[q].file && names[k]==ZS_SA_OFFICIAL[q].algo)
+				{
 					oficial=true;
-			const std::string uses=std::string(oficial ? "-sa:"+names[k]+" (zpaq-std's), " : "")+(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
+					experimental=ZS_SA_OFFICIAL[q].experimental;
+				}
+			const std::string uses=std::string(oficial ? "-sa:"+names[k]+(experimental ? " (zpaq-std's, experimental), " : " (zpaq-std's), ") : "")+(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
 			if (!i_ex)
 			{
 				myprintf("  %-24s %s, levels %d-%d, ZPAQL %s, for %s\n", full.c_str(), c->library ? c->library : "?",
@@ -30517,7 +30520,10 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				continue;
 			}
 			if (oficial)
+			{
 				myprintf("-sa:%s (zpaq-std's codec for specific formats, plugin %s%s from the extra-codecs download)\n", names[k].c_str(), ext[i].c_str(), ZS_PLUGIN_EXT);
+				zs_card_line("status", experimental ? "EXPERIMENTAL: not recommended yet" : "stable");
+			}
 			else
 				myprintf("%s (external: NOT an official zpaq-std codec)\n", full.c_str());
 			zs_card_line("library", c->library ? c->library : "?");
@@ -68083,7 +68089,8 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga("-mat:file:codec:N", "The same, to TEST a codec: shows the plugin and every block (sizes,");
 		scrivi_riga(" ", "    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its");
 		scrivi_riga(" ", "    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)");
-		scrivi_riga("-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS: pja (JPEG) and pjals (JPEG-LS),");
+		scrivi_riga("-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):");
+		scrivi_riga(" ", "    pja (JPEG) and pjals (JPEG-LS),");
 		scrivi_riga(" ", "    from codecs/pja.dll or .so (the extra-codecs download); -sa alone uses both.");
 		scrivi_riga(" ", "    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say");
 		scrivi_riga("-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):");
@@ -71784,6 +71791,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			sc.cfg=xe->zpaql;
 			sc.segs=xe->segs && !xe->zpaql.empty();
+			if (g_sa_official)
+				for (size_t k=0; k<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); k++)
+					if (sc.algo==ZS_SA_OFFICIAL[k].algo && ZS_SA_OFFICIAL[k].experimental)
+						myprintf("00737! -sa:%s is EXPERIMENTAL and not recommended yet: keep another copy of\n"
+						         "       what you archive with it. Its blocks carry their ZPAQL decoder and open in any zpaq\n",
+						         sc.algo.c_str());
 			if (g_sa_mode=='e' && !g_sa_official)
 				myprintf("00732! -sae:%s:%s is NOT an official zpaq-std codec: zpaq-std does not guarantee\n"
 				         "       its support. Its blocks carry the codec's own ZPAQL decoder, so they open in any\n"

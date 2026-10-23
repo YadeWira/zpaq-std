@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **21 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (28 `-ma` switches); **lossless JPEG and JPEG-LS recompression** with `-sa` ([PJA](https://github.com/YadeWira/PJA), a plugin); and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **21 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (28 `-ma` switches); **lossless JPEG and JPEG-LS recompression** with `-sa` ([PJA](https://github.com/YadeWira/PJA), a plugin; experimental); and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
 
@@ -104,7 +104,9 @@ zpaq-std a mixed.zpaq *.txt -ma:brotli:11        # one algo per run, in one arch
 The codec and the original size are recorded in each block's comment, so one
 archive can mix codecs freely.
 
-### JPEG and JPEG-LS: `-sa`
+### JPEG and JPEG-LS: `-sa` (experimental)
+
+> **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but until it has had more use, keep another copy of what you archive with `-sa`.
 
 `-sa` adds zpaq-std's **codecs for specific formats**: today
 [PJA](https://github.com/YadeWira/PJA) 0.0.1, which recompresses **JPEG** (`pja`:

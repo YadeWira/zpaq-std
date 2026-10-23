@@ -4,6 +4,7 @@ d5abf9f6611a9d8137c2fe263a78379ff21266a1b05618f808cc8a789e05dd8d), copied unmodi
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 
+EXPERIMENTAL in zpaq-std, not recommended yet (-sa warns, 00737).
 zpaq-std's codecs for specific formats, -sa: pja (JPEG) and pjals (JPEG-LS), stream
 version 5, full model. Free Pascal: by the project's rule, a codec in Rust or Free
 Pascal is built only as a plugin (codecs/pja.dll or pja.so, in the extra-codecs

@@ -1,8 +1,10 @@
 ### [1.7.0] - 2026-10-23
 
-**JPEG and JPEG-LS with `-sa`**: zpaq-std's first codecs for specific formats, from [PJA](https://github.com/YadeWira/PJA) 0.0.1. Also several files per block for these codecs, and codec updates: syc v0.2.10, heatshrink-ex 0.7.0, fast-lzma2 1.1.2 and ultra-fast-lzma2 1.6.4.
+**JPEG and JPEG-LS with `-sa`** (**experimental, not recommended yet**): zpaq-std's first codecs for specific formats, from [PJA](https://github.com/YadeWira/PJA) 0.0.1. Also several files per block for these codecs, and codec updates: syc v0.2.10, heatshrink-ex 0.7.0, fast-lzma2 1.1.2 and ultra-fast-lzma2 1.6.4.
 
-#### `-sa`: JPEG and JPEG-LS, losslessly
+#### `-sa`: JPEG and JPEG-LS, losslessly (experimental)
+
+> **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but until it has had more use, keep another copy of what you archive with `-sa`. zpaq-std 1.7.0 does not say so when `-sa` runs; the next version warns.
 
 ```bash
 zpaq-std a photos.zpaq /photos -sa                   # pja and pjals, with their defaults
