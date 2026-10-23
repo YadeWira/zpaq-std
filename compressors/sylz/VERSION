@@ -1,4 +1,4 @@
-sylz (format v2), from syc v0.2.8 (tag v0.2.8, commit 42b4c9c, 2026-10-23; a pre-release),
+sylz (format v2), from syc v0.2.10 (tag v0.2.10, commit 41435d1, 2026-10-23; a pre-release),
 https://github.com/YadeWira/syc. MIT, see LICENSE. Files copied unmodified:
 src/sylz.pas, src/sylzhuf.pas and plugin/sylz_zpaqstd.pas (the zpaq-std plugin adapter).
 
@@ -7,7 +7,8 @@ plugin (codecs/sylz.dll or sylz.so), never linked into zpaq-std itself. Its bloc
 carry ZPAQSYLZ (compressors/zpaqsylz), so any zpaq extracts them without the plugin.
 Experimental: a later sylz format gets a new decoder (ZPAQSYLZ3, tag sylz3), and
 blocks written now keep theirs.
-syc 0.2.8 changes only the encoder of levels 4 to 8 (lz4hc's parser, with an x86-64
+syc 0.2.9 and 0.2.10 change the encoder of levels 9 and 10 (a bt4 binary tree for the optimal
+parse, 768 KiB per context); syc 0.2.8 changed the encoder of levels 4 to 8 (lz4hc's parser, with an x86-64
 assembly match search; other targets use the Pascal one): format v2 and ZPAQSYLZ are
 unchanged.
 Do not patch these files here: send changes to the syc repository.
