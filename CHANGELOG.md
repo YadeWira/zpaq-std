@@ -1,3 +1,67 @@
+### [1.7.0] - 2026-10-23
+
+**JPEG and JPEG-LS with `-sa`**: zpaq-std's first codecs for specific formats, from [PJA](https://github.com/YadeWira/PJA) 0.0.1. Also several files per block for these codecs, and codec updates: syc v0.2.10, heatshrink-ex 0.7.0, fast-lzma2 1.1.2 and ultra-fast-lzma2 1.6.4.
+
+#### `-sa`: JPEG and JPEG-LS, losslessly
+
+```bash
+zpaq-std a photos.zpaq /photos -sa                   # pja and pjals, with their defaults
+zpaq-std a photos.zpaq /photos -sa:pja+2 -ma:zstd    # only JPEG; the rest with zstd
+```
+
+- **What it compresses:** `pja` takes JPEG (baseline, progressive and arithmetic-coded) and `pjals` takes JPEG-LS. Both rebuild the original byte for byte.
+- **How files are chosen:** by their contents, never by name or extension. It works on top of any `-m`/`-ma`, and everything the codecs do not take is compressed as usual. `-sa` alone uses both codecs.
+- **Install:** PJA is written in Free Pascal, so it ships as a plugin. Put the `codecs/` folder of the `extra-codecs` download, which has `pja.dll` or `pja.so`, next to zpaq-std. The `plugins` download has it too.
+- **Portable archives:** every block carries PJA's ZPAQL decoder, so **any zpaq extracts the archive without the plugin**. Without it, extraction is slow, because the decoder is big. zpaq-std with the plugin decodes natively.
+- **Safety:** every block is decoded back by the plugin before it is written. A block that does not come back identical is compressed as `-m` says.
+- **Compatibility:** `-sa` writes the very same blocks as `-sae:pja:pja+2:pjals+2`, so zpaq-std 1.4.0 to 1.6.0 read them too.
+- **Size:** on 79 JPEG and JPEG-LS files of the test corpus (22 MB), the archive is 19.5 MB, against 21.5 MB with `-m1`.
+
+#### Several files per block (`-sa`, `-sae`, `-sat`)
+
+Every block of a codec for specific formats carries the codec's ZPAQL decoder, and PJA's are about 60 KB. That is often more than a small photo saves.
+
+- **Grouping:** when a codec's decoder can start afresh at the end of each segment, zpaq-std now puts consecutive files that codec takes into one block, one segment each. The decoder is written once per block instead of once per file.
+- **Result:** on the corpus above, 1.9% smaller than one file per block. With many small photos the difference is much larger: 12.8 MB down to 8.1 MB in PJA's own test.
+- **Older versions:** these blocks have a new tag, `zpaqstd-sm<e|t>:`. zpaq-std 1.4.0 to 1.6.0 do not know it, so even with the plugin they run the block's ZPAQL instead of their native decoder, and they read the archive correctly.
+- **Plugin authors:** a codec opts in by answering 1 to `query(ZS_QUERY_SEGMENTS)`, new in `compressors/plug/zs_codec.h`. One that does not gets one file per block, byte for byte as in 1.6.0. The example plugin has a codec that does, `rles`.
+
+#### Codec updates
+
+| Codec | Version | What changes for zpaq-std |
+|---|---|---|
+| sylz | syc v0.2.10 | Levels 9 and 10 compress better and faster (Silesia, level 9: 36.37% → 36.04%). Format v2 is the same, so ZPAQSYLZ reads it as before. Plugin only, in `extra-codecs`. |
+| `-ma:hs` | heatshrink-ex 0.7.0 | 0.6.0 and 0.7.0 change only heatshrink-ex's command line tool. The library is the same, and the archives are byte for byte those of 1.6.0. |
+| `-ma:flzma2` | fast-lzma2 1.1.2 | A level above the maximum now clamps to it instead of silently giving the default. zpaq-std already clamped the level before calling it, so its archives do not change. |
+| `-ma:uflzma2` | ultra-fast-lzma2 1.6.4 | The same fix as fast-lzma2. The archives do not change. |
+
+#### Downloads
+
+As in 1.6.0: the full program, `extra-codecs.zip` and `plugins.zip`, per platform, plus `THIRD-PARTY-LICENSES.txt` and `SHA256SUMS.txt`.
+
+- `extra-codecs.zip` has the plugin-only codecs: sylz and, new, pja.
+- `plugins.zip` has every codec as a plugin.
+- THIRD-PARTY-LICENSES has PJA's licence and its notices: IJG for the arithmetic-coded JPEG, and CharLS for JPEG-LS.
+
+#### Checked
+
+- **PJA 0.0.1:** vendored from its tag (`v0.0.1`, commit `0776d32`, the tarball checked by its SHA-256), unmodified, and built by zpaq-std's Makefile. The plugin built here writes the very archive that PJA's own build writes.
+- **`-sa`:**
+  - `test/testlab/suite_sa.sh`: 15/15. This includes `-sa` on JPEG and JPEG-LS copies of corpus files, picked by their contents, which writes the same archive as `-sae:pja:pja+2:pjals+2` and extracts with and without the plugin and with zpaq 7.15. Five cases cover several files per block, including zpaq-std 1.6.0 with the plugin and one file extracted from the middle of a block.
+  - 79 JPEG and JPEG-LS files of the corpus: every file back identical with zpaq-std 1.7.0 with and without the plugin, with 1.6.0 and the plugin, and with zpaq 7.15.
+- **Codec updates:** `-ma:hs` (levels 0–2), `-ma:flzma2` (1, 5, 10, 11) and `-ma:uflzma2` (1, 5, 11, 12) write the very bytes of the previous build. sylz: `suite_sylz` 8/8, and levels 8–10 extract identically with zpaq 7.15.
+- **Windows 7 x64 and x86**, release binaries and the extra-codecs DLLs:
+  - `-sa` and `-sat` with pja: x64 and x86 write the same archive (8 JPEGs in one block, ZPAQL OK). The archives extract identically in Windows, and on Linux with zpaq 7.15, 1.6.0 and 1.7.0: 15/15 files each.
+  - `-ma:lzh:1`, `-ma:lzh:4`, `-ma:lzfse`, `-ma:hs:1`, `-ma:lz6:15` and `-m1`: 24/24 extractions identical.
+  - sylz with the DLLs: 15/15.
+  - `-mae`/`-mat`: 12/12.
+  - `-sae`/`-sat` with the example plugin: 16/16.
+  - PJA's own test, on Windows 10 x64 and x86 with 38 files (JPEG of every kind, MPO, JPEG-LS of every interleave and near-lossless): 76/76 identical on each.
+- **Full test battery:**
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.6.0: 182 comparisons, 0 divergences.
+
 ### [1.6.0] - 2026-10-23
 
 `-ma:lzh` moves to LZHAM 1.0 (lzham-ex) with a new portable decoder. `-ma:lzfse` and `-ma:hs` move to maintained forks that write the same streams. Also lz6 v1.6.14-pre, syc v0.2.8 for sylz, and plugin decoders sized per block.
