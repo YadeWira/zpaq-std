@@ -45,7 +45,7 @@ folder under compressors/.
   lz6                     Yann Collet (LZ4), YadeWira             BSD-2-Clause
   Snappy 1.2.1            Google Inc.                             BSD-3-Clause
   LZFSE                   Apple Inc.                              BSD-3-Clause
-  heatshrink 0.4.1        Scott Vokes                             ISC
+  heatshrink-ex 0.5.0     Scott Vokes; YadeWira                   ISC
   bzip3 1.5.4             Kamila Szewczyk                         LGPL-3.0-or-later
   libbsc 3.3.12           Ilya Grebnov                            Apache-2.0
   LZHAM 1.0               Richard Geldreich, Jr.                  MIT

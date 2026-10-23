@@ -20,4 +20,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return (long long)len;
 }
 
-ZS_DEFINE_CODEC(hs, "heatshrink 0.4.1", 0, 2, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(hs, "heatshrink-ex 0.5.0", 0, 2, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

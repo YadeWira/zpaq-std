@@ -1,0 +1,11 @@
+heatshrink-ex 0.5.0 (tag v0.5.0, commit 1ec3e18, 2026-10-23), from the vendor tarball
+heatshrink-ex-0.5.0-vendor.tar.gz (sha256 b97946ad23373979cf686bf5e9c346df433101e989941b3480c6f6e247bcd645)
+of https://github.com/YadeWira/heatshrink-ex: a maintained, multi-platform fork of
+heatshrink 0.4.1 by Scott Vokes (https://github.com/atomicobject/heatshrink, unchanged
+since 2015). ISC, see LICENSE. Files copied unmodified: heatshrink_encoder.c/.h,
+heatshrink_decoder.c/.h, heatshrink_common.h, heatshrink_config.h. hs_wrapper.c/.h are
+zpaq-std's own (the window and lookahead per -ma:hs level, the one-byte header).
+Same bitstream as 0.4.1, and for windows up to 14 bits (every -ma:hs level) the very
+same bytes, so -ma:hs archives do not change. Fixes over 0.4.1: a crash on empty input,
+window 15 (an int16_t index overflow that made the encoder loop), decoder_poll with an
+exactly sized buffer, free(NULL). Up to zpaq-std 1.5.1 this was heatshrink 0.4.1.
