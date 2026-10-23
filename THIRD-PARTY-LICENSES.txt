@@ -12,8 +12,8 @@ PART 1 - BUNDLED COMPRESSORS
   zstd                 1.5.7                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
   brotli               1.2.1                        MIT
   LZMA SDK             26.05                        Public domain
-  fast-lzma2           1.1.1                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
-  ultra-fast-lzma2     1.6.2                        BSD-3-Clause
+  fast-lzma2           1.1.2                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
+  ultra-fast-lzma2     1.6.4                        BSD-3-Clause
   lzlib                1.16                         BSD-2-Clause
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
   bz2-ng               commit a655623 (no release yet) MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
@@ -23,7 +23,7 @@ PART 1 - BUNDLED COMPRESSORS
   lz6                  see compressors/lz6/VERSION  BSD-2-Clause
   Snappy               1.3.1                        BSD-3-Clause
   lzfse-ex (LZFSE)     1.0.3                        BSD-3-Clause
-  heatshrink-ex        0.5.0                        ISC
+  heatshrink-ex        0.7.0                        ISC
   bzip3                1.5.5                        LGPL-3.0-or-later
   libbsc               3.4.0                        Apache-2.0
   lzham-ex (LZHAM 1.0) 1.0.2                        Public domain
@@ -31,7 +31,8 @@ PART 1 - BUNDLED COMPRESSORS
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  0.15.0                       BSD-3-Clause; rapidhash MIT
-  sylz                 syc v0.2.8                   MIT
+  sylz                 syc v0.2.10                  MIT
+  PJA                  0.0.1                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -106,10 +107,10 @@ The LZMA SDK is placed in the public domain. Every source file used here
 carries the notice "Igor Pavlov : Public domain".
 
 ===============================================================================
-fast-lzma2 1.1.1
+fast-lzma2 1.1.2
 Licence: BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
 Copyright: Conor McCarthy; maintained by YadeWira
-Parts based on zstd, copyright Yann Collet. Version 1.1.1 is maintained in
+Parts based on zstd, copyright Yann Collet. Version 1.1.2 is maintained in
 ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.
 
 Copyright 2018-present Conor McCarthy
@@ -125,7 +126,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-ultra-fast-lzma2 1.6.2
+ultra-fast-lzma2 1.6.4
 Licence: BSD-3-Clause
 Copyright: Conor McCarthy (fast-lzma2), fork by YadeWira
 
@@ -769,7 +770,7 @@ IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
 OF SUCH DAMAGE.
 
 ===============================================================================
-heatshrink-ex 0.5.0
+heatshrink-ex 0.7.0
 Licence: ISC
 Copyright: Scott Vokes (heatshrink); YadeWira (heatshrink-ex)
 A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.
@@ -2259,7 +2260,7 @@ You can contact the author at:
  */
 
 ===============================================================================
-sylz syc v0.2.8
+sylz syc v0.2.10
 Licence: MIT
 Copyright: Yade Bravo (YadeWira)
 Free Pascal, built only as a plugin (codecs/sylz.dll or sylz.so): it is in the
@@ -2286,6 +2287,96 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+===============================================================================
+PJA 0.0.1
+Licence: MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
+Copyright: Yade Bravo (YadeWira)
+The -sa codecs pja (JPEG) and pjals (JPEG-LS). Free Pascal, built only as a plugin
+(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in
+the full program. NOTICE has the third-party notes (IJG, CharLS).
+
+--- LICENSE ---
+MIT License
+
+Copyright (c) 2026 Yade Bravo (YadeWira)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--- NOTICE ---
+PJA
+Copyright (c) 2026 Yade Bravo (YadeWira)
+Licensed under the MIT License (see LICENSE).
+
+Third-party work
+----------------
+
+Arithmetic-coded JPEG (pas/pjajpeg.pas, the QM coder section): the decoder
+and encoder follow libjpeg's jdarith.c and jcarith.c, and the Qe table is
+taken from libjpeg-turbo's jaricom.c. This software is based in part on the
+work of the Independent JPEG Group.
+
+JPEG-LS (pas/pjajls.pas): written from ITU-T T.87, with its behaviour
+where the standard leaves room (the bit stuffing, the padding at the end of
+a scan, the bounds on the context variables, the Golomb code limits)
+following CharLS 2.4.2, whose decoding and encoding it reproduces bit for
+bit. CharLS is distributed under the BSD 3-Clause license:
+
+  Copyright (c) Team CharLS. Copyright (c) Jan de Vaan 2007-2010.
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+  * Neither the name of the copyright holder nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+
+BLAKE3 (pas/pjablake3.pas): written from the BLAKE3 specification; checked
+against the official implementation's output.
+
+Credits (ideas, no code taken)
+------------------------------
+
+The edge-coefficient and DC predictions of the model (pas/pjamodel.pas) are
+built on ideas published with Lepton (Dropbox) and on Lakhani's prediction
+of the first AC coefficients.
+
+The second prediction in the JPEG-LS symbol model (pas/pjamodel.pas) is
+CALIC's gradient-adjusted prediction with its error feedback (Wu and Memon).
 
 ===============================================================================
 ZPAQLZMA decoder -
