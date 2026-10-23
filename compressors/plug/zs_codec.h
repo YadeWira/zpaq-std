@@ -99,8 +99,17 @@ typedef struct zs_codec {
 } zs_codec;
 
 #define ZS_QUERY_FIRST_PRE 1  /* kanzi: the length of the first pre-transform */
+#define ZS_QUERY_ZPAQL_ARGS 2 /* -mae/-mat/-sae/-sat: given what compress() wrote (not
+                                 the 4 bytes of the size), the values of $3, $4 and $5
+                                 for this block's ZPAQL decoder, in bits 0-7, 8-15 and
+                                 16-23 (each 0 to 255); negative if it cannot tell */
 #define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
 #define ZS_DATA_ZPAQL      2  /* -mae/-mat: the codec's ZPAQL decoder, as text */
+#define ZS_DATA_ZPAQL_ARGS 4  /* the same, for a decoder that uses $3..$5 (since zpaq-std
+                                 1.5.2): zpaq-std then requires query() and asks
+                                 ZS_QUERY_ZPAQL_ARGS for each block. Give such a decoder
+                                 only here, and NULL for ZS_DATA_ZPAQL, so that older
+                                 zpaq-std, which cannot fill $3..$5, does not use it */
 #define ZS_DATA_INFO       3  /* optional: the codec's card for codecinfoex, as
                                  "key=value" lines: name, version, author, repo,
                                  license, commit, format, notes (and any other key) */

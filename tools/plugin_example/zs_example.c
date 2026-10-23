@@ -58,25 +58,29 @@ static long long ex_decompress(const void* src, size_t n, void* dst, size_t cap,
 /* The decoder in ZPAQL: skips the 4-byte size, then decodes byte by byte.
    r1: 0 = a control byte, 2 = literals, 3 = the byte of a run; r2 counts the
    size bytes, r3 what is left. */
-static const char ex_zpaql[] =
-	"comp 0 0 0 0 0\n"
-	"hcomp\n"
-	"  halt\n"
-	"pcomp zs_example_rle ;\n"
-	"  a> 255 if a=0 r=a 1 r=a 2 halt endif\n"
-	"  c=a\n"
-	"  a=r 2 a< 4 if a++ r=a 2 halt endif\n"
-	"  a=r 1\n"
-	"  a== 0 if\n"
-	"    a=c a< 128 if a++ r=a 3 a= 2 r=a 1 else a-= 125 r=a 3 a= 3 r=a 1 endif\n"
-	"  else a== 2 if\n"
-	"    a=c out a=r 3 a-- r=a 3 a== 0 if a=0 r=a 1 endif\n"
-	"  else\n"
-	"    do a=c out a=r 3 a-- r=a 3 a> 0 while\n"
-	"    a=0 r=a 1\n"
-	"  endif endif\n"
-	"  halt\n"
-	"end\n";
+#define EX_ZPAQL_BODY \
+	"hcomp\n" \
+	"  halt\n" \
+	"pcomp zs_example_rle ;\n" \
+	"  a> 255 if a=0 r=a 1 r=a 2 halt endif\n" \
+	"  c=a\n" \
+	"  a=r 2 a< 4 if a++ r=a 2 halt endif\n" \
+	"  a=r 1\n" \
+	"  a== 0 if\n" \
+	"    a=c a< 128 if a++ r=a 3 a= 2 r=a 1 else a-= 125 r=a 3 a= 3 r=a 1 endif\n" \
+	"  else a== 2 if\n" \
+	"    a=c out a=r 3 a-- r=a 3 a== 0 if a=0 r=a 1 endif\n" \
+	"  else\n" \
+	"    do a=c out a=r 3 a-- r=a 3 a> 0 while\n" \
+	"    a=0 r=a 1\n" \
+	"  endif endif\n" \
+	"  halt\n" \
+	"end\n"
+static const char ex_zpaql[] = "comp 0 0 0 0 0\n" EX_ZPAQL_BODY;
+/* rlea: the same decoder, given through ZS_DATA_ZPAQL_ARGS: its H size is $3, which
+   query(ZS_QUERY_ZPAQL_ARGS) gives for each block (here always 7: 128 words, unused).
+   It shows how a codec whose decoder needs memory by block asks for just enough. */
+static const char ex_zpaql_args[] = "comp 0 0 $3 0 0\n" EX_ZPAQL_BODY;
 
 /* The codec's card, shown by codecinfoex: "key=value" lines. */
 static const char ex_info[] =
@@ -94,6 +98,18 @@ static const void* ex_data(int what, size_t* size)
 	*size = sizeof(ex_zpaql);
 	return ex_zpaql;
 }
+static const void* ex_data_args(int what, size_t* size)	/* rlea: the card, ZPAQL with $3 */
+{
+	if (what == ZS_DATA_INFO) { *size = sizeof(ex_info); return ex_info; }
+	if (what != ZS_DATA_ZPAQL_ARGS) return NULL;	/* NULL for ZS_DATA_ZPAQL: older zpaq-std cannot fill $3 */
+	*size = sizeof(ex_zpaql_args);
+	return ex_zpaql_args;
+}
+static long long ex_query(int what, const void* src, size_t n)
+{
+	(void)src; (void)n;
+	return what == ZS_QUERY_ZPAQL_ARGS ? 7 : -1;
+}
 static const void* ex_data_nz(int what, size_t* size)	/* rlenz: the card, no ZPAQL */
 {
 	if (what != ZS_DATA_INFO) return NULL;
@@ -103,10 +119,11 @@ static const void* ex_data_nz(int what, size_t* size)	/* rlenz: the card, no ZPA
 
 static const zs_codec ex_rle   = { ZS_CODEC_ABI, "rle",   "zs_example rle 1.0",   1, 1, ex_bound, ex_compress, ex_decompress, NULL, ex_data };
 static const zs_codec ex_rlenz = { ZS_CODEC_ABI, "rlenz", "zs_example rlenz 1.0", 1, 1, ex_bound, ex_compress, ex_decompress, NULL, ex_data_nz };
+static const zs_codec ex_rlea  = { ZS_CODEC_ABI, "rlea",  "zs_example rlea 1.0",  1, 1, ex_bound, ex_compress, ex_decompress, ex_query, ex_data_args };
 
 ZS_CODEC_EXPORT const zs_codec* zpaqstd_codecs_v1(int i)
 {
-	return i == 0 ? &ex_rle : i == 1 ? &ex_rlenz : NULL;
+	return i == 0 ? &ex_rle : i == 1 ? &ex_rlenz : i == 2 ? &ex_rlea : NULL;
 }
 
 /* -sae/-sat: a "format" for the example: a file where at least half of the bytes
@@ -115,7 +132,7 @@ ZS_CODEC_EXPORT int zpaqstd_detect_v1(const char* codec, const void* src, size_t
 {
 	const unsigned char* s = (const unsigned char*)src;
 	size_t i = 0, inrun = 0;
-	if (strcmp(codec, "rle") != 0 && strcmp(codec, "rlenz") != 0) return 0;
+	if (strcmp(codec, "rle") != 0 && strcmp(codec, "rlenz") != 0 && strcmp(codec, "rlea") != 0) return 0;
 	while (i < n) {
 		size_t run = 1;
 		while (i + run < n && s[i + run] == s[i]) run++;

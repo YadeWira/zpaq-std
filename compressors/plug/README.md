@@ -58,6 +58,15 @@ The plugin uses the interface above, with two optional additions (`zs_codec.h`):
   endian) followed by what `compress()` wrote, and must output exactly the original
   bytes. In the text, `$1` is log2 of the segment size and `$2` log2 of the original
   size, both rounded up, for sizing H and M (`comp 0 0 0 $1+1 0`).
+- **A decoder whose memory depends on the block** (since 1.5.2): give the
+  configuration through `data(ZS_DATA_ZPAQL_ARGS, &size)` instead, and NULL for
+  `ZS_DATA_ZPAQL`. zpaq-std then asks `query(ZS_QUERY_ZPAQL_ARGS, output, size)` for
+  each block, with what `compress()` wrote, and gets `$3`, `$4` and `$5` (bits 0-7,
+  8-15 and 16-23; negative if it cannot tell, and the block stays as `-m`
+  compressed it). Use them only in the `comp` line, for sizes, so that the program
+  itself is the same in every block; zpaq-std keeps them at the end of the block's
+  tag. Older zpaq-std, which cannot fill them, sees no ZPAQL decoder at all and so
+  never writes a block with the wrong sizes. `zs_example.c` has such a codec, `rlea`.
 
 | | `-mae` (external) | `-mat` (test) |
 |---|---|---|

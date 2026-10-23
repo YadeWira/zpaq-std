@@ -5,7 +5,8 @@
 # POR QUE EXISTE: un archivo -mae/-mat tiene que abrirse sin el plugin cuando el
 # codec da su ZPAQL (zpaq-std sin codecs/ y zpaq 7.15), y uno -mat sin ZPAQL tiene
 # que fallar LIMPIO sin el plugin (31321 en zpaq-std; otro zpaq no devuelve datos
-# falsos). -mae sin ZPAQL se rechaza. Usa tools/plugin_example (rle y rlenz).
+# falsos). -mae sin ZPAQL se rechaza. Un ZPAQL con $3..$5 (rlea) guarda sus
+# valores en la etiqueta. Usa tools/plugin_example (rle, rlenz y rlea).
 #
 #   uso: suite_ext.sh          (usa Z=... o el binario del repo)
 # ============================================================================
@@ -37,6 +38,13 @@ r=ok; grep -q 00606 l3.log || r="sin-aviso"; rm -rf x; con/zpaq-std x a3.zpaq -t
 ok "-mae con ZPAQL: aviso 00606 y extrae" "$r"
 con/zpaq-std a a4.zpaq src -mae:example:rlenz >l4.log 2>&1; rc=$?
 [ $rc = 2 ] && grep -q 00620 l4.log && r=ok || r="rc=$rc"; ok "-mae sin ZPAQL: se rechaza (00620)" "$r"
+# rlea: el mismo ZPAQL por ZS_DATA_ZPAQL_ARGS, con $3 (tamano de H) de query(): la
+# etiqueta lo guarda al final (:7) y el bloque abre sin el plugin y en zpaq 7.15
+con/zpaq-std a a6.zpaq src -mae:example:rlea >l6.log 2>&1
+r=ok; strings -a a6.zpaq | grep -qE 'zpaqstd-mae:example:rlea:[0-9:]+:1:7' || r="sin-\$3"
+rm -rf y6; sin/zpaq-std x a6.zpaq -to y6 >/dev/null 2>&1; diff -r src y6/src >/dev/null || r="$r zpaql-mal"
+if command -v zpaq >/dev/null; then rm -rf w6; zpaq x a6.zpaq -to w6 >/dev/null 2>&1; diff -r src w6/src >/dev/null || r="$r zpaq715-mal"; fi
+ok "-mae con \$3 por query (ZS_DATA_ZPAQL_ARGS)" "$r"
 con/zpaq-std a a5.zpaq src -mat:../codecs/example:rle >l5.log 2>&1; rc=$?
 [ $rc = 2 ] && grep -q 00619 l5.log && r=ok || r="rc=$rc"; ok "nombre con ruta: se rechaza (00619)" "$r"
 echo "--- $casos casos, $((casos-malos)) bien, $malos a revisar ---"
