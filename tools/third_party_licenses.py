@@ -16,10 +16,10 @@ BUNDLED = [
      ['compressors/zstd/LICENSE'], ''),
     ('brotli', '1.2.1', 'MIT', 'Google Inc.', ['compressors/brotli/LICENSE'], ''),
     ('LZMA SDK', '26.05', 'Public domain', 'Igor Pavlov', ['compressors/lzmasdk/LICENSE'], ''),
-    ('fast-lzma2', '1.1.1', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Conor McCarthy; maintained by YadeWira',
-     ['compressors/fl2/LICENSE'], 'Parts based on zstd, copyright Yann Collet. Version 1.1.1 is maintained in\n'
+    ('fast-lzma2', '1.1.2', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Conor McCarthy; maintained by YadeWira',
+     ['compressors/fl2/LICENSE'], 'Parts based on zstd, copyright Yann Collet. Version 1.1.2 is maintained in\n'
      'ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.'),
-    ('ultra-fast-lzma2', '1.6.2', 'BSD-3-Clause', 'Conor McCarthy (fast-lzma2), fork by YadeWira',
+    ('ultra-fast-lzma2', '1.6.4', 'BSD-3-Clause', 'Conor McCarthy (fast-lzma2), fork by YadeWira',
      ['compressors/uflzma2/LICENSE'], ''),
     ('lzlib', '1.16', 'BSD-2-Clause', 'Antonio Diaz Diaz', ['compressors/lzlib/LICENSE'], ''),
     ('bzip2 / libbzip2', '1.0.8', 'bzip2 licence (BSD-style)', 'Julian R Seward', ['compressors/bzip2/LICENSE'], ''),
