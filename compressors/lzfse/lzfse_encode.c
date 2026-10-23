@@ -24,6 +24,17 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 #include "lzfse.h"
 #include "lzfse_internal.h"
 
+//  lzfse stores match offsets in 32 bits, so an input that is too large must
+//  be processed in blocks and the encoder state translated between them.
+//  Inputs at or above this threshold use the blocked path: it keeps the
+//  offsets within range, and it is also faster because each block fits in the
+//  last-level cache (and because match searches are bounded by the block).
+//  The threshold must stay below 2 GB; 64 MB keeps both the memory footprint
+//  and the pathological match search of highly compressible inputs small.
+#define LZFSE_ENCODE_BLOCK_THRESHOLD ((size_t)0x4000000) // 64 MB
+//  Size of the blocks used by the blocked path.
+#define LZFSE_ENCODE_BLOCK_SIZE ((lzfse_offset)262144)
+
 size_t lzfse_encode_scratch_size() {
   size_t s1 = sizeof(lzfse_encoder_state);
   size_t s2 = lzvn_encode_scratch_size();
@@ -79,14 +90,12 @@ size_t lzfse_encode_buffer_with_scratch(uint8_t *__restrict dst_buffer,
     state->src = src_buffer;
     state->src_encode_i = 0;
 
-    if (src_size >= 0xffffffffU) {
-      //  lzfse only uses 32 bits for offsets internally, so if the input
-      //  buffer is really huge, we need to process it in smaller chunks.
-      //  Note that we switch over to this path for sizes much smaller
-      //  2GB because it's actually faster to change algorithms well before
-      //  it's necessary for correctness.
+    if (src_size >= LZFSE_ENCODE_BLOCK_THRESHOLD) {
+      //  The input is too large to encode in one piece: lzfse only uses 32
+      //  bits for offsets internally, so we process the input in blocks and
+      //  translate the state between them.
       //  The first chunk, we just process normally.
-      const lzfse_offset encoder_block_size = 262144;
+      const lzfse_offset encoder_block_size = LZFSE_ENCODE_BLOCK_SIZE;
       state->src_end = encoder_block_size;
       if (lzfse_encode_base(state) != LZFSE_STATUS_OK)
         goto try_uncompressed;

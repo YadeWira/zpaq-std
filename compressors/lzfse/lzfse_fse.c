@@ -42,7 +42,10 @@ void fse_init_encoder_table(int nstates, int nsymbols,
     t[i].s0 = (int16_t)((f << k) - nstates);
     t[i].k = (int16_t)k;
     t[i].delta0 = (int16_t)(offset - f + (nstates >> k));
-    t[i].delta1 = (int16_t)(offset - f + (nstates >> (k - 1)));
+    //  delta1 is only used when S < S0, which cannot happen for k == 0
+    //  (S0 <= 0 <= S); computing it would shift by -1.
+    t[i].delta1 =
+        (int16_t)(k > 0 ? offset - f + (nstates >> (k - 1)) : 0);
     offset += f;
   }
 }

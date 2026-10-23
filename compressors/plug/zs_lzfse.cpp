@@ -19,4 +19,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return (long long)lzfse_decode_buffer((uint8_t*)dst, cap, (const uint8_t*)src, n, NULL);
 }
 
-ZS_DEFINE_CODEC(lzfse, "LZFSE", 0, 1, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(lzfse, "lzfse-ex 1.0.3", 0, 1, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

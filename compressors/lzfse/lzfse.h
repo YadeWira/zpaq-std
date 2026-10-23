@@ -25,6 +25,15 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 #include <stddef.h>
 #include <stdint.h>
 
+/*! @abstract Version of this library. */
+#define LZFSE_VERSION_MAJOR 1
+#define LZFSE_VERSION_MINOR 0
+#define LZFSE_VERSION_PATCH 3
+#define LZFSE_VERSION_STRING "1.0.3"
+
+/*! @abstract Version of this fork, for codec/codecinfo-style output. */
+#define LZFSE_EX_VERSION_STRING LZFSE_VERSION_STRING
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -128,6 +137,53 @@ LZFSE_API size_t lzfse_decode_buffer(uint8_t *__restrict dst_buffer,
                                      const uint8_t *__restrict src_buffer,
                                      size_t src_size,
                                      void *__restrict scratch_buffer);
+
+/*! @abstract Status codes returned by lzfse_decode_buffer_with_status( ). */
+enum {
+  /*! The input was fully decompressed. */
+  LZFSE_DECODE_STATUS_OK = 0,
+  /*! The destination buffer was too small; call again with a larger one. */
+  LZFSE_DECODE_STATUS_DST_FULL = 1,
+  /*! The input ended before the end-of-stream marker (truncated input). */
+  LZFSE_DECODE_STATUS_SRC_EMPTY = 2,
+  /*! The input is not a valid LZFSE stream. */
+  LZFSE_DECODE_STATUS_ERROR = 3
+};
+
+/*! @abstract Decompress a buffer, reporting why decoding stopped.
+ *
+ *  This is a variant of lzfse_decode_buffer( ) that, unlike that function,
+ *  always lets the caller distinguish a destination that was too small from
+ *  corrupt or truncated input, and from a successful decode that happened to
+ *  fill the destination exactly.
+ *
+ *  @param dst_buffer
+ *  Pointer to the first byte of the destination buffer.
+ *
+ *  @param dst_size
+ *  Size of the destination buffer in bytes.
+ *
+ *  @param src_buffer
+ *  Pointer to the first byte of the source buffer.
+ *
+ *  @param src_size
+ *  Size of the source buffer in bytes.
+ *
+ *  @param scratch_buffer
+ *  As for lzfse_decode_buffer( ).
+ *
+ *  @param decoded_size
+ *  If non-NULL, receives the number of bytes written to the destination
+ *  buffer, also when the return value is LZFSE_DECODE_STATUS_DST_FULL.
+ *
+ *  @return
+ *  LZFSE_DECODE_STATUS_OK on success, LZFSE_DECODE_STATUS_DST_FULL if the
+ *  destination buffer was too small, LZFSE_DECODE_STATUS_SRC_EMPTY if the
+ *  input is truncated, or LZFSE_DECODE_STATUS_ERROR if the input is invalid. */
+LZFSE_API int lzfse_decode_buffer_with_status(
+    uint8_t *__restrict dst_buffer, size_t dst_size,
+    const uint8_t *__restrict src_buffer, size_t src_size,
+    void *__restrict scratch_buffer, size_t *decoded_size);
 
 #ifdef __cplusplus
 } /* extern "C" */

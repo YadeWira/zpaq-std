@@ -236,9 +236,14 @@ static int lzfse_decode_lmd(lzfse_decoder_state *s) {
       //  is small.
       if (D >= 8 || D >= M)
         copy(dst, dst - D, M);
-      else
+      else {
+        //  Compute the match pointer explicitly: dst[i - D] underflows
+        //  size_t for i < D, which is undefined behavior even though the
+        //  resulting address is valid.
+        const uint8_t *ref = dst - D;
         for (size_t i = 0; i < M; i++)
-          dst[i] = dst[i - D];
+          dst[i] = ref[i];
+      }
       dst += M;
     }
 
@@ -277,8 +282,9 @@ static int lzfse_decode_lmd(lzfse_decoder_state *s) {
       //  before finishing, we return to the caller indicating that
       //  the buffer is full.
       if (M <= remaining_bytes) {
+        const uint8_t *ref = dst - D;
         for (size_t i = 0; i < M; i++)
-          dst[i] = dst[i - D];
+          dst[i] = ref[i];
         dst += M;
         remaining_bytes -= M;
         M = 0;
@@ -291,8 +297,9 @@ static int lzfse_decode_lmd(lzfse_decoder_state *s) {
                  //
                  // But we still set M = 0, to maintain the post-condition.
       } else {
+        const uint8_t *ref = dst - D;
         for (size_t i = 0; i < remaining_bytes; i++)
-          dst[i] = dst[i - D];
+          dst[i] = ref[i];
         dst += remaining_bytes;
         M -= remaining_bytes;
       DestinationBufferIsFull:

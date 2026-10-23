@@ -30153,8 +30153,8 @@ static const zs_info_row ZS_INFO[]=
 	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "same plugin as lz5"},
 	{"snappy", false, 1, 2, 2, "ZPAQSNAPPY", "Snappy 1.3.1", "Google Inc.", "https://github.com/google/snappy",
 	 "BSD-3-Clause", "release 1.3.1", "raw Snappy", "level 2 compresses more, at the same decompression speed"},
-	{"lzfse", false, 0, 1, 1, "ZPAQLZFSE", "LZFSE", "Apple Inc.", "https://github.com/lzfse/lzfse",
-	 "BSD-3-Clause", "-", "LZFSE stream", "LZFSE has one internal level"},
+	{"lzfse", false, 0, 1, 1, "ZPAQLZFSE", "lzfse-ex 1.0.3", "Apple Inc.; maintained by YadeWira", "https://github.com/YadeWira/lzfse-ex",
+	 "BSD-3-Clause", "v1.0.3, commit 9588765", "LZFSE stream", "LZFSE has one internal level; a fork of Apple's lzfse (same stream)"},
 	{"hs", false, 0, 2, 1, "ZPAQHS", "heatshrink-ex 0.5.0", "Scott Vokes; maintained by YadeWira", "https://github.com/YadeWira/heatshrink-ex",
 	 "ISC", "v0.5.0, commit 1ec3e18", "heatshrink stream", "the level picks the window; a fork of heatshrink 0.4.1 (same stream)"},
 	{"bzip3", false, 1, 9, 9, "ZPAQBZIP3", "bzip3 1.5.5", "Kamila Szewczyk", "https://github.com/iczelia/bzip3",
@@ -68010,7 +68010,7 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq");
 		scrivi_riga(" ", "  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq");
 		scrivi_riga(" ", "  hs: ZPAQHS, heatshrink (0..2: 2KB/8KB/16KB window; tiny); opens in any zpaq");
-		scrivi_riga(" ", "  lzfse: ZPAQLZFSE, Apple LZFSE (no levels); opens in any zpaq");
+		scrivi_riga(" ", "  lzfse: ZPAQLZFSE, LZFSE by lzfse-ex (no levels); opens in any zpaq");
 		scrivi_riga(" ", "  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: sort transform ST3..ST5, default 3); opens in any zpaq");
 		scrivi_riga(" ", "  lzh: ZPAQLZHAM10, LZHAM 1.0 by lzham-ex (1..4: fastest..better, default 4); opens in any zpaq");
 		scrivi_riga(" ", "  ppmd: ZPAQPPMD, PPMd var.H (level = model order 2..32, default 6; 64 MB); opens in any zpaq");

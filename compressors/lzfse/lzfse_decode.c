@@ -26,9 +26,27 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 
 size_t lzfse_decode_scratch_size() { return sizeof(lzfse_decoder_state); }
 
-size_t lzfse_decode_buffer_with_scratch(uint8_t *__restrict dst_buffer, 
-                         size_t dst_size, const uint8_t *__restrict src_buffer,
-                         size_t src_size, void *__restrict scratch_buffer) {
+int lzfse_decode_buffer_with_status(uint8_t *__restrict dst_buffer,
+                                    size_t dst_size,
+                                    const uint8_t *__restrict src_buffer,
+                                    size_t src_size,
+                                    void *__restrict scratch_buffer,
+                                    size_t *decoded_size) {
+  int has_malloc = 0;
+  int status;
+
+  // Deal with the possible NULL pointer
+  if (scratch_buffer == NULL) {
+    // +1 in case scratch size could be zero
+    scratch_buffer = malloc(lzfse_decode_scratch_size() + 1);
+    has_malloc = 1;
+  }
+  if (scratch_buffer == NULL) {
+    if (decoded_size != NULL)
+      *decoded_size = 0;
+    return LZFSE_DECODE_STATUS_ERROR;
+  }
+
   lzfse_decoder_state *s = (lzfse_decoder_state *)scratch_buffer;
   memset(s, 0x00, sizeof(*s));
 
@@ -41,32 +59,53 @@ size_t lzfse_decode_buffer_with_scratch(uint8_t *__restrict dst_buffer,
   s->dst_end = dst_buffer + dst_size;
 
   // Decode
-  int status = lzfse_decode(s);
-  if (status == LZFSE_STATUS_DST_FULL)
+  status = lzfse_decode(s);
+
+  if (decoded_size != NULL)
+    *decoded_size = (size_t)(s->dst - dst_buffer);
+
+  if (has_malloc)
+    free(scratch_buffer);
+
+  switch (status) {
+  case LZFSE_STATUS_OK:
+    return LZFSE_DECODE_STATUS_OK;
+  case LZFSE_STATUS_DST_FULL:
+    return LZFSE_DECODE_STATUS_DST_FULL;
+  case LZFSE_STATUS_SRC_EMPTY:
+    return LZFSE_DECODE_STATUS_SRC_EMPTY;
+  default:
+    return LZFSE_DECODE_STATUS_ERROR;
+  }
+}
+
+size_t lzfse_decode_buffer_with_scratch(uint8_t *__restrict dst_buffer, 
+                         size_t dst_size, const uint8_t *__restrict src_buffer,
+                         size_t src_size, void *__restrict scratch_buffer) {
+  size_t decoded_size = 0;
+  int status = lzfse_decode_buffer_with_status(
+      dst_buffer, dst_size, src_buffer, src_size, scratch_buffer,
+      &decoded_size);
+
+  // Preserve the historical return convention of this function.
+  if (status == LZFSE_DECODE_STATUS_DST_FULL)
     return dst_size;
-  if (status != LZFSE_STATUS_OK)
-    return 0;                           // failed
-  return (size_t)(s->dst - dst_buffer); // bytes written
+  if (status != LZFSE_DECODE_STATUS_OK)
+    return 0;
+  return decoded_size;
 }
 
 size_t lzfse_decode_buffer(uint8_t *__restrict dst_buffer, size_t dst_size,
                            const uint8_t *__restrict src_buffer,
                            size_t src_size, void *__restrict scratch_buffer) {
-  int has_malloc = 0;
-  size_t ret = 0;
+  size_t decoded_size = 0;
+  int status = lzfse_decode_buffer_with_status(
+      dst_buffer, dst_size, src_buffer, src_size, scratch_buffer,
+      &decoded_size);
 
-  // Deal with the possible NULL pointer
-  if (scratch_buffer == NULL) {
-    // +1 in case scratch size could be zero
-    scratch_buffer = malloc(lzfse_decode_scratch_size() + 1);
-    has_malloc = 1;
-  }
-  if (scratch_buffer == NULL)
+  if (status == LZFSE_DECODE_STATUS_DST_FULL)
+    return dst_size;
+  if (status != LZFSE_DECODE_STATUS_OK)
     return 0;
-  ret = lzfse_decode_buffer_with_scratch(dst_buffer, 
-                               dst_size, src_buffer, 
-                               src_size, scratch_buffer);
-  if (has_malloc)
-    free(scratch_buffer);
-  return ret;
-} 
+  return decoded_size;
+}

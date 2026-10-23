@@ -362,14 +362,21 @@ FSE_INLINE int fse_in_checked_flush64(fse_in_stream64 *s, const uint8_t **pbuf,
                                       const uint8_t *buf_start) {
   //  Get number of bits to add to bring us into the desired range.
   fse_bit_count nbits = (63 - s->accum_nbits) & -8;
+  if (nbits < 0 || nbits > 56)
+    return -1; // invalid state
   //  Convert bits to bytes and decrement buffer address, then load new data.
   const uint8_t *buf = (*pbuf) - (nbits >> 3);
   if (buf < buf_start) {
     return -1; // out of range
   }
   *pbuf = buf;
-  uint64_t incoming;
-  memcpy(&incoming, buf, 8);
+  //  Load only the bytes we are about to consume. The bytes after *pbuf may
+  //  be outside the input buffer (the stream is read backwards, and the end
+  //  of the payload can be the end of the caller's buffer), so a fixed
+  //  8-byte load could read past it when the input is damaged.
+  uint64_t incoming = 0;
+  if (nbits > 0)
+    memcpy(&incoming, buf, (size_t)(nbits >> 3));
   // Update the state object and verify its validity (in DEBUG).
   s->accum = (s->accum << nbits) | fse_mask_lsb64(incoming, nbits);
   s->accum_nbits += nbits;
@@ -383,6 +390,8 @@ FSE_INLINE int fse_in_checked_flush32(fse_in_stream32 *s, const uint8_t **pbuf,
                                       const uint8_t *buf_start) {
   //  Get number of bits to add to bring us into the desired range.
   fse_bit_count nbits = (31 - s->accum_nbits) & -8;
+  if (nbits < 0 || nbits > 24)
+    return -1; // invalid state
 
   if (nbits > 0) {
     //  Convert bits to bytes and decrement buffer address, then load new data.
@@ -393,7 +402,9 @@ FSE_INLINE int fse_in_checked_flush32(fse_in_stream32 *s, const uint8_t **pbuf,
 
     *pbuf = buf;
 
-    uint32_t incoming = *((uint32_t *)buf);
+    //  Load only the bytes we consume; see fse_in_checked_flush64.
+    uint32_t incoming = 0;
+    memcpy(&incoming, buf, (size_t)(nbits >> 3));
 
     // Update the state object and verify its validity (in DEBUG).
     s->accum = (s->accum << nbits) | fse_mask_lsb32(incoming, nbits);

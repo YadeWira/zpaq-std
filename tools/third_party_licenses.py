@@ -34,7 +34,7 @@ BUNDLED = [
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('lz6', 'see compressors/lz6/VERSION', 'BSD-2-Clause', 'Yann Collet (LZ4), YadeWira', ['compressors/lz6/LICENSE'], ''),
     ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
-    ('LZFSE', '-', 'BSD-3-Clause', 'Apple Inc.', ['compressors/lzfse/LICENSE'], ''),
+    ('lzfse-ex (LZFSE)', '1.0.3', 'BSD-3-Clause', 'Apple Inc.; maintained by YadeWira', ['compressors/lzfse/LICENSE'], ''),
     ('heatshrink-ex', '0.5.0', 'ISC', 'Scott Vokes (heatshrink); YadeWira (heatshrink-ex)', ['compressors/hs/LICENSE'], 'A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.'),
     ('bzip3', '1.5.5', 'LGPL-3.0-or-later', 'Kamila Szewczyk',
      ['compressors/bzip3/LICENSE', 'compressors/bzip3/COPYING.GPL-3'],
