@@ -2,17 +2,11 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
-A deduplicated, multi-version archiver (originally a fork of [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with the bulk of the code coming via Franco Corbelli's `zpaqfranz` fork), with **21 bundled, swappable external compression libraries** plus the LZ4 and LZAV that zpaqfranz itself embeds, and sylz as a separate plugin (28 `-ma` switches); **lossless JPEG and JPEG-LS recompression** with `-sa` ([PJA](https://github.com/YadeWira/PJA), a plugin; experimental); and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **21 bundled, swappable compression libraries** (28 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
 
-Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**, not 5×. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was actually added since the last sync.
+Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was added.
 
-This is **YadeWira's personal fork**. The new work here is the bundled-compressors architecture: pick the algorithm at archive time, no host setup needed. The base code (the deduplication engine, the journaling archiver) is Franco Corbelli's, derived in turn from Matt Mahoney's public-domain zpaq 7.15. See [CONTRIBUTORS](CONTRIBUTORS) for the full attribution chain.
-
-The application lives in one ~130,000-line `zpaq-std.cpp`, plus `libdivsufsort/`,
-the bundled `compressors/` and the `test/testlab/` harness. More documentation is in
-the **[wiki](https://github.com/YadeWira/zpaq-std/wiki)**.
-
-**Version numbers** are `MAJOR.MINOR.PATCH`: MAJOR for big changes in zpaq-std itself, MINOR for a small update of the zpaqfranz base or a small new feature, PATCH for bug fixes. The banner also shows the zpaqfranz version underneath (`zpaq-std v1.0.0 | zf v65.4m-...`). Release candidates before a release are pre-releases tagged `vX.Y.Z-rcN`, and their banner says so (`zpaq-std v1.1.0-rc1 | zf ...`). 1.0.0 is the first stable release; the `0.0.1-preNN` and `v65.4m-preNN` tags before it were pre-releases.
+More documentation: the **[wiki](https://github.com/YadeWira/zpaq-std/wiki)**. Releases: **[Releases](https://github.com/YadeWira/zpaq-std/releases)**.
 
 ---
 
@@ -20,103 +14,73 @@ the **[wiki](https://github.com/YadeWira/zpaq-std/wiki)**.
 
 - **Deduplicated** — identical blocks across files and versions are stored once
 - **Versioned** — each run is a new "snapshot" inside the same `.zpaq` file
-- **Compressed** — every block goes through zpaq's internal DCE + CM codec, then optionally through a **second-pass external compressor** chosen per-archive
+- **Compressed** — zpaq's internal codecs, or an external compressor chosen per archive (`-ma`)
 - **Append-only** — never modifies existing data; ideal for incremental cloud sync
-- **Self-verifying** — triple-checksums (CRC-32, XXHASH64, SHA-1) per block, with optional SHA-2/SHA-3/Whirlpool/BLAKE3
-- **One archive file** — no repositories, no databases, no temp files; a single `.zpaq` is the whole backup
+- **Self-verifying** — CRC-32, XXHASH64 and SHA-1 per block, optionally SHA-2/SHA-3/Whirlpool/BLAKE3
+- **One archive file** — no repositories, no databases, no temp files
 
 ---
 
 ## External compression: `-ma:algo:N`
 
-The killer feature of this fork. You can pick **which external algorithm compresses
-each block**, without installing anything — everything is bundled under `compressors/`.
+Pick **which algorithm compresses each block**, with nothing to install: everything
+is bundled under `compressors/`. Every block carries its own decoder written in
+ZPAQL, so **any zpaq extracts the archive** (zpaq 7.15, zpaqfranz); zpaq-std decodes
+natively, at full speed. Details: [wiki: Portable codecs](https://github.com/YadeWira/zpaq-std/wiki/Portable-codecs).
 
-| Switch | Library | Levels | Default | Opens in any zpaq |
-|---|---|---|---|---|
-| `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 | **yes** (ZPAQZSTD) |
-| `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.1 | 0–11 | 11 | **yes** (ZPAQBROTLI) |
-| `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.05 | 0–9 | 6 | **yes** (ZPAQLZMA, decoder by kaitz) |
-| `-ma:flzma2:N` | [fast-lzma2](https://github.com/conor42/fast-lzma2) 1.1.2 (maintained in [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2), with its decoder fixes) | 1–10 | 5 | **yes** (ZPAQFLZMA2) |
-| `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.4 (a fork of Conor McCarthy's fast-lzma2; 11 also picks lc/lp/pb per block) | 1–11 | 5 | **yes** (ZPAQUFLZMA2) |
-| `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 | **yes** (ZPAQLZIP) |
-| `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 | **yes** (ZPAQBZIP2) |
-| `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 | **yes** (ZPAQDEFLATE) |
-| `-ma:lizard:N` | [Lizard](https://github.com/inikep/lizard) 2.1 | 10–49 | 17 | **yes** (ZPAQLIZARD, ZPAQLIZARDH) |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.3 (fork of LZ5 1.5; same format) | 1–15 | 9 | **yes** (ZPAQLZ5) |
-| `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 | **yes** (ZPAQSNAPPY) |
-| `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.3 (a maintained fork of Apple's LZFSE, same stream) | 0–1 | 1 | **yes** (ZPAQLZFSE) |
-| `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.0 (a maintained fork of heatshrink 0.4.1, same stream) | 0–2 | 1 | **yes** (ZPAQHS) |
-| `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 | **yes** (ZPAQBZIP3) |
-| `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 | 1–9 | 3 | **yes** (ZPAQBSC) |
-| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.0.2 (a maintained fork of LZHAM 1.0); archives from 1.5.1 and earlier hold LZHAM's older alpha format and are still read | 1–4 | 4 | **yes** (ZPAQLZHAM10; ZPAQLZHAM for the alpha) |
-| `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 (order) | 6 | **yes** (ZPAQPPMD) |
-| `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 (Frederic Langlet), kanzi's own levels: 1 = LZX, 2 = DNA + LZ + Huffman, 3 = TEXT + UTF + PACK + MM + LZX with Huffman, 4 = TEXT + UTF + EXE + PACK + MM + ROLZ, 5 = TEXT + UTF + BWT + RANK + ZRLT with ANS, 6 = the same with SRT and FPAQ, 7 = LZP + TEXT + UTF + BWT + LZP with CM, 8 = EXE + RLT + TEXT + UTF + DNA with TPAQ, 9 = the same with TPAQX (8–9 are slow and need a lot of memory in other zpaqs) | 1–9 | 2 | **yes** (ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B) |
-| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 (format 9), a fast LZ built for decompression speed; 6–7 add Huffman | 1–7 | 3 | **yes** (ZPAQZXC) |
+```bash
+zpaq-std a backup.zpaq /data -ma:zstd:3          # fast, balanced
+zpaq-std a docs.zpaq ~/Documents -ma:brotli:11   # best ratio on text
+zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
+```
+
+| Switch | Library | Levels | Default |
+|---|---|---|---|
+| `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 |
+| `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.1 | 0–11 | 11 |
+| `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.05 | 0–9 | 6 |
+| `-ma:flzma2:N` | [fast-lzma2](https://github.com/conor42/fast-lzma2) 1.1.2 | 1–10 | 5 |
+| `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.4 | 1–11 | 5 |
+| `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 |
+| `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 |
+| `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 |
+| `-ma:lizard:N` | [Lizard](https://github.com/inikep/lizard) 2.1 | 10–49 | 17 |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.3 | 1–15 | 9 |
+| `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 |
+| `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.3 | 0–1 | 1 |
+| `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.0 | 0–2 | 1 |
+| `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 |
+| `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 | 1–9 | 3 |
+| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.0.2 (LZHAM 1.0) | 1–4 | 4 |
+| `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 | 6 |
+| `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
+| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |
 
 #### Experimental
 
-Their **encoder** may still change between releases (ratio, speed, how the levels
-are numbered). What an archive already holds does not: every block carries its own
-frozen decoder, so anything written today stays readable, by zpaq-std and by any
-other zpaq. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
+Their **encoder** may still change between releases; what is already written stays
+readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 
-| Switch | Library | Levels | Default | Opens in any zpaq |
-|---|---|---|---|---|
-| `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 | **yes** (ZPAQLZ6) |
-| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng), commit a655623 (no release yet): libbz2 1.0.8's format and API with a new encoder and decoder, about 2× faster than `-ma:bzip2` inside zpaq-std, same compression | 1–9 | 9 | **yes** (ZPAQBZ2) |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.10, format v2), a fast LZ in Free Pascal. **Plugin only**: `codecs/sylz.dll` or `.so` (see below). Level 0 is the fastest | 0–10 | 1 | **yes** (ZPAQSYLZ) |
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10: zpaqfranz's experimental `-m6` | 1–12 | 9 | **yes** — it *is* `-m6` |
-| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17: zpaqfranz's experimental `-m7` | 0–1 | 1 | **yes** — it *is* `-m7` |
+| Switch | Library | Levels | Default |
+|---|---|---|---|
+| `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 |
+| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) a655623 | 1–9 | 9 |
+| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.10), plugin only | 0–10 | 1 |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10 (zpaqfranz's `-m6`) | 1–12 | 9 |
+| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17 (zpaqfranz's `-m7`) | 0–1 | 1 |
 
-If the external pass does not beat the original by more than 16 bytes, the block
-stays native (no regression).
+What each codec's levels mean, and notes on some of them (kanzi, lzh, bz2):
+[wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#codec-notes). `codecinfo` lists them all; `codecinfo <codec>`
+shows its card (author, repository, version, hashes).
 
-### Portability
+---
 
-**All 28 `-ma` switches write archives that any zpaq extracts** — zpaq 7.15,
-zpaqfranz, and every zpaq-std from pre20 on. Their blocks carry their own decoder,
-written in ZPAQL, the bytecode every zpaq implementation runs (the way zpaq's own
-`-m1` works); zpaq-std recognises its decoders and decodes natively, at full speed.
-Details, sizes and speeds of each decoder: **[wiki: Portable codecs](https://github.com/YadeWira/zpaq-std/wiki/Portable-codecs)**.
+## JPEG and JPEG-LS: `-sa` (experimental)
 
-**The old `-ma` format is no longer read.** Before the ZPAQL decoders, `-ma` blocks
-carried no decoder (zpaq-std's own post-processing type and a `zpaqstd-ma:` tag). Every
-codec wrote that up to pre23, and some until they became portable (bsc, lzh and ppmd
-until pre40–pre42). From pre49 on, zpaq-std stops with
-`31320 old -ma block format, no longer supported`; use zpaq-std pre48 or older for
-those archives. No other zpaq ever read them.
-
-**Upgrading:** new versions read every archive made with ZPAQL decoders and every
-native one, and every zpaq-std from pre20 on reads what this version writes (by
-running the ZPAQL decoders). The one exception is a `-mat` test archive made with a
-codec that has no ZPAQL decoder: only zpaq-std with that codec's plugin extracts it.
-
-### Example
+> **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but keep another copy of what you archive with `-sa`.
 
 ```bash
-zpaq-std a backup.zpaq /data -ma:zstd:3          # nightly backups: fast, balanced
-zpaq-std a docs.zpaq ~/Documents -ma:brotli:11   # best ratio on text
-zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
-zpaq-std a mixed.zpaq *.txt -ma:brotli:11        # one algo per run, in one archive
-```
-
-The codec and the original size are recorded in each block's comment, so one
-archive can mix codecs freely.
-
-### JPEG and JPEG-LS: `-sa` (experimental)
-
-> **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but until it has had more use, keep another copy of what you archive with `-sa`.
-
-`-sa` adds zpaq-std's **codecs for specific formats**: today
-[PJA](https://github.com/YadeWira/PJA) 0.0.1, which recompresses **JPEG** (`pja`:
-baseline, progressive and arithmetic-coded) and **JPEG-LS** (`pjals`) losslessly,
-byte for byte. It works on top of any `-m`/`-ma`: a file goes to the codec that
-takes it, judged by its contents and never by its name, and everything else is
-compressed as usual.
-
-```bash
-zpaq-std a photos.zpaq /photos -sa                   # pja and pjals, with their defaults
+zpaq-std a photos.zpaq /photos -sa                   # pja and pjals
 zpaq-std a photos.zpaq /photos -sa:pja+2 -ma:zstd    # only JPEG; the rest with zstd
 ```
 
@@ -126,231 +90,65 @@ None yet.
 
 #### Experimental
 
-Not recommended yet: their **format** is new. What they write stays readable (every
-block carries the codec's frozen ZPAQL decoder, so any zpaq extracts it), but keep
-another copy of what you archive with them.
+| Switch | Library | Takes | Levels | Default |
+|---|---|---|---|---|
+| `-sa:pja+N` | [PJA](https://github.com/YadeWira/PJA) 0.0.1, plugin only | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
+| `-sa:pjals+N` | the same plugin | JPEG-LS | 2 | 2 |
 
-| Switch | Library | Takes | Levels | Default | Opens in any zpaq |
-|---|---|---|---|---|---|
-| `-sa:pja+N` | [PJA](https://github.com/YadeWira/PJA) 0.0.1, Free Pascal. **Plugin only**: `codecs/pja.dll` or `.so` | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 | **yes** (PJA's own ZPAQL, ~62 KB) |
-| `-sa:pjals+N` | the same plugin | JPEG-LS: lossless and near-lossless, any interleave | 2 | 2 | **yes** (PJA's own ZPAQL, ~56 KB) |
-
-- PJA is in Free Pascal, so it comes as a plugin: put the `codecs/` folder of the
-  `extra-codecs` download next to zpaq-std.
-- Every block carries PJA's ZPAQL decoder, so **any zpaq extracts the archive
-  without the plugin** (slowly: the decoder is big). zpaq-std with the plugin
-  decodes natively. Consecutive files go into one block, one segment each, so the
-  decoder is written once per block, not once per photo.
-- Every block is decoded back by the plugin before it is written; one that does not
-  come back identical is compressed as `-m` says.
-
-`-ytool` and `-pc` were removed (v64.8j-pre19 and pre14); see the
-[wiki](https://github.com/YadeWira/zpaq-std/wiki/ytool-Precompressor) if you have
-archives written with them.
-
----
-
-## Progress window: `-popgui`
-
-Pass **`-popgui`** and zpaq-std shows its **own native progress window** while it
-works — modelled on 7-Zip's **7zG.exe** and styled like an Inno Setup wizard page: a
-comctl32 v6 progress bar, the operation and percentage in the **title bar**
-(`Compressing... NN%` / `Extracting... NN%`), two columns of stat rows (**Elapsed time,
-Remaining time, Total size, Speed, Processed, Compressed size, Compression ratio**), and
-**Background** (minimise and keep working) / **Cancel** (confirm, then abort) buttons. It
-**auto-detects the OS dark/light theme** — on Windows 10+ it follows `AppsUseLightTheme`
-(dark background + dark title bar + dark progress trough); on Windows 8.1 and older it
-stays light. It runs on a separate thread so the operation
-is never blocked; the window updates as it goes and closes when finished (or on exit).
-Normal console output is silenced.
-
-```bash
-# e.g. an installer extracting a bundled archive, with a progress window:
-zpaq-std x "data.zpaq" -to "C:\Program Files\MyApp\" -popgui
-```
-
-- **`-innosetup` still works**: it is the old name of the same switch (up to
-  65.4m-pre42), kept so installers already built with it keep working.
-- **Windows only.** On any other OS the flag is **ignored** — zpaq-std runs exactly as
-  if it had not been passed (normal output, nothing silenced).
-- Works for any long operation (`a` compress, `x`/`t` extract, …). No installer
-  scripting, output redirection or progress files needed — the window is self-contained.
-- **Progress is real.** When compressing, the bar follows what has been
-  compressed, not what has been read: at `-m5` those are minutes apart.
-- **A failure is shown as one.** On a non-zero exit the title says "Extraction
-  failed" (or Compression / Test), the bar and the taskbar button turn red, the
-  first error is shown (e.g. `bad checksum`, `Archive not found: …`), and the
-  window closes on **Close** or by itself after **10 s**, so an unattended
-  (`/VERYSILENT`) install never hangs. The exit code is unchanged: the
-  installer should still check it.
-
-### For GUIs: `pakka` and `-catpaqmode`
-
-Two interfaces, inherited from zpaqfranz, are meant for programs that drive zpaq-std:
-
-- **`pakka archive.zpaq`** lists an archive in a form that is easy to parse (the
-  version list, then 4 lines per item: version, date, size, name).
-- **`-catpaqmode`** turns progress into telemetry, one `@SPK@EXT@` / `@SPK@PRG@` line
-  a second, with the real percentage, bytes done, total and remaining time: when
-  adding it follows what has been compressed, when extracting or testing how far
-  each block's decoding has got.
-
-The formats are in the [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#for-guis-pakka-and--catpaqmode).
-
----
-
-## No system dependencies
-
-All 21 bundled libraries live inside `compressors/` (LZ4 and LZAV come with
-zpaqfranz), together with the ZPAQL decoders and the scripts that generate them.
-sylz, in Free Pascal, is there too, but it is built only as a plugin (`make
-fpc-plugins`, with `fpc`), never into the program.
-No `apt install`, no `brew install`, no `-lz`, no `-lbrotli`: just `make`, and **no
-flag needs anything installed on the host**. The tree, and the optional `mount`
-command (off by default: it needs FUSE/WinFsp), are in the
-[wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
+Files are chosen by their contents, never by name; the rest is compressed as
+`-m`/`-ma` say. The plugin comes in the `extra-codecs` download. More:
+[wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#jpeg-and-jpeg-ls--sa).
 
 ---
 
 ## Build
 
-Requires only a C++ compiler (g++, clang++) and GNU make. pthread for multithreading.
+Only a C++ compiler (g++, clang++) and GNU make; no library to install.
 
 ```bash
-make              # optimized build
-make debug        # with -O0 -g
-make static       # static binary (NAS, containers, rescue)
-make m32          # 32-bit i386 ELF (requires g++-multilib)
-make test         # run zpaq-std's built-in autotest
-make check        # show configuration
-make plugins      # program + one plugin per -ma codec, in plugins/ (make clean first)
-make fpc-plugins  # just the Free Pascal codecs (sylz), in plugins/codecs/ (needs fpc)
+make                                      # optimized build
+make CROSS_COMPILE=x86_64-w64-mingw32-    # 64-bit Windows
+make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (Windows 7 and later)
+make plugins                              # program + every codec as a plugin (make clean first)
+make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
 
-Cross-compile:
-```bash
-make CROSS_COMPILE=aarch64-linux-gnu-     # ARM64 Linux
-make CROSS_COMPILE=x86_64-w64-mingw32-    # 64-bit Windows (MinGW-w64)
-make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (MinGW-w64)
-```
-
-### Codecs as plugins: `make plugins`
-
-Like 7-Zip-zstd's codec DLLs, the `-ma` codecs can also be built apart from the
-program. The default build stays one self-contained binary; `make plugins` (after
-`make clean`) builds the program without the codecs' libraries, and one plugin per
-codec:
-
-```
-plugins/zpaq-std[.exe]                        about 5 MB instead of 10
-plugins/codecs/zstd.dll  brotli.dll  kanzi.dll ...  (.so on Linux), 22 of them
-```
-
-**Codecs in Rust or Free Pascal are always plugins**, never linked into the
-program: both builds load them from `codecs/`. Today that is sylz and PJA (`-sa`). Each release has,
-per platform:
-
-| Download | What it is |
-|---|---|
-| `zpaq-std-<version>-<platform>` | the full program, every C/C++ codec inside |
-| `...-extra-codecs.zip` | `codecs/` with the plugin-only codecs (sylz and pja), to put next to the full program |
-| `...-plugins.zip` | the small program and every codec as a plugin, sylz and pja included |
-
-- zpaq-std loads the plugins from the `codecs` folder next to the executable, by
-  absolute path, once at start-up. Nothing is looked up in the current folder or
-  the `PATH`.
-- With a codec's plugin, the archives are the full build's, byte for byte, and the
-  speed is within a few percent of it (on Linux a plugin is position-independent
-  code).
-- Without it, `-ma:<codec>` stops with `00605! -ma:<codec> needs its plugin`, and
-  archives that already hold that codec's blocks still extract: every `-ma` block
-  carries its own ZPAQL decoder, which runs instead (slower).
-- `-m0`..`-m7` (and `-ma:lz4`, `-ma:lzav`, which are `-m6`/`-m7`) need no plugin.
-
-The interface is a few C functions (`compressors/plug/zs_codec.h`); see
-[`compressors/plug/README.md`](compressors/plug/README.md).
-
-**A codec that is not part of zpaq-std** can be used without rebuilding it: put its
-plugin in `codecs/` and use `-mat:<file>:<codec>:<level>` to test it (every block is
-shown and checked) or `-mae:...` for a finished one (it must carry its own ZPAQL
-decoder, and zpaq-std warns that it is not an official codec). See
-[`compressors/plug/README.md`](compressors/plug/README.md#a-codec-that-is-not-part-of-zpaq-std--mae-and--mat).
-**Codecs for specific formats** work the same way with `-sat:<file>:<codec>+<level>`
-and `-sae:...`: the plugin says, from each file's contents (never its name), which
-files it takes, and each of those goes alone in its block (or, if the codec's ZPAQL
-decoder allows it, with the next files it takes, one segment each, so that the
-decoder travels once per block), compressed by that codec and decoded back before
-it is written; everything else is compressed as `-m`/`-ma` say. See
-[`compressors/plug/README.md`](compressors/plug/README.md#codecs-for-specific-formats--sae-and--sat).
-
-The Windows build is a self-contained `zpaq-std.exe` that runs on a clean Windows
-7+ box. The 32-bit Windows build compresses with at most 2 threads and is
-large-address-aware (4 GB of address space on 64-bit Windows). More in the
-[wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
-
----
-
-## Install
-
-```bash
-make install            # to /usr/local/bin (or PREFIX=/opt)
-make install-clean      # install and remove local build
-make install-nointel    # disable JIT explicitly
-```
-
-On FreeBSD/OpenBSD/NetBSD use `gmake`.
+Each release has, per platform, the full program, `extra-codecs.zip` (the codecs that
+are only plugins: sylz and pja, to put in `codecs/` next to the program) and
+`plugins.zip` (a small program and every codec as a plugin). Targets, plugins and
+cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 
 ---
 
 ## Usage
 
-The classic 7z-style verbs:
 - `a` archive files into the .zpaq
-- `x` extract (optionally `-until N` to pick a version, `-to dir/`; with a wildcard
-  pattern such as `"/data/*"`, `-to` replaces its literal part, also in `a`)
+- `x` extract (`-until N` picks a version, `-to dir/` renames)
 - `l` list contents of a version
 - `i` show all versions and their stats
-- `c` compare / verify
-- `t` test the archive (recomputes the stored hashes)
-- `codecinfo` the `-ma` codecs at a glance (status, levels, default, ZPAQL decoder,
-  library, and whether each is built in, a plugin, or missing), then the plugins in
-  `codecs/`: zpaq-std's `-sa` codecs (pja, pjals) and those that are not part of zpaq-std; `codecinfo <codec>` gives that codec's
-  card (author, repository, licence, the release or commit it comes from, format,
-  and the SHA-256 of its plugin file and of its ZPAQL decoder), and `codecinfoex`
-  every card
+- `t` test the archive
+- `codecinfo` the codecs at a glance; `codecinfo <codec>` its card
 
-Those are the common ones; the built-in help documents **59** commands in total
-(`backup`, `testbackup`, `trim`, `crop`, `find`, `redu`, `dirsize`, `sum`,
-`collision`, `1on1`, `consolidate`, `versum`, `image`, `gui`, `tui`…).
-
-See `zpaq-std h <command>` for full help, or `zpaq-std h voodoo` for the full list of switches (the `-ma:*` family is documented there).
+The built-in help documents **59** commands (`zpaq-std h <command>`), and
+`zpaq-std h voodoo` lists every switch. `-popgui` shows a native progress window on
+Windows (for installers); `pakka` and `-catpaqmode` are for GUIs. More:
+[wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage).
 
 ---
 
 ## Verification
 
-An archiver's only real promise is that what came out is what went in, so the
-harness lives in the repo under **`test/testlab/`** (see its `LEEME.md`). Four
-tools that measure different things:
-
-| tool | what it checks |
-|---|---|
-| `difftest.sh A B` | two binaries agree: byte-identical archives, each reads the other's, same `l`/`t` verdict |
-| `golden_gate.sh` | the current build still extracts `.zpaq` files written by **published** releases, with identical content and `t` == 0 |
-| `os_msgs.sh A B` | destination shapes and the numbered messages — bare relative name, nonexistent chain, UTF-8, long paths, symlinks, unwritable directories, `-append` on an existing archive |
-| `pin_corpus.sh` | pins the test corpus, so a comparison can't silently be run on different inputs |
-
-`suite_*.sh` add round-trip sweeps over every `-ma` codec, every command,
-corruption/robustness cases, `-tar`, Ctrl+C, the sylz plugin, `-mae`/`-mat`, `-sae`/`-sat` (several files per block included) and `-sa` with PJA; the corpus, golden archives and reference binaries
-live outside the repo, with their sha256 manifests committed.
+The test harness is in **`test/testlab/`**: round trips over every codec and
+command, damaged archives, archives of published releases (golden), comparisons
+between versions, Windows 7. See [wiki: Verification](https://github.com/YadeWira/zpaq-std/wiki/Verification).
 
 ---
 
 ## Why a fork
 
-The original zpaq 7.15 (Matt Mahoney, 2009–2016) is unmaintained. This fork keeps the archive format and the dependency-free build of its upstream lineage and adds the **bundled-compressor** philosophy: pick the algorithm at archive time, no host setup needed.
+The original zpaq 7.15 (Matt Mahoney, 2009–2016) is unmaintained. This fork keeps the archive format and the dependency-free build of its upstream lineage and adds the **bundled-compressor** philosophy: pick the algorithm at archive time, no host setup needed. See [CONTRIBUTORS](CONTRIBUTORS) for full attributions.
 
-See [CONTRIBUTORS](CONTRIBUTORS) for full attributions.
+**Version numbers** are `MAJOR.MINOR.PATCH` (details on the [wiki](https://github.com/YadeWira/zpaq-std/wiki)).
 
 ---
 
