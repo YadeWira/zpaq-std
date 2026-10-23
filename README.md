@@ -278,7 +278,7 @@ The classic 7z-style verbs:
   and the SHA-256 of its plugin file and of its ZPAQL decoder), and `codecinfoex`
   every card
 
-Those are the common ones; the built-in help documents **57** commands in total
+Those are the common ones; the built-in help documents **59** commands in total
 (`backup`, `testbackup`, `trim`, `crop`, `find`, `redu`, `dirsize`, `sum`,
 `collision`, `1on1`, `consolidate`, `versum`, `image`, `gui`, `tui`…).
 
