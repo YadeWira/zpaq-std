@@ -1,3 +1,62 @@
+### [1.6.0] - 2026-10-23
+
+`-ma:lzh` moves to LZHAM 1.0 (lzham-ex) with a new portable decoder. `-ma:lzfse` and `-ma:hs` move to maintained forks that write the same streams. Also lz6 v1.6.14-pre, syc v0.2.8 for sylz, and plugin decoders sized per block.
+
+#### `-ma:lzh`: LZHAM 1.0, through lzham-ex 1.0.2
+
+**zpaq-std's LZHAM was not LZHAM 1.0.** codecinfo, the README and the source comments all said it was, but the sources came from LZHAM's older "alpha" line (`LZHAM_DLL_VERSION` 0x1008, with polar codes). Its format is not compatible with LZHAM 1.0 in either direction. LZHAM 1.0 now comes from [lzham-ex](https://github.com/YadeWira/lzham-ex), the maintained fork of LZHAM 1.0.
+
+- **New archives:** `-ma:lzh` writes LZHAM 1.0 blocks, tagged `lzh10`. Each block carries a new decoder written for this format, **ZPAQLZHAM10**. It is smaller than the old one (17.5 KB instead of 23.7) and faster in other zpaqs: 32–94 MB/s with a JIT, 2.7–8.5 without, against 5–50 and 0.4–4. zpaq 7.15, zpaqfranz and zpaq-std 1.5.1 extract them.
+- **Archives from 1.5.1 and earlier** still extract with 1.6.0. lzham-ex cannot read the alpha format, so zpaq-std no longer decodes those blocks natively. It runs the ZPAQLZHAM decoder each block carries, as any other zpaq does, which is slower.
+- **Size:** about the same. On 100 files of the test corpus, 0.07% smaller at level 1 and 0.59% bigger at level 4. The alpha format chose among 64 literal tables by the previous bytes; 1.0 uses one.
+- **Levels:** codecinfo said level 4 was LZHAM's "uber" level. Levels 1 to 4 are LZHAM's fastest, faster, default and **better**.
+
+#### `-ma:lzfse`: lzfse-ex 1.0.3
+
+[lzfse-ex](https://github.com/YadeWira/lzfse-ex) is a maintained fork of Apple's LZFSE, which has had no release since 2017.
+
+- It fixes a read past the input in the decoder on damaged data, inherited from Apple's code and found with zpaq-std's `codec_check`.
+- It also fixes an undefined shift in the encoder.
+- The stream is the same: `-ma:lzfse` writes the very bytes of 1.5.1, and ZPAQLZFSE does not change.
+
+#### `-ma:hs`: heatshrink-ex 0.5.0
+
+[heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) is a maintained fork of heatshrink 0.4.1, unchanged upstream since 2015.
+
+- It fixes a crash on empty input, a loop in the window-15 encoder, and the decoder with an exactly sized buffer.
+- The stream is the same: every `-ma:hs` level writes the very bytes of 1.5.1, and ZPAQHS does not change.
+
+#### lz6 and sylz
+
+- **lz6 v1.6.14-pre** (and v1.6.13-pre before it): lz6's changes are in its newer "seq" engine. The portable profile that `-ma:lz6` writes is untouched: the same bytes as 1.5.1.
+- **sylz from syc v0.2.8:** levels 4 to 8 use lz4hc's parser, with an x86-64 assembly match search, and compress a little better (Silesia: level 4 38.80% instead of 39.35%, level 8 36.38% instead of 36.60%). Format v2 is the same, so ZPAQSYLZ reads it as before. As always, sylz is a plugin only, in `extra-codecs.zip`.
+
+#### Plugins (`-mae`, `-mat`, `-sae`, `-sat`)
+
+- **Decoders sized per block.** A plugin's ZPAQL decoder can take `$3`, `$4` and `$5`, which the codec fills for each block through the new `query(ZS_QUERY_ZPAQL_ARGS)`. A decoder whose memory depends on the data then asks for just enough, instead of a fixed worst case. Such a decoder is given through `data(ZS_DATA_ZPAQL_ARGS)`. zpaq-std 1.4.0 to 1.5.1 cannot fill `$3`..`$5`, so they see no decoder at all and never write a block with the wrong sizes. See `compressors/plug/zs_codec.h` and the `rlea` codec of the example plugin.
+- **The decoder now counts in the no-gain check.** Every external block carries its ZPAQL decoder. When the decoder was larger than what the codec saved, the block came out larger than `-m` would have made it. Now such a block falls back to `-m`. On 44 real JPEGs with a JPEG plugin, the archive went from 30.1 to 29.4 MB.
+
+#### Downloads
+
+As in 1.5.1: the full program, `extra-codecs.zip` (the plugin-only codecs, sylz) and `plugins.zip` (every codec as a plugin), per platform; `THIRD-PARTY-LICENSES.txt` and `SHA256SUMS.txt`.
+
+#### Checked
+
+- **ZPAQLZHAM10:** 400 lzham-ex streams (100 corpus files up to 12 MB, plus random data, zeros, runs, empty and one-byte inputs, × levels 1–4) decode identically with zpaqd 7.15. Its Python reference matches lzham-ex's decoder and lzham-ex's own reference.
+- **`-ma:lzh`** at levels 1–4: new archives extract identically with zpaq 7.15, zpaqfranz, 1.5.1 and 1.6.0, and 1.5.1's archives (alpha format) with 1.6.0.
+- **lzham-ex, lzfse-ex and heatshrink-ex:** `codec_check` under AddressSanitizer and UBSan (exact-size buffers, damaged input). lzham-ex: 46,426 blocks; lzfse-ex: 23,146; heatshrink-ex: about 69,000. 0 memory errors.
+- **`-ma:lz6`** at levels 0–15, `-ma:lzfse` and `-ma:hs`: byte for byte the archives of 1.5.1. **`-ma:sylz`** at levels 3–8 extracts identically with zpaq 7.15.
+- **Windows 7 x64 and x86**, release binaries:
+  - `-ma:lzh:1`, `-ma:lzh:4`, `-ma:lzfse`, `-ma:hs:1`, `-ma:lz6:15` and `-m1`: 24/24 extractions identical, and what Windows wrote extracts on Linux with zpaq 7.15, zpaqfranz, 1.5.1 and 1.6.0;
+  - `-ma:lzh` archives from 1.5.1: identical;
+  - sylz with the extra-codecs DLLs: 15/15;
+  - `-mae`/`-mat`: 12/12;
+  - `-sae`/`-sat`: 16/16.
+- **Full test battery:**
+  - every suite has 0 cases to review;
+  - golden archives: 0 unexpected failures;
+  - `difftest` against 1.5.1: 182 comparisons, 0 divergences.
+
 ### [1.5.1] - 2026-10-22
 
 fast-lzma2 1.1.1, snappy 1.3.1 with its level 2 as the default, and `codecinfo <codec>`.
