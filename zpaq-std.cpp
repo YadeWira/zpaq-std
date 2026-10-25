@@ -14760,6 +14760,7 @@ bool flagnoattributes;
 bool flagnodir;
 bool flagnodedup;
 bool flagnoeta;
+bool flagfranztime;	/// -franztime: report of time, CPU, memory and I/O at the end
 bool flagnopath;
 bool flagnoqnap;
 bool flagnomac;
@@ -66506,6 +66507,7 @@ string help_a(bool i_usage, bool i_example)
 		scrivi_riga("-debug3", "Show VERY detailed debugging information");
 		scrivi_riga("-summary", "Be brief");
 		scrivi_riga("-noeta", "Do not show ETA (redirect output to log file)");
+		scrivi_riga("-franztime", "At the end: time, CPU, memory and I/O used (to stderr)");
 		scrivi_riga("-pakka", "New-style output (by chunks)");
 		scrivi_riga("-forcewindows", "Store ADS stuff                (default: NO)");
 		scrivi_riga("-xls", "Do NOT force adding of XLS/PPT (default: NO)");
@@ -68000,6 +68002,8 @@ string help_franzswitches(bool i_usage, bool i_example)
 		scrivi_riga("-flat", "Everything in single path (emergency extract of strange files)");
 		scrivi_riga("-forcewindows", "Take $DATA$ and System Volume Information");
 		scrivi_riga("-forcezfs", "Force paths including .zfs");
+		scrivi_riga("-franztime", "At the end, what zpaq-std used: wall time, CPU (user, kernel, cores),");
+		scrivi_riga(" ", "    memory peak and final, page faults, I/O (as Franco's franztime; to stderr)");
 		scrivi_riga("-kill", "In extraction write 0-bytes file instead of data");
 		scrivi_riga("-kill", "Show 'script-ready' log of dup files");
 		scrivi_riga("-limit X", "(like -n)");
@@ -69729,6 +69733,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_programflags.add(&flagthunderbird,	"-thunderbird",			"Thunderbird's e-mail",									"");
 	g_programflags.add(&flagnodedup,		"-nodedup",				"Turn off deduplicator",							"");
 	g_programflags.add(&flagnoeta,			"-noeta",				"Do not show ETA",									"");
+	g_programflags.add(&flagfranztime,		"-franztime",			"At the end: time, CPU, memory, I/O (as franztime)",	"");
 	g_programflags.add(&flagnopath,			"-nopath",				"Do not store path",								"");
 	g_programflags.add(&flagnoqnap,			"-noqnap",				"Exclude QNAP snap & trash",						"a;");
 	g_programflags.add(&flagnomac,			"-nomac",				"Exclude Mac hidden files",						"a;");
@@ -85704,8 +85709,170 @@ int main()
 #endif // unix
 #endif // ifndef DLL
 
+/// -franztime: at the end of any command, what zpaq-std itself used, as Franco
+/// Corbelli's franztime (https://github.com/fcorbelli/franztime, MIT) reports it
+/// for a program it runs: wall time, CPU (user, kernel, average cores), memory
+/// (peak and final), page faults and I/O. zpaq-std measures itself (it starts no
+/// other program), so on Windows and on Linux. To stderr, so stdout stays clean.
+#ifndef _WIN32
+#include <sys/resource.h>
+#endif
+static const std::chrono::steady_clock::time_point g_ft_t0=std::chrono::steady_clock::now();
+static std::string ft_num(uint64_t v)
+{
+	std::string d=std::to_string((unsigned long long)v), r;
+	for (size_t i=0; i<d.size(); i++)
+	{
+		if (i && (d.size()-i)%3==0)
+			r+='.';
+		r+=d[i];
+	}
+	return r;
+}
+static std::string ft_bytes(uint64_t v)
+{
+	const char* u[]={"B","KB","MB","GB","TB"};
+	double x=(double)v;
+	int i=0;
+	while (x>=1024.0 && i<4) { x/=1024.0; i++; }
+	char b[64];
+	snprintf(b, sizeof(b), "%18s  %8.2f %s", ft_num(v).c_str(), x, u[i]);
+	return b;
+}
+static void ft_line(const char* i_label, const std::string& i_value)
+{
+	fprintf(stderr, "  %-20s%s\n", i_label, i_value.c_str());
+}
+#ifdef _WIN32
+typedef struct
+{
+	DWORD cb, PageFaultCount;
+	SIZE_T PeakWorkingSetSize, WorkingSetSize, QuotaPeakPagedPoolUsage, QuotaPagedPoolUsage,
+	       QuotaPeakNonPagedPoolUsage, QuotaNonPagedPoolUsage, PagefileUsage, PeakPagefileUsage, PrivateUsage;
+} ft_pmc;	/// PROCESS_MEMORY_COUNTERS_EX, without psapi.h
+typedef BOOL (WINAPI *ft_gpmi)(HANDLE, ft_pmc*, DWORD);
+#endif
+static void franztime_report()
+{
+	if (!flagfranztime)
+		return;
+	fflush(stdout);
+	const double wall=std::chrono::duration<double>(std::chrono::steady_clock::now()-g_ft_t0).count();
+	double user=0, kern=0;
+	fprintf(stderr, "\n-franztime: what zpaq-std used\n");
+	char b[128];
+#ifdef _WIN32
+	HANDLE h=GetCurrentProcess();
+	FILETIME c0, e0, k0, u0;
+	if (GetProcessTimes(h, &c0, &e0, &k0, &u0))
+	{
+		user=(double)(((uint64_t)u0.dwHighDateTime<<32)|u0.dwLowDateTime)/1e7;
+		kern=(double)(((uint64_t)k0.dwHighDateTime<<32)|k0.dwLowDateTime)/1e7;
+	}
+#else
+	struct rusage ru;
+	memset(&ru, 0, sizeof(ru));
+	getrusage(RUSAGE_SELF, &ru);
+	user=ru.ru_utime.tv_sec+ru.ru_utime.tv_usec/1e6;
+	kern=ru.ru_stime.tv_sec+ru.ru_stime.tv_usec/1e6;
+#endif
+	snprintf(b, sizeof(b), "%18.3f s", wall);               ft_line("Wall time", b);
+	snprintf(b, sizeof(b), "%18.3f s", user);               ft_line("CPU user", b);
+	snprintf(b, sizeof(b), "%18.3f s", kern);               ft_line("CPU kernel", b);
+	snprintf(b, sizeof(b), "%18.2f cores (CPU time / wall time)", wall>0 ? (user+kern)/wall : 0.0); ft_line("CPU average", b);
+#ifdef _WIN32
+	ULONG64 cyc=0;
+	if (QueryProcessCycleTime(h, &cyc))
+	{
+		snprintf(b, sizeof(b), "%18s", ft_num(cyc).c_str());
+		ft_line("CPU cycles", b);
+	}
+	ft_gpmi gp=(ft_gpmi)(void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "K32GetProcessMemoryInfo");
+	if (!gp)
+	{
+		HMODULE ps=LoadLibraryA("psapi.dll");
+		if (ps)
+			gp=(ft_gpmi)(void*)GetProcAddress(ps, "GetProcessMemoryInfo");
+	}
+	ft_pmc m;
+	memset(&m, 0, sizeof(m));
+	m.cb=sizeof(m);
+	if (gp && gp(h, &m, sizeof(m)))
+	{
+		ft_line("Working set peak", ft_bytes(m.PeakWorkingSetSize));
+		ft_line("Working set final", ft_bytes(m.WorkingSetSize));
+		ft_line("Private bytes peak", ft_bytes(m.PeakPagefileUsage)+"  (commit)");
+		ft_line("Private bytes final", ft_bytes(m.PrivateUsage));
+		snprintf(b, sizeof(b), "%18s", ft_num(m.PageFaultCount).c_str()); ft_line("Page faults", b);
+	}
+	IO_COUNTERS io;
+	if (GetProcessIoCounters(h, &io))
+	{
+		ft_line("I/O read", ft_bytes(io.ReadTransferCount)+"  ("+ft_num(io.ReadOperationCount)+" ops)");
+		ft_line("I/O write", ft_bytes(io.WriteTransferCount)+"  ("+ft_num(io.WriteOperationCount)+" ops)");
+		ft_line("I/O other", ft_bytes(io.OtherTransferCount)+"  ("+ft_num(io.OtherOperationCount)+" ops)");
+	}
+#else
+#ifdef __linux__
+	/// /proc/self/status: VmHWM (resident peak), VmRSS, VmPeak (virtual peak)
+	uint64_t hwm=0, rss=0, vpeak=0;
+	FILE* f=fopen("/proc/self/status", "r");
+	if (f)
+	{
+		char l[256];
+		while (fgets(l, sizeof(l), f))
+		{
+			unsigned long long v=0;
+			if (sscanf(l, "VmHWM: %llu", &v)==1) hwm=v*1024;
+			else if (sscanf(l, "VmRSS: %llu", &v)==1) rss=v*1024;
+			else if (sscanf(l, "VmPeak: %llu", &v)==1) vpeak=v*1024;
+		}
+		fclose(f);
+	}
+	ft_line("Resident peak", ft_bytes(hwm)+"  (VmHWM)");
+	ft_line("Resident final", ft_bytes(rss));
+	ft_line("Virtual peak", ft_bytes(vpeak)+"  (VmPeak)");
+#else
+	/// getrusage's ru_maxrss: bytes on macOS, KB on the BSDs
+#ifdef __APPLE__
+	ft_line("Resident peak", ft_bytes((uint64_t)ru.ru_maxrss));
+#else
+	ft_line("Resident peak", ft_bytes((uint64_t)ru.ru_maxrss*1024));
+#endif
+#endif
+	snprintf(b, sizeof(b), "%18s  (%s major)", ft_num((uint64_t)(ru.ru_minflt+ru.ru_majflt)).c_str(), ft_num((uint64_t)ru.ru_majflt).c_str()); ft_line("Page faults", b);
+#ifdef __linux__
+	/// /proc/self/io: what went through read()/write() (rchar, wchar, syscr, syscw)
+	/// and what reached the disk (read_bytes, write_bytes)
+	uint64_t rc=0, wc=0, sr=0, sw=0, rb=0, wb=0;
+	f=fopen("/proc/self/io", "r");
+	if (f)
+	{
+		char l[256];
+		while (fgets(l, sizeof(l), f))
+		{
+			unsigned long long v=0;
+			if (sscanf(l, "rchar: %llu", &v)==1) rc=v;
+			else if (sscanf(l, "wchar: %llu", &v)==1) wc=v;
+			else if (sscanf(l, "syscr: %llu", &v)==1) sr=v;
+			else if (sscanf(l, "syscw: %llu", &v)==1) sw=v;
+			else if (sscanf(l, "read_bytes: %llu", &v)==1) rb=v;
+			else if (sscanf(l, "write_bytes: %llu", &v)==1) wb=v;
+		}
+		fclose(f);
+		ft_line("I/O read", ft_bytes(rc)+"  ("+ft_num(sr)+" ops; "+ft_num(rb)+" from the disk)");
+		ft_line("I/O write", ft_bytes(wc)+"  ("+ft_num(sw)+" ops; "+ft_num(wb)+" to the disk)");
+	}
+#else
+	snprintf(b, sizeof(b), "%18s in, %s out", ft_num((uint64_t)ru.ru_inblock).c_str(), ft_num((uint64_t)ru.ru_oublock).c_str()); ft_line("I/O blocks", b);
+#endif
+#endif
+	fflush(stderr);
+}
+
 int zpaq_main_internal(int argc, const char **argv)
 {
+	atexit(franztime_report);	/// -franztime (checks the flag itself)
 #ifdef _WIN32
     /*
         Getting "real" Windows versions is a... real nightmare
