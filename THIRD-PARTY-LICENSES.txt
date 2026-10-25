@@ -25,14 +25,14 @@ PART 1 - BUNDLED COMPRESSORS
   lzfse-ex (LZFSE)     1.0.3                        BSD-3-Clause
   heatshrink-ex        0.7.0                        ISC
   bzip3                1.5.5                        LGPL-3.0-or-later
-  libbsc               3.4.0                        Apache-2.0
+  libbsc               3.4.0, patched               Apache-2.0
   lzham-ex (LZHAM 1.0) 1.0.2                        Public domain
   PPMd var.H (Ppmd7)   7-Zip / LZMA SDK             Public domain
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  0.15.0                       BSD-3-Clause; rapidhash MIT
-  sylz                 syc v0.2.10                  MIT
-  PJA                  0.0.1                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
+  sylz and sylzec      syc v0.4.2                   MIT
+  PJA                  0.0.4                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -1644,11 +1644,12 @@ Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
 
 ===============================================================================
-libbsc 3.4.0
+libbsc 3.4.0, patched
 Licence: Apache-2.0
 Copyright: Ilya Grebnov
 Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed
-with either.
+with either. Modified by zpaq-std (bounds checks in the decoder): every change
+is marked ZPAQSTD-PATCH in the sources, listed in compressors/bsc/PATCHES.
 
 
                                  Apache License
@@ -2260,10 +2261,10 @@ You can contact the author at:
  */
 
 ===============================================================================
-sylz syc v0.2.10
+sylz and sylzec syc v0.4.2
 Licence: MIT
 Copyright: Yade Bravo (YadeWira)
-Free Pascal, built only as a plugin (codecs/sylz.dll or sylz.so): it is in the
+Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the
 extra-codecs and plugins downloads, not in the full program.
 
 MIT License
@@ -2289,10 +2290,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-PJA 0.0.1
+PJA 0.0.4
 Licence: MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
 Copyright: Yade Bravo (YadeWira)
-The -sa codecs pja (JPEG) and pjals (JPEG-LS). Free Pascal, built only as a plugin
+The -sa codecs pjax and pja (JPEG) and pjals (JPEG-LS). Free Pascal, built only as a plugin
 (codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in
 the full program. NOTICE has the third-party notes (IJG, CharLS).
 
