@@ -21378,7 +21378,12 @@ bool					 g_sa_official= false;	/// -sa: zpaq-std's own codecs (ZS_SA_OFFICIAL)
 /// codecs/<file>; the default level of each. Their blocks are -sae blocks (the same
 /// tags), so any version that reads -sae reads them
 struct zs_sa_official { const char* file; const char* algo; int level; const char* what; bool experimental; };
+/// In the order the codecs are tried. A file's name ("pja") stands for all its
+/// codecs: -sa:pja is the family, pjax first (it takes only what pja cannot do or
+/// where its format v6 gains: 12 bits, DNL, DRI without RST, big JPEGs after the
+/// EOI as in MPO and Ultra HDR), then pja and pjals; -sa alone, every codec
 static const zs_sa_official ZS_SA_OFFICIAL[]={
+	{"pja", "pjax",  2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST)", true},
 	{"pja", "pja",   2, "JPEG (baseline, progressive, arithmetic)", true},
 	{"pja", "pjals", 2, "JPEG-LS", true},
 };
@@ -68177,8 +68182,8 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its");
 		scrivi_riga(" ", "    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)");
 		scrivi_riga("-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):");
-		scrivi_riga(" ", "    pja (JPEG) and pjals (JPEG-LS),");
-		scrivi_riga(" ", "    from codecs/pja.dll or .so (the extra-codecs download); -sa alone uses both.");
+		scrivi_riga(" ", "    PJA's family (-sa or -sa:pja): pjax (JPEG with PJA's format v6), pja (JPEG)");
+		scrivi_riga(" ", "    and pjals (JPEG-LS), from codecs/pja.dll or .so (the extra-codecs download).");
 		scrivi_riga(" ", "    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say");
 		scrivi_riga("-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):");
 		scrivi_riga(" ", "    each file goes, by its contents, to the first codec that takes it (more codecs:");
@@ -70930,6 +70935,27 @@ int Jidac::loadparameters(int argc, const char** argv)
 			else
 				for (size_t k=0; k<nof; k++)
 					part.push_back(ZS_SA_OFFICIAL[k].algo);
+			/// a file's name (pja) is its family: every codec of it, in the table's order
+			/// (only for what was written: -sa alone already lists every codec)
+			if (opt.size()>4)
+			{
+				vector<string> fam;
+				for (size_t q=0; q<part.size(); q++)
+				{
+					const size_t plus=part[q].find('+');
+					const string nm=part[q].substr(0, plus), lv=plus==string::npos ? string("") : part[q].substr(plus);
+					bool isfile=false;
+					for (size_t k=0; k<nof; k++)
+						if (nm==ZS_SA_OFFICIAL[k].file)
+						{
+							isfile=true;
+							fam.push_back(string(ZS_SA_OFFICIAL[k].algo)+lv);
+						}
+					if (!isfile)
+						fam.push_back(part[q]);
+				}
+				part.swap(fam);
+			}
 			for (size_t q=0; q<part.size(); q++)
 			{
 				const size_t plus=part[q].find('+');
