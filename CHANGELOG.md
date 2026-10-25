@@ -1,3 +1,70 @@
+### [1.8.0] - 2026-10-25
+
+**`-ma:sylzec`** (experimental), **`-franztime`**, PJA 0.0.4 with **`pjax`** for `-sa`, a **bounds-checked libbsc decoder**, syc v0.4.2 (sylz and sylzec in one plugin) and lz6 1.7.0.
+
+#### `-ma:sylzec`: sylz with Huffman-coded literals (experimental)
+
+```bash
+zpaq-std a backup.zpaq /data -ma:sylzec        # level 1
+zpaq-std a backup.zpaq /data -ma:sylzec:9
+```
+
+- **What it is:** sylz's format v3, from [syc](https://github.com/YadeWira/syc) v0.4.2: the same LZ as `-ma:sylz`, with the literals Huffman-coded. On Silesia (203 MB): 80.7 MB at level 1 against sylz's 94.6 MB (−14.7%), and 71.4 MB at level 9 against 76.5 MB (−6.7%). It compresses slower than sylz (level 1: 2.4 s against 1.6 s with 8 threads).
+- **Portable:** every block carries ZPAQSYLZ3 (`compressors/zpaqsylz3/`, with its reference decoder `ref3.py`), so any zpaq extracts it. It reads format v3, and v2 when v3 would not be smaller.
+- **Install:** Free Pascal, so a plugin only. It is in the same file as sylz: `codecs/sylz.dll` or `sylz.so`, in the `extra-codecs` download.
+- **Experimental:** its compression and levels may change (00603). Archives already written stay readable: the format is frozen under this tag.
+
+#### `-franztime`: what zpaq-std used
+
+At the end of any command, to stderr: wall time, CPU (user, kernel, average cores), memory (peak and final), page faults and I/O, as Franco Corbelli's [franztime](https://github.com/fcorbelli/franztime) reports for a program it runs. zpaq-std measures itself, so it works on Linux too. On Windows it starts on Windows 7 (the memory call is resolved at run time).
+
+#### `-sa`: PJA 0.0.4 and `pjax` (still experimental, not recommended yet)
+
+```bash
+zpaq-std a photos.zpaq /photos -sa            # PJA's family: pjax, pja, pjals
+zpaq-std a photos.zpaq /photos -sa:pjals      # one codec only
+```
+
+- **`pjax`:** JPEG that needs PJA's format v6: MPO and Ultra HDR photos (big JPEGs after the first image's end), 12-bit JPEG, a height in a DNL, a DRI without restart markers. On two 3D-camera MPOs (19.2 MB) it gives 73–74%. Its ZPAQL decoder is 57,709 bytes; any zpaq extracts its blocks.
+- **The family:** a plugin file's name now stands for all its codecs: `-sa` and `-sa:pja` use pjax, pja and pjals, in that order (the same blocks as `-sae:pja:pjax+2:pja+2:pjals+2`). `-sa:pjax` and `-sa:pjals` pick one.
+- **pja and pjals:** byte for byte those of 1.7.0 (PJA 0.0.1). On the 79 JPEG and JPEG-LS files of our test corpus pjax takes nothing big enough to pay its decoder, and the archive is that of 1.7.0's size.
+- **Older versions:** zpaq-std 1.7.0 with PJA 0.0.1's plugin, and 1.6.0, run the pjax blocks' ZPAQL and read them correctly.
+- `-sa` now warns that it is experimental (00737).
+
+#### libbsc: a bounds-checked decoder (`-ma:bsc`)
+
+libbsc 3.4.0 trusts the sizes inside a block, and its Adler-32s only stop accidental damage. Fuzzing real `-ma:bsc` blocks under AddressSanitizer and UBSan found writes past the output, reads past the input, unbounded loops, an unchecked block table and index, and the inverse sort transform following links outside the block. zpaq-std now carries its own patch: every one of those cases ends as a clean "data corrupt" error. The encoder is untouched, so `-ma:bsc` writes the very bytes of 1.7.0, and ZPAQBSC is unchanged. Details: `compressors/bsc/PATCHES`. The idea and some seeds came from tovyCT, another agent of this lab.
+
+#### Codec updates
+
+| Codec | Version | What changes for zpaq-std |
+|---|---|---|
+| sylz | syc v0.4.2 | One plugin file with both codecs (sylz and sylzec); sylz writes the very bytes of before, and 1.7.0 loads sylz from the new file. |
+| `-ma:lz6` | lz6 1.7.0 | lz6's first stable release. It fixes a pointer that wrapped at low buffer addresses (32-bit without ASLR), which could give another (valid) stream in about 1% of runs, and a 1-byte over-read in its decoder. At normal addresses `-ma:lz6` writes the very bytes of before, levels 0 to 15. |
+| PJA | 0.0.4 | pjax, above. |
+
+#### Downloads
+
+As in 1.7.0: the full program, `extra-codecs.zip` (sylz, now with sylzec, and pja) and `plugins.zip`, per platform, plus `THIRD-PARTY-LICENSES.txt` and `SHA256SUMS.txt`.
+
+#### Known differences between x86 and x64
+
+Both read everything the other writes, but a few levels compress differently on 32-bit Windows (inherited, not new in 1.8.0): `-ma:lz6:0` (from LZ4's fast mode), and `-ma:sylz` at levels 0 and 1, about 20% bigger on x86 (the same as in 1.7.0).
+
+#### Checked
+
+- **libbsc patch:** every crashing case found (ours and tovyCT's seeds, with libbsc's static, adaptive and fast coders) ends as "data corrupt" with no sanitizer report, and 2,400,000 fuzzed blocks gave no report. `-ma:bsc` at levels 1, 3, 4, 6, 7 and 9, with `-m1` and `-m5` blocks, writes the very bytes of 1.7.0, and 1.7.0's archives read.
+- **sylzec:** `suite_sylz` 8/8 for sylz and 8/8 for sylzec (plugin, ZPAQL, zpaq 7.15); ZPAQSYLZ3 against its reference decoder on 220 test vectors; sylz from the unified plugin writes the very bytes of the previous one.
+- **PJA 0.0.4:** vendored from its tag (`v0.0.4`, commit `ceae7c7`, the tarball checked by its SHA-256), unmodified. `suite_sa` 16/16: `-sa`, `-sa:pja` and `-sae:pja:pjax+2:pja+2:pjals+2` write the same archive, which extracts with and without the plugin and with zpaq 7.15, and `-sa:pja:pjals` is refused. The 79 JPEG and JPEG-LS files of the corpus extract identically with the plugin, without it and with zpaq 7.15.
+- **lz6 1.7.0:** `-ma:lz6` levels 0 to 15 write the same bytes as before.
+- **Windows 7 x64 and x86**, release binaries and the extra-codecs DLLs:
+  - `-ma:lzh:1`, `-ma:lzfse`, `-ma:hs:1`, `-ma:lz6` (0, 9, 15), `-ma:bsc` (1, 9) and `-m1`: 36/36 extractions identical in Windows, and the archives made there extract on Linux with zpaq 7.15, zpaqfranz, 1.7.0 and 1.8.0.
+  - sylz and sylzec at levels 0 and 10, with and without the DLL: 30/30.
+  - `-sa` and `-sat` with pjax, pja and pjals: x64 and x86 write the same archive. The 79-file corpus and two MPOs taken by pjax extract identically in Windows, and on Linux with zpaq 7.15, 1.6.0, 1.7.0 with PJA 0.0.1's plugin, and 1.8.0 with and without the plugin.
+  - `-mae`/`-mat`: 12/12; `-sae`/`-sat` with the example plugin: 16/16.
+  - `-franztime` on `a` and `t`, x64 and x86.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.7.0: 182 comparisons, 0 divergences.
+
 ### [1.7.0] - 2026-10-23
 
 **JPEG and JPEG-LS with `-sa`** (**experimental, not recommended yet**): zpaq-std's first codecs for specific formats, from [PJA](https://github.com/YadeWira/PJA) 0.0.1. Also several files per block for these codecs, and codec updates: syc v0.2.10, heatshrink-ex 0.7.0, fast-lzma2 1.1.2 and ultra-fast-lzma2 1.6.4.
