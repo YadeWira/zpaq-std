@@ -1,8 +1,15 @@
-lz6 lib/ v1.6.14-pre (tag v1.6.14-pre, commit 3106c73, 2026-10-23): lz6.c, lz6hc.c,
+lz6 lib/ v1.7.0 (tag v1.7.0, commit f0a101d, 2026-10-24: lz6's first stable release, formats
+frozen since v1.6.11); before it v1.6.15-pre (b72a8fc) and v1.6.14-pre (3106c73): lz6.c, lz6hc.c,
 lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since v1.6.13-pre
 are in the table of lz6's seq engine (levels 9 to 13 of the newer format); the HC table
 of the LZ5 v1.5 "portable profile" that -ma:lz6 writes is untouched, and -ma:lz6 comes
-out byte for byte the same at levels 0, 1, 5 and 9 to 15.
+out byte for byte the same at levels 0, 1, 5 and 9 to 15. 1.6.15-pre changes rows 3 and 10
+of the same seq table (lz6's levels -1 and -8): -ma:lz6 at levels 0 to 15 writes the same bytes.
+1.7.0 fixes two things -ma:lz6 meets: the HC parsers' 3-byte match test compared a pointer
+built as start - 2^window, which wrapped with low buffer addresses (32-bit, no PIE or ASLR),
+so the same input could give another (valid) stream in about 1% of the runs; and
+LZ6_decompress_safe read one byte past a block of 1 byte or an empty input. At normal
+addresses -ma:lz6 writes the very bytes of before (levels 0 to 15).
 
 Before (never released: on main between 1.5.1 and 1.6.0): v1.6.13-pre (tag v1.6.13-pre, commit a082a99, 2026-10-22): lz6.c, lz6hc.c,
 lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since v1.6.12-pre are

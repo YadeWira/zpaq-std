@@ -26,4 +26,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return r >= 0 ? (long long)r : -1;
 }
 
-ZS_DEFINE_CODEC(lz6, "lz6 v1.6.14-pre", 0, 15, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(lz6, "lz6 v1.7.0", 0, 15, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

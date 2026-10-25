@@ -167,7 +167,7 @@ FORCE_INLINE int LZ6_compress_generic(
     const BYTE* lowLimit;
     const BYTE* const lowRefLimit = ip - dictPtr->dictSize;
     const BYTE* const dictionary = dictPtr->dictionary;
-    const BYTE* const dictEnd = dictionary + dictPtr->dictSize;
+    const BYTE* const dictEnd = dictPtr->dictSize ? dictionary + dictPtr->dictSize : dictionary;   /* no arithmetic on a NULL dictionary */
     const size_t dictDelta = dictEnd - (const BYTE*)source;
     const BYTE* anchor = (const BYTE*) source;
     const BYTE* const iend = ip + inputSize;
@@ -247,7 +247,7 @@ FORCE_INLINE int LZ6_compress_generic(
         }
 
         /* Catch up */
-        while ((ip>anchor) && (match+refDelta > lowLimit) && (unlikely(ip[-1]==match[refDelta-1]))) { ip--; match--; }
+        while ((ip>anchor) && (match+refDelta > lowLimit) && (unlikely(ip[-1]==match[(ptrdiff_t)refDelta-1]))) { ip--; match--; }
 
         {
             /* Encode Literal length */
@@ -954,7 +954,7 @@ FORCE_INLINE int LZ6_decompress_generic(
     BYTE* oexit = op + targetOutputSize;
     const BYTE* const lowLimit = lowPrefix - dictSize;
 
-    const BYTE* const dictEnd = (const BYTE*)dictStart + dictSize;
+    const BYTE* const dictEnd = dictSize ? (const BYTE*)dictStart + dictSize : (const BYTE*)dictStart;   /* no arithmetic on a NULL dictStart */
     const unsigned dec32table[] = {4, 1, 2, 1, 4, 4, 4, 4};
     const int dec64table[] = {0, 0, 0, -1, 0, 1, 2, 3};
 
@@ -966,6 +966,9 @@ FORCE_INLINE int LZ6_decompress_generic(
     /* Special cases */
     if ((partialDecoding) && (oexit> oend-MFLIMIT)) oexit = oend-MFLIMIT;                         /* targetOutputSize too high => decode everything */
     if ((endOnInput) && (unlikely(outputSize==0))) return ((inputSize==1) && (*ip==0)) ? 0 : -1;  /* Empty output buffer */
+    /* A block that makes any output is a token and at least one more byte. Rejecting less than that here is what keeps the first token's literal-length
+     * extension byte inside the input: after every match the checks above leave 3 or more bytes, so no later token can have its extension byte outside it. */
+    if ((endOnInput) && unlikely(inputSize<2)) return -1;
     if ((!endOnInput) && (unlikely(outputSize==0))) return (*ip==0?1:-1);
 
 

@@ -469,7 +469,7 @@ FORCE_INLINE int LZ6HC_FindBestMatch (LZ6HC_Data_Structure* ctx,   /* Index tabl
 			if (offset < LZ6_SHORT_OFFSET_DISTANCE)
 			{
 				match = ip - offset;
-				if (match > base && MEM_read24(ip) == MEM_read24(match))
+				if (matchIndex3 > 0 && MEM_read24(ip) == MEM_read24(match))
 				{
 					ml = 3;//MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
 					*matchpos = match;
@@ -550,7 +550,7 @@ FORCE_INLINE int LZ6HC_FindMatchFast (LZ6HC_Data_Structure* ctx, U32 matchIndex,
 		if (offset < LZ6_SHORT_OFFSET_DISTANCE)
 		{
 			match = ip - offset;
-			if (match > base && MEM_read24(ip) == MEM_read24(match))
+			if (matchIndex3 > 0 && MEM_read24(ip) == MEM_read24(match))
 			{
 				ml = 3;//MEM_count(ip+MINMATCH, match+MINMATCH, iLimit) + MINMATCH;
 				*matchpos = match;
@@ -740,7 +740,7 @@ FORCE_INLINE size_t LZ6HC_GetWiderMatch (
 			if (offset < LZ6_SHORT_OFFSET_DISTANCE)
 			{
 				match = ip - offset;
-				if (match > base && MEM_read24(ip) == MEM_read24(match))
+				if (matchIndex3 > 0 && MEM_read24(ip) == MEM_read24(match))
 				{
 					size_t mlt = MEM_count(ip + MINMATCH, match + MINMATCH, iHighLimit) + MINMATCH;
 
@@ -853,7 +853,7 @@ FORCE_INLINE int LZ6HC_GetAllMatches (
 		if (offset < LZ6_SHORT_OFFSET_DISTANCE)
 		{
 			match = ip - offset;
-			if (match > base && MEM_read24(ip) == MEM_read24(match))
+			if (*HashPos3 > 0 && MEM_read24(ip) == MEM_read24(match))
 			{
 				size_t mlt = MEM_count(ip + MINMATCH, match + MINMATCH, iHighLimit) + MINMATCH;
 
@@ -999,7 +999,7 @@ FORCE_INLINE int LZ6HC_BinTree_GetAllMatches (
 		if (offset < LZ6_SHORT_OFFSET_DISTANCE)
 		{
 			match = ip - offset;
-			if (match > base && MEM_read24(ip) == MEM_read24(match))
+			if (*HashPos3 > 0 && MEM_read24(ip) == MEM_read24(match))
 			{
 				mlt = MEM_count(ip + MINMATCH, match + MINMATCH, iHighLimit) + MINMATCH;
 
@@ -1316,7 +1316,7 @@ static int LZ6HC_compress_optimal_price (
     const BYTE* const mflimit = iend - MFLIMIT;
     const BYTE* const matchlimit = (iend - LASTLITERALS);
     BYTE* op = (BYTE*) dest;
-    BYTE* const oend = op + maxOutputSize;
+    BYTE* const oend = dest ? op + maxOutputSize : op;   /* the sequence collector passes no output buffer */
     const size_t sufficient_len = ctx->params.sufficientLength;
     const int faster_get_matches = (ctx->params.fullSearch == 0); 
  
@@ -1776,7 +1776,7 @@ static int LZ6HC_compress_lowest_price (
     const BYTE* const matchlimit = (iend - LASTLITERALS);
 
     BYTE* op = (BYTE*) dest;
-    BYTE* const oend = op + maxOutputSize;
+    BYTE* const oend = dest ? op + maxOutputSize : op;   /* the sequence collector passes no output buffer */
 
     int   ml, ml2, ml0;
     const BYTE* ref=NULL;
@@ -1944,7 +1944,7 @@ static int LZ6HC_compress_price_fast (
     const BYTE* const matchlimit = (iend - LASTLITERALS);
 
     BYTE* op = (BYTE*) dest;
-    BYTE* const oend = op + maxOutputSize;
+    BYTE* const oend = dest ? op + maxOutputSize : op;   /* the sequence collector passes no output buffer */
 
     int   ml, ml2=0;
     const BYTE* ref=NULL;
@@ -2101,7 +2101,7 @@ static int LZ6HC_compress_fast (
     const BYTE* const matchlimit = (iend - LASTLITERALS);
 
     BYTE* op = (BYTE*) dest;
-    BYTE* const oend = op + maxOutputSize;
+    BYTE* const oend = dest ? op + maxOutputSize : op;   /* the sequence collector passes no output buffer */
 
     int   ml;
     const BYTE* ref=NULL;
@@ -2282,12 +2282,14 @@ FORCE_INLINE void LZ6HC_rowUpdate(LZ6HC_rows* r, const BYTE* base, U32 target, c
 #if defined(__SSE2__)
 #  include <emmintrin.h>
 #endif
+#if !defined(__SSE2__)   /* only the scalar tag compare uses it */
 /* bit i set when byte i of x is zero (exact, no false positives) */
 FORCE_INLINE U64 LZ6HC_zeroBytes(U64 x)
 {
     const U64 m = 0x7F7F7F7F7F7F7F7FULL;
     return ~(((x & m) + m) | x | m);
 }
+#endif
 
 /* best match at ip among the row's tag hits (newest first); returns its
  * length (0 if none >= 4) and sets *off */
@@ -2375,7 +2377,7 @@ static int LZ6HC_compress_row (
     const BYTE* const base = ctx->base;
     const BYTE* const lowPrefixPtr = base + ctx->dictLimit;
     BYTE* op = (BYTE*)dest;
-    BYTE* const oend = op + maxOutputSize;
+    BYTE* const oend = dest ? op + maxOutputSize : op;   /* the sequence collector passes no output buffer */
     const U32 depth = ctx->params.fullSearch;
     const U32 reps = ctx->params.rowRep & 3;                 /* LZ6_ROWREP: which repeat offsets to probe, see lz6common.h */
     const int r12 = (int)((ctx->params.rowRep >> 8) & 255);   /* bits charged to a rep1/rep2 match */
