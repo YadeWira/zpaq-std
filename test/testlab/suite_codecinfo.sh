@@ -5,7 +5,7 @@
 # POR QUE EXISTE: la tabla de codecinfo (ZS_INFO en zpaq-std.cpp) repite los
 # niveles y defaults que aplica el parser de -ma y que dice el README; si uno
 # cambia y el otro no, codecinfo miente sin que nada falle. Lo que mide:
-# (1) codecinfo lista los 28 switches -ma; (2) niveles y default de cada uno
+# (1) codecinfo lista los 29 switches -ma; (2) niveles y default de cada uno
 # coinciden con la tabla del README; (3) codecinfoex <codec> funciona con cada
 # uno y da su decodificador; (4) los plugins externos de codecs/ aparecen
 # marcados, con su ficha (ZS_DATA_INFO) y el SHA-256 real del archivo; uno roto
@@ -27,7 +27,7 @@ malos=0; casos=0
 ok() { casos=$((casos+1)); [ "$2" = ok ] || malos=$((malos+1)); printf '  %-52s %s\n' "$1" "$2"; }
 ./zpaq-std codecinfo > ci.txt 2>&1; rc=$?
 n=$(grep -cE '^[a-z0-9]+ +(stable|experimental) ' ci.txt)
-[ $rc = 0 ] && [ "$n" = 28 ] && r=ok || r="rc=$rc filas=$n"; ok "codecinfo: 28 switches -ma" "$r"
+[ $rc = 0 ] && [ "$n" = 29 ] && r=ok || r="rc=$rc filas=$n"; ok "codecinfo: 29 switches -ma" "$r"
 r=$(python3 -I - "$R/README.md" ci.txt <<'EOF'
 import re,sys
 readme=open(sys.argv[1],encoding='utf-8').read()
@@ -47,7 +47,7 @@ for line in open(sys.argv[2]):
     nm,lv,d=m.group(1),m.group(3),m.group(4)
     if nm not in doc: bad.append(nm+':no-esta-en-README')
     elif doc[nm]!=(lv,d): bad.append('%s:codecinfo=%s/%s README=%s/%s'%(nm,lv,d,doc[nm][0],doc[nm][1]))
-print('ok' if not bad and seen==28 else ' '.join(bad) or 'filas=%d'%seen)
+print('ok' if not bad and seen==29 else ' '.join(bad) or 'filas=%d'%seen)
 EOF
 )
 ok "niveles y default iguales a la tabla del README" "$r"

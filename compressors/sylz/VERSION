@@ -1,6 +1,15 @@
-sylz (format v2), from syc v0.2.10 (tag v0.2.10, commit 41435d1, 2026-10-23; a pre-release),
-https://github.com/YadeWira/syc. MIT, see LICENSE. Files copied unmodified:
-src/sylz.pas, src/sylzhuf.pas and plugin/sylz_zpaqstd.pas (the zpaq-std plugin adapter).
+sylz (format v2) and sylzec (format v3), from syc v0.4.2 (tag v0.4.2, commit d2f9632, 2026-10-24;
+a pre-release), https://github.com/YadeWira/syc. MIT, see LICENSE. Files copied unmodified:
+src/sylz.pas, src/sylzhuf.pas, src/sylzc.c (C fast paths, linked into the plugins; built
+freestanding with the target's gcc), plugin/sylz_zpaqstd.pas (the plugin adapter: ONE file,
+codecs/sylz, with both codecs through zpaqstd_codecs_v1; zpaqstd_codec_v1 still gives sylz,
+so zpaq-std 1.7.0 and earlier load it as before) and plugin/zs_codec.inc. syc 0.3.0 to 0.4.1
+had sylzec in a file of its own, codecs/sylzec, which zpaq-std still loads if sylz has not it.
+sylzec writes sylz format v3 (frozen at syc v0.2.14: Huffman-coded literals), or a plain
+v2 block when v3 is not smaller; its blocks carry ZPAQSYLZ3 (compressors/zpaqsylz3).
+syc 0.2.14 to 0.4.2 write sylz's very bytes of 0.2.10, and sylzec's of 0.3.0.
+syc 0.2.11 to 0.2.13 write the very bytes of 0.2.10 at every level: only faster, and the
+32-bit x86 decoder picks SSE2 or plain i686 at run time, so it runs on any x86.
 
 Free Pascal: by the project's rule, a codec in Rust or Free Pascal is built only as a
 plugin (codecs/sylz.dll or sylz.so), never linked into zpaq-std itself. Its blocks

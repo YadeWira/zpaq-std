@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# suite_sylz.sh -- -ma:sylz (experimental, plugin only, ZPAQSYLZ).
+# suite_sylz.sh -- -ma:sylz y -ma:sylzec (experimental, plugin only, ZPAQSYLZ y ZPAQSYLZ3).
 #
 # POR QUE EXISTE: sylz es el primer codec que va SOLO como plugin (Free Pascal):
 # el binario completo tiene que cargarlo de codecs/, negarse sin el (00605), y los
@@ -8,10 +8,12 @@
 # codecs/), igual que con el plugin. Y un bloque danado no puede tardar minutos.
 #
 #   uso: PLUG=.../sylz.so suite_sylz.sh   (Z=... o el binario del repo)
+#        CODEC=sylzec suite_sylz.sh   (sylz formato v3, del mismo sylz.so)
 # ============================================================================
 set -u
 Z=${Z:-/home/forum/git/zpaq-std/zpaq-std}
-PLUG=${PLUG:-/home/forum/git/zpaq-std/plugins/codecs/sylz.so}
+CODEC=${CODEC:-sylz}
+PLUG=${PLUG:-/home/forum/git/zpaq-std/plugins/codecs/sylz.so}   # sylz.so has both (syc 0.4.2 on)
 SRC=${SRC:-/mnt/IA_LAB/agentes/ZPAQ-STD/bugs/stress/src}
 W=/mnt/IA_LAB/agentes/ZPAQ-STD/testlab
 RUN=${RUN:-sylz}
@@ -20,10 +22,10 @@ cp "$Z" con/zpaq-std; cp "$PLUG" con/codecs/sylz.so; cp "$Z" sin/zpaq-std
 malos=0; casos=0
 ok() { casos=$((casos+1)); [ "$2" = ok ] || malos=$((malos+1)); printf '  %-46s %s\n' "$1" "$2"; }
 
-sin/zpaq-std a n.zpaq $SRC/deep -ma:sylz </dev/null >n.log 2>&1; rc=$?
+sin/zpaq-std a n.zpaq $SRC/deep -ma:$CODEC </dev/null >n.log 2>&1; rc=$?
 [ $rc = 2 ] && grep -qa '00605' n.log && r=ok || r="rc=$rc sin 00605"; ok "sin plugin, a se niega" "$r"
 for l in 0 1 2 3 6 10; do
-  rm -rf x; con/zpaq-std a s$l.zpaq $SRC/tree -ma:sylz:$l </dev/null >a.log 2>&1; ra=$?
+  rm -rf x; con/zpaq-std a s$l.zpaq $SRC/tree -ma:$CODEC:$l </dev/null >a.log 2>&1; ra=$?
   r=ok; [ $ra = 0 ] || r="a rc=$ra"
   grep -qa '00603' a.log || r="$r sin-aviso-experimental"
   con/zpaq-std t s$l.zpaq >/dev/null 2>&1 || r="$r t-falla"
@@ -31,7 +33,7 @@ for l in 0 1 2 3 6 10; do
     d=${zz##* }; rm -rf $d; $zz >/dev/null 2>&1
     diff -r $SRC/tree $d$SRC/tree >/dev/null 2>&1 || r="$r $d-distinto"
   done
-  ok "-ma:sylz:$l a, t, x (plugin, ZPAQL, zpaq 7.15)" "$r"
+  ok "-ma:$CODEC:$l a, t, x (plugin, ZPAQL, zpaq 7.15)" "$r"
 done
 # bloque danado: el ZPAQL no puede escribir mas que el original ni tardar
 cp s6.zpaq d.zpaq; python3 - <<'PY'

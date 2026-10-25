@@ -153,10 +153,19 @@ function SylzCompressCtx(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
 const
   { SylzCompressEx flags }
   SYLZ_ENTROPY = 1;   { format v3: Huffman-code the literals where it pays }
+  { With SYLZ_ENTROPY the levels are 0..SYLZ_EC_MAXLEVEL: 0..8 parse as
+    format v2's level N + SYLZ_EC_SHIFT (v2's levels 0 and 1 leave so many
+    literals that, Huffman-coded, they decode slower than level 2's parse
+    and compress worse: silesia.tar 40.11% / 1655 MB/s, 39.21% / 1795,
+    against 38.80% / 2209); 9 and 10 run the optimal parser with each
+    literal priced by its Huffman code (CompressOptEC). }
+  SYLZ_EC_SHIFT = 2;
+  SYLZ_EC_MAXLEVEL = SYLZ_MAXLEVEL;   { 9 and 10: entropy-aware prices }
 
 { SylzCompressCtx with flags. Without SYLZ_ENTROPY the output is format v2
   (what SylzCompress writes); with it, format v3 if that is smaller, else
-  v2. SylzDecompress reads both. }
+  v2, and levels go 0..SYLZ_EC_MAXLEVEL (see SYLZ_EC_SHIFT). SylzDecompress
+  reads both. }
 function SylzCompressEx(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   cap: SizeInt; level: Integer; flags: Integer): SizeInt;
 
@@ -171,15 +180,25 @@ function SylzDecompressCtx(var dctx: TSylzDCtx; src: PByte; n: SizeInt; dst: PBy
   dstLen: SizeInt): SizeInt;
 
 var
-  { Use the assembler fast paths where there are any (x86_64, unless built
-    with -dSYLZ_PUREPASCAL). Both paths produce the same results; tests
-    turn this off to exercise the Pascal one. }
+  { Use the assembler (x86_64) and C fast paths where there are any,
+    unless built with -dSYLZ_PUREPASCAL. Every path produces the same
+    results; tests turn this off to exercise the Pascal ones. }
   SylzUseAsm: Boolean = True;
+  { On x86_64, take the C paths instead of the assembler ones where both
+    exist (tests and benchmarks; elsewhere C is the fast path anyway). }
+  SylzPreferC: Boolean = False;
 
 implementation
 
 uses
   sylzhuf;
+
+{ C parts (sylzc.c, built by build.sh into the object path): every
+  target, unless SYLZ_PUREPASCAL }
+{$ifndef SYLZ_PUREPASCAL}
+{$define SYLZ_C}
+{$L sylzc.o}
+{$endif}
 
 {$if defined(CPUX86_64) and not defined(SYLZ_PUREPASCAL)}
 {$define SYLZ_ASM_X64}
@@ -412,14 +431,15 @@ end;
 
 { Appends the block's tail literals and the literal stream; returns the
   block size or -1. }
-{ The block's literals as format v3 chunks at p, in no more than limit
-  bytes. Returns the section size, or -1 if it does not fit (or would not
-  be smaller than limit). }
-function EncodeLiteralChunks(lits: PByte; count: SizeInt; p: PByte; limit: SizeInt): SizeInt;
+{ The block's literals as format v3 chunks at p, in no more than cap
+  bytes. Returns the section size, or -1 if it does not fit. (Until syc
+  0.2.13 cap was the v2 layout's size, and a chunk needed room for its raw
+  form there: a block with one chunk never became v3.) }
+function EncodeLiteralChunks(lits: PByte; count: SizeInt; p: PByte; cap: SizeInt): SizeInt;
 var
   pos, c, r, used: SizeInt;
 begin
-  if limit < 4 then
+  if cap < 4 then
     Exit(-1);
   PUInt32(p)^ := UInt32(count);
   used := 4;
@@ -429,9 +449,7 @@ begin
     c := count - pos;
     if c > LIT_CHUNK then
       c := LIT_CHUNK;
-    if limit - used < 1 + c then
-      Exit(-1);       { a raw chunk might not fit: the v2 layout is no bigger }
-    r := HufEncodeChunk(lits + pos, c, p + used, limit - used);
+    r := HufEncodeChunk(lits + pos, c, p + used, cap - used);
     if r < 0 then
       Exit(-1);
     Inc(used, r);
@@ -453,8 +471,8 @@ begin
     { all literals in the scratch stream (it holds n + slack bytes), then
       code them; only kept when smaller than the v2 layout }
     Move(lit^, e.lit^, litLen);
-    v3 := EncodeLiteralChunks(e.lits, litTotal, e.ctrl, litTotal);
-    if v3 >= 0 then
+    v3 := EncodeLiteralChunks(e.lits, litTotal, e.ctrl, e.oend - e.ctrl);
+    if (v3 >= 0) and (v3 < litTotal) then
     begin
       PUInt32(e.dst)^ := UInt32(ctrlLen) or HDR_ENTROPY;
       Exit(HEADER_SIZE + ctrlLen + v3);
@@ -848,6 +866,26 @@ asm
 end;
 {$endif}
 
+{$ifdef SYLZ_C}
+type
+  { sylzc_emit / sylzc_fast in sylzc.c: fixed field order }
+  TEmitC = record
+    ctrl, lit: PByte;
+    srcEnd: PByte;
+    exact: PByte;              { ExactCode }
+  end;
+  TFastCState = record
+    src: PByte;
+    n: SizeInt;
+    table: PUInt16;
+    hashLog: SizeInt;
+    anchor: SizeInt;           { out: start of the tail literals }
+    e: TEmitC;
+  end;
+
+procedure sylzc_compress_fast(st: Pointer); cdecl; external name 'sylzc_compress_fast';
+{$endif}
+
 function CompressFast(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   cap: SizeInt; level: Integer): SizeInt;
 var
@@ -856,6 +894,9 @@ var
   hashLog: Integer;
 {$ifdef SYLZ_ASM_X64}
   st: TFastEncState;
+{$endif}
+{$ifdef SYLZ_C}
+  sc: TFastCState;
 {$endif}
 begin
   if ctx.table = nil then
@@ -866,7 +907,7 @@ begin
     FillChar(table^, SizeOf(UInt16) shl hashLog, 0);
     EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
 {$ifdef SYLZ_ASM_X64}
-    if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+    if SylzUseAsm and not SylzPreferC and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
     begin
       st.src := src;
       st.iend := src + n;
@@ -880,6 +921,23 @@ begin
       e.ctrl := st.ctrl;
       e.lit := st.lit;
       Exit(EmitFinish(e, st.anchor, src + n - st.anchor));
+    end;
+{$endif}
+{$ifdef SYLZ_C}
+    if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+    begin
+      sc.src := src;
+      sc.n := n;
+      sc.table := table;
+      sc.hashLog := hashLog;
+      sc.e.ctrl := e.ctrl;
+      sc.e.lit := e.lit;
+      sc.e.srcEnd := src + n;
+      sc.e.exact := @ExactCode[0, 0];
+      sylzc_compress_fast(@sc);
+      e.ctrl := sc.e.ctrl;
+      e.lit := sc.e.lit;
+      Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
     end;
 {$endif}
     Result := CompressFastCore(src, n, e, table, hashLog);
@@ -1451,6 +1509,22 @@ asm
 end;
 {$endif}
 
+{$ifdef SYLZ_C}
+type
+  { sylzc_mid in sylzc.c: fixed field order }
+  TMidCState = record
+    src: PByte;
+    n: SizeInt;
+    tl, ts: PUInt16;
+    hashLog, lazy: SizeInt;
+    skip, lazyEnough, nextBelow: SizeInt;
+    anchor: SizeInt;           { out }
+    e: TEmitC;
+  end;
+
+procedure sylzc_compress_mid(st: Pointer); cdecl; external name 'sylzc_compress_mid';
+{$endif}
+
 function CompressMid(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   cap: SizeInt; level: Integer): SizeInt;
 var
@@ -1458,6 +1532,9 @@ var
   hashLog: Integer;
 {$ifdef SYLZ_ASM_X64}
   st: TMidEncState;
+{$endif}
+{$ifdef SYLZ_C}
+  sc: TMidCState;
 {$endif}
 begin
   if ctx.table = nil then
@@ -1469,7 +1546,7 @@ begin
   FillChar(ctx.table^, SizeOf(UInt16) shl (hashLog + 1), 0);
   EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
 {$ifdef SYLZ_ASM_X64}
-  if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+  if SylzUseAsm and not SylzPreferC and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
   begin
     st.src := src;
     st.iend := src + n;
@@ -1485,6 +1562,28 @@ begin
     e.ctrl := st.ctrl;
     e.lit := st.lit;
     Exit(EmitFinish(e, st.anchor, src + n - st.anchor));
+  end;
+{$endif}
+{$ifdef SYLZ_C}
+  if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+  begin
+    sc.src := src;
+    sc.n := n;
+    sc.tl := ctx.table;
+    sc.ts := ctx.table + (1 shl hashLog);
+    sc.hashLog := hashLog;
+    sc.lazy := Ord(level = 3);
+    sc.skip := MID_SKIP;
+    sc.lazyEnough := MID_LAZY_ENOUGH;
+    sc.nextBelow := MID_NEXT_BELOW;
+    sc.e.ctrl := e.ctrl;
+    sc.e.lit := e.lit;
+    sc.e.srcEnd := src + n;
+    sc.e.exact := @ExactCode[0, 0];
+    sylzc_compress_mid(@sc);
+    e.ctrl := sc.e.ctrl;
+    e.lit := sc.e.lit;
+    Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
   end;
 {$endif}
   Result := CompressMidCore(src, n, e, ctx.table, ctx.table + (1 shl hashLog),
@@ -1744,15 +1843,26 @@ asm
 end;
 {$endif}
 
+{$ifdef SYLZ_C}
+procedure sylzc_hc_search(st: PHcState); cdecl; external name 'sylzc_hc_search';
+{$endif}
+
 function HcSearch(var s: THcState; pos, lowLimit, longest: SizeInt): SizeInt; inline;
 begin
   s.pos := pos;
   s.lowLimit := lowLimit;
   s.longest := longest;
 {$ifdef SYLZ_ASM_X64}
-  if SylzUseAsm then
+  if SylzUseAsm and not SylzPreferC then
   begin
     HcSearchX64(@s);
+    Exit(s.longest);
+  end;
+{$endif}
+{$ifdef SYLZ_C}
+  if SylzUseAsm then
+  begin
+    sylzc_hc_search(@s);
     Exit(s.longest);
   end;
 {$endif}
@@ -1932,12 +2042,28 @@ begin
   Result := EmitFinish(e, src + anchor, n - anchor);
 end;
 
+{$ifdef SYLZ_C}
+type
+  { sylzc_hcparse in sylzc.c: fixed field order }
+  THcCState = record
+    s: PHcState;
+    search: Pointer;           { HcSearchX64 or sylzc_hc_search }
+    anchor: SizeInt;           { out }
+    e: TEmitC;
+  end;
+
+procedure sylzc_compress_hc(st: Pointer); cdecl; external name 'sylzc_compress_hc';
+{$endif}
+
 function CompressHC(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   cap: SizeInt; level: Integer): SizeInt;
 var
   e: TEmit;
   s: THcState;
   i: Integer;
+{$ifdef SYLZ_C}
+  sc: THcCState;
+{$endif}
 begin
   if ctx.head = nil then
     ctx.head := GetMem(SizeOf(UInt16) shl HC_HASHLOG);
@@ -1948,6 +2074,31 @@ begin
   for i := 0 to (1 shl HC_HASHLOG) - 1 do
     s.head[i] := 0;
   EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+{$ifdef SYLZ_C}
+  { the parse in C (FPC kept its many live values on the stack), over the
+    assembler chain search on x86_64 }
+  if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+  begin
+    s.src := src;
+    s.iend := src + n;
+    s.nextToInsert := 0;
+    s.attempts := HC_ATTEMPTS[level];
+    sc.s := @s;
+    sc.search := @sylzc_hc_search;
+{$ifdef SYLZ_ASM_X64}
+    if not SylzPreferC then
+      sc.search := @HcSearchX64;
+{$endif}
+    sc.e.ctrl := e.ctrl;
+    sc.e.lit := e.lit;
+    sc.e.srcEnd := src + n;
+    sc.e.exact := @ExactCode[0, 0];
+    sylzc_compress_hc(@sc);
+    e.ctrl := sc.e.ctrl;
+    e.lit := sc.e.lit;
+    Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
+  end;
+{$endif}
   Result := CompressHCCore(src, n, e, s, level);
 end;
 
@@ -1997,7 +2148,7 @@ const
 
 type
   TOptNode = record
-    cost: Int32;    { in quarter bytes, relative to the window's start }
+    cost: Int32;    { in bits, relative to the window's start }
     ll: Int32;      { pending literals at this node }
     ml: Int32;      { 0: reached by a literal, else by a match of ml bytes }
     dist: Int32;
@@ -2006,8 +2157,12 @@ type
 
 const
   OPT_NODES_BYTES = (OPT_WINDOW + 1) * SizeOf(TOptNode);
-  OPT_CANDS_BYTES = OPT_MAXCAND * 2 * SizeOf(Int32);
+  { every position's candidates, at most OPT_MAXCAND pairs each }
+  OPT_CANDS_BYTES = OPT_WINDOW * OPT_MAXCAND * 2 * SizeOf(Int32);
   OPT_PATH_BYTES  = (OPT_WINDOW + 1) * 3 * SizeOf(Int32);
+  OPT_INDEX_BYTES = (OPT_WINDOW + 1) * SizeOf(Int32);   { off, cnt }
+  OPT_WORK_BYTES  = OPT_NODES_BYTES + OPT_CANDS_BYTES + OPT_PATH_BYTES
+                    + 2 * OPT_INDEX_BYTES;
 
 { The optimal parser's match finder: a binary tree (LZMA's bt4 without
   its 2- and 3-byte hashes). Every position is inserted into a binary
@@ -2271,19 +2426,26 @@ asm
 end;
 {$endif}
 
+{$ifdef SYLZ_C}
+procedure sylzc_bt_insert(st: PBtState); cdecl; external name 'sylzc_bt_insert';
+{$endif}
+
 function BtInsert(var b: TBtState; pos: SizeInt; cands: PInt32): Integer; inline;
 begin
+  b.pos := pos;
+  b.cands := cands;
 {$ifdef SYLZ_ASM_X64}
-  if SylzUseAsm then
-  begin
-    b.pos := pos;
-    b.cands := cands;
-    BtInsertX64(@b);
-    Result := Integer(b.count);
-  end
+  if SylzUseAsm and not SylzPreferC then
+    BtInsertX64(@b)
   else
 {$endif}
-    Result := BtInsertPas(b, pos, cands);
+{$ifdef SYLZ_C}
+  if SylzUseAsm then
+    sylzc_bt_insert(@b)
+  else
+{$endif}
+    b.count := BtInsertPas(b, pos, cands);
+  Result := Integer(b.count);
 end;
 
 function BtFindAll(var b: TBtState; pos: SizeInt; cands: PInt32): Integer;
@@ -2326,12 +2488,12 @@ end;
   and comparing nodes with different runs is fair. Charging the literal
   extension to the match that ends a run instead made a match after a long
   run look prohibitive, and the parse then never ended a run. }
-{ Prices are integers in quarter bytes (OPT_SCALE): the penalties are
+{ Prices are integers in bits (OPT_SCALE per byte): the penalties are
   multiples of a quarter, so the sums are exact, as they were in Single,
   and the DP picks the same path, without the float code FPC compiled
   poorly. }
 const
-  OPT_SCALE = 4;
+  OPT_SCALE = 8;
   OPT_MTAB_COLS = 64;   { match lengths priced from a table: MINMATCH .. +63 }
 
 type
@@ -2371,22 +2533,154 @@ begin
     Inc(Result, q.short);
 end;
 
+type
+  { What the DP needs besides the window; fixed layout, the C version
+    (sylzc_dpargs in sylzc.c) reads it. }
+  TOptDpArgs = record
+    exactLL, minMatch, mtabCols, subLen: Int32;
+    seq, esc, short: Int32;     { penalties, bits }
+    scale: Int32;               { OPT_SCALE }
+    litPrice: PInt32;           { a literal's price by byte value, bits }
+    wsrc: PByte;                { the window's input }
+  end;
+  POptDpArgs = ^TOptDpArgs;
+
+{ The forward DP over one window of w positions: nodes[0] is set and
+  nodes[1..w].cost are High(Int32). Position i has cnt[i] candidates at
+  cands[2 * off[i]], (length, distance) pairs, longest last; cnt[i] < 0:
+  inside a skipped match, no transitions at all. mtab: match prices
+  without the short-offset penalty, by pending run (row EXACT_LL + 1: any
+  longer run) and length - MINMATCH. }
+procedure OptDpPas(nodes: POptNode; w: SizeInt; cands, off, cnt, mtab: PInt32;
+  const a: TOptDpArgs);
+var
+  i, j, k, c, ml, len, dist, prevLen, ll: SizeInt;
+  cost, tc, base: Int32;
+  row, cp: PInt32;
+  q: TOptPrices;
+begin
+  q.seq := a.seq;
+  q.esc := a.esc;
+  q.short := a.short;
+  for i := 0 to w - 1 do
+  begin
+    k := cnt[i];
+    if k < 0 then
+      Continue;
+    cost := nodes[i].cost;
+    ll := nodes[i].ll;
+    { the byte's price, and what the run's growing costs beyond a byte }
+    tc := cost + a.litPrice[a.wsrc[i]] + LitStep(ll, q) - OPT_SCALE;
+    if tc < nodes[i + 1].cost then
+    begin
+      nodes[i + 1].cost := tc;
+      nodes[i + 1].ll := Int32(ll + 1);
+      nodes[i + 1].ml := 0;
+    end;
+    if k = 0 then
+      Continue;
+    if ll > EXACT_LL then
+      row := mtab + (EXACT_LL + 1) * OPT_MTAB_COLS
+    else
+      row := mtab + ll * OPT_MTAB_COLS;
+    cp := cands + 2 * off[i];
+    prevLen := SYLZ_MINMATCH - 1;
+    for c := 0 to k - 1 do
+    begin
+      len := cp[2 * c];
+      dist := cp[2 * c + 1];
+      base := cost;
+      if dist < 16 then
+        Inc(base, q.short);
+      ml := prevLen;
+      while ml < len do
+      begin
+        { every length up to subLen, then straight to the full one }
+        if ml < a.subLen then
+          Inc(ml)
+        else
+          ml := len;
+        j := i + ml;
+        if j > w then
+          Break;
+        if ml < SYLZ_MINMATCH + OPT_MTAB_COLS then
+          tc := base + row[ml - SYLZ_MINMATCH]
+        else
+          tc := cost + MatchCost(ll, ml, dist, q);
+        if tc < nodes[j].cost then
+        begin
+          nodes[j].cost := tc;
+          nodes[j].ll := 0;
+          nodes[j].ml := Int32(ml);
+          nodes[j].dist := Int32(dist);
+        end;
+      end;
+      prevLen := len;
+    end;
+  end;
+end;
+
+{$ifdef SYLZ_C}
+procedure sylzc_opt_dp(nodes: POptNode; w: Int32; cands, off, cnt, mtab: PInt32;
+  a: POptDpArgs); cdecl; external name 'sylzc_opt_dp';
+
+type
+  { sylzc_optcands in sylzc.c: fixed field order }
+  TOptCandsC = record
+    b: PBtState;
+    insert: Pointer;           { BtInsertX64 or sylzc_bt_insert }
+    start, w: SizeInt;
+    sufficient, skipLen: SizeInt;
+    cands, off, cnt: PInt32;
+    forced, forcedLen, forcedDist: SizeInt;
+  end;
+
+procedure sylzc_opt_cands(st: Pointer); cdecl; external name 'sylzc_opt_cands';
+{$endif}
+
+{ Each window in three passes: the candidates of every position (the
+  binary tree), the DP over them (OptDpPas, or its C version), and the
+  cheapest path, emitted. }
+const
+  { regions of the input with their own literal prices (format v3's
+    entropy-aware levels): 256 KiB; 64 KiB, closer to the literal chunks,
+    did no better (silesia.tar 33.72 vs 33.70% without the penalty) }
+  OPT_REGION_SHIFT = 18;
+  { added to each literal's code length: the first parse's lengths miss the
+    chunk's table and the second parse's own literals; 1 bit made both a
+    smaller output (silesia.tar 33.70 -> 33.60%) and a faster decode, 2
+    bits decode as fast as level 8's parse but give the gain back }
+  OPT_LIT_PENALTY = 1;
+
+{ Count the literals of src[from..upto) into hist, by region. }
+procedure CountLiterals(src: PByte; from, upto: SizeInt; hist: PUInt32);
+var
+  i: SizeInt;
+begin
+  for i := from to upto - 1 do
+    Inc(hist[(i shr OPT_REGION_SHIFT) * 256 + src[i]]);
+end;
+
+{ prices: per region of 2^OPT_REGION_SHIFT input bytes, 256 literal prices
+  in bits (nil: 8 bits each, format v2's byte). hist: when set, nothing is
+  emitted; the parse's literals are counted into it by region instead. }
 function CompressOptCore(src: PByte; n: SizeInt; var e: TEmit; var b: TBtState;
-  work: PByte; const p: TSylzOptParams): SizeInt;
+  work: PByte; const p: TSylzOptParams; prices: PInt32; hist: PUInt32): SizeInt;
 var
   nodes: POptNode;
-  cands, path: PInt32;
-  iend: PByte;
-  limit, anchor, start, w, i, j, k, c, ml, len, dist, prevLen, npath, t,
+  cands, path, off, cnt: PInt32;
+  limit, anchor, start, w, i, j, k, len, npath, t, total,
     pos, forcedLen, forcedDist: SizeInt;
-  cost, tc, base: Int32;
   forced: Boolean;
   q: TOptPrices;
-  ll: SizeInt;
+  a: TOptDpArgs;
+  flat: array[0..255] of Int32;
+{$ifdef SYLZ_C}
+  oc: TOptCandsC;
+{$endif}
   { match prices without the short-offset penalty, by pending run (row
     EXACT_LL + 1: any longer run) and length - MINMATCH }
   mtab: array[0..EXACT_LL + 1, 0..OPT_MTAB_COLS - 1] of Int32;
-  row: PInt32;
 begin
   q.seq := Round(p.pSeq * OPT_SCALE);
   q.esc := Round(p.pEsc * OPT_SCALE);
@@ -2394,10 +2688,35 @@ begin
   for i := 0 to EXACT_LL + 1 do
     for j := 0 to OPT_MTAB_COLS - 1 do
       mtab[i, j] := MatchCost(i, j + SYLZ_MINMATCH, 16, q);
+  a.exactLL := EXACT_LL;
+  a.minMatch := SYLZ_MINMATCH;
+  a.mtabCols := OPT_MTAB_COLS;
+  a.subLen := p.subLen;
+  a.seq := q.seq;
+  a.esc := q.esc;
+  a.short := q.short;
+  a.scale := OPT_SCALE;
+  for i := 0 to 255 do
+    flat[i] := OPT_SCALE;
+  a.litPrice := @flat[0];
   nodes := POptNode(work);
   cands := PInt32(work + OPT_NODES_BYTES);
   path := PInt32(work + OPT_NODES_BYTES + OPT_CANDS_BYTES);
-  iend := src + n;
+  off := PInt32(work + OPT_NODES_BYTES + OPT_CANDS_BYTES + OPT_PATH_BYTES);
+  cnt := off + (OPT_WINDOW + 1);
+{$ifdef SYLZ_C}
+  oc.b := @b;
+  oc.insert := @sylzc_bt_insert;
+{$ifdef SYLZ_ASM_X64}
+  if not SylzPreferC then
+    oc.insert := @BtInsertX64;
+{$endif}
+  oc.sufficient := p.sufficient;
+  oc.skipLen := p.skipLen;
+  oc.cands := cands;
+  oc.off := off;
+  oc.cnt := cnt;
+{$endif}
   anchor := 0;
   if n >= SEARCH_TAIL + 1 then
   begin
@@ -2408,87 +2727,78 @@ begin
       w := OPT_WINDOW;
       if start + w > limit then
         w := limit - start;
+
+      { 1: candidates }
+      forced := False;
+      forcedLen := 0;
+      forcedDist := 0;
+{$ifdef SYLZ_C}
+      if SylzUseAsm then
+      begin
+        { in C: FPC kept BtFindAll's and this loop's values on the stack }
+        oc.start := start;
+        oc.w := w;
+        sylzc_opt_cands(@oc);
+        w := oc.w;
+        forced := oc.forced <> 0;
+        forcedLen := oc.forcedLen;
+        forcedDist := oc.forcedDist;
+      end
+      else
+{$endif}
+      begin
+      total := 0;
+      i := 0;
+      while i < w do
+      begin
+        k := BtFindAll(b, start + i, cands + 2 * total);
+        off[i] := Int32(total);
+        cnt[i] := Int32(k);
+        if k > 0 then
+        begin
+          len := cands[2 * (total + k - 1)];
+          if len >= p.sufficient then
+          begin
+            forced := True;
+            forcedLen := len;
+            forcedDist := cands[2 * (total + k - 1) + 1];
+            w := i;
+            Break;
+          end;
+          Inc(total, k);
+          { inside a long match, searching every position costs a lot and
+            rarely finds a better parse: skip to its end. Only when the
+            match ends inside the window: its full-length transition then
+            sets that node, so the path stays valid (skipped positions
+            start no transitions, so none of them can become a parent) }
+          if (len >= p.skipLen) and (i + len <= w) then
+          begin
+            for j := i + 1 to i + len - 1 do
+              cnt[j] := -1;
+            i := i + len - 1;
+          end;
+        end;
+        Inc(i);
+      end;
+      end;
+
+      { 2: the DP }
+      a.wsrc := src + start;
+      if prices <> nil then
+        a.litPrice := prices + (start shr OPT_REGION_SHIFT) * 256;
       nodes[0].cost := 0;
       nodes[0].ll := Int32(start - anchor);
       nodes[0].ml := 0;
       for i := 1 to w do
         nodes[i].cost := High(Int32);
-      forced := False;
-      forcedLen := 0;
-      forcedDist := 0;
-      i := 0;
-      while i < w do
-      begin
-        cost := nodes[i].cost;
-        tc := cost + LitStep(nodes[i].ll, q);
-        if tc < nodes[i + 1].cost then
-        begin
-          nodes[i + 1].cost := tc;
-          nodes[i + 1].ll := nodes[i].ll + 1;
-          nodes[i + 1].ml := 0;
-        end;
-        k := BtFindAll(b, start + i, cands);
-        if k > 0 then
-        begin
-          if cands[2 * (k - 1)] >= p.sufficient then
-          begin
-            forced := True;
-            forcedLen := cands[2 * (k - 1)];
-            forcedDist := cands[2 * (k - 1) + 1];
-            w := i;
-            Break;
-          end;
-          prevLen := SYLZ_MINMATCH - 1;
-          ll := nodes[i].ll;
-          if ll > EXACT_LL then
-            row := @mtab[EXACT_LL + 1, 0]
-          else
-            row := @mtab[ll, 0];
-          for c := 0 to k - 1 do
-          begin
-            len := cands[2 * c];
-            dist := cands[2 * c + 1];
-            base := cost;
-            if dist < 16 then
-              Inc(base, q.short);
-            ml := prevLen;
-            while ml < len do
-            begin
-              { every length up to subLen, then straight to the full one }
-              if ml < p.subLen then
-                Inc(ml)
-              else
-                ml := len;
-              j := i + ml;
-              if j > w then
-                Break;
-              if ml < SYLZ_MINMATCH + OPT_MTAB_COLS then
-                tc := base + row[ml - SYLZ_MINMATCH]
-              else
-                tc := cost + MatchCost(ll, ml, dist, q);
-              if tc < nodes[j].cost then
-              begin
-                nodes[j].cost := tc;
-                nodes[j].ll := 0;
-                nodes[j].ml := Int32(ml);
-                nodes[j].dist := Int32(dist);
-              end;
-            end;
-            prevLen := len;
-          end;
-          { inside a long match, searching every position costs a lot and
-            rarely finds a better parse: skip to its end. Only when the
-            match ends inside the window: its full-length transition then
-            set that node, so the path stays valid (skipped nodes start no
-            transitions, so none of them can become a parent) }
-          len := cands[2 * (k - 1)];
-          if (len >= p.skipLen) and (i + len <= w) then
-            i := i + len - 1;
-        end;
-        Inc(i);
-      end;
+{$ifdef SYLZ_C}
+      if SylzUseAsm then
+        sylzc_opt_dp(nodes, Int32(w), cands, off, cnt, @mtab[0, 0], @a)
+      else
+{$endif}
+        OptDpPas(nodes, w, cands, off, cnt, @mtab[0, 0], a);
 
-      { the cheapest path to node w, back to front }
+      { 3: the cheapest path to node w, back to front }
       npath := 0;
       j := w;
       while j > 0 do
@@ -2505,14 +2815,18 @@ begin
       for t := npath - 1 downto 0 do
       begin
         pos := start + path[3 * t];
-        if not EmitSequence(e, src + anchor, pos - anchor, path[3 * t + 2], path[3 * t + 1]) then
+        if hist <> nil then
+          CountLiterals(src, anchor, pos, hist)
+        else if not EmitSequence(e, src + anchor, pos - anchor, path[3 * t + 2], path[3 * t + 1]) then
           Exit(-1);
         anchor := pos + path[3 * t + 1];
       end;
       if forced then
       begin
         pos := start + w;
-        if not EmitSequence(e, src + anchor, pos - anchor, forcedDist, forcedLen) then
+        if hist <> nil then
+          CountLiterals(src, anchor, pos, hist)
+        else if not EmitSequence(e, src + anchor, pos - anchor, forcedDist, forcedLen) then
           Exit(-1);
         anchor := pos + forcedLen;
         start := anchor;
@@ -2520,6 +2834,11 @@ begin
       else
         start := start + w;
     end;
+  end;
+  if hist <> nil then
+  begin
+    CountLiterals(src, anchor, n, hist);
+    Exit(0);
   end;
   Result := EmitFinish(e, src + anchor, n - anchor);
 end;
@@ -2531,7 +2850,7 @@ var
   b: TBtState;
 begin
   if ctx.opt = nil then
-    ctx.opt := GetMem(OPT_NODES_BYTES + OPT_CANDS_BYTES + OPT_PATH_BYTES);
+    ctx.opt := GetMem(OPT_WORK_BYTES);
   if ctx.bt = nil then
     ctx.bt := GetMem(SizeOf(UInt32) * ((1 shl BT_HASHLOG) + 2 * BT_WINDOW));
   FillChar(ctx.bt^, SizeOf(UInt32) shl BT_HASHLOG, 0);
@@ -2543,7 +2862,95 @@ begin
   b.cut := p.btCut;
   b.maxLen := p.btMaxLen;
   EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
-  Result := CompressOptCore(src, n, e, b, ctx.opt, p);
+  Result := CompressOptCore(src, n, e, b, ctx.opt, p, nil, nil);
+end;
+
+{ Literal prices from counted literals, per region: each region's Huffman
+  code lengths, as HufEncodeChunk would build them; 8 bits where Huffman
+  would not pay (the chunk stays raw) or a region has no literals; absent
+  symbols get HUF_MAXBITS + 1. }
+procedure LiteralPrices(hist: PUInt32; regions: SizeInt; prices: PInt32);
+var
+  r, i: SizeInt;
+  len: array[0..255] of Byte;
+  total, bits: UInt64;
+  h: PUInt32;
+  pr: PInt32;
+begin
+  for r := 0 to regions - 1 do
+  begin
+    h := hist + r * 256;
+    pr := prices + r * 256;
+    total := 0;
+    for i := 0 to 255 do
+      Inc(total, h[i]);
+    for i := 0 to 255 do
+      pr[i] := OPT_SCALE;
+    if total = 0 then
+      Continue;
+    HufLengths(h, @len[0]);
+    bits := 0;
+    for i := 0 to 255 do
+      Inc(bits, UInt64(h[i]) * len[i]);
+    if bits * 100 > total * 8 * (100 - HUF_MIN_GAIN_PCT) then
+      Continue;   { would stay raw }
+    for i := 0 to 255 do
+      if len[i] > 0 then
+        pr[i] := len[i] + OPT_LIT_PENALTY
+      else
+        pr[i] := HUF_MAXBITS + 1 + OPT_LIT_PENALTY;
+  end;
+end;
+
+{ Format v3's levels 9 and 10: the optimal parser pricing each literal by
+  its Huffman code. A first parse (format v2's prices) counts the
+  literals per region, and their code lengths price the parse that is
+  emitted. Against -ec 8 (level 10's parse priced as v2), silesia.tar
+  33.98 -> 33.61% (-ec 9) / 33.60% (-ec 10), mixed 57.15 -> 56.94 /
+  56.91%, at about half the speed (two parses) and ~5% slower decode (more
+  literals). A third parse, priced from the second's literals, gained
+  0.02 points (33.58%). }
+function CompressOptEC(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
+  cap: SizeInt; const p: TSylzOptParams): SizeInt;
+var
+  e: TEmit;
+  b: TBtState;
+  regions: SizeInt;
+  hist: PUInt32;
+  prices: PInt32;
+
+  procedure ResetTree;
+  begin
+    FillChar(ctx.bt^, SizeOf(UInt32) shl BT_HASHLOG, 0);
+    b.src := src;
+    b.iend := src + n;
+    b.head := ctx.bt;
+    b.son := ctx.bt + (1 shl BT_HASHLOG);
+    b.nextToInsert := 0;
+    b.cut := p.btCut;
+    b.maxLen := p.btMaxLen;
+  end;
+
+begin
+  if ctx.opt = nil then
+    ctx.opt := GetMem(OPT_WORK_BYTES);
+  if ctx.bt = nil then
+    ctx.bt := GetMem(SizeOf(UInt32) * ((1 shl BT_HASHLOG) + 2 * BT_WINDOW));
+  regions := (n shr OPT_REGION_SHIFT) + 1;
+  hist := GetMem(regions * 256 * SizeOf(UInt32));
+  prices := GetMem(regions * 256 * SizeOf(Int32));
+  try
+    FillChar(hist^, regions * 256 * SizeOf(UInt32), 0);
+    ResetTree;
+    CompressOptCore(src, n, e, b, ctx.opt, p, nil, hist);
+    LiteralPrices(hist, regions, prices);
+    ResetTree;
+    EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+    Result := CompressOptCore(src, n, e, b, ctx.opt, p, prices, nil);
+  finally
+    FreeMem(prices);
+    FreeMem(hist);
+  end;
 end;
 
 procedure SylzCtxInit(out ctx: TSylzCtx);
@@ -2576,6 +2983,25 @@ begin
     Exit(-1);
   if level < SYLZ_MINLEVEL then
     level := SYLZ_MINLEVEL;
+  if flags and SYLZ_ENTROPY <> 0 then
+  begin
+    if level > SYLZ_EC_MAXLEVEL then
+      level := SYLZ_EC_MAXLEVEL;
+    if level >= SYLZ_MAXLEVEL - SYLZ_EC_SHIFT + 1 then
+    begin
+      if ctx.scratchSize < n + SCRATCH_SLACK then
+      begin
+        FreeMem(ctx.scratch);
+        ctx.scratchSize := n + SCRATCH_SLACK;
+        ctx.scratch := GetMem(ctx.scratchSize);
+      end;
+      if level = SYLZ_MAXLEVEL - 1 then
+        Exit(CompressOptEC(ctx, src, n, dst, cap, OPT_LEVEL9))
+      else
+        Exit(CompressOptEC(ctx, src, n, dst, cap, OPT_LEVEL10));
+    end;
+    Inc(level, SYLZ_EC_SHIFT);
+  end;
   if level > SYLZ_MAXLEVEL then
     level := SYLZ_MAXLEVEL;
   if ctx.scratchSize < n + SCRATCH_SLACK then
@@ -3203,11 +3629,20 @@ begin
 end;
 {$endif}
 
+{$ifdef SYLZ_C}
+function sylzc_decode(ctrl, cend, lit, lend, dst: PByte; dstLen: SizeInt;
+  tokens: PUInt32): SizeInt; cdecl; external name 'sylzc_decode';
+{$endif}
+
 function DecodeStreams(ctrl, cend, lit, lend, dst: PByte; dstLen: SizeInt): SizeInt;
 begin
 {$ifdef SYLZ_ASM_X64}
-  if SylzUseAsm then
+  if SylzUseAsm and not SylzPreferC then
     Exit(DecodeAsm(ctrl, cend, lit, lend, dst, dstLen));
+{$endif}
+{$ifdef SYLZ_C}
+  if SylzUseAsm then
+    Exit(sylzc_decode(ctrl, cend, lit, lend, dst, dstLen, @SYLZ_TOKENS[0]));
 {$endif}
   Result := DecodePas(ctrl, cend, lit, lend, dst, dstLen);
 end;

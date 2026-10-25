@@ -528,9 +528,16 @@ else
 endif
 fpc-plugins: $(FPC_PLUGIN_FILES)
 
-plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhuf.pas compressors/sylz/sylz_zpaqstd.pas
+# One file, both codecs: sylz (format v2) and sylzec (format v3, zpaqstd_codecs_v1).
+# sylz.pas links sylzc.o ({$L}): the C fast paths, compiled freestanding (no libc) with
+# the target's gcc, with the flags of syc's build-c.sh. Its 32-bit x86 decoder picks
+# SSE2 or plain i686 at run time (cpuid), so one win32 plugin runs on any x86.
+SYLZC_CFLAGS := -O2 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns \
+  -fno-stack-protector -fno-asynchronous-unwind-tables -Wall $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
+plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhuf.pas compressors/sylz/sylz_zpaqstd.pas compressors/sylz/zs_codec.inc compressors/sylz/sylzc.c
 	@mkdir -p plugins/codecs plugins/fpc-sylz
-	$(FPC) -O3 -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/sylz -FUplugins/fpc-sylz -FEplugins/fpc-sylz compressors/sylz/sylz_zpaqstd.pas
+	$(CC) $(SYLZC_CFLAGS) -c compressors/sylz/sylzc.c -o plugins/fpc-sylz/sylzc.o
+	$(FPC) -O3 -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/sylz -Ficompressors/sylz -FUplugins/fpc-sylz -Foplugins/fpc-sylz -FEplugins/fpc-sylz compressors/sylz/sylz_zpaqstd.pas
 	mv -f plugins/fpc-sylz/$(FPCLIB) $@
 
 # PJA (-sa: pja and pjals), as its compressors/pja/VENDOR.md builds it; PJA_COMMIT is

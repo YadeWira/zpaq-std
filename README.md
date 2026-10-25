@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
 
-A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **21 bundled, swappable compression libraries** (28 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **21 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was added.
 
@@ -65,7 +65,8 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 |---|---|---|---|
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) (frozen "portable profile") | 0–15 | 0 |
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) a655623 | 1–9 | 9 |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.2.10), plugin only | 0–10 | 1 |
+| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.4.2), plugin only | 0–10 | 1 |
+| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.4.2, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10 (zpaqfranz's `-m6`) | 1–12 | 9 |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17 (zpaqfranz's `-m7`) | 0–1 | 1 |
 
@@ -114,7 +115,7 @@ make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
 
 Each release has, per platform, the full program, `extra-codecs.zip` (the codecs that
-are only plugins: sylz and pja, to put in `codecs/` next to the program) and
+are only plugins: sylz, sylzec and pja, to put in `codecs/` next to the program) and
 `plugins.zip` (a small program and every codec as a plugin). Targets, plugins and
 cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 
