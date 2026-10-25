@@ -2,6 +2,7 @@
    sort transform ST3, ST4 or ST5, with the default coder and no LZP. See
    zs_codec.h. */
 #include "zs_plugin.h"
+#include <string.h>
 extern "C" {
 #include "../bsc/libbsc.h"
 }
@@ -27,8 +28,24 @@ static long long zs_compress(const void* src, size_t n, void* dst, size_t cap, i
 	                           sorter, LIBBSC_DEFAULT_CODER, 0);
 	return r > 0 ? (long long)r : -1;
 }
+/* zpaq-std writes only stored blocks or QLFC static + ST3..ST5 without LZP (and
+   ZPAQBSC decodes only those): any other mode in a -ma:bsc block comes from a
+   crafted archive, and is refused before libbsc sees it. With compressors/bsc/
+   PATCHES, this keeps the adaptive and fast decoders out of reach. */
+static bool zs_bsc_mode_ok(const unsigned char* b, size_t n) {
+	if (n < LIBBSC_HEADER_SIZE)
+		return false;
+	int mode;
+	memcpy(&mode, b + 8, sizeof(mode));
+	if (mode == 0)
+		return true;
+	const int sorter = mode & 0x1f, coder = (mode >> 5) & 0x7, lzp = (mode >> 8) & 0xffff;
+	return lzp == 0 && coder == LIBBSC_CODER_QLFC_STATIC && sorter >= LIBBSC_BLOCKSORTER_ST3 && sorter <= LIBBSC_BLOCKSORTER_ST5;
+}
 static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap, int) {
 	if (n > 0x7FFFFFFF || cap > 0x7FFFFFFF)
+		return -1;
+	if (!zs_bsc_mode_ok((const unsigned char*)src, n))
 		return -1;
 	zs_bsc_init();
 	const int r = bsc_decompress((const unsigned char*)src, (int)n, (unsigned char*)dst, (int)cap, 0);

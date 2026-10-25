@@ -1,0 +1,69 @@
+libbsc 3.4.0 (https://github.com/IlyaGrebnov/libbsc, tag v3.4.0), Apache-2.0, with
+one patch of zpaq-std's own: the decoder's bounds. Every change is marked
+ZPAQSTD-PATCH in the sources. The encoder is untouched: -ma:bsc writes the very
+bytes of libbsc 3.4.0 (checked at levels 1, 3, 4, 6, 7 and 9, with -m1 and -m5
+blocks), so ZPAQBSC and every archive stay as they were.
+
+Why: zpaq-std decodes -ma:bsc blocks natively with libbsc, and libbsc 3.4.0 trusts
+the sizes inside a block. Its Adler-32s only stop accidental damage: a crafted
+archive recomputes them. Fuzzing with real -ma:bsc blocks (mutated, the Adler-32s
+recomputed, decoded with bsc_decompress into a buffer of exactly the declared
+size, under AddressSanitizer and UBSan) found, in pristine 3.4.0:
+
+  - a run written past the output (qlfc.cpp, the static decoder: byte by byte, and
+    as a 16-byte SSE store);
+  - the range coder reading past the compressed block (rangecoder.h, InputShort);
+  - bsc_decompress copying the index table from before the block's start, when the
+    last byte (its count) is larger than the block (libbsc.cpp);
+  - with one or two symbols (maxRank 0), the rank exponent loop never stopping and
+    indexing past its 8-entry model (qlfc.cpp: the clz(0) fix of 3.4.0 leaves
+    maxRank 0, and the loop stops only on "== maxRank");
+  - the run exponent loop without a limit, past its 32-entry model;
+  - misaligned 16-bit loads and stores in the range coder (UB);
+  - a damaged escape rank of 0: clz(0) and then a negative shift building the run
+    state (UB; qlfc.cpp);
+  - an unbounded block table (coder.cpp: sizes and offsets read from the block).
+  - the inverse sort transform (ST3..ST5, what -ma:bsc uses) following links read
+    from its table outside the block, on damaged data or a crafted index (st.cpp,
+    bsc_unst_reconstruct_case1_serial: a read past the table).
+
+The idea, and seeds for some of these, came from tovyCT (another agent of this lab),
+whose coverage-guided fuzzer found the same kind of faults in its own copy.
+
+The patch:
+
+  coder/common/rangecoder.h   InitDecoder(input, inputEnd): InputShort never reads
+                              past inputEnd (zeros, and Overrun() is set), and reads
+                              and writes with memcpy (no misaligned 16-bit accesses).
+  coder/qlfc/qlfc_model.h     decInputEnd and decOutputLimit at the start of both
+                              model structs (bsc_qlfc_init_model leaves them alone),
+                              so the decoders get their bounds without new arguments.
+  coder/qlfc/qlfc.cpp         static, adaptive and fast decoders: the decoded size
+                              must fit the output; the MTF table starts zeroed; the
+                              rank exponent stops at ">= maxRank"; the run exponent
+                              stops at 31 bits; an escape rank of 0 is an error; no
+                              run writes past the output; an
+                              input overrun is an error. The *_decode_block entry
+                              points take the input and output sizes.
+  coder/coder.cpp, coder.h    bsc_coder_decompress(input, inputSize, output,
+                              outputSize, ...): the block table is checked against
+                              both sizes before anything is decoded, and each block
+                              is decoded within its own sizes and must give them.
+  libbsc/libbsc.cpp           the index table must fit inside the block; the coder
+                              gets the block's payload size and dataSize.
+  st/st.cpp                   the serial reconstructions (cases 1, 2 and 3) check
+                              every link against n and return false; bsc_st_decode
+                              turns that into LIBBSC_DATA_CORRUPT. (The OpenMP ones
+                              are not built in zpaq-std.)
+
+And in zpaq-std's adapter (compressors/plug/zs_bsc.cpp): a block whose mode is not
+what zpaq-std writes (stored, or QLFC static with ST3..ST5 and no LZP) is refused
+before libbsc sees it, so the adaptive and fast decoders are out of reach anyway.
+
+Checked: every crashing case (ours and tovyCT's seeds, with the static, adaptive and
+fast coders) ends with LIBBSC_DATA_CORRUPT and no sanitizer report; 2,400,000
+fuzzed blocks without a report; -ma:bsc archives byte for byte those of 1.7.0, and
+1.7.0's archives read by this build.
+
+Not reported upstream: libbsc's repository has its issues disabled (decision of
+zpaq-std's maintainer, 2026-10-24).

@@ -56,28 +56,31 @@ private:
     unsigned int ari_range;
 
     const unsigned short * RESTRICT ari_input;
+    /* ZPAQSTD-PATCH: the decoder knows where its input ends; past it, InputShort
+       returns zeros and sets ari_overrun (a damaged block must not read outside) */
+    const unsigned char * ari_inputEnd;
+    bool ari_overrun;
           unsigned short * RESTRICT ari_output;
           unsigned short * RESTRICT ari_outputEOB;
           unsigned short * RESTRICT ari_outputStart;
 
     INLINE void OutputShort(unsigned short s)
     {
-#ifndef LIBBSC_NO_UNALIGNED_ACCESS
-        *ari_output++ = s;
-#else
+        /* ZPAQSTD-PATCH: memcpy, the output is not 2-byte aligned (same bytes) */
         memcpy(ari_output++, &s, sizeof(unsigned short));
-#endif
     };
 
     INLINE unsigned short InputShort()
     {
-#ifndef LIBBSC_NO_UNALIGNED_ACCESS
-        return *ari_input++;
-#else
+        /* ZPAQSTD-PATCH: bounded, and memcpy (the input is not 2-byte aligned) */
+        if (ari_inputEnd != NULL && (const unsigned char *)ari_input + sizeof(unsigned short) > ari_inputEnd)
+        {
+            ari_overrun = true; ari_input++;
+            return 0;
+        }
         unsigned short s;
         memcpy(&s, ari_input++, sizeof(unsigned short));
         return s;
-#endif
     };
 
     NOINLINE unsigned int ShiftLowSlow()
@@ -197,8 +200,9 @@ public:
         }
     };
 
-    INLINE void InitDecoder(const unsigned char * input)
+    INLINE void InitDecoder(const unsigned char * input, const unsigned char * inputEnd = NULL)
     {
+        ari_inputEnd = inputEnd; ari_overrun = false;   /* ZPAQSTD-PATCH */
         ari_input = (unsigned short *)input;
         ari_code  = 0;
         ari_range = 0xffffffff;
@@ -258,6 +262,8 @@ public:
         }
         return byte;
     }
+
+    INLINE bool Overrun() const { return ari_overrun; }   /* ZPAQSTD-PATCH */
 
     INLINE unsigned int DecodeWord()
     {

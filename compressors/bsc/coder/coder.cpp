@@ -338,26 +338,45 @@ int bsc_coder_compress(const unsigned char * input, unsigned char * output, int 
 }
 
 
-int bsc_coder_decode_block(const unsigned char * input, unsigned char * output, int coder)
+/* ZPAQSTD-PATCH: every block is decoded with its input and output sizes */
+int bsc_coder_decode_block(const unsigned char * input, int inputSize, unsigned char * output, int outputSize, int coder)
 {
-    if (coder == LIBBSC_CODER_QLFC_STATIC)   return bsc_qlfc_static_decode_block  (input, output);
-    if (coder == LIBBSC_CODER_QLFC_ADAPTIVE) return bsc_qlfc_adaptive_decode_block(input, output);
-    if (coder == LIBBSC_CODER_QLFC_FAST)     return bsc_qlfc_fast_decode_block    (input, output);
+    if (coder == LIBBSC_CODER_QLFC_STATIC)   return bsc_qlfc_static_decode_block  (input, inputSize, output, outputSize);
+    if (coder == LIBBSC_CODER_QLFC_ADAPTIVE) return bsc_qlfc_adaptive_decode_block(input, inputSize, output, outputSize);
+    if (coder == LIBBSC_CODER_QLFC_FAST)     return bsc_qlfc_fast_decode_block    (input, inputSize, output, outputSize);
 
     return LIBBSC_BAD_PARAMETER;
 }
 
-int bsc_coder_decompress(const unsigned char * input, unsigned char * output, int coder, int features)
+/* ZPAQSTD-PATCH: inputSize and outputSize bound the whole stream: the block table
+   is checked against them before anything is decoded, and each block gets its own */
+int bsc_coder_decompress(const unsigned char * input, int inputSize, unsigned char * output, int outputSize, int coder, int features)
 {
     if ((coder != LIBBSC_CODER_QLFC_STATIC) && (coder != LIBBSC_CODER_QLFC_ADAPTIVE) && (coder != LIBBSC_CODER_QLFC_FAST))
     {
         return LIBBSC_BAD_PARAMETER;
     }
 
+    if (inputSize < 1 || outputSize < 0) return LIBBSC_DATA_CORRUPT;
+
     int nBlocks = input[0];
     if (nBlocks == 1)
     {
-        return bsc_coder_decode_block(input + 1, output, coder);
+        return bsc_coder_decode_block(input + 1, inputSize - 1, output, outputSize, coder);
+    }
+
+    if (nBlocks == 0 || inputSize < 1 + 8 * nBlocks) return LIBBSC_DATA_CORRUPT;
+    {
+        long long inTotal = 1 + 8 * nBlocks, outTotal = 0;
+        for (int p = 0; p < nBlocks; ++p)
+        {
+            int blockInput, blockOutput;
+            memcpy(&blockInput , input + 1 + 8 * p + 4, sizeof(int));
+            memcpy(&blockOutput, input + 1 + 8 * p + 0, sizeof(int));
+            if (blockInput < 0 || blockOutput < 0) return LIBBSC_DATA_CORRUPT;
+            inTotal += blockInput; outTotal += blockOutput;
+            if (inTotal > inputSize || outTotal > outputSize) return LIBBSC_DATA_CORRUPT;
+        }
     }
 
     int decompressionResult[ALPHABET_SIZE];
@@ -392,7 +411,8 @@ int bsc_coder_decompress(const unsigned char * input, unsigned char * output, in
 
             if (inputSize != outputSize)
             {
-                decompressionResult[blockId] = bsc_coder_decode_block(input + inputPtr, output + outputPtr, coder);
+                decompressionResult[blockId] = bsc_coder_decode_block(input + inputPtr, inputSize, output + outputPtr, outputSize, coder);
+                if (decompressionResult[blockId] >= 0 && decompressionResult[blockId] != outputSize) decompressionResult[blockId] = LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
             }
             else
             {
@@ -436,7 +456,8 @@ int bsc_coder_decompress(const unsigned char * input, unsigned char * output, in
             if (inputSize != outputSize)
             {
                 if (model == NULL) model = bsc_malloc(bsc_qlfc_model_size(coder));
-                decompressionResult[blockId] = model != NULL ? bsc_qlfc_decode_block_model(input + inputPtr, output + outputPtr, coder, model) : LIBBSC_NOT_ENOUGH_MEMORY;
+                decompressionResult[blockId] = model != NULL ? bsc_qlfc_decode_block_model(input + inputPtr, inputSize, output + outputPtr, outputSize, coder, model) : LIBBSC_NOT_ENOUGH_MEMORY;
+                if (decompressionResult[blockId] >= 0 && decompressionResult[blockId] != outputSize) decompressionResult[blockId] = LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
             }
             else
             {

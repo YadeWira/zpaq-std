@@ -745,7 +745,7 @@ int QLFC_ADAPTIVE_ENCODE_FUNCTION_NAME (const unsigned char * input, unsigned ch
         }
         else
         {
-            rankHistory[currentChar] = (unsigned char)bsc_bit_scan_reverse(rank);
+            rankHistory[currentChar] = (unsigned char)(rank > 0 ? bsc_bit_scan_reverse(rank) : 0);   /* ZPAQSTD-PATCH: clz(0) on a damaged rank */
 
             statePredictor  = & model->Rank.Escape.StateModel[state][0];
             charPredictor   = & model->Rank.Escape.CharModel[currentChar][0];
@@ -1087,7 +1087,7 @@ int QLFC_STATIC_ENCODE_FUNCTION_NAME (const unsigned char * input, unsigned char
         }
         else
         {
-            rankHistory[currentChar] = (unsigned char)bsc_bit_scan_reverse(rank);
+            rankHistory[currentChar] = (unsigned char)(rank > 0 ? bsc_bit_scan_reverse(rank) : 0);   /* ZPAQSTD-PATCH: clz(0) on a damaged rank */
 
             statePredictor  = & model->Rank.Escape.StateModel[state][0];
             charPredictor   = & model->Rank.Escape.CharModel[currentChar][0];
@@ -1441,8 +1441,9 @@ int QLFC_ADAPTIVE_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned ch
         rankHistory[i] = runHistory[i] = 0;
     }
 
-    coder.InitDecoder(input);
+    coder.InitDecoder(input, model->decInputEnd);
     int n = (int)coder.DecodeWord();
+    if (n < 0 || n > model->decOutputLimit || coder.Overrun()) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
 
     unsigned char usedChar[ALPHABET_SIZE];
     for (int i = 0; i < ALPHABET_SIZE; ++i) usedChar[i] = 0;
@@ -1516,7 +1517,7 @@ int QLFC_ADAPTIVE_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned ch
                 int bitRankSize = 1;
                 while (true)
                 {
-                    if (bitRankSize == maxRank) break;
+                    if (bitRankSize >= maxRank) break;   /* ZPAQSTD-PATCH: maxRank is 0 with one or two symbols */
                     if (coder.DecodeBit(mixer->Mixup(*charPredictor, *statePredictor, *staticPredictor)))
                     {
                         ProbabilityCounter::UpdateBit1(*statePredictor,  M_RANK_ES_TH1, M_RANK_ES_AR1); statePredictor++;
@@ -1601,7 +1602,8 @@ int QLFC_ADAPTIVE_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned ch
                 }
             }
 
-            rankHistory[currentChar] = (unsigned char)bsc_bit_scan_reverse(rank);
+            if (rank <= 0) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH: an escape rank is at least 1 */
+            rankHistory[currentChar] = (unsigned char)(rank > 0 ? bsc_bit_scan_reverse(rank) : 0);   /* ZPAQSTD-PATCH: clz(0) on a damaged rank */
         }
 
         {
@@ -1747,6 +1749,7 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
     RangeCoder coder;
 
     unsigned char ALIGNED(64) MTFTable[ALPHABET_SIZE];
+    memset(MTFTable, 0, sizeof(MTFTable));   /* ZPAQSTD-PATCH: hostile ranks read only zeros */
 
     bsc_qlfc_init_model(model);
 
@@ -1762,8 +1765,10 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
         rankHistory[i] = runHistory[i] = 0;
     }
 
-    coder.InitDecoder(input);
+    coder.InitDecoder(input, model->decInputEnd);
     int n = (int)coder.DecodeWord();
+    /* ZPAQSTD-PATCH: the decoded size must fit the output */
+    if (n < 0 || n > model->decOutputLimit || coder.Overrun()) return LIBBSC_DATA_CORRUPT;
 
     unsigned char usedChar[ALPHABET_SIZE];
     for (int i = 0; i < ALPHABET_SIZE; ++i) usedChar[i] = 0;
@@ -1810,6 +1815,7 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
 
     for (int i = 0; i < n;)
     {
+        if (coder.Overrun()) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
         int                 currentChar     =   MTFTable[0];
         int                 history         =   rankHistory[currentChar];
         int                 state           =   model_rank_state(contextRank4, contextRun, history);
@@ -1834,7 +1840,7 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
                 int bitRankSize = 1;
                 while (true)
                 {
-                    if (bitRankSize == maxRank) break;
+                    if (bitRankSize >= maxRank) break;   /* ZPAQSTD-PATCH: maxRank is 0 with one or two symbols */
 
                     int probability = (*charPredictor * F_RANK_EM_LR0 + *statePredictor * F_RANK_EM_LR1 + *staticPredictor * F_RANK_EM_LR2) >> 5;
                     if (coder.PeakBit(probability))
@@ -1898,7 +1904,8 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
                 context += context + b; rank += rank + b;
             }
 
-            rankHistory[currentChar] = (unsigned char)bsc_bit_scan_reverse(rank);
+            if (rank <= 0) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH: an escape rank is at least 1 */
+            rankHistory[currentChar] = (unsigned char)(rank > 0 ? bsc_bit_scan_reverse(rank) : 0);   /* ZPAQSTD-PATCH: clz(0) on a damaged rank */
         }
 
         {
@@ -1956,6 +1963,8 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
                     ProbabilityCounter::UpdateBit1(*staticPredictor, F_RUN_EP_TH1, F_RUN_EP_AR1); staticPredictor++;
                     bitRunSize++;
                     coder.DecodeBit1(probability);
+                    /* ZPAQSTD-PATCH: the run models have 32 entries, and runSize must fit an int */
+                    if (bitRunSize >= 31) return LIBBSC_DATA_CORRUPT;
                 }
                 else
                 {
@@ -1988,6 +1997,8 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
             contextRank4 = ((contextRank4 << 2) | (rank < 3    ? rank : 3)) & 0xff;
             contextRun   = ((contextRun   << 1) | (runSize < 3 ? 1    : 0)) & 0xf;
         
+            /* ZPAQSTD-PATCH: a run never writes past the n bytes of the output */
+            if (runSize > n - i) return LIBBSC_DATA_CORRUPT;
             if (((unsigned int)runSize <= 16) && (i <= n - 16))
             {
 #if LIBBSC_CPU_FEATURE >= LIBBSC_CPU_FEATURE_SSE2
@@ -2019,7 +2030,7 @@ int QLFC_STATIC_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char
         }
     }
 
-    return n;
+    return coder.Overrun() ? LIBBSC_DATA_CORRUPT : n;   /* ZPAQSTD-PATCH */
 }
 
 #endif
@@ -2033,9 +2044,10 @@ int QLFC_FAST_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char *
     bsc_qlfc_init_model(model);
 
     RangeCoder coder;
-    coder.InitDecoder(input);
+    coder.InitDecoder(input, model->decInputEnd);
 
     int n = (int)coder.DecodeWord();
+    if (n < 0 || n > model->decOutputLimit || coder.Overrun()) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
 
     unsigned char usedChar[ALPHABET_SIZE];
     for (int i = 0; i < ALPHABET_SIZE; ++i) usedChar[i] = 0;
@@ -2172,6 +2184,7 @@ int QLFC_FAST_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char *
                     {
                         ProbabilityCounter::UpdateBit<4>(predictor[bitRunSize], 142);
                         bitRunSize++;
+                        if (bitRunSize >= 31) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH: 32-entry models */
                         coder.DecodeBit1<11>(p);
                     }
                     else
@@ -2194,6 +2207,7 @@ int QLFC_FAST_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char *
                         runSize += runSize + b;
                     }
 
+                    if (runSize > (unsigned int)(outputEnd - output)) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
                     if ((runSize <= 16) && (output + 16 <= outputEnd))
                     {
 #if LIBBSC_CPU_FEATURE >= LIBBSC_CPU_FEATURE_SSE2
@@ -2220,6 +2234,7 @@ int QLFC_FAST_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char *
                         runSize += runSize + b;
                     }
 
+                    if (runSize > (unsigned int)(outputEnd - output)) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
                     for (; runSize > 0; --runSize) { *output++ = currentChar; }
                 }
             }
@@ -2230,7 +2245,7 @@ int QLFC_FAST_DECODE_FUNCTION_NAME (const unsigned char * input, unsigned char *
         }
     }
 
-    return n;
+    return coder.Overrun() ? LIBBSC_DATA_CORRUPT : n;   /* ZPAQSTD-PATCH */
 }
 
 #endif
@@ -2307,8 +2322,11 @@ int bsc_qlfc_encode_block_model(const unsigned char * input, unsigned char * out
     return LIBBSC_BAD_PARAMETER;
 }
 
-int bsc_qlfc_decode_block_model(const unsigned char * input, unsigned char * output, int coder, void * model)
+int bsc_qlfc_decode_block_model(const unsigned char * input, int inputSize, unsigned char * output, int outputSize, int coder, void * model)
 {
+    /* ZPAQSTD-PATCH: the decoders' bounds travel in the model */
+    if (coder == LIBBSC_CODER_QLFC_FAST) { ((QlfcStatisticalModel2 *)model)->decInputEnd = input + inputSize; ((QlfcStatisticalModel2 *)model)->decOutputLimit = outputSize; }
+    else { ((QlfcStatisticalModel1 *)model)->decInputEnd = input + inputSize; ((QlfcStatisticalModel1 *)model)->decOutputLimit = outputSize; }
     if (coder == LIBBSC_CODER_QLFC_STATIC)   return bsc_qlfc_static_decode  (input, output, (QlfcStatisticalModel1 *)model);
     if (coder == LIBBSC_CODER_QLFC_ADAPTIVE) return bsc_qlfc_adaptive_decode(input, output, (QlfcStatisticalModel1 *)model);
     if (coder == LIBBSC_CODER_QLFC_FAST)     return bsc_qlfc_fast_decode    (input, output, (QlfcStatisticalModel2 *)model);
@@ -2316,10 +2334,11 @@ int bsc_qlfc_decode_block_model(const unsigned char * input, unsigned char * out
     return LIBBSC_BAD_PARAMETER;
 }
 
-int bsc_qlfc_static_decode_block(const unsigned char * input, unsigned char * output)
+int bsc_qlfc_static_decode_block(const unsigned char * input, int inputSize, unsigned char * output, int outputSize)
 {
     if (QlfcStatisticalModel1 * model = (QlfcStatisticalModel1 *)bsc_malloc(sizeof(QlfcStatisticalModel1)))
     {
+        model->decInputEnd = input + inputSize; model->decOutputLimit = outputSize;   /* ZPAQSTD-PATCH */
         int result = bsc_qlfc_static_decode(input, output, model);
 
         bsc_free(model);
@@ -2329,10 +2348,11 @@ int bsc_qlfc_static_decode_block(const unsigned char * input, unsigned char * ou
     return LIBBSC_NOT_ENOUGH_MEMORY;
 }
 
-int bsc_qlfc_adaptive_decode_block(const unsigned char * input, unsigned char * output)
+int bsc_qlfc_adaptive_decode_block(const unsigned char * input, int inputSize, unsigned char * output, int outputSize)
 {
     if (QlfcStatisticalModel1 * model = (QlfcStatisticalModel1 *)bsc_malloc(sizeof(QlfcStatisticalModel1)))
     {
+        model->decInputEnd = input + inputSize; model->decOutputLimit = outputSize;   /* ZPAQSTD-PATCH */
         int result = bsc_qlfc_adaptive_decode(input, output, model);
 
         bsc_free(model);
@@ -2342,10 +2362,11 @@ int bsc_qlfc_adaptive_decode_block(const unsigned char * input, unsigned char * 
     return LIBBSC_NOT_ENOUGH_MEMORY;
 }
 
-int bsc_qlfc_fast_decode_block(const unsigned char * input, unsigned char * output)
+int bsc_qlfc_fast_decode_block(const unsigned char * input, int inputSize, unsigned char * output, int outputSize)
 {
     if (QlfcStatisticalModel2 * model = (QlfcStatisticalModel2 *)bsc_malloc(sizeof(QlfcStatisticalModel2)))
     {
+        model->decInputEnd = input + inputSize; model->decOutputLimit = outputSize;   /* ZPAQSTD-PATCH */
         int result = bsc_qlfc_fast_decode(input, output, model);
 
         bsc_free(model);

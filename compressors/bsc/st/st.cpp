@@ -1092,7 +1092,9 @@ static bool bsc_unst_sort_serial(unsigned char * RESTRICT T, unsigned int * REST
     return failBack;
 }
 
-static void bsc_unst_reconstruct_case1_serial(unsigned char * RESTRICT T, unsigned int * RESTRICT P, unsigned int * RESTRICT count, int n, int start)
+/* ZPAQSTD-PATCH: the reconstructions follow links read from P; a damaged block
+   (or a crafted index) sends them outside it: each returns false then */
+static bool bsc_unst_reconstruct_case1_serial(unsigned char * RESTRICT T, unsigned int * RESTRICT P, unsigned int * RESTRICT count, int n, int start)
 {
     unsigned int index[ALPHABET_SIZE];
              int group[ALPHABET_SIZE];
@@ -1118,18 +1120,21 @@ static void bsc_unst_reconstruct_case1_serial(unsigned char * RESTRICT T, unsign
 
     for (int p = start, i = n - 1; i >= 0; --i)
     {
+        if ((unsigned int)p >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
         unsigned int u = P[p];
         if (u & 0x800000)
         {
             p = u & 0x7fffff;
+            if ((unsigned int)p >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
             u = P[p];
         }
 
         T[i] = u >> 24; P[p]--; p = u & 0x7fffff;
     }
+    return true;
 }
 
-static void bsc_unst_reconstruct_case2_serial(unsigned char * RESTRICT T, unsigned int * RESTRICT P, unsigned int * RESTRICT count, int n, int start)
+static bool bsc_unst_reconstruct_case2_serial(unsigned char * RESTRICT T, unsigned int * RESTRICT P, unsigned int * RESTRICT count, int n, int start)
 {
     unsigned int index[ALPHABET_SIZE];
              int group[ALPHABET_SIZE];
@@ -1155,16 +1160,19 @@ static void bsc_unst_reconstruct_case2_serial(unsigned char * RESTRICT T, unsign
 
     for (int p = start, i = n - 1; i >= 0; --i)
     {
+        if ((unsigned int)p >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
         unsigned int u = P[p];
         if (u & 0x800000)
         {
             p = p - (u & 0x7fffff);
+            if ((unsigned int)p >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
             u = P[p];
         }
 
         unsigned char c = u >> 24;
         T[i] = c; P[p]--; p = (u & 0x7fffff) + count[c];
     }
+    return true;
 }
 
 static INLINE int bsc_unst_search(int index, unsigned int * p, unsigned int v)
@@ -1174,7 +1182,7 @@ static INLINE int bsc_unst_search(int index, unsigned int * p, unsigned int v)
 
 #define ST_NUM_FASTBITS (10)
 
-static void bsc_unst_reconstruct_case3_serial(unsigned char * RESTRICT T, unsigned int * RESTRICT P, unsigned int * RESTRICT count, int n, int start)
+static bool bsc_unst_reconstruct_case3_serial(unsigned char * RESTRICT T, unsigned int * RESTRICT P, unsigned int * RESTRICT count, int n, int start)
 {
     unsigned char   fastbits[1 << ST_NUM_FASTBITS];
     unsigned int    index[ALPHABET_SIZE];
@@ -1216,6 +1224,7 @@ static void bsc_unst_reconstruct_case3_serial(unsigned char * RESTRICT T, unsign
         if (P[start] & 0x80000000)
         {
             start = P[start] & 0x7fffffff;
+            if ((unsigned int)start >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
         }
 
         T[0] = bsc_unst_search(fastbits[start >> shift], index, start);
@@ -1223,10 +1232,12 @@ static void bsc_unst_reconstruct_case3_serial(unsigned char * RESTRICT T, unsign
 
         for (int p = start, i = n - 1; i >= 1; --i)
         {
+            if ((unsigned int)p >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
             unsigned int u = P[p];
             if (u & 0x80000000)
             {
                 p = u & 0x7fffffff;
+                if ((unsigned int)p >= (unsigned int)n) return false;   /* ZPAQSTD-PATCH */
                 u = P[p];
             }
 
@@ -1234,13 +1245,14 @@ static void bsc_unst_reconstruct_case3_serial(unsigned char * RESTRICT T, unsign
             P[p]--; p = u;
         }
     }
+    return true;
 }
 
-static void bsc_unst_reconstruct_serial(unsigned char * T, unsigned int * P, unsigned int * count, int n, int index, bool failBack)
+static bool bsc_unst_reconstruct_serial(unsigned char * T, unsigned int * P, unsigned int * count, int n, int index, bool failBack)
 {
     if (n < 0x800000)   return bsc_unst_reconstruct_case1_serial(T, P, count, n, index);
     if (!failBack)      return bsc_unst_reconstruct_case2_serial(T, P, count, n, index);
-    if (failBack)       return bsc_unst_reconstruct_case3_serial(T, P, count, n, index);
+    return bsc_unst_reconstruct_case3_serial(T, P, count, n, index);
 }
 
 #ifdef LIBBSC_OPENMP
@@ -1500,6 +1512,7 @@ int bsc_st_decode(unsigned char * T, int n, int k, int index, int features)
         if (unsigned int * bucket = (unsigned int *)bsc_zero_malloc(ALPHABET_SIZE * ALPHABET_SIZE * sizeof(unsigned int)))
         {
             unsigned int count[ALPHABET_SIZE]; memset(count, 0, ALPHABET_SIZE * sizeof(unsigned int));
+            bool ok = true;   /* ZPAQSTD-PATCH */
 
 #ifdef LIBBSC_OPENMP
 
@@ -1514,11 +1527,11 @@ int bsc_st_decode(unsigned char * T, int n, int k, int index, int features)
 
             {
                 bool failBack = bsc_unst_sort_serial(T, P, count, bucket, n, k);
-                bsc_unst_reconstruct_serial(T, P, count, n, index, failBack);
+                ok = bsc_unst_reconstruct_serial(T, P, count, n, index, failBack);   /* ZPAQSTD-PATCH */
             }
 
             bsc_free(bucket); bsc_free(P);
-            return LIBBSC_NO_ERROR;
+            return ok ? LIBBSC_NO_ERROR : LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
         };
         bsc_free(P);
     };

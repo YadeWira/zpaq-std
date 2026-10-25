@@ -63,7 +63,7 @@ extern "C" {
     * @param features   - the set of additional features.
     * @return the length of decompressed memory block if no error occurred, error code otherwise.
     */
-    int bsc_coder_decompress(const unsigned char * input, unsigned char * output, int coder, int features);
+    int bsc_coder_decompress(const unsigned char * input, int inputSize, unsigned char * output, int outputSize, int coder, int features);   /* ZPAQSTD-PATCH: sizes */
 
 #ifdef __cplusplus
 }

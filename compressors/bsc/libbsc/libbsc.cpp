@@ -493,6 +493,11 @@ int bsc_decompress_inplace(unsigned char * data, int inputSize, int outputSize, 
     unsigned int    adler32_data    = bsc_load_int(data + 16);
 
     num_indexes = data[blockSize - 1];
+    /* ZPAQSTD-PATCH: the index table and its count must fit inside the block */
+    if (blockSize - 1 - 4 * num_indexes < LIBBSC_HEADER_SIZE + 1)
+    {
+        return LIBBSC_DATA_CORRUPT;
+    }
     if (num_indexes > 0)
     {
         memcpy(indexes, data + blockSize - 1 - 4 * num_indexes, 4 * num_indexes);
@@ -510,7 +515,7 @@ int bsc_decompress_inplace(unsigned char * data, int inputSize, int outputSize, 
 
         bsc_memcpy(buffer, data, blockSize, features);
 
-        lzSize = bsc_coder_decompress(buffer + LIBBSC_HEADER_SIZE, data, coder, features);
+        lzSize = bsc_coder_decompress(buffer + LIBBSC_HEADER_SIZE, blockSize - LIBBSC_HEADER_SIZE - 1 - 4 * num_indexes, data, dataSize, coder, features);   /* ZPAQSTD-PATCH: sizes */
 
         bsc_free(buffer);
     }
@@ -602,6 +607,11 @@ int bsc_decompress(const unsigned char * input, int inputSize, unsigned char * o
     unsigned int    adler32_data    = bsc_load_int(input + 16);
 
     num_indexes = input[blockSize - 1];
+    /* ZPAQSTD-PATCH: the index table and its count must fit inside the block */
+    if (blockSize - 1 - 4 * num_indexes < LIBBSC_HEADER_SIZE + 1)
+    {
+        return LIBBSC_DATA_CORRUPT;
+    }
     if (num_indexes > 0)
     {
         memcpy(indexes, input + blockSize - 1 - 4 * num_indexes, 4 * num_indexes);
@@ -612,7 +622,7 @@ int bsc_decompress(const unsigned char * input, int inputSize, unsigned char * o
     int coder        = (mode >>  5) & 0x7;
     int blockSorter  = (mode >>  0) & 0x1f;
 
-    int lzSize = bsc_coder_decompress(input + LIBBSC_HEADER_SIZE, output, coder, features);
+    int lzSize = bsc_coder_decompress(input + LIBBSC_HEADER_SIZE, blockSize - LIBBSC_HEADER_SIZE - 1 - 4 * num_indexes, output, dataSize, coder, features);   /* ZPAQSTD-PATCH: sizes */
     if (lzSize < LIBBSC_NO_ERROR)
     {
         return lzSize;

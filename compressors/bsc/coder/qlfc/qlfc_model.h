@@ -180,6 +180,10 @@ struct QlfcStatisticalModel1
 
 public:
 
+    /* ZPAQSTD-PATCH: where the decoder's input ends and how much it may write */
+    const unsigned char * decInputEnd;
+    int decOutputLimit;
+
     struct Rank
     {
         short StaticModel;
@@ -244,6 +248,10 @@ struct QlfcStatisticalModel2
 {
 
 public:
+
+    /* ZPAQSTD-PATCH: where the decoder's input ends and how much it may write */
+    const unsigned char * decInputEnd;
+    int decOutputLimit;
 
     struct Rank
     {
