@@ -21,6 +21,20 @@ done
 for c in pja pjax pjall pjals pjalsx; do
   echo "$info" | grep -qE "^ +pja:$c +pja stream" || { echo "FAIL pja:$c not loaded"; bad=$((bad+1)); }
 done
+if [ $bad != 0 ]; then   # why: the exported names, and what dlopen says
+  for f in codecs/sylz.* codecs/pja.*; do
+    echo "== $f"; nm -g "$f" 2>/dev/null | grep -i zpaqstd
+    python3 -c "
+import ctypes, sys
+try:
+    l = ctypes.CDLL(sys.argv[1])
+    for n in ('zpaqstd_codec_v1', 'zpaqstd_codecs_v1', 'zpaqstd_detect_v1'):
+        print(n, hasattr(l, n))
+except OSError as e:
+    print('dlopen:', e)
+" "$PWD/$f"
+  done
+fi
 for m in sylz:0 sylz:1 sylz:5 sylz:10 sylzec:0 sylzec:1 sylzec:9; do
   n=$((n+1)); f=p$n.zpaq
   if ! ./zpaq-std a $f data -ma:$m -timestamp 2026-01-01_00:00:00 -noattributes -nomore >a.log 2>&1; then echo "FAIL a $m"; tail -3 a.log; bad=$((bad+1)); continue; fi
