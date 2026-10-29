@@ -1,4 +1,10 @@
-lz6 lib/ v1.7.0 (tag v1.7.0, commit f0a101d, 2026-10-24: lz6's first stable release, formats
+lz6 lib/ v1.7.1 (tag v1.7.1, commit ea9f132, 2026-10-29): lz6.c, lz6.h and LICENSE copied
+unmodified (the other files did not change). 1.7.1 changes nothing in the format, the library
+or the encoder: in lib/ only the version, a dead "#if 0" in lz6.c and Przemyslaw Skibinski
+added to LICENSE; its fixes are in lz6's command line tool, which zpaq-std does not use.
+-ma:lz6 at levels 0 to 15 writes the very bytes of 1.7.0.
+
+Before: lz6 lib/ v1.7.0 (tag v1.7.0, commit f0a101d, 2026-10-24: lz6's first stable release, formats
 frozen since v1.6.11); before it v1.6.15-pre (b72a8fc) and v1.6.14-pre (3106c73): lz6.c, lz6hc.c,
 lz6.h, lz6hc.h, lz6common.h, mem.h, copied unmodified. Its changes since v1.6.13-pre
 are in the table of lz6's seq engine (levels 9 to 13 of the newer format); the HC table
