@@ -4,10 +4,11 @@
 # several levels. The archives' SHA-256 go to plughashes-<platform>.txt, for
 # same_bytes.sh. pja: its five codecs must be listed by codecinfo.
 #   test/ci/plugin_check.sh <zpaq-std binary> <codecs dir> <platform name>
+# NOPJA=1 leaves pja out (macOS, until a PJA release exports Darwin's names).
 set -u
 Z=$1; C=$2; PLAT=$3
 W=ci-plug; rm -rf "$W"; mkdir -p "$W/codecs" "$W/data/sub"
-cp "$Z" "$W/zpaq-std"; cp "$C"/sylz.* "$C"/pja.* "$W/codecs/"
+cp "$Z" "$W/zpaq-std"; cp "$C"/sylz.* "$W/codecs/"; [ -n "${NOPJA:-}" ] || cp "$C"/pja.* "$W/codecs/"
 cp README.md CHANGELOG.md LICENSE "$W/data/"; cp compressors/bsc/PATCHES "$W/data/sub/"
 head -c 300000 THIRD-PARTY-LICENSES.txt > "$W/data/sub/tpl.txt"
 find "$W/data" -exec touch -d '2026-01-01T12:00:00Z' {} +
@@ -18,7 +19,7 @@ info=$(./zpaq-std codecinfo 2>&1 | tr -d '\r')
 for c in sylz sylzec; do
   echo "$info" | grep -E "^$c " | grep -v MISSING | grep -q "codecs/sylz" || { echo "FAIL $c not loaded from codecs/"; bad=$((bad+1)); }
 done
-for c in pja pjax pjall pjals pjalsx; do
+[ -n "${NOPJA:-}" ] || for c in pja pjax pjall pjals pjalsx; do
   echo "$info" | grep -qE "^ +pja:$c +pja stream" || { echo "FAIL pja:$c not loaded"; bad=$((bad+1)); }
 done
 if [ $bad != 0 ]; then   # why: the exported names, and what dlopen says

@@ -55,13 +55,10 @@ jobs:
           fpc -iV
       - name: Free Pascal plugins
         if: matrix.fpc
-        # macOS: FPC exports the plugins' entry points without Darwin's leading
-        # underscore, so dlsym does not find them; fixed in the plugins' sources
-        # (syc, PJA), not yet released. Until then this step does not fail macOS.
-        continue-on-error: ${{ matrix.name == 'macos-arm64' }}
+        # macOS: pja is left out until a PJA release exports Darwin's names (0.1.0)
         run: |
           ${{ matrix.name == 'macos-arm64' && 'MACOSX_DEPLOYMENT_TARGET=11.0' || '' }} make fpc-plugins
-          bash test/ci/plugin_check.sh "$PWD/zpaq-std" "$PWD/plugins/codecs" ${{ matrix.name }}
+          ${{ matrix.name == 'macos-arm64' && 'NOPJA=1' || '' }} bash test/ci/plugin_check.sh "$PWD/zpaq-std" "$PWD/plugins/codecs" ${{ matrix.name }}
       - uses: actions/upload-artifact@v4
         if: matrix.fpc
         with:
@@ -142,4 +139,4 @@ jobs:
       - name: Free Pascal plugins, compared with linux-x64
         run: |
           for p in plug/*/plughashes-*.txt; do cp "$p" "hashes-plug-$(basename "$p" .txt | sed 's/^plughashes-//').txt"; done
-          bash test/ci/same_bytes.sh plug-linux-x64 plug-linux-arm64
+          bash test/ci/same_bytes.sh plug-linux-x64 plug-linux-arm64 plug-macos-arm64
