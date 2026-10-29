@@ -60,8 +60,7 @@ jobs:
         # (syc, PJA), not yet released. Until then this step does not fail macOS.
         continue-on-error: ${{ matrix.name == 'macos-arm64' }}
         run: |
-          # sylzc.c needs gcc (__builtin_shuffle): on macOS, Homebrew's gcc-14
-          ${{ matrix.name == 'macos-arm64' && 'MACOSX_DEPLOYMENT_TARGET=11.0 SYLZC_CC=$(ls /opt/homebrew/bin/gcc-1[0-9] | sort -V | tail -1)' || '' }} make fpc-plugins
+          ${{ matrix.name == 'macos-arm64' && 'MACOSX_DEPLOYMENT_TARGET=11.0' || '' }} make fpc-plugins
           bash test/ci/plugin_check.sh "$PWD/zpaq-std" "$PWD/plugins/codecs" ${{ matrix.name }}
       - uses: actions/upload-artifact@v4
         if: matrix.fpc
