@@ -1,3 +1,65 @@
+### [1.9.0] - 2026-10-29
+
+**Six platforms** with CI on every push (Windows x64/x86, Linux x64/x86/AArch64, macOS AArch64), **lossless JPEG and subsampled JPEG-LS** with `-sa` (PJA 0.0.8), **lizard-ex 2.3.2** for `-ma:lizard`, and **`-ma:lz6` stable** (lz6 1.7.1).
+
+#### Platforms and CI
+
+| OS | Architectures | State |
+|---|---|---|
+| Windows (7 and later) | x86-64, x86 | release binaries; CI, and Windows 7 before each release |
+| Linux | x86-64 | release binary; CI and the full test battery |
+| Linux | x86 (32-bit), AArch64 | built and tested in CI |
+| macOS | AArch64 | built and tested in CI |
+
+- **CI** (`.github/workflows/ci.yml`, with `test/ci/`): on every push, the six platforms build zpaq-std and run every built-in method (`-m1`..`-m5` and each `-ma` switch that is not plugin-only): compress, extract, test. Then the archives are compared byte for byte. Linux AArch64 and macOS write the very bytes of Linux x86-64. The 32-bit builds differ in four methods (`-ma:brotli`, `-ma:lz6:0`, `-ma:lz4f`, `-ma:lz5f`), with other, equally valid, streams. Windows archives also store each file's creation date, so Windows x86 is compared with Windows x86-64. The README shows the CI badge and a Platforms table.
+- **Building** (all from the same Makefile, nothing to install but a compiler):
+  - `make m32` (32-bit Linux) works again;
+  - `make CROSS_COMPILE=aarch64-linux-gnu-` gets the portable code: the x86 JIT and intrinsics are chosen from the target, not the host;
+  - macOS needs `llvm-objcopy` (`brew install llvm`).
+- **Renamed:** every codec's `VERSION` file is now `VERSION.txt`. On macOS, whose file system ignores case, C++'s `<version>` header found them.
+- The two workflows inherited from zpaqfranz are gone. They failed on every push.
+
+#### `-sa`: lossless JPEG and subsampled JPEG-LS (still experimental)
+
+PJA 0.0.8 adds two codecs to its plugin, each with its own ZPAQL decoder, so any zpaq extracts their blocks:
+
+- `pjall`: lossless JPEG (SOF3, Huffman): 2 to 16 bits, predictors 1 to 7, point transform, restarts, DNL. Its ZPAQL is 30,508 bytes.
+- `pjalsx`: JPEG-LS whose components are subsampled. Its ZPAQL is 60,776 bytes.
+
+`-sa` and `-sa:pja` now use the five, in this order: pjax, pja, pjall, pjals, pjalsx. These are the same blocks as `-sae:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2`.
+
+- pja, pjals and pjax are byte for byte 0.0.4's. On the 79 JPEG and JPEG-LS files of the test corpus, the archive is 1.8.0's.
+- With PJA's 43 lossless JPEGs and 67 subsampled JPEG-LS added (189 files, 65 MB), the archive is 52.4 MB, against 56.1 MB with `-m1`.
+- Older versions: zpaq-std 1.8.0 with PJA 0.0.4's plugin runs the new codecs' ZPAQL and reads them correctly.
+
+#### `-ma:lizard`: lizard-ex 2.3.2
+
+[lizard-ex](https://github.com/YadeWira/lizard-ex) is the maintained successor of Lizard 2.1. It keeps the same block format and the same bytes: `-ma:lizard:10` to `49` write archives identical to 1.8.0's, and ZPAQLIZARD and ZPAQLIZARDH do not change. Its decoder has more bounds checks, and it fuzzes them.
+
+- **No more patches:** zpaq-std's two changes to Lizard 2.1 are now in lizard-ex itself.
+  - The decoder fix: a damaged compressed block after an uncompressed one could write past the output. lizard-ex 2.3.1 still had it, and we reported it; 2.3.2 fixes it and adds a regression test.
+  - The renamed `g_debuglevel`, which collided with zstd's.
+
+#### `-ma:lz6` is stable (lz6 1.7.1)
+
+lz6 has had stable releases since 1.7.0. lz6 1.7.1 changes nothing in the library or the format; its fixes are in lz6's command line tool. `-ma:lz6` writes the same bytes as in 1.8.0 at every level, and it no longer warns (00603).
+
+#### Downloads
+
+As in 1.8.0: the full program, `extra-codecs.zip` (sylz with sylzec, and pja) and `plugins.zip`, per platform, plus `THIRD-PARTY-LICENSES.txt` and `SHA256SUMS.txt`. The release binaries are Windows x64/x86 and Linux x64. The other platforms build from source.
+
+#### Checked
+
+- **CI:** all six platforms green, three runs in a row; the cross-platform byte comparison as described above.
+- **lizard-ex 2.3.2:** `-ma:lizard` at levels 10 to 49 writes archives identical to 1.8.0's. With exact-size output under AddressSanitizer and UBSan, 200,000 mutations per level at 10, 17, 20, 30, 40 and 49 give no report.
+- **lz6 1.7.1:** `-ma:lz6` at levels 0 to 15 writes archives identical to 1.8.0's.
+- **PJA 0.0.8:** vendored from its tag (`v0.0.8`, commit `11ec86e`, the tarball checked by its SHA-256), unmodified. `suite_sa` 16/16. The 189-file set above extracts identically with the plugin, without it, with zpaq 7.15, and with 1.8.0 and its PJA 0.0.4 plugin.
+- **Windows 7 x64 and x86**, release binaries and the extra-codecs DLLs:
+  - `-ma:lizard` (17, 49), `-ma:lz6` (0, 15), `-ma:bsc:9` and `-m1`: 24/24 extractions identical in Windows. The archives made there extract on Linux with zpaq 7.15, zpaqfranz, 1.8.0 and 1.9.0.
+  - `-sa` and `-sat` with the five PJA codecs: x64 and x86 write the same archive. A set with lossless JPEGs extracts identically in Windows, and on Linux with zpaq 7.15, 1.6.0, 1.8.0 with PJA 0.0.4 and 1.9.0 (93/93 each). 67 subsampled JPEG-LS in one pjalsx block: x64 and x86 write the same archive, and every reader gives back 67/67. Two MPOs taken by pjax: 3/3 everywhere.
+  - Also tested: sylz and sylzec with the DLLs (30/30), `-mae`/`-mat` (12/12), `-sae`/`-sat` with the example plugin (16/16), and `-franztime`.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.8.0: 182 comparisons, 0 divergences.
+
 ### [1.8.0] - 2026-10-25
 
 **`-ma:sylzec`** (experimental), **`-franztime`**, PJA 0.0.4 with **`pjax`** for `-sa`, a **bounds-checked libbsc decoder**, syc v0.4.2 (sylz and sylzec in one plugin) and lz6 1.7.0.
