@@ -650,7 +650,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ===============================================================================
 lz6 see compressors/lz6/VERSION.txt
 Licence: BSD-2-Clause
-Copyright: Yann Collet (LZ4), YadeWira
+Copyright: Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), YadeWira
 
 LZ4 Library
 Copyright (c) 2011-2015, Yann Collet
