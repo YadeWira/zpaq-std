@@ -19,8 +19,8 @@
 # toma los archivos con al menos la mitad de los bytes en rachas de 3 o mas.
 #
 #   OLD160=<zpaq-std 1.6.0> agrega la prueba de 1.6.0 con el plugin
-#   PJAPLUG=<pja.so> agrega -sa (la familia oficial: pjax, pja y pjals) sobre copias de
-#   JPEG y JPEG-LS del corpus: -sa = -sa:pja = -sae:pja:pjax+2:pja+2:pjals+2 byte a byte, extrae con
+#   PJAPLUG=<pja.so> agrega -sa (la familia oficial: pjax, pja, pjall, pjals y pjalsx) sobre copias de
+#   JPEG y JPEG-LS del corpus: -sa = -sa:pja = -sae:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2 byte a byte, extrae con
 #   y sin plugin y en zpaq 7.15, y sin el plugin -sa se niega (00730)
 #
 #   uso: suite_sa.sh          (usa Z=... o el binario del repo)
@@ -143,14 +143,14 @@ jpg=[p for p in out if not p.lower().endswith('.jls')][:12]
 open('pj.lista','w').write(''.join(x+'\\n' for x in jpg+jls))
 " "$CO"
   i=0; while IFS= read -r f; do i=$((i+1)); cp -- "$f" "src3/$(printf %02d $i).${f##*.}"; done < pj.lista
-  pj/zpaq-std a s1.zpaq src3 -sa $TS >ls1.log 2>&1; pj/zpaq-std a s2.zpaq src3 -sae:pja:pjax+2:pja+2:pjals+2 $TS >/dev/null 2>&1
+  pj/zpaq-std a s1.zpaq src3 -sa $TS >ls1.log 2>&1; pj/zpaq-std a s2.zpaq src3 -sae:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2 $TS >/dev/null 2>&1
   pj/zpaq-std a s4.zpaq src3 -sa:pja $TS >/dev/null 2>&1
   r=ok; cmp -s s1.zpaq s2.zpaq || r="distinto-de-sae"; cmp -s s1.zpaq s4.zpaq || r="$r sa:pja-no-es-la-familia"; grep -q 00732 ls1.log && r="$r aviso-no-oficial"
   n=$(strings -a s1.zpaq | grep -cE "zpaqstd-s[am]e:pja:"); [ "$n" -ge 1 ] || r="$r sin-bloques-pja"
   rm -rf x; pj/zpaq-std x s1.zpaq -to x >/dev/null 2>&1; diff -r src3 x/src3 >/dev/null || r="$r plugin-mal"
   rm -rf y; sin/zpaq-std x s1.zpaq -to y >/dev/null 2>&1; diff -r src3 y/src3 >/dev/null || r="$r zpaql-mal"
   if command -v zpaq >/dev/null; then rm -rf w; zpaq x s1.zpaq -to w >/dev/null 2>&1; diff -r src3 w/src3 >/dev/null || r="$r zpaq715-mal"; fi
-  ok "-sa (familia pja: pjax, pja, pjals) = -sa:pja = -sae: $(wc -l < pj.lista) archivos, extrae en todos" "$r"
+  ok "-sa (familia pja: pjax, pja, pjall, pjals, pjalsx) = -sa:pja = -sae: $(wc -l < pj.lista) archivos, extrae en todos" "$r"
   pj/zpaq-std a s5.zpaq src3 -sa:pja:pjals >ls5.log 2>&1; rc=$?
   [ $rc = 2 ] && grep -q 'pjals is written twice' ls5.log && r=ok || r="rc=$rc"; ok "-sa:pja:pjals: la familia ya trae pjals, se niega" "$r"
   sin/zpaq-std a s3.zpaq src3 -sa >ls3.log 2>&1; rc=$?

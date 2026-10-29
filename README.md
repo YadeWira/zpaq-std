@@ -99,12 +99,12 @@ shows its card (author, repository, version, hashes).
 
 ---
 
-## JPEG and JPEG-LS: `-sa` (experimental)
+## JPEG, lossless JPEG and JPEG-LS: `-sa` (experimental)
 
 > **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but keep another copy of what you archive with `-sa`.
 
 ```bash
-zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax, pja, pjals
+zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax, pja, pjall, pjals, pjalsx
 zpaq-std a photos.zpaq /photos -sa:pjals -ma:zstd    # only JPEG-LS; the rest with zstd
 ```
 
@@ -116,10 +116,12 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.0.4, plugin only (`pja.dll` or `.so`): the family, its three codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.0.8, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
 | `-sa:pjax+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
-| `-sa:pjals+N` | the same plugin | JPEG-LS | 2 | 2 |
 | (pja) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
+| `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
+| `-sa:pjals+N` | the same plugin | JPEG-LS | 2 | 2 |
+| `-sa:pjalsx+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
 `-m`/`-ma` say. The plugin comes in the `extra-codecs` download. More:

@@ -559,12 +559,12 @@ plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhu
 	$(FPC) -O3 -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/sylz -Ficompressors/sylz -FUplugins/fpc-sylz -Foplugins/fpc-sylz -FEplugins/fpc-sylz compressors/sylz/sylz_zpaqstd.pas
 	mv -f plugins/fpc-sylz/$(FPCLIB) $@
 
-# PJA (-sa: pjax, pja and pjals, one file), as its compressors/pja/VENDOR.md builds it; PJA_COMMIT is
+# PJA (-sa: pjax, pja, pjall, pjals and pjalsx, one file), as its compressors/pja/VENDOR.md builds it; PJA_COMMIT is
 # what its card (codecinfoex) shows
 PJASRC := $(wildcard compressors/pja/pas/*.pas compressors/pja/pas/*.inc compressors/pja/pas/plugin/*.pas compressors/pja/pas/plugin/*.inc)
 plugins/codecs/pja$(PLUGEXT): $(PJASRC)
 	@mkdir -p plugins/codecs plugins/fpc-pja
-	PJA_COMMIT=ceae7c7 $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
+	PJA_COMMIT=11ec86e $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
 	  -Fucompressors/pja/pas/plugin -Ficompressors/pja/pas/plugin -FUplugins/fpc-pja -oplugins/fpc-pja/pja$(PLUGEXT) compressors/pja/pas/plugin/pja_zpaqstd.pas
 	mv -f plugins/fpc-pja/pja$(PLUGEXT) $@
 

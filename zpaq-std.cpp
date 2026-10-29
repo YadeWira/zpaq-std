@@ -21385,7 +21385,9 @@ struct zs_sa_official { const char* file; const char* algo; int level; const cha
 static const zs_sa_official ZS_SA_OFFICIAL[]={
 	{"pja", "pjax",  2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST)", true},
 	{"pja", "pja",   2, "JPEG (baseline, progressive, arithmetic)", true},
+	{"pja", "pjall", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
 	{"pja", "pjals", 2, "JPEG-LS", true},
+	{"pja", "pjalsx", 2, "JPEG-LS with subsampled components", true},
 };
 std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
@@ -68182,8 +68184,9 @@ string help_voodooswitches(bool i_usage, bool i_example)
 		scrivi_riga(" ", "    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its");
 		scrivi_riga(" ", "    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)");
 		scrivi_riga("-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):");
-		scrivi_riga(" ", "    PJA's family (-sa or -sa:pja): pjax (JPEG with PJA's format v6), pja (JPEG)");
-		scrivi_riga(" ", "    and pjals (JPEG-LS), from codecs/pja.dll or .so (the extra-codecs download).");
+		scrivi_riga(" ", "    PJA's family (-sa or -sa:pja): pjax (JPEG with PJA's format v6), pja (JPEG),");
+		scrivi_riga(" ", "    pjall (lossless JPEG), pjals (JPEG-LS) and pjalsx (subsampled JPEG-LS),");
+		scrivi_riga(" ", "    from codecs/pja.dll or .so (the extra-codecs download).");
 		scrivi_riga(" ", "    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say");
 		scrivi_riga("-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):");
 		scrivi_riga(" ", "    each file goes, by its contents, to the first codec that takes it (more codecs:");

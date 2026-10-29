@@ -1,16 +1,17 @@
-PJA 0.0.4 (tag v0.0.4, commit ceae7c7), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.0.4-zpaqstd.tar.gz (sha256
-ccc43a309fc1446e9ec8545e61606cdd82a8ca40f44e6f791e4d50684039f92d), copied unmodified:
+PJA 0.0.8 (tag v0.0.8, commit 11ec86e), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.0.8-zpaqstd.tar.gz (sha256
+dc5de1feb166df22c2712f6046b428bb718fdf3feca19dac4cefd49fd392ae18), copied unmodified:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 
 EXPERIMENTAL in zpaq-std, not recommended yet (-sa warns, 00737).
-zpaq-std's codecs for specific formats, -sa: PJA's family, one plugin with three
+zpaq-std's codecs for specific formats, -sa: PJA's family, one plugin with five
 codecs: pjax (JPEG that needs PJA's stream version 6: MPO and Ultra HDR, 12 bits, DNL,
-DRI without RST), pja (JPEG) and pjals (JPEG-LS), stream version 5, full model. -sa and
--sa:pja use the three, in that order. Free Pascal: by the project's rule, a codec in
+DRI without RST), pja (JPEG), pjall (lossless JPEG), pjals (JPEG-LS) and pjalsx
+(JPEG-LS with subsampled components). -sa and -sa:pja use the five, in that order. Free Pascal: by the project's rule, a codec in
 Rust or Free Pascal is built only as a plugin (codecs/pja.dll or pja.so, in the extra-codecs
 download), never linked into zpaq-std itself. Every block carries the codec's ZPAQL
-decoder (pas/plugin/pjazpaql.inc, pjalszpaql.inc, pjaxzpaql.inc), so any zpaq
-extracts it without the plugin; those three programs are frozen under these codec names.
+decoder (pas/plugin/pjazpaql.inc, pjaxzpaql.inc, pjallzpaql.inc, pjalszpaql.inc,
+pjalsxzpaql.inc), so any zpaq extracts it without the plugin; those five programs are
+frozen under these codec names.
 Do not patch these files here: send changes to the PJA repository.

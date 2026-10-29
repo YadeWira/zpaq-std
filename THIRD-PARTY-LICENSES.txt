@@ -32,7 +32,7 @@ PART 1 - BUNDLED COMPRESSORS
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  0.15.0                       BSD-3-Clause; rapidhash MIT
   sylz and sylzec      syc v0.4.2                   MIT
-  PJA                  0.0.4                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
+  PJA                  0.0.8                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -2292,10 +2292,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-PJA 0.0.4
+PJA 0.0.8
 Licence: MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
 Copyright: Yade Bravo (YadeWira)
-The -sa codecs pjax and pja (JPEG) and pjals (JPEG-LS). Free Pascal, built only as a plugin
+The -sa codecs pjax and pja (JPEG), pjall (lossless JPEG), pjals and pjalsx (JPEG-LS). Free Pascal, built only as a plugin
 (codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in
 the full program. NOTICE has the third-party notes (IJG, CharLS).
 

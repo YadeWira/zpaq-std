@@ -14,6 +14,8 @@ uses SysUtils, pjajpeg, pjajls, pjacodec, pjamodel;
 {$I pjazpaql.inc}
 {$I pjalszpaql.inc}
 {$I pjaxzpaql.inc}
+{$I pjallzpaql.inc}
+{$I pjalsxzpaql.inc}
 
 const
   { the largest H a block may ask for: 2^26 words, 256 MB }
@@ -43,6 +45,15 @@ function ZpaqlPjaxArgs(const stream: TBytes): Int64;
   (a part that does not pay is left out later); also how many bytes of
   them come after the host's EOI (an MPO's or an Ultra HDR's next images). }
 function ZpaqlPjaxFileWords(const d: TBytes; const j: TJpeg; out after: Int64): Int64;
+{ The pjall codec's, for a lossless JPEG (its headers parsed, raw
+  included): its samples, decoded by JPEG-LS's samples model, and the
+  tables its scans are written with again. }
+function ZpaqlLjpegWords(const j: TJpeg): Int64;
+function ZpaqlLjpegArgs(const stream: TBytes): Int64;
+{ The pjalsx codec's, for a JPEG-LS file with subsampled components: what
+  pjals's would take, each component of its own size. }
+function ZpaqlJlsxWords(const jl: TJls; symbols: Boolean): Int64;
+function ZpaqlJlsxArgs(const stream: TBytes): Int64;
 { Sampling factors other than 1x1: the pjals ZPAQL, frozen as v0.0.1 left
   it, has no subsampled JPEG-LS }
 function JlsSubsampled(const jl: TJls): Boolean;
@@ -241,7 +252,8 @@ begin
   samples := w * jl.height;
   n := Length(jl.comp);
   Result := ZPAQL_LS_STATIC_WORDS + RawWords(Length(jl.raw));
-  Inc(Result, samples * n);                        { the samples }
+  for c := 0 to n - 1 do                           { the samples }
+    Inc(Result, Int64(jl.comp[c].width) * jl.comp[c].height);
   Inc(Result, 8 * (w + 2));                        { the scan's two lines }
   if symbols then begin
     Inc(Result, ZPAQL_LS_SYM_WORDS);
@@ -257,6 +269,54 @@ begin
     for s := 0 to High(jl.scans) do
       if jl.scans[s].near > 0 then Inc(Result, Length(jl.scans[s].runs) + 1);
     Inc(Result, Int64(JlsBandCount(jl)) * (ZPAQL_LS_BAND_WORDS + 2 * w * n));
+  end;
+end;
+
+function ZpaqlLjpegWords(const j: TJpeg): Int64;
+var jl: TJls; samples: Int64;
+begin
+  { what pjacodec.LosslessView hands the samples model: every component
+    whole, width by height }
+  jl := Default(TJls);
+  jl.width := j.width; jl.height := j.height;
+  SetLength(jl.comp, Length(j.comp));
+  samples := Int64(j.width) * j.height;
+  Result := ZPAQL_LL_STATIC_WORDS + RawWords(Length(j.raw));
+  Inc(Result, DhtTables(j.raw) * 512);
+  Inc(Result, samples * Length(j.comp));            { the samples }
+  Inc(Result, Int64(JlsBandCount(jl)) * (ZPAQL_LS_BAND_WORDS + 2 * Int64(j.width) * Length(j.comp)));
+end;
+
+function ZpaqlLjpegArgs(const stream: TBytes): Int64;
+var j: TJpeg; ph: Integer;
+begin
+  Result := -1;
+  try
+    if not StreamHeaders(stream, j).Ok or not j.lossless or j.arithmetic then Exit;
+    ph := Log2Words(ZpaqlLjpegWords(j));
+    if ph > ZPAQL_MAX_PH then Exit;
+    Result := ph;
+  except
+    Result := -1;
+  end;
+end;
+
+function ZpaqlJlsxWords(const jl: TJls; symbols: Boolean): Int64;
+begin
+  Result := ZpaqlJlsWords(jl, symbols) - ZPAQL_LS_STATIC_WORDS + ZPAQL_LSX_STATIC_WORDS;
+end;
+
+function ZpaqlJlsxArgs(const stream: TBytes): Int64;
+var jl: TJls; symbols: Boolean; ph: Integer;
+begin
+  Result := -1;
+  try
+    if not StreamJlsHeaders(stream, jl, symbols).Ok then Exit;
+    ph := Log2Words(ZpaqlJlsxWords(jl, symbols));
+    if ph > ZPAQL_MAX_PH then Exit;
+    Result := ph;
+  except
+    Result := -1;
   end;
 end;
 
