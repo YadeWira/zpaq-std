@@ -519,7 +519,7 @@ $(UFL2BUNDLE): $(UFL2OBJ)
 .SECONDEXPANSION:
 plugins/codecs/%$(PLUGEXT): compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h $$(PLUGLIB_$$*)
 	@mkdir -p plugins/codecs
-	$(CXX) -std=gnu++17 -O3 -Wall -pthread -DZS_PLUGIN -D_GLIBCXX_USE_CXX11_ABI=0 $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
+	$(CXX) -std=gnu++17 -O3 -Wall -pthread $(filter -m32,$(CXXFLAGS)) -DZS_PLUGIN -D_GLIBCXX_USE_CXX11_ABI=0 $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
 	$(if $(findstring mingw,$(CROSS_COMPILE)),SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(STRIP) --remove-section=.comment $@)
 
 plugins:
@@ -529,8 +529,11 @@ plugins:
 # Codecs in Free Pascal (or Rust) are, by rule, never linked into zpaq-std: both
 # builds load them from codecs/ (ZS_PLUGIN_ONLY in zpaq-std.cpp). make fpc-plugins
 # builds just them, into plugins/codecs/, for the release next to the full binary.
-# FPC is the compiler for the target: fpc for Linux x64 and Windows x64; for
-# Windows x86 a cross ppc386 and its RTL, FPC=.../ppc386 FPCUNITS=-Fu.../i386-win32.
+# FPC is the compiler for the target: fpc for Linux x64, Windows x64 and macOS; the
+# others are cross compilers built from source (wiki: Building), with their RTL:
+#   Windows x86   FPC=.../ppc386 FPCUNITS=-Fu.../i386-win32
+#   Linux x86     FPC=.../ppc386 FPCUNITS=-Fu.../i386-linux   (with make m32's -m32)
+#   Linux AArch64 FPC=.../ppca64 FPCUNITS=-Fu.../aarch64-linux (CROSS_COMPILE=aarch64-linux-gnu-)
 FPC ?= fpc
 FPCUNITS ?=
 FPC_PLUGIN_CODECS := sylz pja
@@ -541,6 +544,12 @@ ifneq (,$(findstring x86_64-w64-mingw32,$(CROSS_COMPILE)))
 else ifneq (,$(findstring i686-w64-mingw32,$(CROSS_COMPILE)))
   FPCTARGET := -Twin32
   FPCLIB := sylz_zpaqstd.dll
+else ifneq (,$(findstring aarch64-linux-gnu,$(CROSS_COMPILE)))
+  FPCTARGET := -Cg -XP$(CROSS_COMPILE)
+  FPCLIB := libsylz_zpaqstd.so
+else ifeq ($(UNAME_S),Darwin)
+  FPCTARGET := -Cg
+  FPCLIB := libsylz_zpaqstd.dylib
 else
   FPCTARGET := -Cg
   FPCLIB := libsylz_zpaqstd.so
@@ -551,8 +560,9 @@ fpc-plugins: $(FPC_PLUGIN_FILES)
 # sylz.pas links sylzc.o ({$L}): the C fast paths, compiled freestanding (no libc) with
 # the target's gcc, with the flags of syc's build-c.sh. Its 32-bit x86 decoder picks
 # SSE2 or plain i686 at run time (cpuid), so one win32 plugin runs on any x86.
-SYLZC_CFLAGS := -O2 -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns \
-  -fno-stack-protector -fno-asynchronous-unwind-tables -Wall $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
+# (clang has no -fno-tree-loop-distribute-patterns: macOS gets -fno-builtin alone)
+SYLZC_CFLAGS := -O2 -ffreestanding -fno-builtin $(if $(filter Darwin,$(UNAME_S)),,-fno-tree-loop-distribute-patterns) \
+  -fno-stack-protector -fno-asynchronous-unwind-tables -Wall $(filter -m32,$(CFLAGS)) $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
 plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhuf.pas compressors/sylz/sylz_zpaqstd.pas compressors/sylz/zs_codec.inc compressors/sylz/sylzc.c
 	@mkdir -p plugins/codecs plugins/fpc-sylz
 	$(CC) $(SYLZC_CFLAGS) -c compressors/sylz/sylzc.c -o plugins/fpc-sylz/sylzc.o
@@ -690,7 +700,7 @@ $(LZHAMOBJ): compressors/lzham/%.o: compressors/lzham/%.cpp
 # zlib via the _GLIBCXX_USE_CXX11_ABI=0 override (added to ZPAQ_CXXFLAGS)
 # to link against the older 32-bit C++ runtime. JIT (x86) still works.
 m32: clean
-	CXXFLAGS="-m32" CFLAGS="-m32" make build
+	CXXFLAGS="-O3 -m32" CFLAGS="-O3 -m32" $(MAKE) build
 	@echo "32-bit build completed (i386/i686)"
 
 # ---------------------------------------------------------------------------

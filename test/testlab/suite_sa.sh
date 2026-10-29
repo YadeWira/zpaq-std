@@ -19,6 +19,7 @@
 # toma los archivos con al menos la mitad de los bytes en rachas de 3 o mas.
 #
 #   OLD160=<zpaq-std 1.6.0> agrega la prueba de 1.6.0 con el plugin
+#   EXCC=<cc> compila el plugin de ejemplo (gcc -m32 para un zpaq-std de 32 bits)
 #   PJAPLUG=<pja.so> agrega -sa (la familia oficial: pjax, pja, pjall, pjals y pjalsx) sobre copias de
 #   JPEG y JPEG-LS del corpus: -sa = -sa:pja = -sae:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2 byte a byte, extrae con
 #   y sin plugin y en zpaq 7.15, y sin el plugin -sa se niega (00730)
@@ -32,7 +33,7 @@ PLUG=${PLUG:-/home/forum/git/zpaq-std/compressors/plug}
 W=/mnt/IA_LAB/agentes/ZPAQ-STD/testlab
 RUN=${RUN:-sa}
 OUT=$W/$RUN; rm -rf "$OUT"; mkdir -p "$OUT/con/codecs" "$OUT/sin" "$OUT/src/sub"; cd "$OUT"
-cc -O2 -shared -fPIC -I"$PLUG" "$EX" -o con/codecs/example.so || { echo "no compila el ejemplo"; exit 1; }
+${EXCC:-cc} -O2 -shared -fPIC -I"$PLUG" "$EX" -o con/codecs/example.so || { echo "no compila el ejemplo"; exit 1; }
 cp "$Z" con/zpaq-std; cp "$Z" sin/zpaq-std
 # rachas (las toma rle), aleatorio y texto (no), una copia exacta (dedup), uno de
 # 20 MB (mas que el bloque de -m1) y uno de 10 bytes (demasiado chico)
