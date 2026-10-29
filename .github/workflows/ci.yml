@@ -41,6 +41,11 @@ jobs:
         with:
           name: hashes-${{ matrix.name }}
           path: hashes-${{ matrix.name }}.txt
+      # the macOS release binary comes from here (no Mac to build it on otherwise)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zpaq-std-${{ matrix.name }}
+          path: zpaq-std
 
   windows-build:
     name: windows-${{ matrix.arch }} (build)
