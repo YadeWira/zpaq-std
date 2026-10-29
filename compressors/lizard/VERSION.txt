@@ -1,0 +1,15 @@
+lizard-ex 2.3.2 (https://github.com/YadeWira/lizard-ex, tag v2.3.2), lib/ only, from
+the tarball lizard-ex-2.3.2-lib.tar.gz (sha256
+7506ecebcfe658b2b552944b1958193da048dd847f910c0081a5ab602f263ada), copied unmodified:
+the maintained successor of Lizard 2.1 (inikep/lizard), the same block format and the
+same bytes at all 40 levels (checked: -ma:lizard:10..49 writes the archives of 1.8.0,
+which had Lizard 2.1). BSD-2-Clause (LICENSE). The files zpaq-std had from Lizard 2.1
+are vendored (xxhash/, dll/ and the Makefile are left out: zpaq-std uses the block
+API only).
+
+No patches. zpaq-std's two changes to Lizard 2.1 are in lizard-ex 2.3.2:
+  - the decoder takes an uncompressed block's length off outputSize, as it does for a
+    compressed block (zpaq-std's fix of 7393cce, 2026-09-26): without it, a damaged
+    compressed block after an uncompressed one wrote past dest;
+  - entropy/debug.c's g_debuglevel is g_lizardDebugLevel, so it no longer collides
+    with zstd's when both are linked.

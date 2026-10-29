@@ -67,7 +67,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 |
 | `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 |
 | `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 |
-| `-ma:lizard:N` | [lizard-ex](https://github.com/YadeWira/lizard-ex) 2.3.1 (Lizard 2.1's format) | 10–49 | 17 |
+| `-ma:lizard:N` | [lizard-ex](https://github.com/YadeWira/lizard-ex) 2.3.2 (Lizard 2.1's format) | 10–49 | 17 |
 | `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.3 | 1–15 | 9 |
 | `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 |
 | `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.3 | 0–1 | 1 |

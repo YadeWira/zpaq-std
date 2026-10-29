@@ -29,9 +29,8 @@ BUNDLED = [
       'compressors/bz2ng/licenses/sais-lite-2.4.1.txt', 'compressors/bz2ng/third_party/libsais/LICENSE'],
      'libbz2 1.0.8\'s format and API with a new encoder and decoder; used by -ma:bz2.'),
     ('libdeflate', '1.26', 'MIT', 'Eric Biggers', ['compressors/libdeflate/LICENSE'], ''),
-    ('lizard-ex (Lizard)', '2.3.1, patched', 'BSD-2-Clause (library)', 'Yann Collet, Przemyslaw Skibinski (Lizard); YadeWira (lizard-ex)', ['compressors/lizard/LICENSE'],
-     'The maintained successor of Lizard 2.1, same format. One zpaq-std patch in its decoder:\n'
-     'see compressors/lizard/PATCHES.'),
+    ('lizard-ex (Lizard)', '2.3.2', 'BSD-2-Clause (library)', 'Yann Collet, Przemyslaw Skibinski (Lizard); YadeWira (lizard-ex)', ['compressors/lizard/LICENSE'],
+     'The maintained successor of Lizard 2.1, same format: see compressors/lizard/VERSION.txt.'),
     ('lz5-ex', '1.5.3', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause', 'Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), YadeWira', ['compressors/lz6/LICENSE'], ''),
