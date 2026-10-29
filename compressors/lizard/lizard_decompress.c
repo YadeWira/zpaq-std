@@ -75,7 +75,10 @@ FORCE_INLINE size_t Lizard_readStream(int flag, const BYTE** ip, const BYTE* con
         if (*ip > iend - 3) return 0;
         *streamPtr = *ip + 3;
         *streamEnd = *streamPtr + MEM_readLE24(*ip);
-        if (*streamEnd < *streamPtr) return 0;
+        /* The length comes from the stream: it can point past the input, and
+           the decoders would then read whatever is there.  Check both the
+           wrap-around and the end of the buffer. */
+        if (*streamEnd < *streamPtr || *streamEnd > iend) return 0;
         *ip = *streamEnd;
 #ifdef LIZARD_STATS
         uncompr_stream[streamFlag] += *streamEnd-*streamPtr;
@@ -309,7 +312,9 @@ int Lizard_setStreamDecode (Lizard_streamDecode_t* Lizard_streamDecode, const ch
 {
     Lizard_streamDecode_t* lizardsd = (Lizard_streamDecode_t*) Lizard_streamDecode;
     lizardsd->prefixSize = (size_t) dictSize;
-    lizardsd->prefixEnd = (const BYTE*) dictionary + dictSize;
+    /* A size of 0 is allowed and callers pass NULL for it; NULL + 0 is
+       undefined, so the pointer is only advanced when there is a dictionary. */
+    lizardsd->prefixEnd = dictionary ? (const BYTE*) dictionary + dictSize : NULL;
     lizardsd->externalDict = NULL;
     lizardsd->extDictSize  = 0;
     return 1;
@@ -328,14 +333,17 @@ int Lizard_decompress_safe_continue (Lizard_streamDecode_t* Lizard_streamDecode,
     int result;
 
     if (lizardsd->prefixEnd == (BYTE*)dest) {
+        /* prefixEnd - prefixSize is NULL - 0 while there is no history yet,
+           which is undefined; the pointer is only moved when there is one. */
+        const BYTE* const prefix = lizardsd->prefixSize ? lizardsd->prefixEnd - lizardsd->prefixSize : lizardsd->prefixEnd;
         result = Lizard_decompress_generic(source, dest, compressedSize, maxOutputSize,
-                                        full, 0, usingExtDict, lizardsd->prefixEnd - lizardsd->prefixSize, lizardsd->externalDict, lizardsd->extDictSize);
+                                        full, 0, usingExtDict, prefix, lizardsd->externalDict, lizardsd->extDictSize);
         if (result <= 0) return result;
         lizardsd->prefixSize += result;
         lizardsd->prefixEnd  += result;
     } else {
         lizardsd->extDictSize = lizardsd->prefixSize;
-        lizardsd->externalDict = lizardsd->prefixEnd - lizardsd->extDictSize;
+        lizardsd->externalDict = lizardsd->extDictSize ? lizardsd->prefixEnd - lizardsd->extDictSize : NULL;
         result = Lizard_decompress_generic(source, dest, compressedSize, maxOutputSize,
                                         full, 0, usingExtDict, (BYTE*)dest, lizardsd->externalDict, lizardsd->extDictSize);
         if (result <= 0) return result;

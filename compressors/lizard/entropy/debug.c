@@ -41,4 +41,4 @@
 
 #include "debug.h"
 
-int g_lizard_debuglevel = DEBUGLEVEL;
+int g_lizard_debuglevel = DEBUGLEVEL;   /* zpaq-std: renamed, zstd defines g_debuglevel too */

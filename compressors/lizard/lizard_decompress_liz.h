@@ -30,12 +30,15 @@ FORCE_INLINE int Lizard_decompress_LIZv1(
     const BYTE* const blockBase = ctx->flagsPtr;
     const BYTE* const iend = ctx->literalsEnd;
 
+    /* dest is NULL when there is nothing to write: the early return below
+       handles that, but the pointers are computed before it, and an offset
+       applied to a null pointer is undefined in C. */
     BYTE* op = dest;
-    BYTE* const oend = op + outputSize;
+    BYTE* const oend = op ? op + outputSize : NULL;
     BYTE* cpy = NULL;
-    BYTE* oexit = op + targetOutputSize;
-    const BYTE* const lowLimit = lowPrefix - dictSize;
-    const BYTE* const dictEnd = (const BYTE*)dictStart + dictSize;
+    BYTE* oexit = op ? op + targetOutputSize : NULL;
+    const BYTE* const lowLimit = lowPrefix ? lowPrefix - dictSize : NULL;
+    const BYTE* const dictEnd = dictStart ? (const BYTE*)dictStart + dictSize : NULL;
 
     const int checkOffset = (dictSize < (int)(LIZARD_DICT_SIZE));
 
@@ -81,19 +84,19 @@ FORCE_INLINE int Lizard_decompress_LIZv1(
 
             /* copy literals */
             cpy = op + length;
-            if (unlikely(cpy > oend - WILDCOPYLENGTH || ctx->literalsPtr > iend - WILDCOPYLENGTH)) { LIZARD_LOG_DECOMPRESS_LIZv1("offset outside buffers\n"); goto _output_error; }   /* Error : offset outside buffers */
-    #if 1
-            Lizard_wildCopy16(op, ctx->literalsPtr, cpy);
+            if (unlikely(cpy > oend || (size_t)(iend - ctx->literalsPtr) < (size_t)length)) { LIZARD_LOG_DECOMPRESS_LIZv1("offset outside buffers\n"); goto _output_error; }   /* Error : offset outside buffers */
+            /* The wild copy reads in 16 byte steps, so it needs 16 bytes of
+               slack on both sides; the literals of the last sequence end where
+               the block ends, so the tail is copied exactly instead.  Checking
+               only the start of the literals read up to 15 bytes past iend. */
+            if (likely((size_t)(oend - cpy) >= WILDCOPYLENGTH &&
+                       (size_t)(iend - ctx->literalsPtr) >= (size_t)length + WILDCOPYLENGTH)) {
+                Lizard_wildCopy16(op, ctx->literalsPtr, cpy);
+            } else {
+                memcpy(op, ctx->literalsPtr, (size_t)length);
+            }
             op = cpy;
             ctx->literalsPtr += length; 
-    #else
-            Lizard_copy8(op, ctx->literalsPtr);
-            Lizard_copy8(op+8, ctx->literalsPtr+8);
-            if (length > 16)
-                Lizard_wildCopy16(op + 16, ctx->literalsPtr + 16, cpy);
-            op = cpy;
-            ctx->literalsPtr += length; 
-    #endif
 
             /* get offset */
 #if 1
@@ -198,8 +201,12 @@ FORCE_INLINE int Lizard_decompress_LIZv1(
         if (unlikely(cpy > oend - WILDCOPYLENGTH)) { LIZARD_LOG_DECOMPRESS_LIZv1("13match=%p lowLimit=%p\n", match, lowLimit); goto _output_error; }   /* Error : offset outside buffers */
         Lizard_copy8(op, match);
         Lizard_copy8(op+8, match+8);
-        if (length > 16)
-            Lizard_wildCopy16(op + 16, match + 16, cpy);
+        if (length > 16) {
+            if (likely(cpy <= oend - 32))
+                Lizard_wildCopy32(op + 16, match + 16, cpy);
+            else
+                Lizard_wildCopy16(op + 16, match + 16, cpy);
+        }
         op = cpy;
     }
 

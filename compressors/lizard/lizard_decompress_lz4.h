@@ -22,11 +22,15 @@ FORCE_INLINE int Lizard_decompress_LZ4(
     int inputSize = (int)(ctx->flagsEnd - ctx->flagsPtr);
     const BYTE* const blockBase = ctx->flagsPtr;
     const BYTE* const iend = ctx->literalsEnd;
+
+    /* dest is NULL when there is nothing to write: the early return below
+       handles that, but the pointers are computed before it, and an offset
+       applied to a null pointer is undefined in C. */
     BYTE* op = dest;
-    BYTE* const oend = op + outputSize;
+    BYTE* const oend = op ? op + outputSize : NULL;
     BYTE* cpy = NULL;
-    BYTE* oexit = op + targetOutputSize;
-    const BYTE* const lowLimit = lowPrefix - dictSize;
+    BYTE* oexit = op ? op + targetOutputSize : NULL;
+    const BYTE* const lowLimit = lowPrefix ? lowPrefix - dictSize : NULL;
     const BYTE* const dictEnd = dictStart ? (const BYTE*)dictStart + dictSize : NULL;
 
     const int checkOffset = (dictSize < (int)(LIZARD_DICT_SIZE));
@@ -138,8 +142,12 @@ FORCE_INLINE int Lizard_decompress_LZ4(
         if (unlikely(cpy > oend - WILDCOPYLENGTH)) { LIZARD_LOG_DECOMPRESS_LZ4("1match=%p lowLimit=%p\n", match, lowLimit); goto _output_error; }   /* Error : offset outside buffers */
         Lizard_copy8(op, match);
         Lizard_copy8(op+8, match+8);
-        if (length > 16)
-            Lizard_wildCopy16(op + 16, match + 16, cpy);
+        if (length > 16) {
+            if (likely(cpy <= oend - 32))
+                Lizard_wildCopy32(op + 16, match + 16, cpy);
+            else
+                Lizard_wildCopy16(op + 16, match + 16, cpy);
+        }
         op = cpy;
         if ((partialDecoding) && (op >= oexit)) return (int) (op-dest);
     }

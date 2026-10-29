@@ -1,0 +1,24 @@
+lizard-ex 2.3.1 (https://github.com/YadeWira/lizard-ex, tag v2.3.1), lib/ only, from
+the tarball lizard-ex-2.3.1-lib.tar.gz (sha256
+9a7aac9a0813720667fcd5523152eaa0fb46d812cd41cd6d8b898a856280306d): the maintained
+successor of Lizard 2.1 (inikep/lizard), same block format and, by its author's
+check, the same bytes at all 40 levels. BSD-2-Clause (LICENSE). The same files as
+before are vendored (xxhash/, dll/ and the Makefile are left out: zpaq-std uses the
+block API only).
+
+A patch of zpaq-std's own, marked "zpaq-std:" in lizard_decompress.c (carried over
+from Lizard 2.1, where it was added in 7393cce, 2026-09-26):
+
+  Lizard_decompress_generic: an uncompressed block advanced op but did not take its
+  length off outputSize, while a compressed block does ("outputSize -= res"). The
+  next compressed block was then bounded by an end past the real end of dest, and a
+  damaged one wrote out of bounds (AddressSanitizer: heap-buffer-overflow in
+  Lizard_copy8, with a few bit flips, at levels 20 to 49). Valid streams decode as
+  before.
+
+And one rename, for linking (since the initial import): entropy/debug.c defines
+g_lizard_debuglevel instead of g_debuglevel, which zstd (also linked into zpaq-std)
+defines as well. Nothing reads it in a release build.
+
+Reported to lizard-ex's maintainer on 2026-10-29; when a release has the fix, this
+patch goes.

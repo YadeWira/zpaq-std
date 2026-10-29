@@ -567,8 +567,12 @@ size_t LizardF_compressUpdate(LizardF_compressionContext_t compressionContext, v
     }
 
     /* keep tmpIn within limits */
-    if ((cctxPtr->tmpIn + blockSize) > (cctxPtr->tmpBuff + cctxPtr->maxBufferSize)   /* necessarily LizardF_blockLinked && lastBlockCompressed==fromTmpBuffer */
-        && !(cctxPtr->prefs.autoFlush))
+    /* !autoFlush is tested first on purpose: in the one-shot path (autoFlush=1)
+       tmpBuff is left NULL on purpose and tmpIn is NULL too, so the pointer
+       arithmetic below would be an offset applied to a null pointer. */
+    if (!(cctxPtr->prefs.autoFlush)
+        && (cctxPtr->tmpIn + blockSize) > (cctxPtr->tmpBuff + cctxPtr->maxBufferSize)   /* necessarily LizardF_blockLinked && lastBlockCompressed==fromTmpBuffer */
+        )
     {
         int realDictSize = LizardF_localSaveDict(cctxPtr);
         cctxPtr->tmpIn = cctxPtr->tmpBuff + realDictSize;
@@ -985,10 +989,12 @@ size_t LizardF_decompress(LizardF_decompressionContext_t decompressionContext,
     LizardF_dctx_t* dctxPtr = (LizardF_dctx_t*)decompressionContext;
     LizardF_decompressOptions_t optionsNull;
     const BYTE* const srcStart = (const BYTE*)srcBuffer;
-    const BYTE* const srcEnd = srcStart + *srcSizePtr;
+    /* An empty input or output is passed as a NULL pointer with size 0 by the
+       callers that probe the frame API, and NULL + 0 is undefined in C. */
+    const BYTE* const srcEnd = *srcSizePtr ? srcStart + *srcSizePtr : srcStart;
     const BYTE* srcPtr = srcStart;
     BYTE* const dstStart = (BYTE*)dstBuffer;
-    BYTE* const dstEnd = dstStart + *dstSizePtr;
+    BYTE* const dstEnd = *dstSizePtr ? dstStart + *dstSizePtr : dstStart;
     BYTE* dstPtr = dstStart;
     const BYTE* selectedIn = NULL;
     unsigned doAnotherStage = 1;
@@ -1068,14 +1074,19 @@ size_t LizardF_decompress(LizardF_decompressionContext_t decompressionContext,
             }
 
         /* case dstage_decodeCBlockSize: */   /* no more direct access, to prevent scan-build warning */
-            {   size_t const nextCBlockSize = LizardF_readLE32(selectedIn) & 0x7FFFFFFFU;
+            {   /* The header is read once: reading it twice, once for the size
+                   and once for the flag, is the kind of redundant load a
+                   compiler is free to merge in a way that has bitten these
+                   projects before. */
+                U32 const blockHeader = LizardF_readLE32(selectedIn);
+                size_t const nextCBlockSize = blockHeader & 0x7FFFFFFFU;
                 if (nextCBlockSize==0) {  /* frameEnd signal, no more CBlock */
                     dctxPtr->dStage = dstage_getSuffix;
                     break;
                 }
                 if (nextCBlockSize > dctxPtr->maxBlockSize) return (size_t)-LizardF_ERROR_GENERIC;   /* invalid cBlockSize */
                 dctxPtr->tmpInTarget = nextCBlockSize;
-                if (LizardF_readLE32(selectedIn) & LIZARDF_BLOCKUNCOMPRESSED_FLAG) {
+                if (blockHeader & LIZARDF_BLOCKUNCOMPRESSED_FLAG) {
                     dctxPtr->dStage = dstage_copyDirect;
                     break;
                 }

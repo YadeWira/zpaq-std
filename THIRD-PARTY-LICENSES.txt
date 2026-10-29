@@ -18,7 +18,7 @@ PART 1 - BUNDLED COMPRESSORS
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
   bz2-ng               commit a655623 (no release yet) MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
   libdeflate           1.26                         MIT
-  Lizard               2.1                          BSD-2-Clause (library)
+  lizard-ex (Lizard)   2.3.1, patched               BSD-2-Clause (library)
   lz5-ex               1.5.3                        BSD-2-Clause
   lz6                  see compressors/lz6/VERSION.txt BSD-2-Clause
   Snappy               1.3.1                        BSD-3-Clause
@@ -586,9 +586,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-Lizard 2.1
+lizard-ex (Lizard) 2.3.1, patched
 Licence: BSD-2-Clause (library)
-Copyright: Yann Collet, Przemyslaw Skibinski
+Copyright: Yann Collet, Przemyslaw Skibinski (Lizard); YadeWira (lizard-ex)
+The maintained successor of Lizard 2.1, same format. One zpaq-std patch in its decoder:
+see compressors/lizard/PATCHES.
 
 Lizard Library
 Copyright (C) 2011-2016, Yann Collet.
