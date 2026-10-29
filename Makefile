@@ -560,10 +560,10 @@ fpc-plugins: $(FPC_PLUGIN_FILES)
 # sylz.pas links sylzc.o ({$L}): the C fast paths, compiled freestanding (no libc) with
 # the target's gcc, with the flags of syc's build-c.sh. Its 32-bit x86 decoder picks
 # SSE2 or plain i686 at run time (cpuid), so one win32 plugin runs on any x86.
-# SYLZC_CC: another C compiler for sylzc.c. clang has no
-# -fno-tree-loop-distribute-patterns.
+# SYLZC_CC: another C compiler for sylzc.c. clang (macOS's cc and gcc too) has no
+# -fno-tree-loop-distribute-patterns; Homebrew's gcc-NN does.
 SYLZC_CC ?= $(CC)
-SYLZC_CFLAGS := -O2 -ffreestanding -fno-builtin $(if $(and $(filter Darwin,$(UNAME_S)),$(filter cc clang,$(notdir $(SYLZC_CC)))),,-fno-tree-loop-distribute-patterns) \
+SYLZC_CFLAGS := -O2 -ffreestanding -fno-builtin $(if $(and $(filter Darwin,$(UNAME_S)),$(filter-out gcc-%,$(notdir $(SYLZC_CC)))),,-fno-tree-loop-distribute-patterns) \
   -fno-stack-protector -fno-asynchronous-unwind-tables -Wall $(filter -m32,$(CFLAGS)) $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
 plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhuf.pas compressors/sylz/sylz_zpaqstd.pas compressors/sylz/zs_codec.inc compressors/sylz/sylzc.c
 	@mkdir -p plugins/codecs plugins/fpc-sylz
