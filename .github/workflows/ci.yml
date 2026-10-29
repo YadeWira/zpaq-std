@@ -1,0 +1,97 @@
+name: CI
+
+# Builds zpaq-std on every supported platform, runs every built-in method there
+# (test/ci/platform_check.sh: compress, extract, test), and checks that all the
+# platforms write the very same archive bytes.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.github/ISSUE_TEMPLATE/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unix:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64,   runner: ubuntu-24.04,     build: 'make -j4' }
+          - { name: linux-x86,   runner: ubuntu-24.04,     build: 'make -j4 m32', deps: 'g++-multilib' }
+          - { name: linux-arm64, runner: ubuntu-24.04-arm, build: 'make -j4' }
+          - { name: macos-arm64, runner: macos-14,         build: 'make -j3' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        if: matrix.deps
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.deps }}
+      - name: Build
+        run: ${{ matrix.build }}
+      - name: Every method, compress and extract
+        run: bash test/ci/platform_check.sh "$PWD/zpaq-std" ${{ matrix.name }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hashes-${{ matrix.name }}
+          path: hashes-${{ matrix.name }}.txt
+
+  windows-build:
+    name: windows-${{ matrix.arch }} (build)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, prefix: x86_64-w64-mingw32- }
+          - { arch: x86, prefix: i686-w64-mingw32- }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+      - name: Build
+        run: make -j4 CROSS_COMPILE=${{ matrix.prefix }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zpaq-std-windows-${{ matrix.arch }}
+          path: zpaq-std.exe
+
+  windows:
+    name: windows-${{ matrix.arch }}
+    needs: windows-build
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: zpaq-std-windows-${{ matrix.arch }}
+          path: bin
+      - name: Every method, compress and extract
+        run: bash test/ci/platform_check.sh "$PWD/bin/zpaq-std.exe" windows-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hashes-windows-${{ matrix.arch }}
+          path: hashes-windows-${{ matrix.arch }}.txt
+
+  same-bytes:
+    name: same archive on every platform
+    needs: [unix, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hashes-*
+          merge-multiple: true
+      - name: Compare with linux-x64
+        run: bash test/ci/same_bytes.sh linux-x64 linux-x86 linux-arm64 macos-arm64 windows-x64 windows-x86

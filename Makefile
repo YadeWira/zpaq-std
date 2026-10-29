@@ -120,13 +120,17 @@ BZ2NGPATCHED := compressors/bz2ng/libsais-patched
 UFL2MACH := $(shell $(CC) -dumpmachine 2>/dev/null)
 UFL2ASM :=
 UFL2ASFLAGS :=
+# A 32-bit build on an x86_64 compiler (make m32: CFLAGS=-m32) has no use for the
+# x86_64 decoder: -dumpmachine still says x86_64 there.
 ifneq (,$(findstring x86_64,$(UFL2MACH)))
+ifeq (,$(findstring -m32,$(CFLAGS)))
   UFL2ASM := compressors/uflzma2/lzma_dec_x86_64.o
   ifneq (,$(findstring mingw,$(UFL2MACH)))
     UFL2ASFLAGS := -DMS_x64_CALL=1
   else
     UFL2ASFLAGS := -DMS_x64_CALL=0
   endif
+endif
 endif
 ifneq (,$(findstring aarch64,$(UFL2MACH)))
   UFL2ASM := compressors/uflzma2/lzma_dec_arm64.o
@@ -321,7 +325,10 @@ endif
 # Everything else (ARM, aarch64, Apple Silicon, RISC-V, ppc, sparc, mips, ...)
 # gets -DNOJIT automatically. Just "make" anywhere and it works.
 # BTW newer zpaq-std "automagically" enable JIT. This is for older releases
-ifneq ($(filter x86_64 amd64 i386 i686 i86pc,$(UNAME_M)),)
+# The TARGET's architecture (the compiler's -dumpmachine), not the host's: a cross
+# build for aarch64 on an x86_64 machine must not get the x86 JIT and intrinsics.
+TARGET_M := $(firstword $(subst -, ,$(UFL2MACH)))
+ifneq ($(filter x86_64 amd64 i386 i486 i586 i686 i86pc,$(TARGET_M)),)
   ZPAQ_CPPFLAGS += $(INTEL_FLAGS)
 else
   ZPAQ_CPPFLAGS += -DNOJIT
@@ -491,7 +498,7 @@ compressors/uflzma2/%.o: compressors/uflzma2/%.S
 # sections, and the PE linker keeps ONE COMDAT per name for both libraries, so
 # uf-lzma2 read fast-lzma2's price table and crashed at levels 2 and up.
 $(UFL2BUNDLE): $(UFL2OBJ)
-	$(CROSS_COMPILE)ld -r -o $@.tmp $^
+	$(CROSS_COMPILE)ld -r $(if $(findstring -m32,$(CFLAGS)),-m elf_i386) -o $@.tmp $^
 	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n !~ /^_?UF2_/) print n" ufl2_"n}' > $@.syms
 	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
 	$(RM) $@.tmp $@.syms
@@ -577,7 +584,7 @@ $(BZ2NGPATCHED)/libsais.c: $(BZ2NGSAIS)/libsais.c $(BZ2NGSAIS)/libsais.h $(wildc
 # decoration, _BZ2_x@N, kept as it is); everything else in bz2-ng is already
 # prefixed bzng_ and libsais is static inside sort_libsais.c.
 $(BZ2NGBUNDLE): $(BZ2NGOBJ)
-	$(CROSS_COMPILE)ld -r -o $@.tmp $^
+	$(CROSS_COMPILE)ld -r $(if $(findstring -m32,$(CFLAGS)),-m elf_i386) -o $@.tmp $^
 	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n ~ /^_?BZ2_/) {m=n; sub(/BZ2_/,"bz2ng_BZ2_",m); print n" "m}}' > $@.syms
 	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
 	$(RM) $@.tmp $@.syms
