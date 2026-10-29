@@ -15,10 +15,10 @@ head -c 300000 THIRD-PARTY-LICENSES.txt > "$W/data/sub/tpl.txt"
 # fixed dates, and no attributes (-noattributes below): Unix modes and Windows
 # attributes differ by nature, and the archive must be the same everywhere
 fixdates() { find data -exec touch -d '2026-01-01T12:00:00Z' {} +; }   # GNU and BSD touch
-# Windows archives also store each file's creation and access dates: the creation date
-# is set here once, and the access date (which reading the file changes) before each a
+# Windows archives also store each file's and folder's creation date: set it here, on
+# data/ itself too (it was created by this run)
 case $(uname -s) in MINGW*|MSYS*|CYGWIN*)
-  (cd "$W" && powershell -NoProfile -Command "Get-ChildItem -Recurse data | ForEach-Object { \$_.CreationTimeUtc = [datetime]'2026-01-01T12:00:00' }") ;;
+  (cd "$W" && powershell -NoProfile -Command "@(Get-Item data) + @(Get-ChildItem -Recurse data) | ForEach-Object { \$_.CreationTimeUtc = [datetime]'2026-01-01T12:00:00' }") ;;
 esac
 cd "$W" || exit 1
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-64; }
