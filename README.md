@@ -20,9 +20,9 @@ More documentation: the **[wiki](https://github.com/YadeWira/zpaq-std/wiki)**. R
 | Windows (7 and later) | x86-64 | release binary; built and tested in CI, and on Windows 7 before each release |
 | Windows (7 and later) | x86 | release binary; built and tested in CI, and on Windows 7 before each release |
 | Linux | x86-64 | release binary; built and tested in CI and on the host (full test battery) |
-| Linux | x86 (32-bit) | built and tested in CI |
-| Linux | AArch64 | built and tested in CI; archives byte-identical to x86-64 |
-| macOS | AArch64 | built and tested in CI; archives byte-identical to Linux x86-64 |
+| Linux | x86 (32-bit) | release binary; built and tested in CI and on the host |
+| Linux | AArch64 | release binary; built and tested in CI; archives byte-identical to x86-64 |
+| macOS (11 and later) | AArch64 | release binary (from CI); built and tested in CI; archives byte-identical to Linux x86-64 |
 
 In CI every built-in method (`-m1`..`-m5` and every `-ma` switch that is not
 plugin-only) compresses, extracts and tests on each platform, and the archives are
@@ -144,9 +144,11 @@ make plugins                              # program + every codec as a plugin (m
 make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
 
-Each release has, per platform, the full program, `extra-codecs.zip` (the codecs that
-are only plugins: sylz, sylzec and pja, to put in `codecs/` next to the program) and
-`plugins.zip` (a small program and every codec as a plugin). Targets, plugins and
+Each release has, per platform, the full program. For Windows x64/x86 and Linux x64
+there are also `extra-codecs.zip` (the codecs that are only plugins: sylz, sylzec and
+pja, to put in `codecs/` next to the program) and `plugins.zip` (a small program and
+every codec as a plugin); on the other platforms those three codecs are not available
+yet for compressing, but their archives extract there too. Targets, plugins and
 cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 
 ---

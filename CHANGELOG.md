@@ -1,3 +1,40 @@
+### [1.9.1] - 2026-10-29
+
+**Release binaries for every platform**: Linux x86 and AArch64 and macOS AArch64 join Windows x64/x86 and Linux x64. Also: **sylz writes the same bytes on 32 and 64 bits** (syc v0.5.1), **bz2-ng 517948e**, and the README's fast-lzma2 link.
+
+#### New downloads
+
+| Download | Platform |
+|---|---|
+| `zpaq-std-v1.9.1-linux-x86` | Linux, 32-bit x86 |
+| `zpaq-std-v1.9.1-linux-arm64` | Linux, AArch64 |
+| `zpaq-std-v1.9.1-macos-arm64` | macOS 11 and later, Apple Silicon (built by CI; ad-hoc signed) |
+
+- **What they are:** the full program, with every C/C++ codec inside.
+- **What they lack:** `extra-codecs` and `plugins` are still only for Windows and Linux x64. sylz, sylzec and pja are Free Pascal plugins, not built for these platforms yet. Their archives still extract there, through each block's ZPAQL decoder.
+- **Linux requirements:** the Linux binaries need glibc 2.38 and GCC 13's libstdc++ or newer (Debian 13, Ubuntu 24.04, and later), as the x64 one already did.
+- **macOS:** a binary downloaded with a browser carries the quarantine attribute. Run `xattr -d com.apple.quarantine zpaq-std-v1.9.1-macos-arm64` once, or right-click and Open.
+
+#### sylz and sylzec: syc v0.5.1
+
+Before, 32-bit builds hashed with fewer bytes at sylz's levels 0 to 3 (sylzec's 0 and 1), so the x86 plugin wrote other, larger, streams. At level 1, the default, the same tree on Windows 7 gave 766,797 bytes on x86 against 641,172 on x64. Now x86 and x64 write the same bytes at every level. On x64 nothing changes: sylz and sylzec write the archives of 1.9.0. The formats are the same.
+
+#### `-ma:bz2`: bz2-ng 517948e
+
+bz2-ng's latest commits (still no release): libsais 2.12.0, whose cyclic BWT mode replaces one of bz2-ng's libsais patches, and a faster decoder on AArch64. The format is bzip2's. `-ma:bz2` at levels 1 to 9 writes the archives of 1.9.0.
+
+#### Checked
+
+- **The new binaries:**
+  - Linux x86: `suite_ma_corre` 39/39 and `suite_ma_hostil` 29/29.
+  - Linux x86 and AArch64, against Linux x64: with the 32 built-in methods, AArch64 writes the very same archives and x86 differs only in its four known methods. All 288 cross extractions are identical.
+  - macOS AArch64: CI ran every built-in method on that binary's commit, with archives byte-identical to Linux x64's.
+- **sylz and sylzec (syc v0.5.1):**
+  - On x64, levels 0 to 10 write archives identical to 1.9.0's. `suite_sylz` 8/8 for each.
+  - On Windows 7, with the release binaries and DLLs, x86 and x64 write the same archive at sylz's levels 0, 1, 2, 3 and 10 and sylzec's 0, 1 and 10, and each extracts on both.
+- **bz2-ng:** `-ma:bz2` at levels 1 to 9 is byte for byte 1.9.0's. `suite_ma_hostil` 29/29. On Windows 7 x64/x86, levels 1 and 9: 12/12 extractions identical, and the archives extract on Linux with zpaq 7.15, zpaqfranz, 1.9.0 and 1.9.1.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.9.0: 182 comparisons, 0 divergences. CI green on all six platforms.
+
 ### [1.9.0] - 2026-10-29
 
 **Six platforms** with CI on every push (Windows x64/x86, Linux x64/x86/AArch64, macOS AArch64), **lossless JPEG and subsampled JPEG-LS** with `-sa` (PJA 0.0.8), **lizard-ex 2.3.2** for `-ma:lizard`, and **`-ma:lz6` stable** (lz6 1.7.1).
