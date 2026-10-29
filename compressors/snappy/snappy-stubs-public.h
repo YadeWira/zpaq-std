@@ -26,7 +26,11 @@
 #  define HAVE_SYS_UIO_H 1
 #  define HAVE_UNISTD_H 1
 #  define HAVE_SYS_MMAN_H 1
-#  define HAVE_BYTESWAP_H 1
+#  ifdef __APPLE__
+#    define HAVE_BYTESWAP_H 0   /* macOS has no <byteswap.h> (and snappy does not need it) */
+#  else
+#    define HAVE_BYTESWAP_H 1
+#  endif
 #endif
 
 #if HAVE_SYS_UIO_H
