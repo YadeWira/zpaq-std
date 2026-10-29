@@ -1,5 +1,8 @@
-sylz (format v2) and sylzec (format v3), from syc v0.4.2 (tag v0.4.2, commit d2f9632, 2026-10-24;
-a pre-release), https://github.com/YadeWira/syc. MIT, see LICENSE. Files copied unmodified:
+sylz (format v2) and sylzec (format v3), from syc v0.5.1 (tag v0.5.1, commit afb6252, 2026-10-29),
+https://github.com/YadeWira/syc. v0.5.1 makes 32-bit builds hash as 64-bit ones do
+(HashFast at levels 0-1, MidHashLong at levels 2-3, which are sylzec's 0-1), so x86 and
+x64 write the same bytes at every level; 64-bit output is v0.4.2's. Formats v2 and v3
+unchanged. Before: syc v0.4.2 (tag v0.4.2, commit d2f9632, 2026-10-24; a pre-release). MIT, see LICENSE. Files copied unmodified:
 src/sylz.pas, src/sylzhuf.pas, src/sylzc.c (C fast paths, linked into the plugins; built
 freestanding with the target's gcc), plugin/sylz_zpaqstd.pas (the plugin adapter: ONE file,
 codecs/sylz, with both codecs through zpaqstd_codecs_v1; zpaqstd_codec_v1 still gives sylz,
