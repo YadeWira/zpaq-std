@@ -144,11 +144,10 @@ make plugins                              # program + every codec as a plugin (m
 make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
 
-Each release has, per platform, the full program. For Windows x64/x86 and Linux x64
-there are also `extra-codecs.zip` (the codecs that are only plugins: sylz, sylzec and
-pja, to put in `codecs/` next to the program) and `plugins.zip` (a small program and
-every codec as a plugin); on the other platforms those three codecs are not available
-yet for compressing, but their archives extract there too. Targets, plugins and
+Each release has, per platform, the full program and `extra-codecs.zip` (the codecs
+that are only plugins: sylz, sylzec and pja, to put in `codecs/` next to the program;
+on macOS sylz and sylzec only, for now), and, except on macOS, `plugins.zip` (a small
+program and every codec as a plugin). Targets, plugins and
 cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 
 ---

@@ -1,3 +1,39 @@
+### [1.9.2] - 2026-10-29
+
+**The plugin-only codecs on more platforms:** `extra-codecs` and `plugins` for Linux x86 and Linux AArch64, and sylz/sylzec for macOS. Also **the Linux x86 binary is optimised again** (1.9.1's was not) and **syc v0.5.4**.
+
+#### Linux x86 in 1.9.1 was compiled without optimisation
+
+`make m32` passed `CXXFLAGS=-m32` through the environment, which replaced the default `-O3`. The core of zpaq-std was compiled at `-O0` in 1.9.1's `zpaq-std-v1.9.1-linux-x86`. Its archives are correct and identical, but it was slow: `-m1` and `-m3` 25-35% slower, and `-ma:zstd` about 4 times slower. 1.9.2's is built with `-O3`. Update if you use it.
+
+#### Plugins for Linux x86, Linux AArch64 and macOS
+
+| Download | Has |
+|---|---|
+| `zpaq-std-v1.9.2-linux-x86-extra-codecs.zip`, `-plugins.zip` | sylz (with sylzec) and pja; every codec as a plugin |
+| `zpaq-std-v1.9.2-linux-arm64-extra-codecs.zip`, `-plugins.zip` | the same |
+| `zpaq-std-v1.9.2-macos-arm64-extra-codecs.zip` | sylz (with sylzec) |
+
+- **Linux:** the Free Pascal codecs are built with cross compilers made from Free Pascal 3.2.2's sources (`ppc386`, and a new `ppca64`) and their own run-time libraries, compiled position-independent. The wiki's Building page has how.
+- **Same output:** x86 and AArch64 plugins write the very archives of Linux x64's.
+- **macOS:** the plugins are built in CI with Homebrew's Free Pascal. syc v0.5.4 exports sylz's entry points with Darwin's leading underscore, which macOS's `dlsym` needs.
+- **pja on macOS:** PJA 0.0.8 does not export those names yet. PJA's next release does, and pja for macOS comes with it. Until then, archives made with `-sa` extract on macOS through their ZPAQL.
+- **CI:** it now builds the Free Pascal plugins on Linux x64, Linux AArch64 and macOS, checks that they load and work, and compares their archives with Linux x64's.
+
+#### sylz and sylzec: syc v0.5.4
+
+- **v0.5.2 and v0.5.3:** `sylzc.c` builds with clang, and on 32-bit Linux it no longer needs libgcc, which Free Pascal does not link.
+- **v0.5.4:** the macOS exports above.
+- **Output:** the same bytes as 1.9.1 everywhere.
+
+#### Checked
+
+- **Linux x86**, release binary and its `extra-codecs`: `suite_ma_corre` 39/39, `suite_ma_hostil` 29/29, `suite_sylz` 8/8 for sylz and for sylzec, `suite_sa` 16/16.
+- **Same bytes:** sylz and sylzec at 9 levels write the same archive on Linux x64, x86 and AArch64, and so does `-sa` with PJA on the 79-file corpus. With the 32 built-in methods, AArch64 writes x64's archives and x86 differs only in its four known methods. All 288 cross extractions are identical.
+- **CI:** all six platforms green. The Free Pascal plugins load and work on Linux x64, Linux AArch64 and macOS, and their archives are byte-identical to Linux x64's.
+- **Windows 7**, release binaries and DLLs: x86 and x64 write the same archive with sylz at levels 0, 1, 2, 3 and 10 and sylzec at 0, 1 and 10, and each extracts on both.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.9.1: 182 comparisons, 0 divergences.
+
 ### [1.9.1] - 2026-10-29
 
 **Release binaries for every platform**: Linux x86 and AArch64 and macOS AArch64 join Windows x64/x86 and Linux x64. Also: **sylz writes the same bytes on 32 and 64 bits** (syc v0.5.1), **bz2-ng 517948e**, and the README's fast-lzma2 link.
