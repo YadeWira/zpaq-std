@@ -31,7 +31,7 @@ PART 1 - BUNDLED COMPRESSORS
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  0.15.0                       BSD-3-Clause; rapidhash MIT
-  sylz and sylzec      syc v0.5.1                   MIT
+  sylz and sylzec      syc v0.5.3                   MIT
   PJA                  0.0.8                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
   ZPAQLZMA decoder     -                            see text
 
@@ -2263,7 +2263,7 @@ You can contact the author at:
  */
 
 ===============================================================================
-sylz and sylzec syc v0.5.1
+sylz and sylzec syc v0.5.3
 Licence: MIT
 Copyright: Yade Bravo (YadeWira)
 Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the
