@@ -2,7 +2,8 @@ name: CI
 
 # Builds zpaq-std on every supported platform, runs every built-in method there
 # (test/ci/platform_check.sh: compress, extract, test), and checks that all the
-# platforms write the very same archive bytes.
+# platforms write the very same archive bytes (Linux and macOS among themselves,
+# Windows among themselves).
 
 on:
   push:
@@ -99,5 +100,9 @@ jobs:
         with:
           pattern: hashes-*
           merge-multiple: true
-      - name: Compare with linux-x64
-        run: bash test/ci/same_bytes.sh linux-x64 linux-x86 linux-arm64 macos-arm64 windows-x64 windows-x86
+      # On Windows the archive also stores each file's creation and access dates
+      # (zpaqfranz's design), so Windows builds are compared with each other
+      - name: Linux and macOS, compared with linux-x64
+        run: bash test/ci/same_bytes.sh linux-x64 linux-x86 linux-arm64 macos-arm64
+      - name: Windows x86, compared with windows-x64
+        run: bash test/ci/same_bytes.sh windows-x64 windows-x86
