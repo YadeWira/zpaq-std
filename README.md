@@ -87,7 +87,7 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 
 | Switch | Library | Levels | Default |
 |---|---|---|---|
-| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) a655623 | 1–9 | 9 |
+| `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) 517948e | 1–9 | 9 |
 | `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.4.2), plugin only | 0–10 | 1 |
 | `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.4.2, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10 (zpaqfranz's `-m6`) | 1–12 | 9 |

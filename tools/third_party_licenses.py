@@ -23,7 +23,7 @@ BUNDLED = [
      ['compressors/uflzma2/LICENSE'], ''),
     ('lzlib', '1.16', 'BSD-2-Clause', 'Antonio Diaz Diaz', ['compressors/lzlib/LICENSE'], ''),
     ('bzip2 / libbzip2', '1.0.8', 'bzip2 licence (BSD-style)', 'Julian R Seward', ['compressors/bzip2/LICENSE'], ''),
-    ('bz2-ng', 'commit a655623 (no release yet)', 'MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)',
+    ('bz2-ng', 'commit 517948e (no release yet)', 'MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)',
      'Tim Fennell; Julian R Seward (bzip2); Eric Biggers (libdeflate); Yuta Mori (sais-lite); Ilya Grebnov (libsais)',
      ['compressors/bz2ng/LICENSE', 'compressors/bz2ng/licenses/bzip2-1.0.8.txt', 'compressors/bz2ng/licenses/libdeflate-1.26.txt',
       'compressors/bz2ng/licenses/sais-lite-2.4.1.txt', 'compressors/bz2ng/third_party/libsais/LICENSE'],

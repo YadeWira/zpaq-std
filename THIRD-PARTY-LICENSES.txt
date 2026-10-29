@@ -16,7 +16,7 @@ PART 1 - BUNDLED COMPRESSORS
   ultra-fast-lzma2     1.6.4                        BSD-3-Clause
   lzlib                1.16                         BSD-2-Clause
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
-  bz2-ng               commit a655623 (no release yet) MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
+  bz2-ng               commit 517948e (no release yet) MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
   libdeflate           1.26                         MIT
   lizard-ex (Lizard)   2.3.2                        BSD-2-Clause (library)
   lz5-ex               1.5.3                        BSD-2-Clause
@@ -214,7 +214,7 @@ bzip2/libbzip2 version 1.0.8 of 13 July 2019
 --------------------------------------------------------------------------
 
 ===============================================================================
-bz2-ng commit a655623 (no release yet)
+bz2-ng commit 517948e (no release yet)
 Licence: MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
 Copyright: Tim Fennell; Julian R Seward (bzip2); Eric Biggers (libdeflate); Yuta Mori (sais-lite); Ilya Grebnov (libsais)
 libbz2 1.0.8's format and API with a new encoder and decoder; used by -ma:bz2.
