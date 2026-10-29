@@ -115,6 +115,14 @@ BZ2NGO3 := compress enc_block enc_huff enc_sort sort_libsais
 # libsais with bz2-ng's own patches (third_party/libsais/patches), applied to a copy
 # as bz2-ng's CMake does; sort_libsais.c includes that copy. The result must match
 # patches/SHA256, so a patch that applies with fuzz or to another libsais stops the build.
+# The bundles' symbol renaming needs objcopy. macOS has none: Homebrew's llvm has
+# llvm-objcopy, which renames Mach-O symbols too (brew install llvm).
+OBJCOPY := $(CROSS_COMPILE)objcopy
+ifeq ($(UNAME_S),Darwin)
+ifeq (,$(shell command -v objcopy 2>/dev/null))
+  OBJCOPY := $(firstword $(shell command -v llvm-objcopy 2>/dev/null) $(wildcard $(shell brew --prefix llvm 2>/dev/null)/bin/llvm-objcopy) llvm-objcopy)
+endif
+endif
 # macOS has shasum, not sha256sum
 SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo "shasum -a 256")
 BZ2NGSAIS := compressors/bz2ng/third_party/libsais
@@ -504,7 +512,7 @@ compressors/uflzma2/%.o: compressors/uflzma2/%.S
 $(UFL2BUNDLE): $(UFL2OBJ)
 	$(CROSS_COMPILE)ld -r $(if $(findstring -m32,$(CFLAGS)),-m elf_i386) -o $@.tmp $^
 	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n !~ /^_?UF2_/) print n" ufl2_"n}' > $@.syms
-	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
+	$(OBJCOPY) --redefine-syms=$@.syms $@.tmp $@
 	$(RM) $@.tmp $@.syms
 
 # One plugin: the adapter and its library, in one shared object.
@@ -590,7 +598,7 @@ $(BZ2NGPATCHED)/libsais.c: $(BZ2NGSAIS)/libsais.c $(BZ2NGSAIS)/libsais.h $(wildc
 $(BZ2NGBUNDLE): $(BZ2NGOBJ)
 	$(CROSS_COMPILE)ld -r $(if $(findstring -m32,$(CFLAGS)),-m elf_i386) -o $@.tmp $^
 	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n ~ /^_?BZ2_/) {m=n; sub(/BZ2_/,"bz2ng_BZ2_",m); print n" "m}}' > $@.syms
-	$(CROSS_COMPILE)objcopy --redefine-syms=$@.syms $@.tmp $@
+	$(OBJCOPY) --redefine-syms=$@.syms $@.tmp $@
 	$(RM) $@.tmp $@.syms
 
 compressors/lz5/%.o: compressors/lz5/%.c
