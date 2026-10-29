@@ -125836,7 +125836,7 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 	}
 	else if (g_ma_algorithm=="lz6" && sb.size()>16 && zs_get("lz6"))
 	{
-		/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION)
+		/// lz6 (github.com/YadeWira/lz6, congelado en compressors/lz6/VERSION.txt)
 		/// escribe el MISMO formato de bloque que LZ5 v1.5: es su "perfil
 		/// portable", congelado. Hasta pre42 el bloque llevaba el decodificador
 		/// ZPAQLZ5 de -ma:lz5; desde pre43 lleva el suyo, ZPAQLZ6 (mismo formato,

@@ -102,7 +102,7 @@ else
   FL2SRC  := compressors/fl2/fl2_common.c compressors/fl2/fl2_compress.c compressors/fl2/fl2_decompress.c compressors/fl2/fl2_pool.c compressors/fl2/fl2_threading.c compressors/fl2/lzma2_dec.c compressors/fl2/lzma2_enc.c compressors/fl2/radix_bitpack.c compressors/fl2/radix_mf.c compressors/fl2/radix_struct.c compressors/fl2/range_enc.c compressors/fl2/dict_buffer.c compressors/fl2/util.c
 endif
 # ultra-fast-lzma2 (-ma:uflzma2), next to fast-lzma2 (-ma:flzma2): see
-# compressors/uflzma2/VERSION. The two share internal symbol names, so this one is
+# compressors/uflzma2/VERSION.txt. The two share internal symbol names, so this one is
 # linked into one relocatable object with every symbol but UF2_* renamed.
 # Its assembler LZMA decoder goes in on x86_64 (Microsoft x64 calling convention
 # on Windows) and ARM64; 32-bit builds use its C decoder.
@@ -151,7 +151,7 @@ HSSRC    := compressors/hs/heatshrink_encoder.c compressors/hs/heatshrink_decode
 LZFSESRC := compressors/lzfse/lzfse_decode.c compressors/lzfse/lzfse_decode_base.c compressors/lzfse/lzfse_encode.c compressors/lzfse/lzfse_encode_base.c compressors/lzfse/lzfse_fse.c compressors/lzfse/lzvn_decode_base.c compressors/lzfse/lzvn_encode_base.c
 ZOPFLISRC :=
 # kanzi 2.6.0 (-ma:kanzi, levels 1-2), plus zpaq-std's C wrapper kanzi_zpaqstd.cpp:
-# see compressors/kanzi/VERSION. C++, in namespace kanzi.
+# see compressors/kanzi/VERSION.txt. C++, in namespace kanzi.
 KANZISRC := $(wildcard compressors/kanzi/*.cpp compressors/kanzi/bitstream/*.cpp compressors/kanzi/entropy/*.cpp compressors/kanzi/io/*.cpp compressors/kanzi/transform/*.cpp compressors/kanzi/util/*.cpp)
 KANZIINC := -Icompressors/kanzi
 BSCSRC   := compressors/bsc/bwt/libsais/libsais.c compressors/bsc/libbsc/libbsc.cpp compressors/bsc/lzp/lzp.cpp compressors/bsc/coder/coder.cpp compressors/bsc/coder/qlfc/qlfc.cpp compressors/bsc/coder/qlfc/qlfc_model.cpp compressors/bsc/bwt/bwt.cpp compressors/bsc/st/st.cpp compressors/bsc/adler32/adler32.cpp compressors/bsc/platform/platform.cpp compressors/bsc/filters/preprocessing.cpp compressors/bsc/filters/detectors.cpp

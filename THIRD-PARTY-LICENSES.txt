@@ -20,7 +20,7 @@ PART 1 - BUNDLED COMPRESSORS
   libdeflate           1.26                         MIT
   Lizard               2.1                          BSD-2-Clause (library)
   lz5-ex               1.5.3                        BSD-2-Clause
-  lz6                  see compressors/lz6/VERSION  BSD-2-Clause
+  lz6                  see compressors/lz6/VERSION.txt BSD-2-Clause
   Snappy               1.3.1                        BSD-3-Clause
   lzfse-ex (LZFSE)     1.0.3                        BSD-3-Clause
   heatshrink-ex        0.7.0                        ISC
@@ -111,7 +111,7 @@ fast-lzma2 1.1.2
 Licence: BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
 Copyright: Conor McCarthy; maintained by YadeWira
 Parts based on zstd, copyright Yann Collet. Version 1.1.2 is maintained in
-ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.
+ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.txt.
 
 Copyright 2018-present Conor McCarthy
 
@@ -648,7 +648,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-lz6 see compressors/lz6/VERSION
+lz6 see compressors/lz6/VERSION.txt
 Licence: BSD-2-Clause
 Copyright: Yann Collet (LZ4), YadeWira
 
@@ -773,7 +773,7 @@ OF SUCH DAMAGE.
 heatshrink-ex 0.7.0
 Licence: ISC
 Copyright: Scott Vokes (heatshrink); YadeWira (heatshrink-ex)
-A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.
+A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.txt.
 
 Copyright (c) 2013-2015, Scott Vokes <vokes.s@gmail.com>
 All rights reserved.

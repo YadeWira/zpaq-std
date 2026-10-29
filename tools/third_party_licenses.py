@@ -18,7 +18,7 @@ BUNDLED = [
     ('LZMA SDK', '26.05', 'Public domain', 'Igor Pavlov', ['compressors/lzmasdk/LICENSE'], ''),
     ('fast-lzma2', '1.1.2', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Conor McCarthy; maintained by YadeWira',
      ['compressors/fl2/LICENSE'], 'Parts based on zstd, copyright Yann Collet. Version 1.1.2 is maintained in\n'
-     'ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.'),
+     'ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.txt.'),
     ('ultra-fast-lzma2', '1.6.4', 'BSD-3-Clause', 'Conor McCarthy (fast-lzma2), fork by YadeWira',
      ['compressors/uflzma2/LICENSE'], ''),
     ('lzlib', '1.16', 'BSD-2-Clause', 'Antonio Diaz Diaz', ['compressors/lzlib/LICENSE'], ''),
@@ -32,10 +32,10 @@ BUNDLED = [
     ('Lizard', '2.1', 'BSD-2-Clause (library)', 'Yann Collet, Przemyslaw Skibinski', ['compressors/lizard/LICENSE'], ''),
     ('lz5-ex', '1.5.3', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
-    ('lz6', 'see compressors/lz6/VERSION', 'BSD-2-Clause', 'Yann Collet (LZ4), YadeWira', ['compressors/lz6/LICENSE'], ''),
+    ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause', 'Yann Collet (LZ4), YadeWira', ['compressors/lz6/LICENSE'], ''),
     ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
     ('lzfse-ex (LZFSE)', '1.0.3', 'BSD-3-Clause', 'Apple Inc.; maintained by YadeWira', ['compressors/lzfse/LICENSE'], ''),
-    ('heatshrink-ex', '0.7.0', 'ISC', 'Scott Vokes (heatshrink); YadeWira (heatshrink-ex)', ['compressors/hs/LICENSE'], 'A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.'),
+    ('heatshrink-ex', '0.7.0', 'ISC', 'Scott Vokes (heatshrink); YadeWira (heatshrink-ex)', ['compressors/hs/LICENSE'], 'A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.txt.'),
     ('bzip3', '1.5.5', 'LGPL-3.0-or-later', 'Kamila Szewczyk',
      ['compressors/bzip3/LICENSE', 'compressors/bzip3/COPYING.GPL-3'],
      'bzip3 is linked statically. Its source, as built, is part of zpaq-std\'s source\n'
