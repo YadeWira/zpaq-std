@@ -115,6 +115,8 @@ BZ2NGO3 := compress enc_block enc_huff enc_sort sort_libsais
 # libsais with bz2-ng's own patches (third_party/libsais/patches), applied to a copy
 # as bz2-ng's CMake does; sort_libsais.c includes that copy. The result must match
 # patches/SHA256, so a patch that applies with fuzz or to another libsais stops the build.
+# macOS has shasum, not sha256sum
+SHA256SUM := $(shell command -v sha256sum >/dev/null 2>&1 && echo sha256sum || echo "shasum -a 256")
 BZ2NGSAIS := compressors/bz2ng/third_party/libsais
 BZ2NGPATCHED := compressors/bz2ng/libsais-patched
 UFL2MACH := $(shell $(CC) -dumpmachine 2>/dev/null)
@@ -576,7 +578,7 @@ $(BZ2NGPATCHED)/libsais.c: $(BZ2NGSAIS)/libsais.c $(BZ2NGSAIS)/libsais.h $(wildc
 	$(RM) -r $(BZ2NGPATCHED).tmp && mkdir -p $(BZ2NGPATCHED).tmp
 	cp $(BZ2NGSAIS)/libsais.c $(BZ2NGSAIS)/libsais.h $(BZ2NGPATCHED).tmp/
 	for p in $(sort $(wildcard $(BZ2NGSAIS)/patches/*.patch)); do patch -s -p1 -N -d $(BZ2NGPATCHED).tmp -i $(CURDIR)/$$p || exit 1; done
-	cd $(BZ2NGPATCHED).tmp && sha256sum -c --quiet $(CURDIR)/$(BZ2NGSAIS)/patches/SHA256
+	cd $(BZ2NGPATCHED).tmp && $(SHA256SUM) -c --quiet $(CURDIR)/$(BZ2NGSAIS)/patches/SHA256
 	$(RM) -r $(BZ2NGPATCHED) && mv $(BZ2NGPATCHED).tmp $(BZ2NGPATCHED)
 
 # bz2-ng exports libbz2's own API (BZ2_*), which -ma:bzip2's libbzip2 exports too.
