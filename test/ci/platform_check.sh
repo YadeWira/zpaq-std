@@ -14,8 +14,9 @@ head -c 300000 THIRD-PARTY-LICENSES.txt > "$W/data/sub/tpl.txt"
 : > "$W/data/sub/empty"
 # fixed dates, and no attributes (-noattributes below): Unix modes and Windows
 # attributes differ by nature, and the archive must be the same everywhere
-find "$W/data" -exec touch -d '2026-01-01 12:00:00 UTC' {} +
+find "$W/data" -exec touch -d '2026-01-01T12:00:00Z' {} +   # GNU and BSD touch
 cd "$W" || exit 1
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-64; }
 "$Z" 2>&1 | grep -m1 "zpaq-std v" || { echo "the binary does not run"; exit 1; }
 methods="-m1 -m2 -m3 -m4 -m5"
 for c in $("$Z" codecinfo 2>/dev/null | tr -d '\r' | awk '/^[a-z0-9]+ +(stable|experimental) /{print $1}'); do
@@ -28,7 +29,7 @@ for m in $methods; do
   rm -rf x; "$Z" x $f -to x -nomore >x.log 2>&1
   if ! diff -r data x/data >/dev/null 2>&1; then echo "FAIL x $m"; tail -3 x.log; bad=$((bad+1)); fi
   "$Z" t $f -nomore >/dev/null 2>&1 || { echo "FAIL t $m"; bad=$((bad+1)); }
-  echo "$m $(sha256sum $f | cut -c1-64)" >> "../hashes-$PLAT.txt"
+  echo "$m $(sha256 $f)" >> "../hashes-$PLAT.txt"
 done
 echo "$PLAT: $n methods, $bad failures"
 [ $bad = 0 ]
