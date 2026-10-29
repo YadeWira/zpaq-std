@@ -30295,8 +30295,8 @@ static const zs_info_row ZS_INFO[]=
 	 "public domain", "7-Zip / LZMA SDK", "PPMd7 (var.H) with 7-Zip's range coder", "the level is the model order"},
 	{"kanzi", false, 1, 9, 2, "ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B (by level)", "kanzi 2.6.0", "Frederic Langlet", "https://github.com/flanglet/kanzi-cpp",
 	 "Apache-2.0", "2.6.0, commit 2d17ca0", "kanzi bitstream 7, one kanzi block per zpaq block", "levels 8 and 9 (TPAQ) are slow and need a lot of memory in other zpaqs"},
-	{"lz6", true, 0, 15, 0, "ZPAQLZ6", "lz6 1.7.1", "Yann Collet (LZ4), Przemyslaw Skibinski (LZ5); YadeWira", "https://github.com/YadeWira/lz6",
-	 "BSD-2-Clause", "v1.7.1, commit ea9f132", "LZ5 1.5 portable profile (frozen)", "its compression and levels may change; the block format does not"},
+	{"lz6", false, 0, 15, 0, "ZPAQLZ6", "lz6 1.7.1", "Yann Collet (LZ4), Przemyslaw Skibinski (LZ5); YadeWira", "https://github.com/YadeWira/lz6",
+	 "BSD-2-Clause", "v1.7.1, commit ea9f132", "LZ5 1.5 portable profile (frozen)", ""},
 	{"bz2", true, 1, 9, 9, "ZPAQBZ2", "bz2-ng a655623", "Tim Fennell; Julian R Seward (bzip2); Eric Biggers (libdeflate); Yuta Mori (sais-lite); Ilya Grebnov (libsais)", "https://github.com/tfenne/bz2-ng",
 	 "MIT; parts BSD-style, MIT and Apache-2.0 WITH LLVM-exception", "commit a655623 (no release yet)", "bzip2 stream", "libbz2 1.0.8's format with a new encoder and decoder"},
 	{"zxc", false, 1, 7, 3, "ZPAQZXC", "zxc 0.15.0", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
@@ -71991,11 +71991,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="bz2") ? "ZPAQBZ2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM10" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="sylz") ? "ZPAQSYLZ" : (g_ma_algorithm=="sylzec") ? "ZPAQSYLZ3" : (g_ma_algorithm=="zxc") ? "ZPAQZXC" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=8 ? "ZPAQKANZI8B" : g_ma_level>=7 ? "ZPAQKANZI7B" : g_ma_level>=5 ? "ZPAQKANZI5C" : g_ma_level>=3 ? "ZPAQKANZI3B" : "ZPAQKANZI1B") : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
-		/// lz6 es experimental: lo que puede cambiar es su COMPRESOR (ratio,
-		/// velocidad, niveles), no el formato de bloque, que lz6 congelo.
-		if (g_ma_algorithm=="lz6")
-			myprintf("00603! lz6 is EXPERIMENTAL: its compression and levels may change in future\n"
-			         "       releases. Archives already written stay readable (frozen block format)\n");
 		/// bz2: bz2-ng aun no tiene version publicada. El formato es el de bzip2 y no
 		/// cambia; lo que puede cambiar es la libreria que lo escribe.
 		if (g_ma_algorithm=="bz2")
