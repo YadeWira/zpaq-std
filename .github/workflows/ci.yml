@@ -28,7 +28,7 @@ jobs:
       - name: Dependencies
         if: matrix.deps
         run: sudo apt-get update && sudo apt-get install -y ${{ matrix.deps }}
-      - name: Dependencies (macOS: llvm-objcopy)
+      - name: 'Dependencies (macOS: llvm-objcopy)'
         if: runner.os == 'macOS'
         run: brew list llvm >/dev/null 2>&1 || brew install llvm
       - name: Build
