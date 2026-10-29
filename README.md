@@ -8,6 +8,29 @@ Think of it as a single-file "Time Machine": every run only adds the deltas, so 
 
 More documentation: the **[wiki](https://github.com/YadeWira/zpaq-std/wiki)**. Releases: **[Releases](https://github.com/YadeWira/zpaq-std/releases)**.
 
+| Component | Status |
+|---|---|
+| CI | [![CI][ciBadge]][ciLink] |
+| Latest release | [![Release][relBadge]][relLink] |
+
+## Platforms
+
+| OS | Architectures | State |
+|---|---|---|
+| Windows (7 and later) | x86-64 | release binary; built and tested in CI, and on Windows 7 before each release |
+| Windows (7 and later) | x86 | release binary; built and tested in CI, and on Windows 7 before each release |
+| Linux | x86-64 | release binary; built and tested in CI and on the host (full test battery) |
+| Linux | x86 (32-bit) | built and tested in CI |
+| Linux | AArch64 | built and tested in CI; archives byte-identical to x86-64 |
+| macOS | AArch64 | built and tested in CI; archives byte-identical to Linux x86-64 |
+
+In CI every built-in method (`-m1`..`-m5` and every `-ma` switch that is not
+plugin-only) compresses, extracts and tests on each platform, and the archives are
+compared byte for byte: Linux and macOS with Linux x86-64, Windows x86 with Windows
+x86-64 (on Windows the archive also stores each file's creation and access dates). The
+32-bit builds write other, equally valid, bytes for four methods: `-ma:brotli`,
+`-ma:lz6:0`, `-ma:lz4f` and `-ma:lz5f`. Every platform reads what any other writes.
+
 ---
 
 ## What it does
@@ -106,12 +129,15 @@ Files are chosen by their contents, never by name; the rest is compressed as
 
 ## Build
 
-Only a C++ compiler (g++, clang++) and GNU make; no library to install.
+Only a C++ compiler (g++, clang++) and GNU make; no library to install. On macOS,
+also `llvm-objcopy` (`brew install llvm`).
 
 ```bash
 make                                      # optimized build
 make CROSS_COMPILE=x86_64-w64-mingw32-    # 64-bit Windows
 make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (Windows 7 and later)
+make m32                                  # 32-bit Linux (needs g++-multilib)
+make CROSS_COMPILE=aarch64-linux-gnu-     # Linux AArch64
 make plugins                              # program + every codec as a plugin (make clean first)
 make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
@@ -143,7 +169,9 @@ Windows (for installers); `pakka` and `-catpaqmode` are for GUIs. More:
 
 The test harness is in **`test/testlab/`**: round trips over every codec and
 command, damaged archives, archives of published releases (golden), comparisons
-between versions, Windows 7. See [wiki: Verification](https://github.com/YadeWira/zpaq-std/wiki/Verification).
+between versions, Windows 7. On every push, CI (`.github/workflows/ci.yml`, with
+`test/ci/`) builds the six platforms above and runs every built-in method on each.
+See [wiki: Verification](https://github.com/YadeWira/zpaq-std/wiki/Verification).
 
 ---
 
@@ -160,3 +188,8 @@ The original zpaq 7.15 (Matt Mahoney, 2009–2016) is unmaintained. This fork ke
 MIT (see `LICENSE` and `COPYING`). Third-party libraries in `compressors/` keep their original licenses (BSD, MIT, Apache 2.0, LGPL-3.0 for bzip3, public domain), each in its folder.
 
 [`THIRD-PARTY-LICENSES.txt`](THIRD-PARTY-LICENSES.txt) lists everything from other authors that the release binaries contain, with the full text of each license. It is attached to every release; redistribute it with the binaries. `python3 tools/third_party_licenses.py > THIRD-PARTY-LICENSES.txt` rebuilds it.
+
+[ciBadge]: https://github.com/YadeWira/zpaq-std/actions/workflows/ci.yml/badge.svg "Continuous Integration"
+[ciLink]: https://github.com/YadeWira/zpaq-std/actions/workflows/ci.yml
+[relBadge]: https://img.shields.io/github/v/release/YadeWira/zpaq-std "Latest release"
+[relLink]: https://github.com/YadeWira/zpaq-std/releases/latest
