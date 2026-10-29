@@ -227,7 +227,9 @@ CXXFLAGS ?= -O3
 CPPFLAGS ?=
 
 # Project-required flags (always present; user flags are appended)
-ZPAQ_CXXFLAGS := $(PICFLAG) -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
+# gnu++17 is g++'s and mingw's own default; said here for compilers whose default is
+# older (Apple clang: C++98, and snappy needs C++11)
+ZPAQ_CXXFLAGS := $(PICFLAG) -std=gnu++17 -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
 # -mconsole tells the MinGW CRT to use main() instead of WinMain()
 # as the entry point. Required for console (CLI) applications.
 # -static* statically links the MinGW runtime (libgcc, libstdc++,
@@ -509,7 +511,7 @@ $(UFL2BUNDLE): $(UFL2OBJ)
 .SECONDEXPANSION:
 plugins/codecs/%$(PLUGEXT): compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h $$(PLUGLIB_$$*)
 	@mkdir -p plugins/codecs
-	$(CXX) -O3 -Wall -pthread -DZS_PLUGIN -D_GLIBCXX_USE_CXX11_ABI=0 $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
+	$(CXX) -std=gnu++17 -O3 -Wall -pthread -DZS_PLUGIN -D_GLIBCXX_USE_CXX11_ABI=0 $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
 	$(if $(findstring mingw,$(CROSS_COMPILE)),SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(STRIP) --remove-section=.comment $@)
 
 plugins:
