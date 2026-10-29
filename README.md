@@ -62,7 +62,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 |
 | `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.1 | 0–11 | 11 |
 | `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.05 | 0–9 | 6 |
-| `-ma:flzma2:N` | [fast-lzma2](https://github.com/conor42/fast-lzma2) 1.1.2 | 1–10 | 5 |
+| `-ma:flzma2:N` | [fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2/tree/master/fast-lzma2) 1.1.2 | 1–10 | 5 |
 | `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.4 | 1–11 | 5 |
 | `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 |
 | `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 |
