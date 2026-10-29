@@ -14,7 +14,12 @@ head -c 300000 THIRD-PARTY-LICENSES.txt > "$W/data/sub/tpl.txt"
 : > "$W/data/sub/empty"
 # fixed dates, and no attributes (-noattributes below): Unix modes and Windows
 # attributes differ by nature, and the archive must be the same everywhere
-find "$W/data" -exec touch -d '2026-01-01T12:00:00Z' {} +   # GNU and BSD touch
+fixdates() { find data -exec touch -d '2026-01-01T12:00:00Z' {} +; }   # GNU and BSD touch
+# Windows archives also store each file's creation and access dates: the creation date
+# is set here once, and the access date (which reading the file changes) before each a
+case $(uname -s) in MINGW*|MSYS*|CYGWIN*)
+  (cd "$W" && powershell -NoProfile -Command "Get-ChildItem -Recurse data | ForEach-Object { \$_.CreationTimeUtc = [datetime]'2026-01-01T12:00:00' }") ;;
+esac
 cd "$W" || exit 1
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-64; }
 "$Z" 2>&1 | grep -m1 "zpaq-std v" || { echo "the binary does not run"; exit 1; }
@@ -25,6 +30,7 @@ done
 n=0; bad=0; : > "../hashes-$PLAT.txt"
 for m in $methods; do
   n=$((n+1)); f=a$n.zpaq
+  fixdates
   if ! "$Z" a $f data $m -timestamp 2026-01-01_00:00:00 -noattributes -nomore >a.log 2>&1; then echo "FAIL a $m"; tail -3 a.log; bad=$((bad+1)); continue; fi
   rm -rf x; "$Z" x $f -to x -nomore >x.log 2>&1
   if ! diff -r data x/data >/dev/null 2>&1; then echo "FAIL x $m"; tail -3 x.log; bad=$((bad+1)); fi
