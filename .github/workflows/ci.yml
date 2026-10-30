@@ -51,7 +51,7 @@ jobs:
       - name: Free Pascal
         if: matrix.fpc
         run: |
-          if [ "$RUNNER_OS" = macOS ]; then brew install fpc; else sudo apt-get update && sudo apt-get install -y fp-compiler; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install fpc; else sudo apt-get update && sudo apt-get install -y fp-compiler imagemagick; fi
           fpc -iV
       - name: Free Pascal plugins
         if: matrix.fpc
