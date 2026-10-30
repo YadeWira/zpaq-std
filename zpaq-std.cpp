@@ -95261,6 +95261,9 @@ struct zs_sa_codec
 	zs_sa_codec() : level(0), segs(false) {}
 };
 int						 g_sa_mode= 0;	/// 'e' (-sae, and -sa), 't' (-sat) or 0
+#include <functional>
+extern int				 g_sa_threads;	/// -sa: threads a block's files may use (sa_parallel), -t
+static void sa_parallel(size_t i_n, const std::function<void(size_t)>& i_f);
 bool					 g_sa_official= false;	/// -sa: zpaq-std's own codecs (ZS_SA_OFFICIAL)
 /// -sa: zpaq-std's codecs for specific formats, from the extra-codecs plugin
 /// codecs/<file>; the default level of each. Their blocks are -sae blocks (the same
@@ -106057,6 +106060,8 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 /// -sae/-sat: the first codec of g_sa that takes this whole file, or -1. Called
 /// from the prefetch workers (the classifier) and from the main thread.
 static const int64_t ZS_SA_MAXFILE=(int64_t)64<<20;	/// bigger files are not looked at
+/// -sa: the most a block of several files a codec took may hold (sa_join)
+static const int64_t ZS_SA_GROUP=(int64_t)32<<20;
 static int zs_sa_detect(const unsigned char* i_p, size_t i_n)
 {
 	if (g_sa.empty() || i_n<=16 || (int64_t)i_n>ZS_SA_MAXFILE)
@@ -106214,8 +106219,10 @@ static void sa_lz_encode(const char* i_all, size_t i_n, const std::vector<size_t
 {
 	const int HB=22;
 	const unsigned char* a=(const unsigned char*)i_all;
-	std::vector<int32_t> head((size_t)1<<HB, -1), prev(i_n, -1);
 	const size_t win=(size_t)1<<i_wb;
+	/// prev: a ring of the window (a chain never goes back further), not one per byte
+	const size_t pmask=win-1;
+	std::vector<int32_t> head((size_t)1<<HB, -1), prev((std::min)(i_n, win), -1);
 	o_out.clear();
 	o_sz.clear();
 	sa_lz_bits w(o_out);
@@ -106251,7 +106258,7 @@ static void sa_lz_encode(const char* i_all, size_t i_n, const std::vector<size_t
 			{
 				const uint32_t h=hash(i);
 				int tries=64;
-				for (int32_t p=head[h]; p>=0 && tries--; p=prev[p])
+				for (int32_t p=head[h]; p>=0 && tries--; p=prev[(size_t)p&pmask])
 				{
 					const size_t off=i-(size_t)p;
 					if (off+(end-beg)>=win || off>=((size_t)1<<24))
@@ -106265,7 +106272,7 @@ static void sa_lz_encode(const char* i_all, size_t i_n, const std::vector<size_t
 						boff=(uint32_t)off;
 					}
 				}
-				prev[i]=head[h];
+				prev[i&pmask]=head[h];
 				head[h]=(int32_t)i;
 			}
 			if (best>=8)
@@ -106287,7 +106294,7 @@ static void sa_lz_encode(const char* i_all, size_t i_n, const std::vector<size_t
 					if (q+8<=end)
 					{
 						const uint32_t h=hash(q);
-						prev[q]=head[h];
+						prev[q&pmask]=head[h];
 						head[h]=(int32_t)q;
 					}
 				}
@@ -157220,6 +157227,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 	if (howmanythreads<1)
 		howmanythreads=numberOfProcessors();
+	g_sa_threads=howmanythreads;	/// -sa: a block's files, several at once (sa_parallel)
 
   // Test date
 	if (nowz==-1 || date<19000000000000LL || date>30000000000000LL)
@@ -167519,20 +167527,33 @@ ThreadReturn decompressThread(void *arg)
 				}
 				if (!extp_segs.empty())
 				{
-					/// several files: each segment is the size (u32) and what the codec wrote
+					/// several files: each segment is the size (u32) and what the codec wrote;
+					/// each decoded on its own, several at once (sa_parallel)
+					const size_t ns=extp_segs.size();
+					std::vector<int64_t> ips(ns), ops(ns);
 					int64_t ip=0, op=0;
-					for (size_t i=0; i<extp_segs.size(); i++)
+					for (size_t i=0; i<ns; i++)
 					{
 						const int64_t o=extp_segs[i].first, c=extp_segs[i].second;
 						if (c<4 || ip+c>(int64_t)out.size() || op+o>extp_orig)
 							error("31322 external codec decompression failed");
-						if (o>0 && xe->c->decompress(out.data()+ip+4, (size_t)(c-4), &decomp2[(size_t)op], (size_t)o, 0)!=o)
-							error("31322 external codec decompression failed");
+						ips[i]=ip;
+						ops[i]=op;
 						ip+=c;
 						op+=o;
 					}
 					if (ip!=(int64_t)out.size() || op!=extp_orig)
 						error("31322 external codec decompression failed");
+					std::vector<char> bad(ns, 0);
+					const char* od=(const char*)out.data();
+					sa_parallel(ns, [&](size_t i)
+					{
+						const int64_t o=extp_segs[i].first, c=extp_segs[i].second;
+						bad[i]=o>0 && xe->c->decompress(od+ips[i]+4, (size_t)(c-4), &decomp2[(size_t)ops[i]], (size_t)o, 0)!=o;
+					});
+					for (size_t i=0; i<ns; i++)
+						if (bad[i])
+							error("31322 external codec decompression failed");
 				}
 				else
 				{
@@ -245091,6 +245112,63 @@ static void sa_name_set(const std::string& i_block, const std::string& i_file)
 	g_ext_print().leave();
 }
 static std::atomic<int> g_sa_taken(0);	/// blocks a -sa codec compressed
+/// -sa: i_f(0) .. i_f(i_n-1), each once, by this thread and helpers while there are
+/// threads to spare: the compressing threads (-t) already run one block each, so the
+/// helpers of all the blocks together stay under -t (g_sa_helpers)
+#include <thread>
+int g_sa_threads=1;
+static std::atomic<int> g_sa_helpers(0);
+static void sa_parallel(size_t i_n, const std::function<void(size_t)>& i_f)
+{
+	std::atomic<size_t> next(0);
+	std::mutex mx;
+	std::vector<std::thread> th;
+	/// a helper more, if there is work left and a thread to spare; tried again after
+	/// each file, so the threads another block frees come here too
+	std::function<void()> work;
+	auto more=[&]()
+	{
+		/// under mx: once next is past the end no helper is added, so the join below
+		/// sees every one
+		std::lock_guard<std::mutex> g(mx);
+		if (next.load()+1>=i_n)
+			return;
+		int h=g_sa_helpers.load();
+		if (h>=g_sa_threads-1 || !g_sa_helpers.compare_exchange_strong(h, h+1))
+			return;
+		try
+		{
+			th.push_back(std::thread(work));
+		}
+		catch (...)
+		{
+			--g_sa_helpers;
+		}
+	};
+	work=[&]()
+	{
+		for (size_t i; (i=next++)<i_n; )
+		{
+			more();
+			i_f(i);
+		}
+	};
+	work();
+	/// the helpers this call started (work() returned: next is past i_n)
+	for (;;)
+	{
+		std::thread t;
+		{
+			std::lock_guard<std::mutex> g(mx);
+			if (th.empty())
+				break;
+			t=std::move(th.back());
+			th.pop_back();
+		}
+		t.join();
+		--g_sa_helpers;
+	}
+}
 /// -sae/-sat, several files in one block (the codec's ZPAQL handles several
 /// segments, ZS_QUERY_SEGMENTS): each file is compressed alone, into the segment
 /// it would be alone (original size u32 + the codec's output; the last file also
@@ -245128,16 +245206,32 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 	std::vector<size_t> segcuts;
 	int a1=0, a2=0, f3=0, f4=0, f5=0;
 	const int64_t t0=mtime();
-	for (size_t i=0; i<nseg; i++)
+	/// each file through the codec on its own, several at once (sa_parallel); then
+	/// in order, so the block does not depend on the threads
+	std::vector<std::string> tt(nseg);
+	std::vector<long long> rr(nseg, -1);
+	std::vector<int> qq(nseg, 0);
+	std::vector<char> qok(nseg, 0);
+	sa_parallel(nseg, [&](size_t i)
 	{
 		const size_t n=(i+1<nseg ? from[i+1] : (size_t)orig_size)-from[i];
 		const size_t cap=zc->bound(n, sc.level);
 		if (cap==0 || cap>(size_t)1<<31)
+			return;
+		std::string& t=tt[i];
+		t.assign(cap+4, '\0');
+		rr[i]=zc->compress((const char*)sb.data()+from[i], n, &t[4], cap, sc.level);
+		qok[i]=rr[i]>0 && zs_ext_args(xe, &t[4], (size_t)rr[i], &qq[i]);
+	});
+	for (size_t i=0; i<nseg; i++)
+	{
+		const size_t n=(i+1<nseg ? from[i+1] : (size_t)orig_size)-from[i];
+		std::string& t=tt[i];
+		const long long r=rr[i];
+		const int q=qq[i];
+		if (t.empty())
 			return false;
-		std::string t(cap+4, '\0');
-		const long long r=zc->compress((const char*)sb.data()+from[i], n, &t[4], cap, sc.level);
-		int q=0;
-		if (r<=0 || !zs_ext_args(xe, &t[4], (size_t)r, &q))
+		if (!qok[i])
 		{
 			if (g_sa_mode=='t')
 			{
@@ -245154,9 +245248,10 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		if (i>0)
 			segcuts.push_back(out.size());
 		out+=t;
+		std::string().swap(t);
 		osz.push_back((int64_t)n);
-		csz.push_back((int64_t)t.size());
-		a1=std::max(a1, zs_ext_log2((int64_t)t.size()));
+		csz.push_back((int64_t)(r+4));
+		a1=std::max(a1, zs_ext_log2((int64_t)(r+4)));
 		a2=std::max(a2, zs_ext_log2((int64_t)n));
 		f3=std::max(f3, q&255);
 		f4=std::max(f4, (q>>8)&255);
@@ -245229,15 +245324,20 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		std::vector<int64_t> bsz;
 		pok=sa_lz_expand(zout.data(), zout.size(), zsz, zwb, out.size(), back, bsz) && back==out && bsz==csz;
 	}
+	if (pok)
 	{
-		size_t off=0;
-		for (size_t i=0; i<nseg && pok; i++)
+		std::vector<size_t> at(nseg, 0);
+		for (size_t i=1; i<nseg; i++)
+			at[i]=at[i-1]+(size_t)csz[i-1];
+		std::vector<char> ok(nseg, 0);
+		sa_parallel(nseg, [&](size_t i)
 		{
 			std::string back((size_t)osz[i], '\0');
-			const long long d=zc->decompress(out.data()+off+4, (size_t)csz[i]-4, &back[0], (size_t)osz[i], 0);
-			pok=(d==osz[i]) && memcmp(back.data(), (const char*)sb.data()+from[i], (size_t)osz[i])==0;
-			off+=(size_t)csz[i];
-		}
+			const long long d=zc->decompress(out.data()+at[i]+4, (size_t)csz[i]-4, &back[0], (size_t)osz[i], 0);
+			ok[i]=(d==osz[i]) && memcmp(back.data(), (const char*)sb.data()+from[i], (size_t)osz[i])==0;
+		});
+		for (size_t i=0; i<nseg; i++)
+			pok=pok && ok[i];
 	}
 	const int64_t t3=mtime();
 	std::string zres="no ZPAQL";
@@ -247911,8 +248011,11 @@ int Jidac::add()
 				/// ZPAQL handles several segments (sa_join): then the file joins them, if
 				/// the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				/// Since 1.11.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
+				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
+				const int64_t sa_cap= (std::max)((int64_t)blocksize, ZS_SA_GROUP);
 				const bool sa_join= sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
-				                    && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (int64_t)blocksize;
+				                    && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < sa_cap;
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
 				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
