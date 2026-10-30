@@ -218,7 +218,9 @@ static int lzfse_decode_lmd(lzfse_decoder_state *s) {
     //  Error if D is out of range, so that we avoid passing through
     //  uninitialized data or accesssing memory out of the destination
     //  buffer.
-    if ((uint32_t)D > dst + L - s->dst_begin)
+    if (D < 0 ||
+        (size_t)(uint32_t)D >
+            (size_t)(dst - s->dst_begin) + (size_t)(uint32_t)L)
       return LZFSE_STATUS_ERROR;
 
     if (L + M <= remaining_bytes) {

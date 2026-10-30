@@ -35,13 +35,17 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 //  matches to be found, generally improving the achieved compression ratio.
 //  Larger values also increase the workspace size, and make it less likely
 //  that the history table will be present in cache, which reduces performance.
+#ifndef LZFSE_ENCODE_HASH_BITS
 #define LZFSE_ENCODE_HASH_BITS 14
+#endif
 
 //  Number of positions to store for each line in the history table. May
 //  be either 4 or 8. Using 8 doubles the size of the history table, which
 //  increases the chance of finding matches (thus improving compression ratio),
 //  but also increases the workspace size.
+#ifndef LZFSE_ENCODE_HASH_WIDTH
 #define LZFSE_ENCODE_HASH_WIDTH 4
+#endif
 
 //  Match length in bytes to cause immediate emission. Generally speaking,
 //  LZFSE maintains multiple candidate matches and waits to decide which match
@@ -49,12 +53,16 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 //  threshold, it is emitted immediately. Thus, smaller values may give
 //  somewhat better performance, and larger values may give somewhat better
 //  compression ratios.
+#ifndef LZFSE_ENCODE_GOOD_MATCH
 #define LZFSE_ENCODE_GOOD_MATCH 40
+#endif
 
 //  When the source buffer is very small, LZFSE doesn't compress as well as
 //  some simpler algorithms. To maintain reasonable compression for these
 //  cases, we transition to use LZVN instead if the size of the source buffer
 //  is below this threshold.
+#ifndef LZFSE_ENCODE_LZVN_THRESHOLD
 #define LZFSE_ENCODE_LZVN_THRESHOLD 4096
+#endif
 
 #endif // LZFSE_TUNABLES_H

@@ -1,2 +1,2 @@
-lzfse-ex 1.0.3 (https://github.com/YadeWira/lzfse-ex, tag v1.0.3, commit 9588765)
-embed tarball lzfse-ex-1.0.3-embed.tar.gz sha256 0efb5c85f7db5b9809f15b4b2ed1f8a26cdd133e116f5b64cf2ad71638833ada
+lzfse-ex 1.0.4 (https://github.com/YadeWira/lzfse-ex, tag v1.0.4, commit 3459927)
+embed tarball lzfse-ex-1.0.4-embed.tar.gz sha256 6527af744eb9405e9efac6d68882a2a3fcce017110624d7a2a058de22b1966d9

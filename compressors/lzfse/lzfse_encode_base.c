@@ -691,6 +691,12 @@ int lzfse_encode_base(lzfse_encoder_state *s) {
       uint32_t length = 4;
       uint32_t maxLength =
         (uint32_t)(s->src_end - pos - 8); // ensure we don't hit the end of SRC
+#ifdef LZFSE_FAST_MATCH_SCAN
+      //  Match lengths are split into LZFSE_ENCODE_MAX_M_VALUE pieces when
+      //  they are emitted, so scanning past that only costs time.
+      if (maxLength > LZFSE_ENCODE_MAX_M_VALUE)
+        maxLength = LZFSE_ENCODE_MAX_M_VALUE;
+#endif
       while (length < maxLength) {
         uint64_t d = load8(src_ref + length) ^ load8(src_pos + length);
         if (d == 0) {
