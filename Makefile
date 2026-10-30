@@ -86,9 +86,10 @@ ifdef PLUGINS
 endif
 ALTNAME := dir
 SOURCE  := zpaq-std.cpp
-# LZ4 and LZAV come from zpaqfranz 65.3, embedded in zpaq-std.cpp (namespaces
-# zlz4 / zlzav). compressors/lz4/ and compressors/lzav/ are gone: one LZ4, one LZAV.
+# LZ4 (lz4/lz4 1.10.0) and LZAV (avaneev/lzav 5.20): zpaq-std's own again since 2.0.0
+# (zpaqfranz dropped -m6/-m7 in 65.5d); -ma:lz4* and -ma:lzav write the 1.x blocks.
 LZ5SRC  := compressors/lz5/lz5.c compressors/lz5/lz5hc.c
+LZ4SRC  := compressors/lz4/lz4.c compressors/lz4/lz4hc.c
 LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c
 # LZMA SDK (-ma:lzma): single-threaded match finder, see compressors/lzmasdk/LEEME.md
 LZMASRC := compressors/lzmasdk/LzmaLib.c compressors/lzmasdk/LzmaEnc.c compressors/lzmasdk/LzmaDec.c compressors/lzmasdk/LzFind.c compressors/lzmasdk/LzFindOpt.c compressors/lzmasdk/Alloc.c compressors/lzmasdk/CpuArch.c
@@ -370,6 +371,7 @@ PLUGSRC := $(wildcard compressors/plug/zs_*.cpp)
 PLUGOBJ := $(PLUGSRC:.cpp=.o)
 BZ2NGBUNDLE := compressors/bz2ng/bz2ng-bundle.o
 LZ5OBJ := $(LZ5SRC:.c=.o)
+LZ4OBJ := $(LZ4SRC:.c=.o)
 LZ6OBJ := $(LZ6SRC:.c=.o)
 LZMAOBJ := $(LZMASRC:.c=.o)
 LIZOBJ := $(LIZSRC:.c=.o)
@@ -479,7 +481,7 @@ ifdef PLUGINS
 endif
 # Everything the program links. make plugins leaves out CORE_DROP: the adapters
 # and the libraries that went into plugins.
-LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
+LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
 $(PROG): $(filter-out $(CORE_DROP),$(LINKOBJS))
 	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(filter-out $(CORE_DROP),$(LINKOBJS)) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
@@ -612,6 +614,9 @@ $(BZ2NGBUNDLE): $(BZ2NGOBJ)
 	$(CROSS_COMPILE)nm -g --defined-only $@.tmp | awk '{n=$$NF; if (n ~ /^_?BZ2_/) {m=n; sub(/BZ2_/,"bz2ng_BZ2_",m); print n" "m}}' > $@.syms
 	$(OBJCOPY) --redefine-syms=$@.syms $@.tmp $@
 	$(RM) $@.tmp $@.syms
+
+compressors/lz4/%.o: compressors/lz4/%.c
+	$(CC) $(ZPAQ_CFLAGS) -Icompressors/lz4 -c $< -o $@
 
 compressors/lz5/%.o: compressors/lz5/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZ5INC) -c $< -o $@

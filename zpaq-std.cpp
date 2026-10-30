@@ -63,6 +63,11 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// Comment out the next line to build without -m8 (-m8 is then -m5 again)
 #define ZPAQZSTD
 
+/// -ma:lz4 / -ma:lzav: zpaq-std's LZ4 and LZAV blocks (the -m6/-m7 of zpaqfranz 65.3-65.4,
+/// that 65.5d dropped): their frozen ZPAQL decoders and the native road
+#define ZPAQLZ4
+#define ZPAQLZAV
+
 /// zpaq-std's own version and release date. The banner reads
 /// "zpaq-std v1.0.0 | zf v65.4m-<build>,(<our date>)": zf is the zpaqfranz base.
 /// MAJOR.MINOR.PATCH: MAJOR for big changes of zpaq-std, MINOR for a small
@@ -93552,6 +93557,16 @@ extern "C" {
 /// -ma:lzav: LZAV (avaneev/lzav), its own library again since 2.0.0 (zpaqfranz dropped it, with -m7, in 65.5d)
 #define LZAV_NS_CUSTOM zlzav
 #include "compressors/lzav/lzav.h"
+/// -ma:lz4: LZ4 (lz4/lz4), its own library again since 2.0.0
+#include "compressors/lz4/lz4.h"
+#include "compressors/lz4/lz4hc.h"
+namespace zlz4 {
+inline int ZLZ4_compressBound(int n) { return LZ4_compressBound(n); }
+inline int ZLZ4_compress_default(const char* s, char* d, int n, int c) { return LZ4_compress_default(s, d, n, c); }
+inline int ZLZ4_compress_fast(const char* s, char* d, int n, int c, int a) { return LZ4_compress_fast(s, d, n, c, a); }
+inline int ZLZ4_compress_HC(const char* s, char* d, int n, int c, int l) { return LZ4_compress_HC(s, d, n, c, l); }
+inline int ZLZ4_decompress_safe(const char* s, char* d, int n, int c) { return LZ4_decompress_safe(s, d, n, c); }
+}
 /// -ma codecs behind one interface (compressors/plug/zs_codec.h). The full build
 /// links every adapter; the plugin build (make plugins, -DZS_PLUGINS) loads
 /// codecs/<name>.dll or .so from the executable's folder, all of them once at
@@ -95983,6 +95998,16 @@ public:
   bool zstdnative;
   std::string zstdin;
 #endif
+#ifdef ZPAQLZ4
+  /// -m6: the pcomp is the canonical LZ4 decoder, decoded natively
+  bool lz4native;
+  std::string lz4in;
+#endif
+#ifdef ZPAQLZAV
+  /// -m7: the pcomp is the canonical LZAV decoder, decoded natively
+  bool lzavnative;
+  std::string lzavin;
+#endif
 };
 //////////////////////// Decompresser ////////////////////////
 // For decompression and listing archive contents
@@ -98275,6 +98300,14 @@ extern int zstdprogramma; /// 65.15z9
 #endif
 // Copy ph, pm from block header
 void PostProcessor::init(int h, int m) {
+#ifdef ZPAQLZAV
+  lzavnative=false;
+  lzavin.clear();
+#endif
+#ifdef ZPAQLZ4
+  lz4native=false;
+  lz4in.clear();
+#endif
 #ifdef ZPAQZSTD
   zstdnative=false;
   zstdin.clear();
@@ -98434,6 +98467,12 @@ int PostProcessor::write(int c) {
           z.passi=0;
           z.passimax=ZPAQL_PASSIINIZIO;
         }
+#ifdef ZPAQLZ4
+        lz4native=lz4_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
+#endif
+#ifdef ZPAQLZAV
+        lzavnative=lzav_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
+#endif
 #ifdef ZPAQZSTD
         zstdnative=zstd_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
         if ((!zstdnative) && (!indice) && zstd_quasi_canonico(&z.header[z.hbegin], z.hend-z.hbegin)) { /// 65.15z9
@@ -98444,6 +98483,28 @@ int PostProcessor::write(int c) {
       }
       break;
     case 5:  // PROG ... data
+#ifdef ZPAQLZAV
+      if (lzavnative) {
+        if (c>=0)
+          lzavin+=(char)c;
+        else {
+          lzav_native_decode(lzavin, z, pm);
+          lzavin.clear();
+        }
+        break;
+      }
+#endif
+#ifdef ZPAQLZ4
+      if (lz4native) {
+        if (c>=0)
+          lz4in+=(char)c;
+        else {
+          lz4_native_decode(lz4in, z);
+          lz4in.clear();
+        }
+        break;
+      }
+#endif
 #ifdef ZPAQZSTD
       if (zstdnative) {
         if (c>=0)
@@ -104412,6 +104473,479 @@ static bool pcomp_is_frozen()
 	static const bool congelato= (pcomp_frozen_check(false)==0);
 	return congelato;
 }
+#ifdef ZPAQLZ4
+/*
+	-m6 (EXPERIMENTAL): LZ4, the "clean" way. The block is a plain zpaq block:
+	no context model at all (n=0, the bytes are stored, as in -m0), and a
+	postprocessor written in ZPAQL that decodes the LZ4 block format. So ANY
+	zpaq (7.15 included, and every zpaqfranz, built with or without ZPAQLZ4)
+	extracts it by running this very program; this build recognizes it and
+	decodes it natively (lz4_native_decode).
+	Tested: zpaq 7.15 extracts identical files. On a 14.3 GB VM, 32 threads:
+	as fast as -m1 (the deduplicator is the limit), 1/6 of the CPU, archive
+	+21% (LZ4), +10% (-m6h9). LZ4 sees 64 KB back, -m1 the whole block.
+	LZ4 block format: token (high nibble literal length, low nibble match
+	length-4, 15 = more bytes follow, each 255 = go on), literals, offset
+	(2 bytes, little endian, 1..65535), match length bytes. The last sequence
+	has only literals. M is the 64 KB window (every *b and *c wraps by itself)
+	r1 state, r2 literal length, r3 match length-4, r4 offset, b write position.
+	The state is loaded once (a=r 1) and then only compared: a comparison sets
+	the flag and leaves A alone, and the bodies of states 0..3 always end with
+	halt, so a test not taken reaches the next one with A still = r1 (thanks
+	to the forum for spotting the four redundant reloads). The reload before
+	state 5 is NOT redundant: state 4 can fall through to the copy with A = r3,
+	and a match length nibble of 5 would then look like state 5
+	(65.3w: the canonical bytecode changed with it, see lz4_is_canonical)
+	DO NOT CHANGE A SINGLE BYTE of it: the native path recognizes the
+	compiled bytecode, and old archives carry the old one
+*/
+static const char* LZ4_PCOMP=
+"pcomp lz4 ;\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 2 r=a 3 r=a 4\n"
+"    halt\n"
+"  endif\n"
+"  c=a\n"
+"  a=r 1 a== 0 if\n"
+"    a=c a>>= 4 r=a 2\n"
+"    a=c a&= 15 r=a 3\n"
+"    a=r 2 a== 15 if\n"
+"      a= 1 r=a 1\n"
+"    else\n"
+"      a=r 2 a== 0 if\n"
+"        a= 3 r=a 1\n"
+"      else\n"
+"        a= 2 r=a 1\n"
+"      endif\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 1 if\n"
+"    a=r 2 a+=c r=a 2\n"
+"    a=c a== 255 ifnot\n"
+"      a= 2 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 2 if\n"
+"    a=c *b=a out b++\n"
+"    a=r 2 a-- r=a 2\n"
+"    a== 0 if\n"
+"      a= 3 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 3 if\n"
+"    a=c r=a 4\n"
+"    a= 4 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 4 if\n"
+"    a=c a<<= 8 d=a a=r 4 a+=d r=a 4\n"
+"    a=r 3 a== 15 if\n"
+"      a= 5 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"  endif\n"
+"  a=r 1 a== 5 if\n"
+"    a=r 3 a+=c r=a 3\n"
+"    a=c a== 255 if\n"
+"      halt\n"
+"    endif\n"
+"  endif\n"
+"  d=r 4 a=b a-=d c=a\n"
+"  d=r 3 d++ d++ d++ d++\n"
+"  do a=d a> 0 if\n"
+"    d--\n"
+"    a=*c *b=a out c++ b++\n"
+"  forever endif\n"
+"  a=0 r=a 1\n"
+"  halt\n"
+"end\n";
+static const char* LZ4_CONFIG_HEAD= "comp 0 0 0 16 0\nhcomp\nhalt\n";
+
+/*
+	The tuning comes from the method string, after the level and the block
+	size: -m6 (LZ4 default), -m6h9 (HC, level 1..12), -m6a8 (fast, acceleration
+	1..65537), -m66h9 (HC 9, 64 MB blocks). By then it looks like "64h9,R,t"
+	Returns the compressed size, 0 if it did not shrink (=> stored)
+*/
+int lz4_encode(const std::string& i_method, const char* i_src, int i_n, std::vector<char>& o_dst)
+{
+	const int capacity= zlz4::ZLZ4_compressBound(i_n);
+	if (capacity<=0)
+		return 0;
+	o_dst.resize((size_t)capacity);
+	char modo	 = 0;
+	int	 livello= 0;
+	for (size_t i= 1; i<i_method.size() && i_method[i]!=','; i++)
+		if (i_method[i]=='h' || i_method[i]=='a')
+		{
+			modo   = i_method[i];
+			livello= atoi(i_method.c_str()+i+1);
+			break;
+		}
+	int risultato= 0;
+	if (modo=='h')
+		risultato= zlz4::ZLZ4_compress_HC(i_src, &o_dst[0], i_n, capacity, livello);
+	else if (modo=='a')
+		risultato= zlz4::ZLZ4_compress_fast(i_src, &o_dst[0], i_n, capacity, livello);
+	else
+		risultato= zlz4::ZLZ4_compress_default(i_src, &o_dst[0], i_n, capacity);
+	if (risultato<=0 || risultato>=i_n-64)
+		return 0;
+	return risultato;
+}
+/// the bytecode of LZ4_PCOMP, compiled once (thread safe: C++11 static)
+static std::string lz4_canonical_bytes()
+{
+	libzpaq::ZPAQL hz, pz;
+	int args[9]={0};
+	const std::string config= std::string(LZ4_CONFIG_HEAD)+LZ4_PCOMP;
+	Compiler(config.c_str(), args, hz, pz, NULL);
+	return std::string((const char*)&pz.header[pz.hbegin], (size_t)(pz.hend-pz.hbegin));
+}
+bool lz4_is_canonical(const U8* i_code, int i_len)
+{
+	static const std::string canonico= lz4_canonical_bytes();
+	return i_len==(int)canonico.size() && memcmp(i_code, canonico.data(), (size_t)i_len)==0;
+}
+/*
+	The native twin of LZ4_PCOMP: same input, same output, to the byte (the
+	ZPAQL one decides what is right: a stream that is not a valid LZ4 block
+	is an error here, as it would be garbage there). The size is not stored
+	anywhere, so a first pass over the sequences adds it up, then
+	ZLZ4_decompress_safe() does the real work and the result goes out in one
+	piece, SHA-1 included
+*/
+void lz4_native_decode(const std::string& i_in, ZPAQL& z)
+{
+	const U8*	 p		= (const U8*)i_in.data();
+	const size_t n		= i_in.size();
+	size_t		 i		= 0;
+	int64_t		 totale= 0;
+	while (i<n)
+	{
+		const unsigned token= p[i++];
+		int64_t		   lit	= token>>4;
+		if (lit==15)
+		{
+			unsigned x;
+			do
+			{
+				if (i>=n) error("LZ4: truncated literal length");
+				x= p[i++];
+				lit+= x;
+			} while (x==255);
+		}
+		if ((int64_t)(n-i)<lit) error("LZ4: truncated literals");
+		i+= (size_t)lit;
+		totale+= lit;
+		if (i==n)
+			break; /// the last sequence: literals only
+		if (i+2>n) error("LZ4: truncated offset");
+		i+= 2;
+		int64_t match= token&15;
+		if (match==15)
+		{
+			unsigned x;
+			do
+			{
+				if (i>=n) error("LZ4: truncated match length");
+				x= p[i++];
+				match+= x;
+			} while (x==255);
+		}
+		totale+= match+4;
+	}
+	if (totale>0x7fffffffLL) error("LZ4: block too big");
+	std::string fuori;
+	fuori.resize((size_t)totale);
+	if (totale>0)
+	{
+		const int fatti= zlz4::ZLZ4_decompress_safe((const char*)p, &fuori[0], (int)n, (int)totale);
+		if (fatti!=(int)totale) error("LZ4: corrupted block");
+	}
+	z.flush();
+	if (totale>0)
+	{
+		if (z.output) z.output->write(fuori.data(), (int)totale);
+		if (z.sha1) z.sha1->write(fuori.data(), totale);
+	}
+}
+#endif // ZPAQLZ4
+
+#ifdef ZPAQLZAV
+/*
+	-m7 (EXPERIMENTAL): LZAV (format 3), the same way as -m6: a plain zpaq
+	block with no context model (n=0, the bytes are stored) and a ZPAQL
+	postprocessor that decodes LZAV. Any zpaq extracts it by running it,
+	this build recognizes it and calls lzav_decompress_3().
+	LZAV format 3, from lzav.h (lzav_write_blk_3, lzav_decompress_3):
+	- the stream starts with a prefix byte: format<<4 | mref (minimum match)
+	- then blocks. Header bits 4-5 = type:
+	  CC00LLLL literal block: LLLL literals (0 = 16 + length bytes follow)
+	  OO01RRRR reference, 10 bit offset (1 offset byte)
+	  OO10RRRR reference, 15 bit offset (2 offset bytes, 3 carry bits)
+	  OO11RRRR reference, 21 bit offset (3 offset bytes, 5 carry bits)
+	  RRRR = match length - mref + 1 (0 = 16 + length bytes follow)
+	- length bytes: 7 bits each, high bit = one more follows, 4 at most
+	- offset-carry: the LOW bits of an offset come from the blocks BEFORE it
+	  (the top bits of the last offset byte of the previous reference, and
+	  the CC bits of a literal block in between), so a decoder that reads
+	  in order always has them. The offset is (own bits << csh) | cv
+	- the last block is a literal block
+	Registers: r1 state, r2 mref-1, r3 cv (carry), r4 csh (carry shift),
+	r5 literal count / match length, r6 offset bytes, r7 block header,
+	r8 shift of the next length/offset byte, r9 block type, r10 offset;
+	b write position, c the input byte (then the copy source).
+	M holds the whole block (pm = block size): offsets can reach it all.
+	The state is loaded once: a comparison does not change A, and states
+	0,1,2,3,5 end with halt. States 4, 6 and 7 fall through to the copy,
+	so r1 is loaded again before testing 6 and 7.
+	DO NOT CHANGE A SINGLE BYTE of it: the native path recognizes the
+	compiled bytecode
+*/
+static const char* LZAV_PCOMP=
+"pcomp lzav ;\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 3 r=a 4\n"
+"    halt\n"
+"  endif\n"
+"  c=a\n"
+"  a=r 1 a== 0 if\n"
+"    a=c a&= 15 a-- r=a 2\n"
+"    a=0 b=a r=a 3 r=a 4\n"
+"    a= 1 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 1 if\n"
+"    a=c r=a 7\n"
+"    a>>= 4 a&= 3 r=a 9\n"
+"    a== 0 if\n"
+"      a=c a>>= 6 d=r 4 a<<=d d=a a=r 3 a|=d r=a 3\n"
+"      a=r 4 a+= 2 r=a 4\n"
+"      a=c a&= 15 r=a 5\n"
+"      a== 0 if\n"
+"        a= 3 r=a 1\n"
+"      else\n"
+"        a= 2 r=a 1\n"
+"      endif\n"
+"      halt\n"
+"    endif\n"
+"    a=0 r=a 6 r=a 8\n"
+"    a= 4 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 2 if\n"
+"    a=c *b=a out b++\n"
+"    a=r 5 a-- r=a 5\n"
+"    a== 0 if\n"
+"      a= 1 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 3 if\n"
+"    a=c a&= 127 r=a 5\n"
+"    a=c a> 127 if\n"
+"      a= 7 r=a 8\n"
+"      a= 5 r=a 1\n"
+"    else\n"
+"      a=r 5 a+= 16 r=a 5\n"
+"      a= 2 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 5 if\n"
+"    a=c a&= 127 d=r 8 a<<=d d=a a=r 5 a+=d r=a 5\n"
+"    a=c a> 127 if\n"
+"      a=r 8 a== 28 ifnot\n"
+"        a+= 7 r=a 8\n"
+"        halt\n"
+"      endif\n"
+"    endif\n"
+"    a=r 5 a+= 16 r=a 5\n"
+"    a= 2 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 4 ifl\n"
+"    a=c d=r 8 a<<=d d=a a=r 6 a+=d r=a 6\n"
+"    a=r 8 a+= 8 r=a 8\n"
+"    a=r 9 a<<= 3 d=a a=r 8 a<d if\n"
+"      halt\n"
+"    endif\n"
+"    a=r 9 a== 1 if\n"
+"      a= 1 a<<= 10\n"
+"    else\n"
+"      a== 2 if\n"
+"        a= 1 a<<= 15\n"
+"      else\n"
+"        a= 1 a<<= 21\n"
+"      endif\n"
+"    endif\n"
+"    a-- r=a 10\n"
+"    a=r 7 a>>= 6 d=a\n"
+"    a=r 6 a<<= 2 a|=d\n"
+"    d=r 10 a&=d\n"
+"    d=r 4 a<<=d\n"
+"    d=r 3 a|=d r=a 10\n"
+"    a=r 9 a== 1 if\n"
+"      a=0 r=a 3 r=a 4\n"
+"    else\n"
+"      a== 2 if\n"
+"        a=c a>>= 5 r=a 3 a= 3 r=a 4\n"
+"      else\n"
+"        a=c a>>= 3 r=a 3 a= 5 r=a 4\n"
+"      endif\n"
+"    endif\n"
+"    a=r 7 a&= 15 a== 0 if\n"
+"      a= 6 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    d=r 2 a+=d r=a 5\n"
+"  endif\n"
+"  a=r 1 a== 6 if\n"
+"    a=c a&= 127 d=r 2 a+=d a+= 16 r=a 5\n"
+"    a=c a> 127 if\n"
+"      a= 7 r=a 8 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"  endif\n"
+"  a=r 1 a== 7 if\n"
+"    a=c a&= 127 d=r 8 a<<=d d=a a=r 5 a+=d r=a 5\n"
+"    a=c a> 127 if\n"
+"      a=r 8 a== 28 ifnot\n"
+"        a+= 7 r=a 8\n"
+"        halt\n"
+"      endif\n"
+"    endif\n"
+"  endif\n"
+"  d=r 10 a=b a-=d c=a\n"
+"  d=r 5\n"
+"  do a=d a> 0 if\n"
+"    d--\n"
+"    a=*c *b=a out c++ b++\n"
+"  forever endif\n"
+"  a= 1 r=a 1\n"
+"  halt\n"
+"end\n";
+
+/// -m7 default, -m7h LZAV "hi" (better ratio, slower). Returns the
+/// compressed size, 0 if it did not shrink (=> stored)
+int lzav_encode(const std::string& i_method, const char* i_src, int i_n, std::vector<char>& o_dst)
+{
+	if (i_n<256)
+		return 0;
+	bool alto= false;
+	for (size_t i= 1; i<i_method.size() && i_method[i]!=','; i++)
+		if (i_method[i]=='h')
+			alto= true;
+	const int capacity= alto ? zlzav::lzav_compress_bound_hi(i_n) : zlzav::lzav_compress_bound(i_n);
+	if (capacity<=0)
+		return 0;
+	o_dst.resize((size_t)capacity);
+	const int risultato= alto ? zlzav::lzav_compress_hi(i_src, &o_dst[0], i_n, capacity)
+							  : zlzav::lzav_compress_default(i_src, &o_dst[0], i_n, capacity);
+	if (risultato<=0 || risultato>=i_n-64)
+		return 0;
+	return risultato;
+}
+static std::string lzav_config(int i_pm)
+{
+	return "comp 0 0 0 "+itos(i_pm)+" 0\nhcomp\nhalt\n"+LZAV_PCOMP;
+}
+/// the bytecode of LZAV_PCOMP (the pm of the header is not part of it)
+static std::string lzav_canonical_bytes()
+{
+	libzpaq::ZPAQL hz, pz;
+	int args[9]={0};
+	const std::string config= lzav_config(24);
+	Compiler(config.c_str(), args, hz, pz, NULL);
+	return std::string((const char*)&pz.header[pz.hbegin], (size_t)(pz.hend-pz.hbegin));
+}
+bool lzav_is_canonical(const U8* i_code, int i_len)
+{
+	static const std::string canonico= lzav_canonical_bytes();
+	return i_len==(int)canonico.size() && memcmp(i_code, canonico.data(), (size_t)i_len)==0;
+}
+/*
+	The native twin of LZAV_PCOMP. The size is not stored anywhere, but M of
+	the pcomp is as big as the block, so that is the room given: a valid
+	stream then ends with LZAV_E_DSTLEN ("shorter than the room") and the
+	number of bytes written, anything else is a broken block
+*/
+void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm)
+{
+	if (i_in.size()<11 || ((U8)i_in[0]>>4)!=3)
+		error("LZAV: not a format 3 stream");
+	if (i_pm<10 || i_pm>30)
+		error("LZAV: strange block size");
+	const int spazio= 1<<i_pm;
+	std::string fuori;
+	fuori.resize((size_t)spazio+64);
+	int scritti= 0;
+	const int esito= zlzav::lzav_decompress_3(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti);
+	int lunghezza= 0;
+	if (esito>=0)
+		lunghezza= esito;
+	else if (esito==zlzav::LZAV_E_DSTLEN)
+		lunghezza= scritti;
+	else
+		error("LZAV: corrupted block");
+	z.flush();
+	if (lunghezza>0)
+	{
+		if (z.output) z.output->write(fuori.data(), lunghezza);
+		if (z.sha1) z.sha1->write(fuori.data(), lunghezza);
+	}
+}
+#endif // ZPAQLZAV
+
+#if defined(ZPAQLZ4) || defined(ZPAQLZAV)
+/*
+	The PCOMP of -m6 and -m7 are FROZEN. Once an archive is out there, the
+	bytecode of its pcomp is part of it: any zpaq runs it, and this build
+	takes the native road only if it is byte-identical to the canonical one
+	(lz4_is_canonical, lzav_is_canonical). The canonical bytecode is compiled
+	from the text of LZ4_PCOMP / LZAV_PCOMP, so touching that text (even a
+	"harmless" cleanup) would silently make NEW archives with ANOTHER pcomp.
+	So its SHA-1 is written here, once and for all: the autotest checks it,
+	and compressBlock() refuses to write a -m6/-m7 block if it does not match.
+	Another decoder means a NEW pcomp, next to these ones, never in their place
+*/
+#define ZPAQ_LZ4_PCOMP_SHA1	 "D80D8DFA1D0F58C9D0919192D79C76986320FD3A"
+#define ZPAQ_LZAV_PCOMP_SHA1 "B9FF18F22627E2AABB6D41BB7C032D9CCBE7DCF0"
+/// number of PCOMP whose bytecode is not the frozen one (0 = all good)
+int lzpcomp_frozen_check(bool i_verbose)
+{
+	int errori= 0;
+#ifdef ZPAQLZ4
+	{
+		const std::string h= pcomp_sha1hex(lz4_canonical_bytes());
+		const bool ok= (h==ZPAQ_LZ4_PCOMP_SHA1);
+		if (i_verbose || !ok)
+			myprintf("65400%s -m6 LZ4_PCOMP  bytecode SHA-1 %s %s\n", ok ? ":" : "!", h.c_str(), ok ? "(frozen, OK)" : "CHANGED! expected " ZPAQ_LZ4_PCOMP_SHA1);
+		errori+= !ok;
+	}
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+	{
+		const std::string h= pcomp_sha1hex(lzav_canonical_bytes());
+		const bool ok= (h==ZPAQ_LZAV_PCOMP_SHA1);
+		if (i_verbose || !ok)
+			myprintf("65401%s -m7 LZAV_PCOMP bytecode SHA-1 %s %s\n", ok ? ":" : "!", h.c_str(), ok ? "(frozen, OK)" : "CHANGED! expected " ZPAQ_LZAV_PCOMP_SHA1);
+		errori+= !ok;
+	}
+#endif // ZPAQLZAV
+	return errori;
+}
+/// checked once (thread safe: C++11 static), then free
+static bool lzpcomp_is_frozen()
+{
+	static const bool congelato= (lzpcomp_frozen_check(false)==0);
+	return congelato;
+}
+#endif // corresponds to #if (#if defined(ZPAQLZ4) || defined(ZPAQLZAV))
 /// 65.11i: the -m8 branch of compressBlock, in a function of its own. Its Compressor (111 KB) and
 /// the one of compressBlock were two in the same stack frame: 260 KB (clang -Wframe-larger-than).
 /// false: nothing written, the block does not compress (the caller stores it)
@@ -104698,6 +105232,64 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     sha1.write(in->c_str(), n);
     sha1ptr=sha1.result();
   }
+#ifdef ZPAQLZ4
+  // -m6: LZ4 stored + ZPAQL decoder (see LZ4_PCOMP)
+  if (method[0]=='L') {
+    if (!lzpcomp_is_frozen()) /// never an archive with a pcomp that is not the frozen one
+      error("-m6/-m7: PCOMP bytecode changed, refusing to write (see pcomp_frozen_check)");
+    std::vector<char> lz4;
+    const int lz4size= lz4_encode(method, in->c_str(), (int)n, lz4);
+    if (lz4size>0) {
+      const std::string config= std::string(LZ4_CONFIG_HEAD)+LZ4_PCOMP;
+      int args[9]={0};
+      libzpaq::Compressor co;
+      co.setOutput(out);
+      StringBuffer pcomp_cmd;
+      co.writeTag();
+      co.startBlock(config.c_str(), args, &pcomp_cmd);
+      std::string cs=itos(n);
+      if (comment) cs=cs+" "+comment;
+      co.startSegment(filename, cs.c_str());
+      StringBuffer lzin;
+      lzin.write(&lz4[0], lz4size);
+      co.setInput(&lzin);
+      co.compress();
+      co.endSegment(sha1ptr);
+      co.endBlock();
+      return;
+    }
+    method="0"+method.substr(1); /// incompressible: stored, as -m1 would do
+  }
+#endif // ZPAQLZ4
+#ifdef ZPAQLZAV
+  // -m7: LZAV stored + ZPAQL decoder (see LZAV_PCOMP)
+  if (method[0]=='V') {
+    if (!lzpcomp_is_frozen()) /// never an archive with a pcomp that is not the frozen one
+      error("-m6/-m7: PCOMP bytecode changed, refusing to write (see pcomp_frozen_check)");
+    std::vector<char> lzav;
+    const int lzavsize= lzav_encode(method, in->c_str(), (int)n, lzav);
+    if (lzavsize>0) {
+      const std::string config= lzav_config(arg0+20); /// M = the whole block
+      int args[9]={0};
+      libzpaq::Compressor co;
+      co.setOutput(out);
+      StringBuffer pcomp_cmd;
+      co.writeTag();
+      co.startBlock(config.c_str(), args, &pcomp_cmd);
+      std::string cs=itos(n);
+      if (comment) cs=cs+" "+comment;
+      co.startSegment(filename, cs.c_str());
+      StringBuffer lzin;
+      lzin.write(&lzav[0], lzavsize);
+      co.setInput(&lzin);
+      co.compress();
+      co.endSegment(sha1ptr);
+      co.endBlock();
+      return;
+    }
+    method="0"+method.substr(1); /// incompressible: stored
+  }
+#endif // ZPAQLZAV
 #ifdef ZPAQZSTD
   // -m8: zstd stored + ZPAQL decoder (see ZSTD_PCOMP)
   if (method[0]=='8') {
@@ -105100,13 +105692,13 @@ static const zs_info_row ZS_INFO[]=
 	{"sylzec", true, 0, 10, 1, "ZPAQSYLZ3", "sylzec (syc v0.5.4)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
 	 "MIT", "syc v0.5.4, commit b161b8c", "sylz format v3 (frozen at syc v0.2.14): sylz with Huffman-coded literals; a block may be plain v2",
 	 "Free Pascal, so a plugin only (codecs/sylz, with sylz)"},
-	{"lz4", true, 1, 12, 9, "none: written as zpaqfranz's -m6", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
+	{"lz4", true, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
 	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "1-4 as -m6a, 5-12 as -m6h"},
-	{"lz4hc", true, 1, 12, 9, "none: written as zpaqfranz's -m6", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
+	{"lz4hc", true, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
 	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "written as -m6h"},
-	{"lz4f", true, 1, 12, 9, "none: written as zpaqfranz's -m6", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
+	{"lz4f", true, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
 	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "written as -m6a"},
-	{"lzav", true, 0, 1, 1, "none: written as zpaqfranz's -m7", "LZAV 5.17", "Aleksey Vaneev", "https://github.com/avaneev/lzav",
+	{"lzav", true, 0, 1, 1, "zpaq-std's LZAV block (frozen LZAV decoder)", "LZAV 5.20", "Aleksey Vaneev", "https://github.com/avaneev/lzav",
 	 "MIT", "5.17, inside zpaqfranz", "zpaqfranz -m7", "0 as -m7, 1 as -m7h"},
 };
 /// the program of a codec's ZPAQL decoder(s), for their SHA-256
@@ -157013,8 +157605,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if ((g_ma_algorithm=="lz4" || g_ma_algorithm=="lz4hc" || g_ma_algorithm=="lz4f" || g_ma_algorithm=="lzav")
 	    && ((command=='a') || (command=='Z')))
 	{
-		myprintf("00604: -ma:%s is written as -m%s (zpaqfranz's %s, with its ZPAQL decoder): any zpaq can extract it\n",
-		         g_ma_algorithm.c_str(), g_ma_algorithm=="lzav" ? "7" : "6", g_ma_algorithm=="lzav" ? "LZAV" : "LZ4");
+		myprintf("00604: -ma:%s: %s blocks with their frozen ZPAQL decoder: any zpaq can extract them\n",
+		         g_ma_algorithm.c_str(), g_ma_algorithm=="lzav" ? "LZAV" : "LZ4");
 	}
 	else if ((g_ma_algorithm=="lz5" || g_ma_algorithm=="lz5hc" || g_ma_algorithm=="lz5f" || g_ma_algorithm=="lz6" || g_ma_algorithm=="lzma"
 	     || g_ma_algorithm=="flzma2" || g_ma_algorithm=="lz" || g_ma_algorithm=="snappy" || g_ma_algorithm=="lzav"
@@ -172794,6 +173386,8 @@ int Jidac::autotest()
 		platform_info();
 #ifdef ZPAQZSTD
 	/// first of all: the PCOMP of -m8 must be the frozen one (see pcomp_frozen_check)
+	if (libzpaq::lzpcomp_frozen_check(true) != 0) /// -ma:lz4 / -ma:lzav
+		myprintf("65402! the PCOMP of -ma:lz4 / -ma:lzav changed\n");
 	if (libzpaq::pcomp_frozen_check(true) != 0)
 	{
 		color_red();
@@ -244326,16 +244920,18 @@ static void ma_alias_m6m7(string& io_method)
 {
 	if (!ma_es_alias_m6m7())
 		return;
+	/// 64 MB blocks only for -m2..-m5 (as their own); the default (-m8 since 2.0.0) and -m1: 16 MB,
+	/// the very blocks of zpaq-std 1.x
 	char bloque= (io_method.size() >= 2 && isdigit((unsigned char)io_method[1])) ? io_method[1]
-	           : ((io_method[0] >= '2' && io_method[0] <= '9') ? '6' : '4');
+	           : ((io_method[0] >= '2' && io_method[0] <= '5') ? '6' : '4');
 	string nuevo;
 	if (g_ma_algorithm == "lzav")
-		nuevo= string("7") + bloque + (g_ma_level >= 1 ? "h" : "");
+		nuevo= string("V") + bloque + (g_ma_level >= 1 ? "h" : "");
 	else
 	{
 		int nivel= g_ma_level < 1 ? 1 : g_ma_level;
 		bool hc= (g_ma_algorithm == "lz4hc") || (g_ma_algorithm == "lz4" && nivel >= 5);
-		nuevo= string("6") + bloque + (hc ? "h" : "a") + itos(nivel);
+		nuevo= string("L") + bloque + (hc ? "h" : "a") + itos(nivel);
 	}
 	if (flagdebug)
 		myprintf("02125: -ma:%s:%d is -m%s\n", g_ma_algorithm.c_str(), g_ma_level, nuevo.c_str());
@@ -245970,6 +246566,7 @@ int Jidac::add()
 #else
 		method= "1";
 #endif
+	ma_alias_m6m7(method);	/// -ma:lz4 / -ma:lzav: zpaq-std's LZ4 / LZAV blocks (see the function)
 #ifdef ZPAQZSTD
 	/// -m8, -m8h19, -m8a3 have 16 MB blocks, like -m1: 84h19. Only -m86...
 	/// gives another size (the block digit comes right after the 8)
@@ -245984,7 +246581,7 @@ int Jidac::add()
 		else
 			method+= "4";
 	}
-	if (strchr("0123456789xs", method[0]) == 0)
+	if (strchr("0123456789xsLV", method[0]) == 0) /// L, V: -ma:lz4, -ma:lzav (ma_alias_m6m7)
 		error("-method must begin with 0..5, x, s");
 	assert(method.size() >= 2);
 	if (method[0] == 's' && index)
@@ -248605,6 +249202,7 @@ int Jidac::add2()
 #else
 		method= "1";
 #endif
+	ma_alias_m6m7(method);	/// -ma:lz4 / -ma:lzav: zpaq-std's LZ4 / LZAV blocks (see the function)
 #ifdef ZPAQZSTD
 	/// -m8, -m8h19, -m8a3 have 16 MB blocks, like -m1: 84h19. Only -m86...
 	/// gives another size (the block digit comes right after the 8)
@@ -248619,7 +249217,7 @@ int Jidac::add2()
 		else
 			method+= "4";
 	}
-	if (strchr("0123456789xs", method[0]) == 0)
+	if (strchr("0123456789xsLV", method[0]) == 0) /// L, V: -ma:lz4, -ma:lzav (ma_alias_m6m7)
 		error("-method must begin with 0..5, x, s");
 	assert(method.size() >= 2);
 	if (method[0] == 's' && index)
