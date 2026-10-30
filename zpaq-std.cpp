@@ -145978,6 +145978,8 @@ struct franz_helpriga
 #define LINGUA_EN 0
 #define LINGUA_IT 1
 #define LINGUA_RU 2
+#define LINGUA_ES 3 /// zpaq-std 2.0.0: Spanish (neutral Latin American)
+#define LINGUA_PT 4 /// zpaq-std 2.0.0: Portuguese (Brazil)
 #define HU(n, c, t, x)				{c, 'u', 'r', 0, t, x, n, 0}
 #define HS(c, t)					{c, 'u', 'r', 0, t, NULL, 0, 0}
 #define HRIGA(n, c, q, t, x)		{c, q, 'r', 0, t, x, n, 0}
@@ -145991,6 +145993,8 @@ struct franz_helpriga
 #define HBREVE(n, c, x)				{c, 'a', 'b', 0, "", x, n, 0}
 #define HIT(n, k, x)				{"", LINGUA_IT, 'T', 0, "", x, n, k}
 #define HRU(n, k, x)				{"", LINGUA_RU, 'T', 0, "", x, n, k}
+#define HES(n, k, x)				{"", LINGUA_ES, 'T', 0, "", x, n, k}
+#define HPT(n, k, x)				{"", LINGUA_PT, 'T', 0, "", x, n, k}
 static const franz_helpriga g_helprighe[]=
 {
 	/// @range
@@ -147969,6 +147973,10 @@ static const franz_helpriga g_helprighe[]=
 	HU(559, "a", "-turbo N", "The same, with N threads for that (default: as -t, up to 32)"),
 	HIT(559, 0x62F58E5B, "Lo stesso, con N thread per quello|  (default: come -t, fino a 32)"),
 	HRU(559, 0x62F58E5B, "То же, с N потоками для этого (по умолчанию: как -t, до 32)"),
+	HU(1855, "a", "-ma:algo:N", "Compress with a bundled library: zstd, brotli, lzma, bzip2, kanzi...|  any zpaq extracts the archive; every codec and level: codecinfo"),
+	HU(1856, "a", "-sa", "JPEG, lossless JPEG and JPEG-LS by their contents, with PJA|  (EXPERIMENTAL; codecs/pja of the extra-codecs download), the rest as -m/-ma say"),
+	HU(1857, "a", "-popgui", "Show a native progress window (-innosetup: same, legacy name)"),
+	HU(1858, "a", "-franztime", "At the end: time, CPU, memory and I/O used (to stderr)"),
 	HU(560, "a", "-noturbo", "Plain add: one thread cuts the fragments (as zpaq 7.15)"),
 	HIT(560, 0xE3CF92C5, "add semplice: un solo thread taglia|  i frammenti (come zpaq 7.15)"),
 	HRU(560, 0xE3CF92C5, "Обычный add: фрагменты режет один поток (как zpaq 7.15)"),
@@ -148067,6 +148075,9 @@ losetup -d /dev/loop0
 	HE(585, "a", "In-place 7.15 to zpaqfranz", "a z:\\1.zpaq c:\\nz\\ -touch"),
 	HIT(585, 0x9B3D88EB, "Da 7.15 a zpaqfranz sul posto"),
 	HRU(585, 0x9B3D88EB, "Из 7.15 в zpaqfranz на месте"),
+	HE(1859, "a", "Add with zstd level 19", "a z:\\1.zpaq c:\\nz\\ -ma:zstd:19"),
+	HE(1860, "a", "Add with lzma, 64 MB blocks", "a z:\\1.zpaq c:\\nz\\ -ma:lzma:9 -m16"),
+	HE(1861, "a", "Add photos, the JPEGs by PJA", "a z:\\1.zpaq c:\\photos -sa"),
 	HE(586, "a", "Store SHA-256 of unchanged files", "a z:\\1.zpaq c:\\nz\\ -touch -sha256"),
 	HIT(586, 0xEC31409F, "Salva lo SHA-256 dei file invariati"),
 	HRU(586, 0xEC31409F, "Сохранить SHA-256 неизменённых файлов"),
@@ -151185,6 +151196,7 @@ losetup -d /dev/loop0
 	HIT(1497, 0x4F14B557, "-m7 -m8 -m9 sono zstd (qualsiasi zpaq, anche la 7.15, li estrae). A mano:|  -m8 livello 3, -m8h19 livello 1..22, -m8a5|  livello veloce -5, -m86: blocchi da 64 MB"),
 	HRU(1497, 0x4F14B557, "-m7 -m8 -m9 - это zstd (их извлекает любой zpaq, и 7.15). Вручную:|  -m8 уровень 3, -m8h19 уровень 1..22, -m8a5|  быстрый уровень -5, -m86: блоки 64 MB"),
 #endif // ZPAQZSTD
+	HRIGA(1854, "*main", 'o', "-ma:algo:N", "A bundled library compresses each block (any zpaq extracts it)|  -ma:zstd:19 -ma:brotli -ma:lzma:9 -ma:kanzi:5 ... list: codecinfo|  block size from -m: -ma:zstd:19 -m16 = 64 MB blocks"),
 	HRIGA(1498, "*main", 'o', "-force", "Overwrite"),
 	HIT(1498, 0x78FF0E92, "Sovrascrive"),
 	HRU(1498, 0x78FF0E92, "Перезаписывать"),
@@ -151303,9 +151315,10 @@ losetup -d /dev/loop0
 	HRIGA(1534, "*franz", 'o', "-kill", "Show 'script-ready' log of dup files"),
 	HIT(1534, 0x3AF3E8E2, "Mostra un log 'pronto per script' dei file duplicati"),
 	HRU(1534, 0x3AF3E8E2, "Показать журнал дубликатов 'для скриптов'"),
-	HRIGA(1535, "*franz", 'o', "-eng -it -ru", "The help in English, Italian or Russian|Default: ZPAQFRANZ_LANG (en it ru), else the language of the system"), /// 65.14m: it was -lang X
+	HRIGA(1535, "*franz", 'o', "-eng -it -ru -es -pt", "The help in English, Italian, Russian, Spanish or Portuguese|Default: ZPAQFRANZ_LANG (en it ru es pt), else the language of the system"), /// 65.14m: it was -lang X
 	HIT(1535, 0x2F9B18FA, "L'help in inglese, italiano o russo|Default: ZPAQFRANZ_LANG (en it ru), se no la lingua del sistema"),
 	HRU(1535, 0x2F9B18FA, "Справка на английском, итальянском или русском|По умолчанию: ZPAQFRANZ_LANG (en it ru), иначе язык системы"),
+	HRIGA(1862, "*franz", 'o', "-franztime", "At the end, what zpaq-std used: wall time, CPU (user, kernel, cores),|  memory peak and final, page faults, I/O (as Franco's franztime; to stderr)"),
 	HRIGA(1536, "*franz", 'o', "-helpid", "Show the number of every line of the help (for who translates it)"), /// 65.14l
 	HIT(1536, 0x728DA36B, "Mostra il numero di ogni riga dell'help (per chi lo traduce)"),
 	HRU(1536, 0x728DA36B, "Показывать номер каждой строки справки (для переводчиков)"),
@@ -151442,6 +151455,12 @@ losetup -d /dev/loop0
 	HRIGA(1576, "*voodoo", 'o', "-mNB -method NB", "Use 2^B MiB blocks (0..11, default: 04, 14, 26..56)"),
 	HIT(1576, 0xCD3AF326, "Blocchi da 2^B MiB (0..11, default: 04, 14, 26..56)"),
 	HRU(1576, 0xCD3AF326, "Блоки по 2^B MiB (0..11, по умолчанию: 04, 14, 26..56)"),
+	HRIGA(1848, "*voodoo", 'o', "-ma:algo:N", "External compression algo:level (all bundled, no system deps)|  lz4: auto (1-4 fast, 5-12 HC). lz4hc: always HC. lz4f: always fast|  zstd: ZPAQZSTD, levels 1..22 (1=fast, 3=default, 22=max); opens in any zpaq|  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=default;|    11 also picks lc/lp/pb per block); opens in any zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, pinned (1=LZX, 2=DNA+LZ+Huffman,|    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    opens in any zpaq (8-9: slow and large memory there)|  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq|  lz6: ZPAQLZ6, EXPERIMENTAL. 0=fast/low CPU (default), 1-15=HC; opens in any zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=fast/100K, 9=best/900K, default 9); opens in any zpaq|  zxc: ZPAQZXC, zxc's fast LZ (very fast to decompress); levels 1-7,|    default 3 (6-7 with Huffman); opens in any zpaq|  sylz: ZPAQSYLZ, EXPERIMENTAL. syc's fast LZ (Free Pascal), only as a plugin:|    codecs/sylz.dll or sylz.so; levels 0-10 (0 the fastest), default 1;|    opens in any zpaq|  sylzec: ZPAQSYLZ3, EXPERIMENTAL. sylz with Huffman-coded literals (format v3),|    only as a plugin: codecs/sylz.dll or .so (with sylz); levels 0-10, default 1; opens in any zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. bzip2's format with bz2-ng, faster (levels as bzip2);|    opens in any zpaq|  bzip3: ZPAQBZIP3, BWT+CM (level=block_size/100K, default 9); opens in any zpaq|  brotli: ZPAQBROTLI, Google (0=fast, 11=default/max); opens in any zpaq|  snappy: ZPAQSNAPPY, Google (very fast, like lz4; 1=fastest, 2=default); opens in any zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=stored, 6=default, 12=best); opens in any zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq|  hs: ZPAQHS, heatshrink (0..2: 2KB/8KB/16KB window; tiny); opens in any zpaq|  lzfse: ZPAQLZFSE, LZFSE by lzfse-ex (no levels); opens in any zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: sort transform ST3..ST5, default 3); opens in any zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 by lzham-ex (1..4: fastest..better, default 4); opens in any zpaq|  ppmd: ZPAQPPMD, PPMd var.H (level = model order 2..32, default 6; 64 MB); opens in any zpaq"),
+	HRIGA(1849, "*voodoo", 'o', "-mae:file:codec:N", "A codec that is NOT part of zpaq-std, from codecs/file.dll or .so|    (external, finished codecs): it must give its ZPAQL decoder, which every block|    carries, so the archive opens in any zpaq. zpaq-std does not guarantee its support"),
+	HRIGA(1850, "*voodoo", 'o', "-mat:file:codec:N", "The same, to TEST a codec: shows the plugin and every block (sizes,|    times, decoded back by the plugin and by its ZPAQL). Without a ZPAQL decoder its|    blocks open only in zpaq-std with that plugin (any other zpaq reports them damaged)"),
+	HRIGA(1851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):|    PJA's family (-sa or -sa:pja): pjax (JPEG with PJA's format v6), pja (JPEG),|    pjall (lossless JPEG), pjals (JPEG-LS) and pjalsx (subsampled JPEG-LS),|    from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say"),
+	HRIGA(1852, "*voodoo", 'o', "-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):|    each file goes, by its contents, to the first codec that takes it (more codecs:|    -sae:file:c1+N:c2+N), alone in its block (or, if its ZPAQL allows, with the next|    files it takes, one segment each); the rest as -m/-ma say. Like -mae, it|    needs their ZPAQL decoders. Every block is decoded back before it is written"),
+	HRIGA(1853, "*voodoo", 'o', "-sat:file:codec+N", "The same, to TEST such codecs: shows which codec took each file, sizes, times,|    and the block decoded back by the plugin and by its ZPAQL (like -mat)|  codecinfo lists the -ma codecs and the plugins in codecs/; codecinfo x|    shows the card of one (author, repository, versions, hashes)"),
 	HRIGA(1577, "*voodoo", 'o', "-method", "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Advanced:|x=journaling (default). s=streaming (no dedupe)|  short form: -mx6.0ci1,1,1,1,2am = -method x6.0ci1,1,1,1,2am|  N2: 0=no pre/post. 1,2=packed,byte LZ77. 3=BWT. 4..7=0..3 with E8E9|  N3=LZ77 min match. N4=longer match to try first (0=none). 2^N5=search|  depth. 2^N6=hash table size (N6=B+21: suffix array). N7=lookahead|  Context modeling defaults shown below:|c0,0,0: context model. N1: 0=ICM, 1..256=CM max count. 1000..1256 halves|  memory. N2: 1..255=offset mod N2, 1000..1255=offset from N2-1000 byte|  N3...: order 0... context masks (0..255). 256..511=mask+byte LZ77|  parse state, >1000: gap of N3-1000 zeros|i: ISSE chain. N1=context order. N2...=order increment|a24,0,0: MATCH: N1=hash multiplier. N2=halve buffer. N3=halve hash tab|w1,65,26,223,20,0: Order 0..N1-1 word ISSE chain. A word is bytes|  N2..N2+N3-1 ANDed with N4, hash mulitpiler N5, memory halved by N6|m8,24: MIX all previous models, N1 context bits, learning rate N2|s8,32,255: SSE last model. N1 context bits, count range N2..N3|t8,24: MIX2 last 2 models, N1 context bits, learning rate N2"),
 	HIT(1577, 0xCDA89CD3, "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Avanzato:|x=journaling (default). s=streaming (niente deduplica)|  forma corta: -mx6.0ci1,1,1,1,2am = -method x6.0ci1,1,1,1,2am|  N2: 0=niente pre/post. 1,2=LZ77 a|  pacchetti,byte. 3=BWT. 4..7=0..3 con E8E9|  N3=match minimo LZ77. N4=match piu' lungo da provare prima|  (0=nessuno). 2^N5=profondita' di ricerca. 2^N6=dimensione|  della tabella hash (N6=B+21: suffix array). N7=lookahead|  I default del context modeling sono qui sotto:|c0,0,0: modello di contesto. N1: 0=ICM, 1..256=CM|  conteggio max. 1000..1256 dimezza la memoria. N2:|  1..255=offset mod N2, 1000..1255=offset dal byte N2-1000|  N3...: maschere di contesto di ordine 0...|  (0..255). 256..511=maschera+stato del parse|  LZ77 a byte, >1000: buco di N3-1000 zeri|i: catena ISSE. N1=ordine del contesto. N2...=incremento|dell'ordine a24,0,0: MATCH: N1=moltiplicatore dell'hash. N2=dimezza|il buffer. N3=dimezza la tabella hash w1,65,26,223,20,0: catena|ISSE di parole di ordine 0..N1-1. Una parola sono i byte|  N2..N2+N3-1 in AND con N4, moltiplicatore|  dell'hash N5, memoria dimezzata da N6|m8,24: MIX di tutti i modelli precedenti, N1 bit di contesto,|velocita' di apprendimento N2 s8,32,255: SSE dell'ultimo modello. N1|bit di contesto, intervallo dei conteggi N2..N3 t8,24: MIX2 degli|ultimi 2 modelli, N1 bit di contesto, velocita' di apprendimento N2"),
 	HRU(1577, 0xCDA89CD3, "{xs}B[,N2]...[{ciawmst}[N1[,N2]...]]...  Для опытных:|x=журналирование (по умолчанию). s=потоковый (без дедупликации)|  краткая форма: -mx6.0ci1,1,1,1,2am = -method x6.0ci1,1,1,1,2am|  N2: 0=без пре/пост. 1,2=упакованный,байтовый|  LZ77. 3=BWT. 4..7=0..3 с E8E9|  N3=мин. совпадение LZ77. N4=сначала пробовать более|  длинное (0=нет). 2^N5=глубина поиска. 2^N6=размер|  хеш-таблицы (N6=B+21: суффиксный массив). N7=упреждение|  Значения контекстного моделирования по умолчанию ниже:|c0,0,0: контекстная модель. N1: 0=ICM, 1..256=CM макс.|  счётчик. 1000..1256 вдвое меньше памяти. N2: 1..255=смещение|  mod N2, 1000..1255=смещение от байта N2-1000|  N3...: маски контекста порядка 0... (0..255). 256..511=маска+состояние|  разбора байтового LZ77, >1000: промежуток из N3-1000 нулей|i: цепочка ISSE. N1=порядок контекста. N2...=приращение|порядка a24,0,0: MATCH: N1=множитель хеша. N2=вдвое меньше|буфер. N3=вдвое меньше хеш-таблица w1,65,26,223,20,0:|цепочка ISSE слов порядка 0..N1-1. Слово - это байты|  N2..N2+N3-1 по AND с N4, множитель|  хеша N5, память делится пополам N6 раз|m8,24: MIX всех предыдущих моделей, N1 бит контекста,|скорость обучения N2 s8,32,255: SSE последней модели. N1|бит контекста, диапазон счётчиков N2..N3 t8,24: MIX2 двух|последних моделей, N1 бит контекста, скорость обучения N2"),
@@ -151619,6 +151638,8 @@ losetup -d /dev/loop0
 	HTESTO(1791, "@frasi", 'a', 0, "Russian"),
 	HIT(1791, 0x47592386, "russo"),
 	HRU(1791, 0x47592386, "русский"),
+	HTESTO(1846, "@frasi", 'a', 0, "Spanish"),
+	HTESTO(1847, "@frasi", 'a', 0, "Portuguese"),
 	/// 65.14l @hash: the descriptions of the hashes (help_printhash), found by their English (help_t; -helpcheck: one for each)
 	HTESTO(1629, "@hash", 'a', 0, "Disable checksums"),
 	HIT(1629, 0xE480E837, "Disattiva i checksum"),
@@ -152106,19 +152127,31 @@ losetup -d /dev/loop0
 	HTESTO(1787, "@flag", 'a', 0, "Only do test"),
 	HIT(1787, 0x1354E828, "Fa solo il test"),
 	HRU(1787, 0x1354E828, "Только проверка"),
+	/// codecinfo (zpaq-std)
+	HU(1863, "codecinfo", "CMD codecinfo", "The -ma codecs at a glance: stable or experimental, levels, default,|    ZPAQL decoder, library and version, and where each one comes from|    (built in, a plugin in codecs/, or MISSING); then the plugins in codecs/|    that are NOT part of zpaq-std (for -mae/-mat and -sae/-sat)"),
+	HU(1864, "codecinfo", "CMD codecinfo x", "The card of codec x: author, repository, licence, the release or commit|    it comes from, format, levels, and the SHA-256 of its plugin file and of|    its ZPAQL decoder(s). x is a -ma name (zstd, kanzi...), or, for|    an external plugin, its file name (all its codecs) or file:codec"),
+	HU(1865, "codecinfo", "CMD codecinfoex", "Every card, official and external"),
+	HU(1866, "codecinfo", "CMD codecinfoex x", "The same as codecinfo x"),
+	HESEMPI("codecinfo", 'b'),
+	HE(1867, "codecinfo", "The codecs at a glance", "codecinfo"),
+	HE(1868, "codecinfo", "zstd's card", "codecinfo zstd"),
+	HE(1869, "codecinfo", "Every card", "codecinfoex"),
+	HE(1870, "codecinfo", "The codecs of codecs/example.dll", "codecinfo example"),
+	HE(1871, "codecinfo", "One external codec's card", "codecinfo example:rle"),
+	HBREVE(1872, "codecinfo", "The -ma codecs and the plugins: a table, or the card of one codec"),
 };
 static const size_t g_helpquante= sizeof(g_helprighe) / sizeof(g_helprighe[0]);
 /// 65.14l: the language of the help (lingua_scegli); -helpid: the id of every line shown
 int					g_lingua= LINGUA_EN;
 bool				g_helpid= false;
-static const char *g_lingue[]= {"en", "it", "ru"};
+static const char *g_lingue[]= {"en", "it", "ru", "es", "pt"};
 /// 65.14m: the switch of each language (in the order of LINGUA_) and its name, for the line of the languages
 struct franz_linguaopzione
 {
 	const char *opzione;
 	const char *nome; /// in English: help_t gives it in the language of the help
 };
-static const franz_linguaopzione g_linguaopzioni[]= {{"-eng", "English"}, {"-it", "Italian"}, {"-ru", "Russian"}};
+static const franz_linguaopzione g_linguaopzioni[]= {{"-eng", "English"}, {"-it", "Italian"}, {"-ru", "Russian"}, {"-es", "Spanish"}, {"-pt", "Portuguese"}};
 /// FNV-1a of an English text: a translation carries the one of the English it was made from
 static uint32_t help_impronta(const char *i_testo)
 {
@@ -152154,6 +152187,40 @@ static const franz_helpriga *help_traduzione(int i_id)
 		return NULL;
 	return tradotte[i_id];
 }
+/// zpaq-std: the help names the program zpaq-std. Its texts (and the translations, found by the English)
+/// stay as zpaqfranz wrote them; here, when shown. What speaks of zpaqfranz itself stays
+static const char *help_marca(const char *i_testo)
+{
+	if ((i_testo == NULL) || (strstr(i_testo, "zpaqfranz") == NULL))
+		return i_testo;
+	static std::map<const char *, string> fatte;
+	std::map<const char *, string>::iterator f= fatte.find(i_testo);
+	if (f != fatte.end())
+		return f->second.c_str();
+	static const char *proteggi[]= {"zpaqfranz -715", "extensions of zpaqfranz", "zpaqfranz's 60+", "zpaqfranz-full", "zpaqfranz-mail",
+									"francocorbelli.it/zpaqfranz", "zpaqfranz 60", "zpaqfranz from Internet", "Update zpaqfranz",
+									"new zpaqfranz version", "current zpaqfranz", "zpaqfranz up to", "zpaqfranz 7"};
+	string t= i_testo;
+	vector<string> salvati;
+	for (size_t i= 0; i < sizeof(proteggi) / sizeof(proteggi[0]); i++)
+		for (size_t q= t.find(proteggi[i]); q != string::npos; q= t.find(proteggi[i], q + 1))
+		{
+			const string segno= "\x01" + std::to_string(salvati.size()) + "\x02";
+			salvati.push_back(proteggi[i]);
+			t.replace(q, strlen(proteggi[i]), segno);
+		}
+	for (size_t q= t.find("zpaqfranz"); q != string::npos; q= t.find("zpaqfranz", q + 1))
+		t.replace(q, 9, "zpaq-std");
+	for (size_t i= 0; i < salvati.size(); i++)
+	{
+		const string segno= "\x01" + std::to_string(i) + "\x02";
+		const size_t q	  = t.find(segno);
+		if (q != string::npos)
+			t.replace(q, segno.size(), salvati[i]);
+	}
+	fatte[i_testo]= t;
+	return fatte[i_testo].c_str();
+}
 /// a line in the language of the help: its translation, when it was made from this English; else the English.
 /// o_inglese: there is a language, but the English is shown (no translation, or an old one)
 static const char *help_tradotto(const franz_helpriga &i_r, bool *o_inglese= NULL)
@@ -152162,13 +152229,13 @@ static const char *help_tradotto(const franz_helpriga &i_r, bool *o_inglese= NUL
 	if (o_inglese)
 		*o_inglese= false;
 	if ((g_lingua == LINGUA_EN) || (i_r.id <= 0) || (inglese[0] == 0))
-		return inglese;
+		return help_marca(inglese);
 	const franz_helpriga *t= help_traduzione(i_r.id);
 	if ((t != NULL) && (t->impronta == help_impronta(inglese)))
-		return t->testo;
+		return help_marca(t->testo);
 	if (o_inglese)
 		*o_inglese= true;
-	return inglese;
+	return help_marca(inglese);
 }
 /// -helpid: " [00027]" after a line ("[00027 en]": the English, there is no translation of it)
 static string help_numero(const franz_helpriga &i_r)
@@ -152191,10 +152258,10 @@ const char *help_t(const char *i_inglese)
 			if ((g_helprighe[i].tipo == 't') && ((!strcmp(g_helprighe[i].comando, "@frasi")) || (!strcmp(g_helprighe[i].comando, "@flag")) || (!strcmp(g_helprighe[i].comando, "@hash"))))
 				mappa[g_helprighe[i].testo]= &g_helprighe[i];
 	if ((i_inglese == NULL) || (g_lingua == LINGUA_EN))
-		return i_inglese;
+		return help_marca(i_inglese);
 	std::map<string, const franz_helpriga *>::iterator p= mappa.find(i_inglese);
 	if (p == mappa.end())
-		return i_inglese;
+		return help_marca(i_inglese);
 	return help_tradotto(*p->second);
 }
 /// a text and spaces up to i_larga characters (not bytes: a label translated)
@@ -152211,7 +152278,7 @@ void help_lingue(int i_spazi= 0)
 	color_cyan();
 	moreprint(help_colonna(help_t("Language"), 9).c_str(), true, i_spazi);
 	color_restore();
-	moreprint(": zpaqfranz", true);
+	moreprint(": zpaq-std", true);
 	const int quante= (int)(sizeof(g_linguaopzioni) / sizeof(g_linguaopzioni[0]));
 	for (int l= 0; l < quante; l++)
 	{
@@ -152348,6 +152415,8 @@ static const franz_helpcomando g_helpcomandi[]=
 #endif /// NOSFTPEND
 	// Utils
 	{"checkpassword", "checkpassword", "Utils    ", 8},
+	{"codecinfo", "codecinfo", "Utils    ", 8}, /// zpaq-std
+	{"codecinfoex", "codecinfo", "Utils    ", 8},
 	{"comparehex", "comparehex", "Utils    ", 8},
 	{"count", "count", "Utils    ", 8},
 	{"f", "f", "Utils    ", 8},
@@ -153086,7 +153155,7 @@ static int help_controllalingue()
 		}
 		fatte.insert(std::make_pair(lingua, r.id));
 	}
-	for (int lingua= LINGUA_IT; lingua <= LINGUA_RU; lingua++)
+	for (int lingua= LINGUA_IT; lingua <= LINGUA_PT; lingua++)
 	{
 		const int salvata= g_lingua;
 		g_lingua		 = lingua; /// help_traduzione: the ones of this language
@@ -153474,7 +153543,7 @@ void Jidac::usage(bool i_flagdie= true, int i_exitcode= 0)
 	color_green();
 	moreprint(help_t("<command>"), true);
 	color_restore();
-	moreprint((string(" ") + help_t("(single)") + " zpaqfranz ").c_str(), true);
+	moreprint((string(" ") + help_t("(single)") + " zpaq-std ").c_str(), true);
 	color_green();
 	moreprint("h h", true);
 	color_restore();
@@ -153513,11 +153582,11 @@ void Jidac::usage(bool i_flagdie= true, int i_exitcode= 0)
 	color_cyan();
 	moreprint(help_colonna(help_t("Search"), 9).c_str(), true);
 	color_restore();
-	moreprint(": zpaqfranz h ", true);
+	moreprint(": zpaq-std h ", true);
 	color_green();
 	moreprint("-key -no*", true); /// 65.16g: -no* with a jolly (it was -n)
 	color_restore();
-	moreprint((string(" ") + help_t("(switches in every command)") + "  zpaqfranz h ").c_str(), true);
+	moreprint((string(" ") + help_t("(switches in every command)") + "  zpaq-std h ").c_str(), true);
 	color_green();
 	moreprint("a -n");
 	color_restore();
@@ -153526,7 +153595,7 @@ void Jidac::usage(bool i_flagdie= true, int i_exitcode= 0)
 	color_cyan();
 	moreprint(help_colonna(help_t("Chooser"), 9).c_str(), true);
 	color_restore();
-	moreprint(": zpaqfranz ", true);
+	moreprint(": zpaq-std ", true);
 	color_green();
 	moreprint("t", true);
 	color_restore();
@@ -174784,6 +174853,10 @@ static int lingua_dalnome(const string &i_nome)
 		return LINGUA_IT;
 	if ((base == "ru") || (base == "russian") || (base == "russo"))
 		return LINGUA_RU;
+	if ((base == "es") || (base == "spanish") || (base == "espanol") || (base == "español"))
+		return LINGUA_ES;
+	if ((base == "pt") || (base == "portuguese") || (base == "portugues") || (base == "português"))
+		return LINGUA_PT;
 	return -1;
 }
 /// the language of the system: on Windows the one of the user interface, on *nix LC_ALL, LC_MESSAGES, LANG.
@@ -174796,6 +174869,10 @@ static int lingua_sistema(bool i_utf8)
 		return LINGUA_IT;
 	if ((PRIMARYLANGID(id) == LANG_RUSSIAN) && i_utf8)
 		return LINGUA_RU;
+	if ((PRIMARYLANGID(id) == LANG_SPANISH) && i_utf8)
+		return LINGUA_ES;
+	if ((PRIMARYLANGID(id) == LANG_PORTUGUESE) && i_utf8)
+		return LINGUA_PT;
 	return LINGUA_EN;
 #else
 	(void)i_utf8;
@@ -174807,7 +174884,7 @@ static int lingua_sistema(bool i_utf8)
 			continue;
 		const string locale= stringtolower(v);
 		const int	 l	   = lingua_dalnome(locale);
-		if ((l == LINGUA_RU) && (locale.find("utf-8") == string::npos) && (locale.find("utf8") == string::npos))
+		if (((l == LINGUA_RU) || (l == LINGUA_ES) || (l == LINGUA_PT)) && (locale.find("utf-8") == string::npos) && (locale.find("utf8") == string::npos))
 			return LINGUA_EN;
 		return (l < 0) ? LINGUA_EN : l;
 	}
