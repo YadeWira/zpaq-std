@@ -248011,7 +248011,7 @@ int Jidac::add()
 				/// ZPAQL handles several segments (sa_join): then the file joins them, if
 				/// the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
-				/// Since 1.11.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
+				/// Since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
 				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
 				const int64_t sa_cap= (std::max)((int64_t)blocksize, ZS_SA_GROUP);
 				const bool sa_join= sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
@@ -250208,8 +250208,10 @@ int Jidac::add2()
 				/// the files of the block being filled and its ZPAQL handles several segments
 				/// (sa_join): then the file joins them, if the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				/// since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
+				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
 				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
-								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (int64_t)blocksize;
+								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP);
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
 				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
@@ -251202,8 +251204,10 @@ int Jidac::add2()
 				/// the files of the block being filled and its ZPAQL handles several segments
 				/// (sa_join): then the file joins them, if the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				/// since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
+				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
 				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
-								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (int64_t)blocksize;
+								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP);
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
 				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
