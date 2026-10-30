@@ -1,3 +1,27 @@
+### [1.9.4] - 2026-10-30
+
+**`-sa` no longer loses whole groups to `-m`.** `-sa`, `-sae` and `-sat` put consecutive files a codec takes in one block. Before, if one of them had a fragment that was already stored, the whole block went as `-m`, silently. That fragment could be in the archive, in the same block, or earlier in the same file. The same picture re-encoded, or files that share headers or tables, triggered it all the time.
+
+- **Now:** the file's fragments are checked before it joins a block. If one is not new, that file alone goes as `-m`/`-ma` say, and `-sat` says so ("would take it, but part of it is already in the archive"). The rest of the group goes on with the codec.
+- **Byte-identical otherwise:** archives without such files are byte for byte those of 1.9.3.
+- **Results**, with PJA's test sets:
+
+| Set | 1.9.3 | 1.9.4 | PJA's own tool |
+|---|---|---|---|
+| 244 arithmetic-coded JPEGs | 81.8% | **71.2%** | 76.5% |
+| 640 generated JPEGs | 83.6% | **72.3%** | 75.6% |
+| 151 photos, 78 corpus files, 6 MPOs | unchanged | unchanged | |
+
+- **Only the zpaq-std side:** this changes nothing in the format, the codecs or their ZPAQL, and older zpaq-std versions and any zpaq read these archives.
+
+#### Checked
+
+- **PJA's test sets:** every file extracts identically with the plugin, without it and with zpaq 7.15. `-t1` and `-t8` write the same archive.
+- **`suite_sa`:** a new case, a re-encoded copy of a large JPEG joining a group. 17/17, and 1.9.3 fails the new case. Also 17/17 on Linux x86.
+- **Windows 7 x64 and x86**, release binaries and DLLs, on the 244 arithmetic-coded JPEGs: x64 and x86 write the same archive. It extracts identically on both (244/244 each way), and on Linux with zpaq 7.15 and 1.9.3.
+- **Same bytes across platforms:** sylz, sylzec and `-sa` give the same archive on Linux x64, x86 and AArch64. CI is green on all six platforms, including `-sa` end to end on macOS.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.9.3: 182 comparisons, 0 divergences.
+
 ### [1.9.3] - 2026-10-30
 
 **pja on macOS:** PJA 0.1.0's plugin exports Darwin's symbol names, so `-sa` works on macOS too. `zpaq-std-v1.9.3-macos-arm64-extra-codecs.zip` now has pja next to sylz.
