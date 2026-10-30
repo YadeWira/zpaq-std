@@ -127410,6 +127410,26 @@ int Jidac::add()
 			}
 		}
 
+		/// -sae/-sat: a codec for specific formats needs the whole file in its block.
+		/// If a fragment of it is already stored (in the archive, in the block being
+		/// filled, or earlier in the file itself), only its new fragments would go in,
+		/// so no such codec can take it: it goes as -m/-ma say. Checked here, before it
+		/// joins a block; before, it was noticed while the file was being added, and the
+		/// whole block went as -m, every file a codec had taken with it too, silently
+		if (sa_file >= 0 && use_fraglist)
+		{
+			std::set<std::string> own;
+			for (size_t q= 0; q < fraglist.size(); ++q)
+				if (htinv.find(fraglist[q].sha1) || !own.insert(std::string(fraglist[q].sha1, 20)).second)
+				{
+					if (g_sa_mode == 't')
+						myprintf("00734: %s: %s would take it, but part of it is already in the archive: compressed as -m says\n",
+						         vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+					sa_file= -1;
+					break;
+				}
+		}
+
 		// OPTIMIZED MAIN LOOP
 
 		for (unsigned fj= 0; true; ++fj)

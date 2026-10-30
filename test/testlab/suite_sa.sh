@@ -156,6 +156,24 @@ open('pj.lista','w').write(''.join(x+'\\n' for x in jpg+jls))
   [ $rc = 2 ] && grep -q 'pjals is written twice' ls5.log && r=ok || r="rc=$rc"; ok "-sa:pja:pjals: la familia ya trae pjals, se niega" "$r"
   sin/zpaq-std a s3.zpaq src3 -sa >ls3.log 2>&1; rc=$?
   [ $rc = 2 ] && grep -q 'needs codecs/pja' ls3.log && r=ok || r="rc=$rc"; ok "-sa sin el plugin: se niega (00730)" "$r"
+  # un archivo que comparte fragmentos con el grupo (copia de un JPEG grande con un byte
+  # cambiado en su APPn: el primer fragmento es nuevo, los demas ya estan): va a -m y el
+  # resto del grupo sigue con pja (antes el bloque entero iba a -m, sin avisar)
+  rm -rf src4; mkdir -p src4
+  G=$(find "$CO" -type f \( -iname '*.jpg' -o -iname '*.jpeg' \) -size +1500k -size -4000k 2>/dev/null | sort | while read -r f; do
+        python3 -I -c "import sys; b=open(sys.argv[1],'rb').read(6); sys.exit(0 if b[:3]==b'\xff\xd8\xff' and (0xe0<=b[3]<=0xef or b[3]==0xfe) else 1)" "$f" && { echo "$f"; break; }; done)
+  if [ -n "$G" ]; then
+    cp "$G" src4/a1.jpg
+    python3 -I -c "
+import sys
+b=bytearray(open(sys.argv[1],'rb').read()); L=b[4]<<8|b[5]; b[6+L//2]^=0x20
+open(sys.argv[2],'wb').write(b)" src4/a1.jpg src4/a2.jpg
+    pj/zpaq-std a s6.zpaq src4 -sat:pja:pja+2 $TS >ls6.log 2>&1
+    r=ok; grep -q 'a2.jpg: pja would take it, but part of it is already in the archive' ls6.log || r="sin-aviso"
+    grep -qE 'a1.jpg: pja, .*plugin decode .* OK' ls6.log || r="$r a1-no-va-por-pja"
+    rm -rf x6; sin/zpaq-std x s6.zpaq -to x6 >/dev/null 2>&1; diff -r src4 x6/src4 >/dev/null || r="$r extrae-mal"
+    ok "un archivo con fragmentos repetidos va a -m; el grupo sigue con pja" "$r"
+  else ok "un archivo con fragmentos repetidos va a -m (sin JPEG grande en el corpus)" "ok"; fi
 fi
 echo "--- $casos casos, $((casos-malos)) bien, $malos a revisar ---"
 echo DONE_SA
