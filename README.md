@@ -116,7 +116,7 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.0.8, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.1.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
 | `-sa:pjax+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
@@ -145,8 +145,8 @@ make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
 
 Each release has, per platform, the full program and `extra-codecs.zip` (the codecs
-that are only plugins: sylz, sylzec and pja, to put in `codecs/` next to the program;
-on macOS sylz and sylzec only, for now), and, except on macOS, `plugins.zip` (a small
+that are only plugins: sylz, sylzec and pja, to put in `codecs/` next to the program),
+and, except on macOS, `plugins.zip` (a small
 program and every codec as a plugin). Targets, plugins and
 cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 

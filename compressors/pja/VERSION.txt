@@ -1,6 +1,9 @@
-PJA 0.0.8 (tag v0.0.8, commit 11ec86e), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.0.8-zpaqstd.tar.gz (sha256
-dc5de1feb166df22c2712f6046b428bb718fdf3feca19dac4cefd49fd392ae18), copied unmodified:
+PJA 0.1.0 (tag v0.1.0, commit 3d2676e), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.1.0-zpaqstd.tar.gz (sha256
+90a360902a439ec0e1ceb9f14d0269114e07413d5b0c88da50809582583e79ce), copied unmodified.
+For the plugin, 0.1.0 changes only its exports on macOS (Darwin's leading underscore);
+its new stream version 7 is for PJA's own command line tool. -sa writes the very
+archives of 0.0.8. Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 

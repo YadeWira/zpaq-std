@@ -1,6 +1,6 @@
-# PJA 0.0.8: the zpaq-std plugin, vendored
+# PJA 0.1.0: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.0.8`, commit `11ec86e`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.1.0`, commit `3d2676e`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes (IJG for the arithmetic-coded JPEG,
 CharLS's BSD 3-Clause for JPEG-LS).
@@ -30,6 +30,13 @@ and threads on Linux and macOS): before, these files did not come back
 and every detect said no; they still do, now because pja's and pjax's
 detects ask for the quirk. The streams, the ZPAQL and what each codec
 takes are 0.0.6's.
+0.1.0 brings the `pja` command a new model (stream version 7, in C),
+which the plugin does not use: the plugin has no C and these sources
+build it as before. Its one change: on macOS (Darwin) the exported names
+carry the leading underscore `dlsym` looks for there
+(`_zpaqstd_codecs_v1`, `_zpaqstd_codec_v1`, `_zpaqstd_detect_v1`);
+other platforms export the same names as before. The streams, the ZPAQL
+and what each codec takes are 0.0.6's.
 
 | | |
 |---|---|
@@ -43,7 +50,7 @@ FreePascal 3.2.2. From this directory, with the commit the info card
 (`ZS_DATA_INFO`, `codecinfoex`) shows:
 
 ```sh
-export PJA_COMMIT=11ec86e
+export PJA_3d2676e=3d2676e
 mkdir -p build/lin build/win64 build/win32
 ```
 

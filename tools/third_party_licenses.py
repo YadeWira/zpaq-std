@@ -60,7 +60,7 @@ BUNDLED = [
     ('sylz and sylzec', 'syc v0.5.4', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
-    ('PJA', '0.0.8', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
+    ('PJA', '0.1.0', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
      ['compressors/pja/LICENSE', 'compressors/pja/NOTICE'],
      'The -sa codecs pjax and pja (JPEG), pjall (lossless JPEG), pjals and pjalsx (JPEG-LS). Free Pascal, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'

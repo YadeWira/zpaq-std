@@ -55,10 +55,9 @@ jobs:
           fpc -iV
       - name: Free Pascal plugins
         if: matrix.fpc
-        # macOS: pja is left out until a PJA release exports Darwin's names (0.1.0)
         run: |
           ${{ matrix.name == 'macos-arm64' && 'MACOSX_DEPLOYMENT_TARGET=11.0' || '' }} make fpc-plugins
-          ${{ matrix.name == 'macos-arm64' && 'NOPJA=1' || '' }} bash test/ci/plugin_check.sh "$PWD/zpaq-std" "$PWD/plugins/codecs" ${{ matrix.name }}
+          bash test/ci/plugin_check.sh "$PWD/zpaq-std" "$PWD/plugins/codecs" ${{ matrix.name }}
       - uses: actions/upload-artifact@v4
         if: matrix.fpc
         with:
