@@ -25,6 +25,9 @@
 - **PJA's five test sets:** every file extracts identically, natively. The z blocks also extract identically by their ZPAQL: in zpaq 7.15, and in zpaq-std 1.9.4 and 1.7.0 with the plugin, which do not know the tag. So does an archive with two versions, extracted from both.
 - **`suite_sa`:** three new cases. The same photo three times (1,192,206 bytes to 352,120) gives one z block, which extracts with the plugin, without it and in zpaq 7.15. A file that shares fragments with its group joins it whole. `pjaz` by itself is refused. 19/19, and still 17/17 with PJA 0.1.0's plugin, which has no z codecs.
 - **PJA 0.4.0:** vendored from its tag (`v0.4.0`, commit `2d984a0`, the tarball checked by its SHA-256), unmodified.
+- **Windows 7 x64 and x86**, release binaries and the PJA 0.4.0 DLLs, on the 244 arithmetic-coded JPEGs: x64 and x86 write the same archive, with a z block. It extracts identically on both (244/244 each way), and on Linux with zpaq 7.15 and 1.9.4.
+- **Same bytes across platforms:** `-sa` with z blocks gives the same archive on Linux x64, x86 and AArch64, and each extracts the others'. `suite_sa` is 19/19 on Linux x86 too. CI is green on all six platforms, including `-sa` end to end on macOS.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.9.4: 182 comparisons, 0 divergences. All 288 cross extractions between Linux x64, x86 and AArch64 are identical.
 
 ### [1.9.4] - 2026-10-30
 
