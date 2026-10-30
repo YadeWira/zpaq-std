@@ -144,10 +144,12 @@ jpg=[p for p in out if not p.lower().endswith('.jls')][:12]
 open('pj.lista','w').write(''.join(x+'\\n' for x in jpg+jls))
 " "$CO"
   i=0; while IFS= read -r f; do i=$((i+1)); cp -- "$f" "src3/$(printf %02d $i).${f##*.}"; done < pj.lista
+  # ZZ=1: el plugin trae las variantes z (etapa 5, PJA 0.4.0)
+  ZZ=0; pj/zpaq-std codecinfo 2>/dev/null | grep -q 'pja:pjaz ' && ZZ=1
   pj/zpaq-std a s1.zpaq src3 -sa $TS >ls1.log 2>&1; pj/zpaq-std a s2.zpaq src3 -sae:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2 $TS >/dev/null 2>&1
   pj/zpaq-std a s4.zpaq src3 -sa:pja $TS >/dev/null 2>&1
   r=ok; cmp -s s1.zpaq s2.zpaq || r="distinto-de-sae"; cmp -s s1.zpaq s4.zpaq || r="$r sa:pja-no-es-la-familia"; grep -q 00732 ls1.log && r="$r aviso-no-oficial"
-  n=$(strings -a s1.zpaq | grep -cE "zpaqstd-s[am]e:pja:"); [ "$n" -ge 1 ] || r="$r sin-bloques-pja"
+  n=$(strings -a s1.zpaq | grep -cE "zpaqstd-s[amz]e:pja:"); [ "$n" -ge 1 ] || r="$r sin-bloques-pja"
   rm -rf x; pj/zpaq-std x s1.zpaq -to x >/dev/null 2>&1; diff -r src3 x/src3 >/dev/null || r="$r plugin-mal"
   rm -rf y; sin/zpaq-std x s1.zpaq -to y >/dev/null 2>&1; diff -r src3 y/src3 >/dev/null || r="$r zpaql-mal"
   if command -v zpaq >/dev/null; then rm -rf w; zpaq x s1.zpaq -to w >/dev/null 2>&1; diff -r src3 w/src3 >/dev/null || r="$r zpaq715-mal"; fi
@@ -169,11 +171,39 @@ import sys
 b=bytearray(open(sys.argv[1],'rb').read()); L=b[4]<<8|b[5]; b[6+L//2]^=0x20
 open(sys.argv[2],'wb').write(b)" src4/a1.jpg src4/a2.jpg
     pj/zpaq-std a s6.zpaq src4 -sat:pja:pja+2 $TS >ls6.log 2>&1
-    r=ok; grep -q 'a2.jpg: pja would take it, but part of it is already in the archive' ls6.log || r="sin-aviso"
-    grep -qE 'a1.jpg: pja, .*plugin decode .* OK' ls6.log || r="$r a1-no-va-por-pja"
-    rm -rf x6; sin/zpaq-std x s6.zpaq -to x6 >/dev/null 2>&1; diff -r src4 x6/src4 >/dev/null || r="$r extrae-mal"
-    ok "un archivo con fragmentos repetidos va a -m; el grupo sigue con pja" "$r"
-  else ok "un archivo con fragmentos repetidos va a -m (sin JPEG grande en el corpus)" "ok"; fi
+    rm -rf x6; sin/zpaq-std x s6.zpaq -to x6 >/dev/null 2>&1; diff -r src4 x6/src4 >/dev/null && r=ok || r="extrae-mal"
+    if [ "$ZZ" = 1 ]; then
+      # con pjaz (etapa 5) el LZ77 del grupo recupera lo repetido: a2 entra entero
+      grep -q 'a2.jpg: part of it is already in the archive, but pjaz takes it whole' ls6.log || r="$r sin-aviso-z"
+      grep -qE 'a1.jpg and 1 more: pjaz, .*plugin decode .* OK; pjaz ZPAQL OK' ls6.log || r="$r grupo-no-va-por-pjaz"
+      ok "un archivo con fragmentos repetidos entra entero al grupo de pjaz" "$r"
+    else
+      grep -q 'a2.jpg: pja would take it, but part of it is already in the archive' ls6.log || r="$r sin-aviso"
+      grep -qE 'a1.jpg: pja, .*plugin decode .* OK' ls6.log || r="$r a1-no-va-por-pja"
+      ok "un archivo con fragmentos repetidos va a -m; el grupo sigue con pja" "$r"
+    fi
+  else ok "un archivo con fragmentos repetidos (sin JPEG grande en el corpus)" "ok"; fi
+  if [ "$ZZ" = 1 ]; then
+    # etapa 5: la misma foto tres veces, cada una con otro byte en su APPn (no son
+    # duplicados exactos): un grupo, sus segmentos por el LZ77, bloque pjaz (etiqueta
+    # zpaqstd-sze) que vuelve con el plugin, sin el plugin (su ZPAQL) y en zpaq 7.15
+    rm -rf src5; mkdir -p src5; F=$(ls -S src3/*.jpg | head -1)
+    for k in 1 2 3; do python3 -I -c "
+import sys
+b=bytearray(open(sys.argv[1],'rb').read()); L=b[4]<<8|b[5]; b[6+L//2]^=int(sys.argv[3])
+open(sys.argv[2],'wb').write(b)" "$F" src5/c$k.jpg $k; done
+    pj/zpaq-std a s7.zpaq src5 -sa $TS >ls7.log 2>&1; pj/zpaq-std a s8.zpaq src5 -sat:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2 $TS >ls8.log 2>&1
+    r=ok; n=$(strings -a s7.zpaq | grep -c 'zpaqstd-sze:pja:'); [ "$n" = 1 ] || r="bloques-z=$n"
+    grep -qE 'pjaz, .* in 3 files, .*pjaz ZPAQL OK' ls8.log || r="$r sat-no-verifica-z"
+    t=$(du -cb src5/* | tail -1 | cut -f1); a=$(stat -c%s s7.zpaq); [ $((a*2)) -lt $t ] || r="$r no-achica($a/$t)"
+    rm -rf x7; pj/zpaq-std x s7.zpaq -to x7 >/dev/null 2>&1; diff -r src5 x7/src5 >/dev/null || r="$r plugin-mal"
+    rm -rf y7; sin/zpaq-std x s7.zpaq -to y7 >/dev/null 2>&1; diff -r src5 y7/src5 >/dev/null || r="$r zpaql-mal"
+    if command -v zpaq >/dev/null; then rm -rf w7; (mkdir w7 && cd w7 && zpaq x ../s7.zpaq >/dev/null 2>&1); diff -r src5 w7/src5 >/dev/null || r="$r zpaq715-mal"; fi
+    ok "-sa con pjaz: la misma foto 3 veces ($t bytes -> $a), un bloque z, extrae en todos" "$r"
+    pj/zpaq-std a s9.zpaq src5 -mae:pja:pjaz >ls9.log 2>&1; rc1=$?; pj/zpaq-std a s9.zpaq src5 -sat:pja:pjaz >>ls9.log 2>&1; rc2=$?
+    [ $rc1 = 2 ] && [ $rc2 = 2 ] && [ "$(grep -c 'pjaz is the LZ77 variant of pja' ls9.log)" = 2 ] && r=ok || r="rc=$rc1/$rc2"
+    ok "pjaz suelto (-mae, -sat): se niega, solo -sa lo usa" "$r"
+  fi
 fi
 echo "--- $casos casos, $((casos-malos)) bien, $malos a revisar ---"
 echo DONE_SA

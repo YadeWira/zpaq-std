@@ -116,7 +116,7 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.1.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.4.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
 | `-sa:pjax+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
@@ -124,7 +124,10 @@ None yet.
 | `-sa:pjalsx+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
-`-m`/`-ma` say. The plugin comes in the `extra-codecs` download. More:
+`-m`/`-ma` say. Consecutive files a codec takes share a block, and where it takes
+fewer bytes the block also goes through an LZ77 that finds what repeats across
+them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
+size, against 71% without it). The plugin comes in the `extra-codecs` download. More:
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#jpeg-and-jpeg-ls--sa).
 
 ---

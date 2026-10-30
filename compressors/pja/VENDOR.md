@@ -1,25 +1,38 @@
-# PJA 0.1.0: the zpaq-std plugin, vendored
+# PJA 0.4.0: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.1.0`, commit `3d2676e`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.4.0`, commit `2d984a0`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes (IJG for the arithmetic-coded JPEG,
 CharLS's BSD 3-Clause for JPEG-LS).
 
-One file, five codecs (`zpaqstd_codecs_v1`), on zpaq-std's plugin ABI 1,
-with `zpaqstd_detect_v1`:
+One file, ten codecs (`zpaqstd_codecs_v1`), on zpaq-std's plugin ABI 1,
+with `zpaqstd_detect_v1`. 0 to 4 are 0.3.0's, unchanged (streams, ZPAQL,
+what each takes). 5 to 9 are new: each is the codec above it without the
+z (the same functions for detect, compress, decompress and query; its
+detect answers as that codec's) with another ZPAQL, for blocks whose
+segments zpaq-std passes through zpaq's level 1 LZ77 (the `-m1` method,
+`rb` = 0), matches reaching back into the segments before in the block.
 
 | index | codec | takes |
 |---|---|---|
 | 0 | `pja` | Huffman and arithmetic JPEG, 8-bit, as 0.0.1 |
 | 1 | `pjals` | JPEG-LS, as 0.0.1 |
-| 2 | `pjax` | Huffman JPEG that needs stream version 6: 12-bit, a height in a DNL, a DRI the encoder did not follow, or 256 KiB or more of JPEGs after the EOI (an MPO's or Ultra HDR's next images); photos with only EXIF thumbnails stay with pja |
-| 3 | `pjall` | lossless JPEG (SOF3, Huffman): 2 to 16 bits, predictors 1 to 7, point transform, restarts, DNL; no other codec takes it |
-| 4 | `pjalsx` | JPEG-LS whose components are subsampled (T.87's sampling factors), no interleave or line interleave; no other codec takes it |
+| 2 | `pjax` | Huffman JPEG that needs stream version 6 (12-bit, DNL, a DRI not followed, 256 KiB or more of JPEGs after the EOI) |
+| 3 | `pjall` | lossless JPEG (SOF3, Huffman) |
+| 4 | `pjalsx` | JPEG-LS with subsampled components |
+| 5 | `pjaz` | what `pja` takes; block: `pja` segments through the LZ77 |
+| 6 | `pjalsz` | what `pjals` takes; likewise |
+| 7 | `pjaxz` | what `pjax` takes; likewise |
+| 8 | `pjallz` | what `pjall` takes; likewise |
+| 9 | `pjalsxz` | what `pjalsx` takes; likewise |
+
 
 Suggested `-sat` order: `pjax`, `pja`, `pjall`, `pjals`, `pjalsx`
 (pjax's detect takes only what pja cannot take or what gains enough to
 pay pjax's ZPAQL; the rest falls to pja; pjall, pjals and pjalsx take
-what no other codec does). 0.0.6 adds pjalsx: pja, pjals, pjax and
+what no other codec does). The z codecs are not in that order: zpaq-std
+takes a group's files by their codec and uses its z codec for the block
+when the LZ77 wins. 0.0.6 adds pjalsx: pja, pjals, pjax and
 pjall, their streams and their ZPAQL are 0.0.5's.
 0.0.7 changes only the `pja` command (wildcards on Windows): the plugin
 is 0.0.6's but for the version its info card shows.
@@ -37,12 +50,31 @@ carry the leading underscore `dlsym` looks for there
 (`_zpaqstd_codecs_v1`, `_zpaqstd_codec_v1`, `_zpaqstd_detect_v1`);
 other platforms export the same names as before. The streams, the ZPAQL
 and what each codec takes are 0.0.6's.
+0.2.0 adds libpja (a C library and 7-Zip codec, not part of this
+tarball): the plugin is 0.1.0's. The list of files here is the same as
+since 0.0.6; pjacodec, pjajpeg and pjamodel have changed inside since
+0.0.8 (stream version 7 for the command), with no effect on what the
+plugin writes or reads.
+0.3.0 makes libpja faster in 7-Zip (two streams, dedup, a thread
+pool). In these sources, one change: each thread that codes frees the
+model tables it kept for its next file (`ReleaseThreadModels` in
+pjamodel, called at the end of pjacodec's band threads), which
+FreePascal does not free when a thread ends. The streams, the ZPAQL and
+what each codec takes are 0.0.6's.
+0.4.0 adds the z codecs (5 to 9) and one file, `pas/plugin/lzzpaql.inc`,
+with their ZPAQL; `pja_zpaqstd.pas` lists them. Codecs 0 to 4, their
+streams, their ZPAQL and what each takes are 0.3.0's (0.0.6's). The same
+sources as the preview of commit `4468f35` but for the version number.
 
 | | |
 |---|---|
-| stream | `pja`, `pjals`: PJA codec stream version 5, unchanged (library fields `pja stream v5 full`, `pja stream v5 jpeg-ls`); `pjax`: version 5 or 6 (`pja stream v6 pjax`); `pjall`: version 5 (`pja stream v5 lossless jpeg`); `pjalsx`: version 5 (`pja stream v5 jpeg-ls subsampled`) |
-| ZPAQL | `pas/plugin/pjazpaql.inc` (pja, 62,294 bytes of PCOMP) and `pjalszpaql.inc` (pjals, 55,989), byte for byte 0.0.1's; `pjaxzpaql.inc` (pjax, 57,709), 0.0.3's; `pjallzpaql.inc` (pjall, 30,508), 0.0.5's; `pjalsxzpaql.inc` (pjalsx, 60,776); handed out as `ZS_DATA_ZPAQL_ARGS`; H sized per block by `query(ZS_QUERY_ZPAQL_ARGS)`; several segments a block (`query(ZS_QUERY_SEGMENTS)` = 1) |
-| frozen | these five ZPAQL programs and the streams they read do not change under these codec names: a new format is a new codec or a new ZPAQL with another name |
+| z ZPAQL | `pas/plugin/lzzpaql.inc`: `PJAZ_ZPAQL` 39,458 bytes of PCOMP, `PJALSZ_ZPAQL` 32,984, `PJAXZ_ZPAQL` 37,476, `PJALLZ_ZPAQL` 18,003, `PJALSXZ_ZPAQL` 36,110; handed out as `ZS_DATA_ZPAQL_ARGS`; config `comp 0 0 $3 $1 0` |
+| `$3` | the codec's own `query(ZS_QUERY_ZPAQL_ARGS)` on each segment (the codec's stream, before the LZ77), the largest of the block: the z decoders take H to the word as their codec's |
+| `$1` | the LZ77 window's bits: M is a ring of 2^$1 bytes; no match distance may reach 2^$1 and no segment come out larger than 2^$1 bytes |
+| errors | a match before the block's first byte, more than 23 bits of distance, and whatever the codec's decoder refuses |
+| native path | expand the LZ77 in C (the same ring), then the codec's `decompress()` on each segment, as today |
+| library | the codec's field with `, lz77` (`pja stream v5 full, lz77`, ...) |
+| frozen | these five z ZPAQL programs do not change under these names, nor 0 to 4's |
 
 ## Building
 
@@ -50,7 +82,7 @@ FreePascal 3.2.2. From this directory, with the commit the info card
 (`ZS_DATA_INFO`, `codecinfoex`) shows:
 
 ```sh
-export PJA_3d2676e=3d2676e
+export PJA_COMMIT=2d984a0
 mkdir -p build/lin build/win64 build/win32
 ```
 
@@ -84,7 +116,21 @@ in every build. x86-64 builds use PJA's assembly routines; the 32-bit
 build uses their Pascal versions (the same results, checked in PJA's
 suite).
 
-## Checked
+## Checked (the z codecs)
+
+libzpaq (zpaq 7.15's engine), each set as ONE block of its codec's
+segments through a test LZ77 (PJA's `tools/zpaql/lz77.py`, and the same
+in C): every file back, with $1 = 24 and with the smallest window that
+holds the largest segment (M wraps several times); pjaz also at 12 and 10
+bits. arithmetic 244 (17.70% of the JPEGs), generated 640 (16.77%), 73
+JPEG-LS (79.24%), 66 JPEG + 6 MPO through pjaxz (71.73%), 36 lossless
+JPEG (19.84%), 76 subsampled JPEG-LS (69.96%). 150 damaged segments per
+codec in blocks of 12 to 15: no hang; 144 to 150 errors, the rest the same
+file or other bytes with no error (as without the LZ77: zpaq's SHA-1
+catches them). PJA's suite decodes each z on a block of two files and the
+first again, in its ZPAQL interpreter.
+
+## Checked (0.3.0, codecs 0 to 4)
 
 pjalsx, with these sources: libzpaq (zpaq 7.15's engine) on 67
 subsampled JPEG-LS files (CharLS's, subsampled 2x4/2x1/1x2, 4:2:0, 4:2:2

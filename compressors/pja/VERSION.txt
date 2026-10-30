@@ -1,9 +1,11 @@
-PJA 0.1.0 (tag v0.1.0, commit 3d2676e), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.1.0-zpaqstd.tar.gz (sha256
-90a360902a439ec0e1ceb9f14d0269114e07413d5b0c88da50809582583e79ce), copied unmodified.
-For the plugin, 0.1.0 changes only its exports on macOS (Darwin's leading underscore);
-its new stream version 7 is for PJA's own command line tool. -sa writes the very
-archives of 0.0.8. Files:
+PJA 0.4.0 (tag v0.4.0, commit 2d984a0), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.4.0-zpaqstd.tar.gz (sha256
+123dfc52bab4930409974f61117b7021119944feeae314bb75a7eecff9bb47b4), copied unmodified.
+For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
+(they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
+(pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's
+level 1 LZ77 expander in front (pas/plugin/lzzpaql.inc). -sa uses one for a group
+when it takes fewer bytes; they are never used by themselves. Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 
@@ -15,6 +17,6 @@ DRI without RST), pja (JPEG), pjall (lossless JPEG), pjals (JPEG-LS) and pjalsx
 Rust or Free Pascal is built only as a plugin (codecs/pja.dll or pja.so, in the extra-codecs
 download), never linked into zpaq-std itself. Every block carries the codec's ZPAQL
 decoder (pas/plugin/pjazpaql.inc, pjaxzpaql.inc, pjallzpaql.inc, pjalszpaql.inc,
-pjalsxzpaql.inc), so any zpaq extracts it without the plugin; those five programs are
-frozen under these codec names.
+pjalsxzpaql.inc, and lzzpaql.inc for the z codecs), so any zpaq extracts it without
+the plugin; those ten programs are frozen under these codec names.
 Do not patch these files here: send changes to the PJA repository.

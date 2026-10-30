@@ -74,7 +74,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "1.9.4"
+#define ZPAQSTD_VERSION "1.10.0"
 #define ZPAQSTD_DATE "(2026-10-30)"
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.4m"
@@ -21370,6 +21370,7 @@ struct zs_sa_codec
 	int			level;
 	std::string cfg;	/// its ZPAQL configuration, "" if it gives none (-sat only)
 	bool		segs;	/// its ZPAQL handles several segments: consecutive files share a block
+	std::string zcfg;	/// -sa, stage 5: the ZPAQL of its "z" variant (LZ77 over the group), "" if none
 	zs_sa_codec() : level(0), segs(false) {}
 };
 int						 g_sa_mode= 0;	/// 'e' (-sae, and -sa), 't' (-sat) or 0
@@ -29756,12 +29757,15 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   /// -mae/-mat: "zpaqext:<$1>:<$2>:<original>:<sha1>", with the codec's own
   /// ZPAQL (g_ext_cfg) or ZPAQEXTNONE. -sae/-sat: "zpaqsa:<codec>:<$1>:<$2>:
   /// <original>:<sha1>", with the ZPAQL of g_sa[codec]
-  const bool es_sa=strncmp(method_, "zpaqsa:", 7)==0;
+  /// -sa, stage 5: "zpaqsaz:", the same fields, with the codec's "z" ZPAQL
+  const bool es_saz=strncmp(method_, "zpaqsaz:", 8)==0;
+  const bool es_sa=strncmp(method_, "zpaqsa:", 7)==0 || es_saz;
   if (strncmp(method_, "zpaqext:", 8)==0 || es_sa) {
     int a1=0, a2=0, a345=0, sa=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (es_sa ? (sscanf(method_+7, "%d:%d:%d:%d:%llu:%40s", &sa, &a1, &a2, &a345, &orig, hex)!=6 || sa<0 || sa>=(int)g_sa.size())
+    const char* fields=method_+(es_saz ? 8 : 7);
+    if (es_sa ? (sscanf(fields, "%d:%d:%d:%d:%llu:%40s", &sa, &a1, &a2, &a345, &orig, hex)!=6 || sa<0 || sa>=(int)g_sa.size())
               : sscanf(method_+8, "%d:%d:%d:%llu:%40s", &a1, &a2, &a345, &orig, hex)!=5)
       error("bad zpaqext method");
     if (strlen(hex)!=40)
@@ -29776,7 +29780,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     /// the bytes of each segment (sa_comprimir_grupo)
     std::vector<int64_t> segs;
     if (es_sa) {
-      const char* q=method_+7;
+      const char* q=fields;
       for (int k=0; k<6 && q; ++k) { q=strchr(q, ':'); if (q) ++q; }
       if (q && *q=='s') {
         ++q;
@@ -29787,7 +29791,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
         }
       }
     }
-    const std::string& ecfg=es_sa ? g_sa[sa].cfg : g_ext_cfg;
+    const std::string& ecfg=es_saz ? g_sa[sa].zcfg : es_sa ? g_sa[sa].cfg : g_ext_cfg;
     const std::string cfg=ecfg.empty() ? std::string(ZPAQEXTNONE) : ecfg;
     int args[9]={0};
     args[0]=a1;
@@ -30235,6 +30239,28 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 	zs_ext_lock().leave();
 	return r;
 }
+/// A codec that is only the "z" variant of another of its plugin: named <base>z,
+/// with <base>'s library and ", lz77" (PJA's pjaz, pjaxz...; before the
+/// library's last " (...)", if any). Its ZPAQL expects
+/// the LZ77 that -sa puts in front, so it is never used by itself (-mae, -sae...)
+static bool zs_ext_is_z(const std::string& i_file, const std::string& i_algo)
+{
+	if (i_algo.size()<2 || i_algo[i_algo.size()-1]!='z')
+		return false;
+	const zs_ext* xz=zs_ext_get(i_file, i_algo);
+	const zs_ext* xb=zs_ext_get(i_file, i_algo.substr(0, i_algo.size()-1));
+	if (!xz || !xz->c || !xb || !xb->c || !xz->c->library || !xb->c->library)
+		return false;
+	/// "pja stream v5 full, lz77 (YadeWira/PJA)" for "pja stream v5 full (YadeWira/PJA)"
+	std::string lb=xb->c->library, tail;
+	const size_t par=lb.rfind(" (");
+	if (par!=std::string::npos)
+	{
+		tail=lb.substr(par);
+		lb.erase(par);
+	}
+	return std::string(xz->c->library)==lb+", lz77"+tail;
+}
 /// ---- codecinfo / codecinfoex ------------------------------------------------
 /// One card per -ma switch. Levels and defaults are the ones the -ma parser
 /// applies (and README's table says); the library's version is read from the
@@ -30600,7 +30626,19 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 					oficial=true;
 					experimental=ZS_SA_OFFICIAL[q].experimental;
 				}
-			const std::string uses=std::string(oficial ? "-sa:"+names[k]+(experimental ? " (zpaq-std's, experimental), " : " (zpaq-std's), ") : "")+(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
+			/// a z variant (pjaz...) is part of its official base codec
+			const bool zvar=zs_ext_is_z(ext[i], names[k]);
+			const std::string zbase=zvar ? names[k].substr(0, names[k].size()-1) : std::string();
+			if (zvar)
+				for (size_t q=0; q<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); q++)
+					if (ext[i]==ZS_SA_OFFICIAL[q].file && zbase==ZS_SA_OFFICIAL[q].algo)
+					{
+						oficial=true;
+						experimental=ZS_SA_OFFICIAL[q].experimental;
+					}
+			std::string uses=std::string(oficial ? "-sa:"+names[k]+(experimental ? " (zpaq-std's, experimental), " : " (zpaq-std's), ") : "")+(xe->zpaql.empty() ? "-mat" : "-mae/-mat")+(xe->det ? (xe->zpaql.empty() ? ", -sat" : ", -sae/-sat") : "");
+			if (zvar)
+				uses="-sa with "+zbase+", where its LZ77 gains (not by itself)";
 			if (!i_ex)
 			{
 				myprintf("  %-24s %s, levels %d-%d, ZPAQL %s, for %s\n", full.c_str(), c->library ? c->library : "?",
@@ -30608,7 +30646,13 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				shown++;
 				continue;
 			}
-			if (oficial)
+			if (oficial && zvar)
+			{
+				myprintf("%s (zpaq-std's: the LZ77 variant -sa:%s uses where it gains, plugin %s%s from the extra-codecs download)\n",
+				         names[k].c_str(), zbase.c_str(), ext[i].c_str(), ZS_PLUGIN_EXT);
+				zs_card_line("status", experimental ? "EXPERIMENTAL: not recommended yet" : "stable");
+			}
+			else if (oficial)
 			{
 				myprintf("-sa:%s (zpaq-std's codec for specific formats, plugin %s%s from the extra-codecs download)\n", names[k].c_str(), ext[i].c_str(), ZS_PLUGIN_EXT);
 				zs_card_line("status", experimental ? "EXPERIMENTAL: not recommended yet" : "stable");
@@ -30745,6 +30789,245 @@ static bool zs_ext_run(const std::string& i_cfg, int i_a1, int i_a2, int i_a345,
 			*o_err=ex.what();
 		return false;
 	}
+}
+
+
+/// -sa, stage 5 (pjaz, with pja): a group's segments go through zpaq's level-1
+/// LZ77 (libzpaq's LZBuffer with rb = 0, the -m1 format) before the block, and
+/// the block carries the codec's "z" ZPAQL (the LZ77 expander, then the same
+/// decoder): used when it takes fewer bytes. Each segment's codes start afresh
+/// (padded to a byte at its end), but a match may reach back into the block's
+/// earlier segments: the ZPAQL keeps them in M, a ring of 2^$1 bytes.
+/// The "z" ZPAQL: codec <algo>z of the same plugin, which gives only that (its
+/// detect, compress and decompress are <algo>'s); none, and -sa is as before
+static std::string sa_zcfg(const std::string& i_file, const std::string& i_algo)
+{
+	const zs_ext* xz=zs_ext_get(i_file, i_algo+"z");
+	if (xz && xz->c && !xz->zpaql.empty() && zs_ext_is_z(i_file, i_algo+"z"))
+		return xz->zpaql;
+	return "";
+}
+struct sa_lz_bits
+{
+	std::string& o;
+	uint64_t bits;
+	int nb;
+	explicit sa_lz_bits(std::string& i_o) : o(i_o), bits(0), nb(0) {}
+	void put(uint32_t x, int k)
+	{
+		bits|=(uint64_t)(x&((1u<<k)-1))<<nb;
+		nb+=k;
+		while (nb>7)
+		{
+			o+=(char)(bits&255);
+			bits>>=8;
+			nb-=8;
+		}
+	}
+	void flush()
+	{
+		if (nb)
+			o+=(char)(bits&255);
+		bits=0;
+		nb=0;
+	}
+	/// n in interleaved Elias gamma: its leading 1 implied, each further bit after a 1, a 0 at the end
+	void gamma(uint32_t n)
+	{
+		int k=0;
+		while ((n>>k)>1)
+			k++;
+		while (--k>=0)
+		{
+			put(1, 1);
+			put((n>>k)&1, 1);
+		}
+		put(0, 1);
+	}
+};
+/// The segments of a group, one after the other in i_all (segment k from i_from[k]),
+/// as the LZ77 above; o_sz: the bytes of each. Greedy, a hash of 8 bytes, chains of
+/// 64, matches of 8 or more (pja's test encoder, pjaz-lzenc.c): a distance stays
+/// below 2^i_wb minus the size of its segment, so the ring never overwrites it
+static void sa_lz_encode(const char* i_all, size_t i_n, const std::vector<size_t>& i_from, int i_wb, std::string& o_out, std::vector<int64_t>& o_sz)
+{
+	const int HB=22;
+	const unsigned char* a=(const unsigned char*)i_all;
+	std::vector<int32_t> head((size_t)1<<HB, -1), prev(i_n, -1);
+	const size_t win=(size_t)1<<i_wb;
+	o_out.clear();
+	o_sz.clear();
+	sa_lz_bits w(o_out);
+	size_t i=0;
+	for (size_t s=0; s<i_from.size(); s++)
+	{
+		const size_t beg=i_from[s], end=s+1<i_from.size() ? i_from[s+1] : i_n;
+		const size_t before=o_out.size();
+		size_t l=0;	/// literals waiting
+		auto lits=[&](size_t i_at)
+		{
+			while (l)
+			{
+				const size_t k=std::min(l, (size_t)1<<23);
+				w.put(0, 2);
+				w.gamma((uint32_t)k);
+				for (size_t j=0; j<k; j++)
+					w.put(a[i_at-l+j], 8);
+				l-=k;
+			}
+		};
+		auto hash=[&](size_t q)
+		{
+			uint32_t h=0;
+			for (int t=0; t<8; t++)
+				h=h*0x9E3779B1u+a[q+t];
+			return h>>(32-HB);
+		};
+		while (i<end)
+		{
+			uint32_t best=0, boff=0;
+			if (i+8<=end)
+			{
+				const uint32_t h=hash(i);
+				int tries=64;
+				for (int32_t p=head[h]; p>=0 && tries--; p=prev[p])
+				{
+					const size_t off=i-(size_t)p;
+					if (off+(end-beg)>=win || off>=((size_t)1<<24))
+						break;
+					uint32_t m=0;
+					while (i+m<end && a[p+m]==a[i+m] && m<(1u<<20))
+						m++;
+					if (m>best)
+					{
+						best=m;
+						boff=(uint32_t)off;
+					}
+				}
+				prev[i]=head[h];
+				head[h]=(int32_t)i;
+			}
+			if (best>=8)
+			{
+				lits(i);
+				/// mm, mmm (lo + 8 = 8mm + mmm), n (len/4), ll (len&3), q (lo bits)
+				int lo=0;
+				while ((boff>>(lo+1))!=0)
+					lo++;
+				w.put((uint32_t)(lo+8)>>3, 2);
+				w.put((uint32_t)lo&7, 3);
+				w.gamma(best>>2);
+				w.put(best&3, 2);
+				if (lo)
+					w.put(boff, lo);
+				for (uint32_t k=1; k<best; k++)
+				{
+					const size_t q=i+k;
+					if (q+8<=end)
+					{
+						const uint32_t h=hash(q);
+						prev[q]=head[h];
+						head[h]=(int32_t)q;
+					}
+				}
+				i+=best;
+			}
+			else
+			{
+				l++;
+				i++;
+			}
+		}
+		lits(i);
+		w.flush();
+		o_sz.push_back((int64_t)(o_out.size()-before));
+	}
+}
+/// And back, natively: the segments of the LZ77 (i_sz bytes each) into o_out, one
+/// after the other; o_sz: the bytes of each. False on anything the ZPAQL would not
+/// take (a match before the block's first byte, a code cut short, a segment over 2^i_wb)
+static bool sa_lz_expand(const char* i_in, size_t i_n, const std::vector<int64_t>& i_sz, int i_wb, size_t i_max, std::string& o_out, std::vector<int64_t>& o_sz)
+{
+	o_out.clear();
+	o_sz.clear();
+	const unsigned char* in=(const unsigned char*)i_in;
+	size_t ip=0;
+	for (size_t s=0; s<i_sz.size(); s++)
+	{
+		if (i_sz[s]<0 || ip+(size_t)i_sz[s]>i_n)
+			return false;
+		const size_t end=ip+(size_t)i_sz[s], beg=o_out.size();
+		uint64_t bits=0;
+		int nb=0;
+		auto need=[&](int k)
+		{
+			while (nb<k && ip<end)
+			{
+				bits|=(uint64_t)in[ip++]<<nb;
+				nb+=8;
+			}
+			return nb>=k;
+		};
+		auto get=[&](int k)
+		{
+			const uint32_t v=(uint32_t)(bits&((((uint64_t)1)<<k)-1));
+			bits>>=k;
+			nb-=k;
+			return v;
+		};
+		auto gamma=[&](uint32_t& n)
+		{
+			n=1;
+			for (;;)
+			{
+				if (!need(1))
+					return false;
+				if (!get(1))
+					return true;
+				if (!need(1) || n>(1u<<24))
+					return false;
+				n=n*2+get(1);
+			}
+		};
+		/// a code starts while 8 bits or more are left: fewer are the padding
+		while (ip<end || nb>=8)
+		{
+			if (!need(2))
+				return false;
+			const uint32_t mm=get(2);
+			uint32_t n;
+			if (mm==0)
+			{
+				if (!gamma(n) || o_out.size()-beg+n>((size_t)1<<i_wb) || o_out.size()+n>i_max)
+					return false;
+				for (uint32_t j=0; j<n; j++)
+				{
+					if (!need(8))
+						return false;
+					o_out+=(char)get(8);
+				}
+			}
+			else
+			{
+				if (!need(3))
+					return false;
+				const int lo=(int)(mm*8-8+get(3));
+				if (lo>23 || !gamma(n) || !need(2))
+					return false;
+				n=n*4+get(2);
+				if (!need(lo))
+					return false;
+				const size_t off=((size_t)1<<lo)|(lo ? get(lo) : 0);
+				if (off>o_out.size() || o_out.size()-beg+n>((size_t)1<<i_wb) || o_out.size()+n>i_max)
+					return false;
+				size_t p=o_out.size()-off;
+				for (uint32_t j=0; j<n; j++)
+					o_out+=o_out[p++];
+			}
+		}
+		o_sz.push_back((int64_t)(o_out.size()-beg));
+	}
+	return ip==i_n;
 }
 
 /////// main source
@@ -71790,6 +72073,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 			myprintf("00619! -ma%c:%s:%s: %s\n", g_ext_mode, g_ext_file.c_str(), g_ext_algo.c_str(), xe->why.c_str());
 			seppuku(2);
 		}
+		if (zs_ext_is_z(g_ext_file, g_ext_algo))
+		{
+			myprintf("00619! -ma%c:%s:%s: %s is the LZ77 variant of %s, which -sa uses by itself where it\n"
+			         "       gains; it is not a codec of its own\n", g_ext_mode, g_ext_file.c_str(), g_ext_algo.c_str(),
+			         g_ext_algo.c_str(), g_ext_algo.substr(0, g_ext_algo.size()-1).c_str());
+			seppuku(2);
+		}
 		const zs_codec* c=xe->c;
 		if (g_ext_level==INT_MIN)
 			g_ext_level=(c->min_level<=1 && c->max_level>=1) ? 1 : c->min_level;
@@ -71872,6 +72162,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 				myprintf("00730! -sa%c:%s:%s: %s\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), xe->why.c_str());
 				seppuku(2);
 			}
+			if (zs_ext_is_z(sc.file, sc.algo))
+			{
+				myprintf("00730! -sa%c:%s:%s: %s is the LZ77 variant of %s, which -sa uses by itself where it\n"
+				         "       gains; write %s instead\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str(),
+				         sc.algo.substr(0, sc.algo.size()-1).c_str(), sc.algo.substr(0, sc.algo.size()-1).c_str());
+				seppuku(2);
+			}
 			const zs_codec* c=xe->c;
 			if (!xe->det)
 			{
@@ -71909,6 +72206,18 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			sc.cfg=xe->zpaql;
 			sc.segs=xe->segs && !xe->zpaql.empty();
+			if (sc.segs)
+			{
+				sc.zcfg=sa_zcfg(sc.file, sc.algo);
+				if (!sc.zcfg.empty() && !zs_ext_compile(sc.zcfg, 24, 20, 20|(20<<8)|(20<<16), NULL, &err))
+				{
+					myprintf("00731! -sa%c:%s:%s: the ZPAQL of %sz does not compile: %s\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str(), err.c_str());
+					seppuku(2);
+				}
+				if (g_sa_mode=='t' && !sc.zcfg.empty())
+					myprintf("00733: -sat:%s:%s: and %sz, LZ77 over each group's segments, where it takes fewer bytes\n",
+					         sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str());
+			}
 			if (g_sa_official)
 				for (size_t k=0; k<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); k++)
 					if (sc.algo==ZS_SA_OFFICIAL[k].algo && ZS_SA_OFFICIAL[k].experimental)
@@ -79785,6 +80094,7 @@ ThreadReturn decompressThread(void *arg)
 			char	extp_file[65]={0}, extp_algo[65]={0};
 			int		extp_lvl= 0, extp_a1= 0, extp_a2= 0, extp_z= 0, extp_a345= 0;
 			std::vector<std::pair<int64_t, int64_t> > extp_segs;	/// -sa, several files: original/segment bytes
+			int extp_lz= 0;	/// -sa stage 5 ("zpaqstd-sz"): the segments are LZ77 in a window of 2^extp_lz
 			int64_t zstp_orig= 0;
 			int64_t lzfp_orig= 0;
 			int64_t brop_orig= 0;
@@ -79990,13 +80300,23 @@ ThreadReturn decompressThread(void *arg)
 						/// "zpaqstd-sm<e|t>:" + the same fields + ":<segments>:<orig>/<bytes>,...".
 						/// The segments are read whole (ma_leer_todo): the plugin decodes each one
 						extp_segs.clear();
+						extp_lz=0;
 						size_t mm=cs.find("zpaqstd-sme:");
 						if (mm==string::npos)
 							mm=cs.find("zpaqstd-smt:");
+						/// -sa stage 5: the same fields, the segments LZ77 (sa_lz_encode); also one file alone
+						bool mz=false;
+						if (mm==string::npos)
+						{
+							mm=cs.find("zpaqstd-sze:");
+							if (mm==string::npos)
+								mm=cs.find("zpaqstd-szt:");
+							mz=(mm!=string::npos);
+						}
 						int nseg=0, used=0;
 						if (mm!=string::npos && sscanf(cs.c_str()+mm+12, "%64[^:]:%64[^:]:%d:%" SCNd64 ":%d:%d:%d:%d:%d:%n",
 						                               extp_file, extp_algo, &extp_lvl, &extp_orig, &extp_a1, &extp_a2, &extp_z, &extp_a345, &nseg, &used)>=9
-						    && used>0 && nseg>1 && nseg<=1000000)
+						    && used>0 && (nseg>1 || (mz && nseg==1)) && nseg<=1000000)
 						{
 							const char* q=cs.c_str()+mm+12+used;
 							int64_t tot=0;
@@ -80023,10 +80343,14 @@ ThreadReturn decompressThread(void *arg)
 								extp_sa=true;
 								ma_leer_todo=true;
 								const zs_ext* xe=zs_ext_get(extp_file, extp_algo);
-								if (xe && xe->c && extp_z && !xe->zpaql.empty())
+								if (mz)
+									extp_lz=(extp_a1>=16 && extp_a1<=24) ? extp_a1 : -1;
+								/// z: the shortcut only with the "z" ZPAQL of our plugin (sa_zcfg)
+								const std::string zcfg=mz ? sa_zcfg(extp_file, extp_algo) : (xe ? xe->zpaql : std::string());
+								if (xe && xe->c && extp_z && !zcfg.empty() && extp_lz>=0)
 								{
 									std::string bc;
-									if (zs_ext_compile(xe->zpaql, extp_a1, extp_a2, extp_a345, &bc, NULL))
+									if (zs_ext_compile(zcfg, extp_a1, extp_a2, extp_a345, &bc, NULL))
 									{
 										d.setExtraBytecode(bc);
 										d.setNativeShortcut(true);
@@ -80293,6 +80617,20 @@ ThreadReturn decompressThread(void *arg)
 				string decomp2;
 				decomp2.resize(extp_orig);
 				const int64_t t0=mtime();
+				if (extp_lz)
+				{
+					/// stage 5: the LZ77 back first (the segments as -sa writes them)
+					std::vector<int64_t> lsz, esz;
+					for (size_t i=0; i<extp_segs.size(); i++)
+						lsz.push_back(extp_segs[i].second);
+					string e;
+					if (extp_lz<0 || !sa_lz_expand((const char*)out.data(), out.size(), lsz, extp_lz, (size_t)1<<31, e, esz))
+						error("31322 external codec decompression failed (LZ77)");
+					for (size_t i=0; i<extp_segs.size(); i++)
+						extp_segs[i].second=esz[i];
+					out.reset();
+					out.write(e.data(), e.size());
+				}
 				if (!extp_segs.empty())
 				{
 					/// several files: each segment is the size (u32) and what the codec wrote
@@ -125317,19 +125655,22 @@ static std::atomic<int> g_sa_taken(0);	/// blocks a -sa codec compressed
 /// The block carries the ZPAQL once; $1..$5 are the largest any segment needs.
 /// Tag "zpaqstd-sm<e|t>:", which zpaq-std 1.4.0 to 1.6.0 do not know: they run the
 /// block's ZPAQL instead of their native shortcut, which takes one segment.
-static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, const string& i_names, int idx, const std::vector<size_t>& i_cuts)
+/// Also one file alone, when its codec has a "z" variant (i_one): then only if that
+/// wins (its ZPAQL is smaller than the codec's); false and nothing done otherwise,
+/// and the file goes as a block of one (sa_comprimir_bloque)
+static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, const string& i_names, int idx, const std::vector<size_t>& i_cuts, bool i_one=false)
 {
 	const zs_sa_codec& sc=g_sa[idx];
 	const zs_ext* xe=zs_ext_get(sc.file, sc.algo);
 	if (!xe || !xe->c || sc.cfg.empty() || sb.size()<=16 || sb.size()>0x7FFFFFFF)
-		return;
+		return false;
 	const zs_codec* zc=xe->c;
 	const int64_t orig_size=sb.size();
 	std::vector<size_t> from(1, 0);
 	for (size_t i=0; i<i_cuts.size(); i++)
 	{
 		if (i_cuts[i]<=from.back() || (int64_t)i_cuts[i]>=orig_size)
-			return;
+			return false;
 		from.push_back(i_cuts[i]);
 	}
 	const size_t nseg=from.size();
@@ -125349,7 +125690,7 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		const size_t n=(i+1<nseg ? from[i+1] : (size_t)orig_size)-from[i];
 		const size_t cap=zc->bound(n, sc.level);
 		if (cap==0 || cap>(size_t)1<<31)
-			return;
+			return false;
 		std::string t(cap+4, '\0');
 		const long long r=zc->compress((const char*)sb.data()+from[i], n, &t[4], cap, sc.level);
 		int q=0;
@@ -125362,7 +125703,7 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 				         (int)nseg, r<=0 ? "the codec failed" : "no $3..$5 from query()");
 				g_ext_print().leave();
 			}
-			return;
+			return false;
 		}
 		const uint32_t o=(uint32_t)n;
 		t[0]=(char)(o&255); t[1]=(char)((o>>8)&255); t[2]=(char)((o>>16)&255); t[3]=(char)(o>>24);
@@ -125381,7 +125722,50 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 	const int64_t t1=mtime();
 	const int a345=f3|(f4<<8)|(f5<<16);
 	const int64_t zbc=zs_ext_bcsize(xe, a1, a2, a345);
-	if ((int64_t)out.size()+zbc>=orig_size-16)
+	/// -sa, stage 5: the segments through the LZ77 (sa_lz_encode), if that
+	/// and the "z" ZPAQL take fewer bytes than the segments and the codec's ZPAQL.
+	/// The window: the group (16 MB at most), and more than its largest segment
+	bool z=false;
+	std::string zout;
+	std::vector<int64_t> zsz;
+	int zwb=0;
+	int64_t zzbc=0, tz=0;
+	if (!sc.zcfg.empty())
+	{
+		int64_t maxc=0;
+		for (size_t i=0; i<nseg; i++)
+			maxc=std::max(maxc, csz[i]);
+		zwb=std::max(zs_ext_log2((int64_t)out.size()), zs_ext_log2(maxc)+1);
+		if (zwb<16)
+			zwb=16;
+		if (zwb>24)
+			zwb=zs_ext_log2(maxc)+1<=24 ? 24 : 0;
+		if (zwb)
+		{
+			const int64_t tz0=mtime();
+			std::vector<size_t> zfrom(1, 0);
+			for (size_t i=0; i<segcuts.size(); i++)
+				zfrom.push_back(segcuts[i]);
+			sa_lz_encode(out.data(), out.size(), zfrom, zwb, zout, zsz);
+			tz=mtime()-tz0;
+			std::string bc;
+			if (zs_ext_compile(sc.zcfg, zwb, a2, a345, &bc, NULL))
+				zzbc=(int64_t)bc.size();
+			z=zzbc>0 && (int64_t)zout.size()+zzbc<(int64_t)out.size()+zbc;
+			if (g_sa_mode=='t')
+			{
+				g_ext_print().enter();
+				myprintf("00734: %s: %sz LZ77 (window 2^%d) %s -> %s bytes in %d ms, ZPAQL %s bytes (%s with %s): %s\n",
+				         fname.c_str(), sc.algo.c_str(), zwb, migliaia((int64_t)out.size()), migliaia2((int64_t)zout.size()), (int)tz,
+				         migliaia3(zzbc), migliaia4(zbc), sc.algo.c_str(), z ? "taken" : "no gain");
+				g_ext_print().leave();
+			}
+		}
+	}
+	if (i_one && !z)
+		return false;
+	const int64_t bsize=z ? (int64_t)zout.size()+zzbc : (int64_t)out.size()+zbc;
+	if (bsize>=orig_size-16)
 	{
 		if (g_sa_mode=='t')
 		{
@@ -125390,11 +125774,18 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 			         fname.c_str(), sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), (int)nseg, migliaia3(zbc));
 			g_ext_print().leave();
 		}
-		return;
+		return false;
 	}
 	/// always back with the plugin, segment by segment: a block that does not come back is not written
+	/// (z: from the LZ77 expanded natively, as extracting does)
 	const int64_t t2=mtime();
 	bool pok=true;
+	if (z)
+	{
+		std::string back;
+		std::vector<int64_t> bsz;
+		pok=sa_lz_expand(zout.data(), zout.size(), zsz, zwb, out.size(), back, bsz) && back==out && bsz==csz;
+	}
 	{
 		size_t off=0;
 		for (size_t i=0; i<nseg && pok; i++)
@@ -125412,11 +125803,23 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 	if (g_sa_mode=='t' && pok)
 	{
 		/// -sat: and with the ZPAQL over all the segments, as another zpaq would
-		std::string zout, zerr;
-		const bool ran=zs_ext_run(sc.cfg, a1, a2, a345, out.data(), out.size(), zout, &zerr, &segcuts);
+		std::string zo, zerr;
+		bool ran;
+		if (z)
+		{
+			std::vector<size_t> zcuts;
+			size_t c=0;
+			for (size_t i=0; i+1<nseg; i++)
+				zcuts.push_back(c+=(size_t)zsz[i]);
+			ran=zs_ext_run(sc.zcfg, zwb, a2, a345, zout.data(), zout.size(), zo, &zerr, &zcuts);
+		}
+		else
+			ran=zs_ext_run(sc.cfg, a1, a2, a345, out.data(), out.size(), zo, &zerr, &segcuts);
 		t5=mtime();
-		zok=ran && zout.size()==(size_t)orig_size && memcmp(zout.data(), sb.data(), (size_t)orig_size)==0;
-		zres=!ran ? "ZPAQL ERROR ("+zerr+")" : zok ? "ZPAQL OK" : "ZPAQL WRONG ("+std::string(migliaia((int64_t)zout.size()))+" bytes)";
+		zok=ran && zo.size()==(size_t)orig_size && memcmp(zo.data(), sb.data(), (size_t)orig_size)==0;
+		zres=!ran ? "ZPAQL ERROR ("+zerr+")" : zok ? "ZPAQL OK" : "ZPAQL WRONG ("+std::string(migliaia((int64_t)zo.size()))+" bytes)";
+		if (z)
+			zres=sc.algo+"z "+zres;
 	}
 	if (!pok || !zok)
 	{
@@ -125425,14 +125828,21 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		         "       it is compressed as -m says\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), migliaia(orig_size), (int)nseg,
 		         fname.c_str(), pok ? "plugin OK" : "plugin WRONG", pok ? ", " : "", pok ? zres.c_str() : "");
 		g_ext_print().leave();
-		return;
+		return false;
+	}
+	if (z)
+	{
+		out.swap(zout);
+		csz=zsz;
+		a1=zwb;
 	}
 	if (g_sa_mode=='t')
 	{
 		g_ext_print().enter();
-		myprintf("00734: %s: %s, %s -> %s bytes (%.1f%%) in %d files, one segment each, compress %d ms; plugin decode %d ms OK; %s %d ms\n",
-		         fname.c_str(), sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), 100.0*out.size()/orig_size, (int)nseg,
-		         (int)(t1-t0), (int)(t3-t2), zres.c_str(), (int)(t5-t3));
+		const std::string files=nseg==1 ? std::string("alone") : "in "+itos((int64_t)nseg)+" files, one segment each";
+		myprintf("00734: %s: %s, %s -> %s bytes (%.1f%%) %s, compress %d ms; plugin decode %d ms OK; %s %d ms\n",
+		         fname.c_str(), z ? (sc.algo+"z").c_str() : sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), 100.0*out.size()/orig_size, files.c_str(),
+		         (int)(t1-t0+tz), (int)(t3-t2), zres.c_str(), (int)(t5-t3));
 		g_ext_print().leave();
 	}
 	++g_sa_taken;
@@ -125450,10 +125860,13 @@ static void sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		ss+=(i ? "," : "s")+itos(csz[i]);
 		st+=(i ? "," : "")+itos(osz[i])+"/"+itos(csz[i]);
 	}
-	m="zpaqsa:"+itos(idx)+":"+itos(a1)+":"+itos(a2)+":"+itos(a345)+":"+itos(orig_size)+":"+hx+":"+ss;
-	comment=std::string("zpaqstd-sm")+(char)g_sa_mode+":"+sc.file+":"+sc.algo+":"
+	/// z: "zpaqsaz:" (the block carries sc.zcfg) and tag "zpaqstd-sz<e|t>:", the same
+	/// fields as "zpaqstd-sm"; a version that does not know it runs the block's ZPAQL
+	m=std::string(z ? "zpaqsaz:" : "zpaqsa:")+itos(idx)+":"+itos(a1)+":"+itos(a2)+":"+itos(a345)+":"+itos(orig_size)+":"+hx+":"+ss;
+	comment=std::string(z ? "zpaqstd-sz" : "zpaqstd-sm")+(char)g_sa_mode+":"+sc.file+":"+sc.algo+":"
 	        +(sc.level<0 ? "-"+itos(-sc.level) : itos(sc.level))+":"+itos(orig_size)+":"+itos(a1)+":"+itos(a2)+":1:"+itos(a345)
 	        +":"+itos((int64_t)nseg)+":"+st+" "+comment;
+	return true;
 }
 void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const string& i_block)
 {
@@ -125497,6 +125910,9 @@ void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const str
 		sa_comprimir_grupo(sb, m, comment, fname, idx, cuts);
 		return;
 	}
+	/// one file, and its codec has a "z" variant: as a group of one, if z wins
+	if (g_sa[idx].segs && !g_sa[idx].zcfg.empty() && sa_comprimir_grupo(sb, m, comment, fname, idx, cuts, true))
+		return;
 	const zs_sa_codec& sc=g_sa[idx];
 	const zs_ext* xe=zs_ext_get(sc.file, sc.algo);
 	if (!xe || !xe->c || sb.size()<=16 || sb.size()>0x7FFFFFFF)
@@ -127416,18 +127832,33 @@ int Jidac::add()
 		/// so no such codec can take it: it goes as -m/-ma say. Checked here, before it
 		/// joins a block; before, it was noticed while the file was being added, and the
 		/// whole block went as -m, every file a codec had taken with it too, silently
+		/// -sa stage 5: with a "z" ZPAQL the LZ77 of the group takes back what
+		/// repeats, so such a file goes in whole (sa_force: every fragment stored anew),
+		/// unless none of it is new (then dedup keeps all of it)
+		bool sa_force= false;
 		if (sa_file >= 0 && use_fraglist)
 		{
 			std::set<std::string> own;
+			bool dup= false, fresh= false;
 			for (size_t q= 0; q < fraglist.size(); ++q)
 				if (htinv.find(fraglist[q].sha1) || !own.insert(std::string(fraglist[q].sha1, 20)).second)
-				{
-					if (g_sa_mode == 't')
-						myprintf("00734: %s: %s would take it, but part of it is already in the archive: compressed as -m says\n",
-						         vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
-					sa_file= -1;
-					break;
-				}
+					dup= true;
+				else
+					fresh= true;
+			if (dup && fresh && !g_sa[sa_file].zcfg.empty())
+			{
+				sa_force= true;
+				if (g_sa_mode == 't')
+					myprintf("00734: %s: part of it is already in the archive, but %sz takes it whole\n",
+					         vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+			}
+			else if (dup)
+			{
+				if (g_sa_mode == 't')
+					myprintf("00734: %s: %s would take it, but part of it is already in the archive: compressed as -m says\n",
+					         vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+				sa_file= -1;
+			}
 		}
 
 		// OPTIMIZED MAIN LOOP
@@ -127855,6 +128286,8 @@ int Jidac::add()
 					memcpy(sha1result, sha1.result(), 20);
 				}
 				htptr= htinv.find(sha1result);
+				if (sa_force)
+					htptr= 0;	/// -sa stage 5: the file goes whole into its block
 			}
 
 			/// OK, lets RE-compute CRC-32 of the fragment, and store

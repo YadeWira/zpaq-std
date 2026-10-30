@@ -2,7 +2,7 @@
 # CI: the Free Pascal plugins (sylz with sylzec, and pja), built with make fpc-plugins,
 # load in the full program, and sylz and sylzec compress and extract a fixed tree at
 # several levels. The archives' SHA-256 go to plughashes-<platform>.txt, for
-# same_bytes.sh. pja: its five codecs must be listed by codecinfo.
+# same_bytes.sh. pja: its ten codecs (five and their z variants) must be listed by codecinfo.
 #   test/ci/plugin_check.sh <zpaq-std binary> <codecs dir> <platform name>
 # NOPJA=1 leaves pja out (macOS, until a PJA release exports Darwin's names).
 set -u
@@ -19,7 +19,7 @@ info=$(./zpaq-std codecinfo 2>&1 | tr -d '\r')
 for c in sylz sylzec; do
   echo "$info" | grep -E "^$c " | grep -v MISSING | grep -q "codecs/sylz" || { echo "FAIL $c not loaded from codecs/"; bad=$((bad+1)); }
 done
-[ -n "${NOPJA:-}" ] || for c in pja pjax pjall pjals pjalsx; do
+[ -n "${NOPJA:-}" ] || for c in pja pjax pjall pjals pjalsx pjaz pjaxz pjallz pjalsz pjalsxz; do
   echo "$info" | grep -qE "^ +pja:$c +pja stream" || { echo "FAIL pja:$c not loaded"; bad=$((bad+1)); }
 done
 if [ $bad != 0 ]; then   # why: the exported names, and what dlopen says
@@ -69,7 +69,8 @@ PY
   elif command -v convert >/dev/null; then convert pat.tif -quality 90 jpg/pat.jpg; fi
   if [ -s jpg/pat.jpg ]; then
     ./zpaq-std a s.zpaq jpg -sat:pja:pjax+2:pja+2:pjall+2:pjals+2:pjalsx+2 -nomore >sa.log 2>&1
-    grep -q "jpg/pat.jpg: pja,.*plugin decode .* OK" sa.log || { echo "FAIL -sa: no pja block for the JPEG"; grep -i "pat.jpg" sa.log; bad=$((bad+1)); }
+    # since 1.10.0 a file alone also goes as pjaz (the LZ77 variant) when that takes fewer bytes
+    grep -qE "jpg/pat.jpg: pjaz?,.*plugin decode .* OK; (pjaz )?ZPAQL OK" sa.log || { echo "FAIL -sa: no pja block for the JPEG"; grep -i "pat.jpg" sa.log; bad=$((bad+1)); }
     rm -rf x; ./zpaq-std x s.zpaq -to x -nomore >/dev/null 2>&1
     cmp -s jpg/pat.jpg x/jpg/pat.jpg && echo "-sa with pja: $(wc -c < jpg/pat.jpg) bytes back identical" || { echo "FAIL -sa x"; bad=$((bad+1)); }
   else echo "no JPEG tool: -sa with pja not checked"; fi

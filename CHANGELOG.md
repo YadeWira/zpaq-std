@@ -1,3 +1,31 @@
+### [1.10.0] - 2026-10-30
+
+**`-sa` finds what repeats across files after modelling them.** The same picture saved again (progressive or not, other tables, other restart markers) gives JPEGs that differ byte for byte, but PJA turns them into streams with long stretches in common. 1.10.0 runs zpaq's level 1 LZ77 (the `-m1` method) over the PJA streams of a block's files, and a match may reach back into the files before it in the block. The block then carries PJA's decoder with an LZ77 expander in front (PJA 0.4.0's "z" codecs), so any zpaq still extracts it.
+
+- **Automatic:** `-sa`, `-sae` and `-sat` use the z variant of a block's codec (`pjaz`, `pjaxz`, `pjallz`, `pjalsz`, `pjalsxz`) only when it takes fewer bytes, LZ77 output and decoder together. Otherwise the block is written as in 1.9.4.
+- **Smaller decoders:** the z decoders are 37–44% smaller than the codecs' own (`pjaz` 39,458 bytes, `pja` 62,294), thanks to ideas from [issue #4](https://github.com/YadeWira/zpaq-std/issues/4). So a file alone in its block also goes as z when that wins, even with nothing to match.
+- **A file that shares fragments with the archive** now joins its group whole when its codec has a z variant: the LZ77 takes back what repeats. 1.9.4 sent it alone to `-m`. A file whose every fragment is already stored is still deduplicated, as before.
+- **Results**, with PJA's test sets (`-sa -t8`, archive size as a share of the original):
+
+| Set | 1.9.4 | 1.10.0 | PJA's own tool |
+|---|---|---|---|
+| 244 arithmetic-coded JPEGs | 71.3% | **18.6%** | 76.5% |
+| 640 generated JPEGs | 72.3% | **17.7%** | 75.6% |
+| 78 corpus files | 71.3% | **70.7%** | 72.1% |
+| 151 photos | 75.5% | **75.3%** | 75.0% |
+| 6 MPOs | 80.7% | **80.5%** | 74.1% |
+
+- **Extracting** with the plugin, zpaq-std expands the LZ77 itself and hands each file to PJA as before: it takes the same time as 1.9.4's blocks. Without the plugin, any zpaq runs the block's ZPAQL. zpaq 7.15 and zpaq-std 1.7.0 to 1.9.4 read these blocks that way (tag `zpaqstd-sz<e|t>:`, unknown to them).
+- **The z codecs are never used by themselves:** `-mae:pja:pjaz` or `-sat:pja:pjaz` are refused, since their decoder expects the LZ77 that `-sa` adds. `codecinfo` lists them as part of `-sa`.
+- **PJA 0.4.0:** adds the z codecs (`pas/plugin/lzzpaql.inc`). It also brings 0.3.0's fix: each coding thread now frees its model tables when it ends (they leaked, and on 32 bits ran out of memory). The streams and the five ZPAQL decoders of 0.0.6 to 0.2.0 are unchanged.
+- **`-sat`** says what the LZ77 did for each block ("pjaz LZ77 ... taken" or "no gain"), and checks a z block with the plugin after expanding the LZ77 natively, and with its ZPAQL.
+
+#### Checked
+
+- **PJA's five test sets:** every file extracts identically, natively. The z blocks also extract identically by their ZPAQL: in zpaq 7.15, and in zpaq-std 1.9.4 and 1.7.0 with the plugin, which do not know the tag. So does an archive with two versions, extracted from both.
+- **`suite_sa`:** three new cases. The same photo three times (1,192,206 bytes to 352,120) gives one z block, which extracts with the plugin, without it and in zpaq 7.15. A file that shares fragments with its group joins it whole. `pjaz` by itself is refused. 19/19, and still 17/17 with PJA 0.1.0's plugin, which has no z codecs.
+- **PJA 0.4.0:** vendored from its tag (`v0.4.0`, commit `2d984a0`, the tarball checked by its SHA-256), unmodified.
+
 ### [1.9.4] - 2026-10-30
 
 **`-sa` no longer loses whole groups to `-m`.** `-sa`, `-sae` and `-sat` put consecutive files a codec takes in one block. Before, if one of them had a fragment that was already stored, the whole block went as `-m`, silently. That fragment could be in the archive, in the same block, or earlier in the same file. The same picture re-encoded, or files that share headers or tables, triggered it all the time.
