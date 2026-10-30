@@ -1,6 +1,6 @@
-# PJA 0.4.0: the zpaq-std plugin, vendored
+# PJA 0.5.1: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.4.0`, commit `2d984a0`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.5.1`, commit `b52504c`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes (IJG for the arithmetic-coded JPEG,
 CharLS's BSD 3-Clause for JPEG-LS).
@@ -65,6 +65,23 @@ what each codec takes are 0.0.6's.
 with their ZPAQL; `pja_zpaqstd.pas` lists them. Codecs 0 to 4, their
 streams, their ZPAQL and what each takes are 0.3.0's (0.0.6's). The same
 sources as the preview of commit `4468f35` but for the version number.
+0.5.0 changes the `pja` command and libpja (JPEGs without their tables
+in libpja's filter; two encoder quirks repaired). In these sources:
+pjamodel's CodeRaw can leave out tables a caller gives
+(`SetGivenTables`), which the plugin never does, and pjacodec has a new
+stream version 6 mode (PATCH) that only `Compress` with parts writes:
+the plugin writes version 5 (and pjax its own), as before. The codecs,
+their streams, their ZPAQL and what each takes are 0.4.0's.
+0.5.1 changes the plugin only, and none of its streams or ZPAQL. pjax's
+detection takes the MPO it refused by an estimate that counted the second
+image twice (2^27 words of H where the stream asks for 2^25): more MPO go
+to pjax. The detections of pja, pjax and pjall verify a JPEG once (a few
+verdicts kept, by size and hash); pja's compress then only takes it apart
+(`pjacodec.CompressVerified`). A new optional export,
+`void zpaqstd_threads_v1(int n)` (cdecl; `_zpaqstd_threads_v1` on macOS):
+zpaq-std's number of threads, of which each compress() and decompress()
+takes n / (the calls running) for its file's bands. Without it, one
+thread a call, as before; the streams are the same with any number.
 
 | | |
 |---|---|
@@ -82,7 +99,7 @@ FreePascal 3.2.2. From this directory, with the commit the info card
 (`ZS_DATA_INFO`, `codecinfoex`) shows:
 
 ```sh
-export PJA_COMMIT=2d984a0
+export PJA_COMMIT=b52504c
 mkdir -p build/lin build/win64 build/win32
 ```
 

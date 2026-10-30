@@ -105537,6 +105537,15 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 		zs_codec_entry se=h ? (zs_codec_entry)dlsym(h, ZS_CODEC_ENTRY) : NULL;
 		zs_detect_entry de=h ? (zs_detect_entry)dlsym(h, ZS_DETECT_ENTRY) : NULL;
 #endif
+		/// optional (PJA 0.5.1): zpaq-std's threads, which the plugin shares among the calls running
+		typedef void (*zs_threads_entry)(int);
+#ifdef _WIN32
+		zs_threads_entry te=h ? (zs_threads_entry)(void*)GetProcAddress(h, "zpaqstd_threads_v1") : NULL;
+#else
+		zs_threads_entry te=h ? (zs_threads_entry)dlsym(h, "zpaqstd_threads_v1") : NULL;
+#endif
+		if (te)
+			te(g_sa_threads>0 ? g_sa_threads : 1);
 		if (!h)
 			e.why="cannot load "+path;
 		else

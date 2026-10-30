@@ -1,11 +1,13 @@
-PJA 0.4.0 (tag v0.4.0, commit 2d984a0), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.4.0-zpaqstd.tar.gz (sha256
-123dfc52bab4930409974f61117b7021119944feeae314bb75a7eecff9bb47b4), copied unmodified.
+PJA 0.5.1 (tag v0.5.1, commit b52504c), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.5.1-zpaqstd.tar.gz (sha256
+dfe4e806c69be975f5868350cd017ff48d9cb898f7be621d9929a973066e928e), copied unmodified.
 For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
 (they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
 (pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's
 level 1 LZ77 expander in front (pas/plugin/lzzpaql.inc). -sa uses one for a group
-when it takes fewer bytes; they are never used by themselves. Files:
+when it takes fewer bytes; they are never used by themselves. 0.5.1: pjax's detect
+measures the big MPOs right (they go to pjax), the detects share one check of the
+JPEG, and zpaqstd_threads_v1 (zpaq-std's -t) gives each call threads for its bands. Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 
