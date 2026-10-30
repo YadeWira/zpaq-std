@@ -1,6 +1,6 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.4.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.16.**
 
 A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **21 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
 
@@ -32,6 +32,15 @@ x86-64 (on Windows the archive also stores each file's creation and access dates
 `-ma:lz6:0`, `-ma:lz4f` and `-ma:lz5f`. Every platform reads what any other writes.
 
 ---
+
+## Defaults and languages
+
+- **Without `-m`, `a` writes `-m8`** (since 2.0.0, as zpaqfranz): zstd blocks with their
+  ZPAQL decoder, so any zpaq extracts them, very fast to extract. `-m1`..`-m5` are as
+  ever; `-m7` and `-m9` are two zstd levels by name. Before 2.0.0 the default was `-m1`.
+- **The help in five languages**: English, Italian, Russian, Spanish (neutral Latin
+  American) and Portuguese (Brazil), with `-eng`, `-it`, `-ru`, `-es`, `-pt`, the
+  `ZPAQFRANZ_LANG` variable (`en it ru es pt`), or the system's language.
 
 ## What it does
 
@@ -70,7 +79,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lizard:N` | [lizard-ex](https://github.com/YadeWira/lizard-ex) 2.3.2 (Lizard 2.1's format) | 10–49 | 17 |
 | `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.3 | 1–15 | 9 |
 | `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 |
-| `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.3 | 0–1 | 1 |
+| `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.4 | 0–1 | 1 |
 | `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.0 | 0–2 | 1 |
 | `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 |
 | `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 | 1–9 | 3 |
@@ -90,8 +99,8 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) 517948e | 1–9 | 9 |
 | `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.5.4), plugin only | 0–10 | 1 |
 | `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.5.4, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10 (zpaqfranz's `-m6`) | 1–12 | 9 |
-| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.17 (zpaqfranz's `-m7`) | 0–1 | 1 |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10.0 | 1–12 | 9 |
+| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.20 | 0–1 | 1 |
 
 What each codec's levels mean, and notes on some of them (kanzi, lzh, bz2):
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#codec-notes). `codecinfo` lists them all; `codecinfo <codec>`
@@ -116,7 +125,7 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.4.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.5.1, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
 | `-sa:pjax+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |

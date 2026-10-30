@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI: every built-in method (-m1..-m5 and each -ma switch that is not plugin-only)
+# CI: every built-in method (-m1..-m5, -m8 the default, and each -ma switch that is not plugin-only)
 # compresses a fixed tree and extracts it back identical. The archives' SHA-256 go to
 # hashes-<platform>.txt, so a later job can check that every platform writes the same
 # bytes.
@@ -23,7 +23,7 @@ esac
 cd "$W" || exit 1
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-64; }
 "$Z" 2>&1 | grep -m1 "zpaq-std v" || { echo "the binary does not run"; exit 1; }
-methods="-m1 -m2 -m3 -m4 -m5"
+methods="-m1 -m2 -m3 -m4 -m5 -m8"
 for c in $("$Z" codecinfo 2>/dev/null | tr -d '\r' | awk '/^[a-z0-9]+ +(stable|experimental) /{print $1}'); do
   case $c in sylz|sylzec) ;; *) methods="$methods -ma:$c";; esac
 done
