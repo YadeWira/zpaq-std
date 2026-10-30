@@ -93555,6 +93555,17 @@ extern "C" int UTIL_countPhysicalCores(void)
 extern "C" {
 #endif
 #include "compressors/zstd/zstd.h"
+/// One zstd: zpaqfranz's (1.5.7, namespace zzstd, for -m7 -m8 -m9) also serves -ma:zstd and its
+/// adapter (compressors/plug/zs_zstd.cpp), which call these four. compressors/zstd stays only for
+/// the zstd plugin of make plugins (a library of its own)
+#ifdef ZPAQZSTD
+extern "C" {
+size_t ZSTD_compress(void* dst, size_t dstCapacity, const void* src, size_t srcSize, int compressionLevel) { return zzstd::ZSTD_compress(dst, dstCapacity, src, srcSize, compressionLevel); }
+size_t ZSTD_decompress(void* dst, size_t dstCapacity, const void* src, size_t compressedSize) { return zzstd::ZSTD_decompress(dst, dstCapacity, src, compressedSize); }
+size_t ZSTD_compressBound(size_t srcSize) { return zzstd::ZSTD_compressBound(srcSize); }
+unsigned ZSTD_isError(size_t code) { return zzstd::ZSTD_isError(code); }
+}
+#endif
 /// -ma:lzav: LZAV (avaneev/lzav), its own library again since 2.0.0 (zpaqfranz dropped it, with -m7, in 65.5d)
 #define LZAV_NS_CUSTOM zlzav
 #include "compressors/lzav/lzav.h"

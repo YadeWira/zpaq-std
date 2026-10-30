@@ -94,6 +94,7 @@ LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c
 # LZMA SDK (-ma:lzma): single-threaded match finder, see compressors/lzmasdk/LEEME.md
 LZMASRC := compressors/lzmasdk/LzmaLib.c compressors/lzmasdk/LzmaEnc.c compressors/lzmasdk/LzmaDec.c compressors/lzmasdk/LzFind.c compressors/lzmasdk/LzFindOpt.c compressors/lzmasdk/Alloc.c compressors/lzmasdk/CpuArch.c
 ZSTDSRC := compressors/zstd/zstd.c
+# (since 2.0.0 the program uses zpaqfranz's zstd, embedded: compressors/zstd only builds the zstd plugin)
 # fl2 util.c uses POSIX (chown/lstat/__errno_location) not in MinGW.
 # Skip it on Windows cross-compile. fast-lzma2 only needs lzma2_*.c
 # and the range/dict_buffer helpers.
@@ -481,7 +482,7 @@ ifdef PLUGINS
 endif
 # Everything the program links. make plugins leaves out CORE_DROP: the adapters
 # and the libraries that went into plugins.
-LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDSRC) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
+LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
 $(PROG): $(filter-out $(CORE_DROP),$(LINKOBJS))
 	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(filter-out $(CORE_DROP),$(LINKOBJS)) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
