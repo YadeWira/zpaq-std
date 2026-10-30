@@ -1,3 +1,17 @@
+### [1.9.3] - 2026-10-30
+
+**pja on macOS:** PJA 0.1.0's plugin exports Darwin's symbol names, so `-sa` works on macOS too. `zpaq-std-v1.9.3-macos-arm64-extra-codecs.zip` now has pja next to sylz.
+
+- **PJA 0.1.0:** for the plugin it changes only those exports. Its new stream version 7 is for PJA's own command line tool. `-sa` writes the very archives of 1.9.2 everywhere: the 79-file corpus, and the 189-file set with lossless JPEGs and subsampled JPEG-LS.
+- **CI:** it now also checks `-sa` end to end on Linux x64, Linux AArch64 and macOS. It makes a JPEG there (a test pattern, with `sips` or ImageMagick), and pja must write its block, pass the plugin and ZPAQL checks, and give the file back identical.
+
+#### Checked
+
+- **PJA 0.1.0:** vendored from its tag (`v0.1.0`, commit `3d2676e`, the tarball checked by its SHA-256), unmodified. `suite_sa` 16/16 on Linux x64 and x86. `-sa` on the 79-file corpus gives the same archive on Linux x64, x86 and AArch64.
+- **macOS:** in CI, the release binary and its sylz and pja plugins pass every check above.
+- **Windows 7 x64 and x86**, release binaries and the PJA 0.1.0 DLLs, with MPO files (pjax and pja): x64 and x86 write the same archive. It extracts identically on both, and on Linux with zpaq 7.15 and 1.9.2.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 1.9.2: 182 comparisons, 0 divergences. All 288 cross extractions between Linux x64, x86 and AArch64 are identical.
+
 ### [1.9.2] - 2026-10-29
 
 **The plugin-only codecs on more platforms:** `extra-codecs` and `plugins` for Linux x86 and Linux AArch64, and sylz/sylzec for macOS. Also **the Linux x86 binary is optimised again** (1.9.1's was not) and **syc v0.5.4**.
