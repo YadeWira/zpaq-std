@@ -78,6 +78,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// build differ, and the release binaries are reproducible).
 #define ZPAQSTD_VERSION "1.10.0"
 #define ZPAQSTD_DATE "(2026-10-30)"
+extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.16i"
 #define ZPAQ_DATE "(2026-10-30)"
@@ -155265,6 +155266,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 
 		if (g_programflags.exists(parametro))
 			g_programflags.settrue(parametro);
+		if (parametro == "-timestamp")
+			g_timestampfijo= true; /// zpaq-std: see vinfo_riga
 	}
 	/// 65.6a: -turbo (and -sparse on Windows) are on by default, the -no ones turn them off everywhere
 	if (flagnoturbo)
@@ -157472,9 +157475,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 			myprintf("00730! -sa%c and -ma%c cannot be used together\n", g_sa_mode, g_ext_mode);
 			seppuku(2);
 		}
-		if (flagturbo || flagstdin || flagimage)
+		if (flagstdin || flagimage)
 		{
-			myprintf("00730! -sa%c does not work with %s\n", g_sa_mode, flagturbo ? "-turbo" : flagstdin ? "-stdin" : "an image");
+			myprintf("00730! -sa%c does not work with %s\n", g_sa_mode, flagstdin ? "-stdin" : "an image");
 			seppuku(2);
 		}
 		for (size_t q=0; q<g_sa.size(); q++)
@@ -191378,10 +191381,11 @@ void Jidac::vinfo_prima()
 }
 /// The VFILE-info record of the version, made when its index is: i_condata and i_senzadata are
 /// the records of that index (files and folders written, deletions)
+bool g_timestampfijo= false; /// zpaq-std: -timestamp was given (vinfo_riga)
 string Jidac::vinfo_riga(int64_t i_condata, int64_t i_senzadata)
 {
 	string riga= string(ZPAQINFO_TAG) + "1|v=" + itos(m_vinfoversione) + "|ps=" + itos(m_vinfops) + "|fr=" + itos(m_vinfofr) + "|iu=" + itos(i_condata) + "|id=" + itos(i_senzadata);
-	riga+= string("|zv=") + ZPAQ_VERSION + "|os=" + vinfo_os() + "|m=" + vinfo_pulito(method);
+	riga+= string("|zv=") + ZPAQ_VERSION + "|zs=" + ZPAQSTD_VERSION + "|os=" + vinfo_os() + "|m=" + vinfo_pulito(method);
 	if (subpart(archive, 0) != archive)
 		riga+= "|mp=1";
 	if (g_franzen != "")
@@ -191392,7 +191396,8 @@ string Jidac::vinfo_riga(int64_t i_condata, int64_t i_senzadata)
 		riga+= "|tar=1";
 	if (flagstdin)
 		riga+= "|si=1";
-	riga+= "|du=" + itos(mtime() - g_start) + "|ba=" + itos(total_done) + "|fa=" + itos(files_added) + "|fu=" + itos(files_updated) + "|fd=" + itos(removed);
+	/// zpaq-std: with -timestamp the archive is the same at every run (du is the time it took)
+	riga+= "|du=" + itos(g_timestampfijo ? (int64_t)0 : (int64_t)(mtime() - g_start)) + "|ba=" + itos(total_done) + "|fa=" + itos(files_added) + "|fu=" + itos(files_updated) + "|fd=" + itos(removed);
 	return riga;
 }
 
@@ -249833,6 +249838,12 @@ int Jidac::add2()
 	if (flagverbose)
 		myprintf("65392: -turbo with %d thread(s)%s\n", turbothreads, (g_turbothreads > 0) ? "" : " (as -t)");
 	std::vector<std::vector<s_add2frag> > turbolists((size_t)turbothreads);
+	/// -sae/-sat (and -sa): the block being filled holds only files that codec sa_blk_codec
+	/// took, the last one sa_blk_fi; sa_cuts: where each file after the first starts
+	int					sa_blk_fi= -1, sa_blk_codec= -1;
+	bool				sa_blk_ok= false;
+	std::vector<size_t> sa_cuts;
+	std::string			sa_names;
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
 	{
 		FP				in	  = FPNULL;
@@ -249902,6 +249913,49 @@ int Jidac::add2()
 				}
 			}
 			p->second.data= 1; // add in every case
+		}
+		/// -sae/-sat (and -sa): a codec for specific formats takes the file by its contents,
+		/// all of it, read here once (then the file is read again as always). If a fragment of
+		/// it is already stored, only its new fragments would go in: with a "z" codec the
+		/// LZ77 of the group takes back what repeats (sa_force: every fragment stored anew),
+		/// unless none of it is new; without one, the file goes as -m/-ma say
+		int	 sa_file = -1;
+		bool sa_force= false;
+		if (g_sa_mode && (fi < vf.size()) && (in != FPNULL) && (!flagstdin) && (!flagmemfile) && (!flagimage) && (!flagtarspecial)
+			&& (p->second.expectedsize > 16) && (p->second.expectedsize <= ZS_SA_MAXFILE))
+		{
+			std::vector<unsigned char> safb((size_t)p->second.expectedsize);
+			if (fread(&safb[0], 1, safb.size(), in) == safb.size())
+			{
+				sa_file= zs_sa_detect(&safb[0], safb.size());
+				if (sa_file >= 0)
+				{
+					std::vector<FrontFrag> safr;
+					fragment_buffer(&safb[0], safb.size(), MAX_FRAGMENT, MIN_FRAGMENT, h_threshold, check_boundary, safr);
+					std::set<std::string> own;
+					bool				  dup= false, fresh= false;
+					for (size_t q= 0; q < safr.size(); ++q)
+						if (htinv.find(safr[q].sha1) || !own.insert(std::string(safr[q].sha1, 20)).second)
+							dup= true;
+						else
+							fresh= true;
+					if (dup && fresh && !g_sa[sa_file].zcfg.empty())
+					{
+						sa_force= true;
+						if (g_sa_mode == 't')
+							myprintf("00734: %s: part of it is already in the archive, but %sz takes it whole\n",
+									 vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+					}
+					else if (dup)
+					{
+						if (g_sa_mode == 't')
+							myprintf("00734: %s: %s would take it, but part of it is already in the archive: compressed as -m says\n",
+									 vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+						sa_file= -1;
+					}
+				}
+			}
+			fseeko(in, 0, SEEK_SET);
 		}
 
 		/// EXPERIMENTAL: just a mockup
@@ -250046,8 +250100,19 @@ int Jidac::add2()
 					if (newsize >= blocksize)
 						newblock= true;
 				}
-				if (sb.size() + sz + 80 + frags * 4 >= blocksize)
+				/// -sae/-sat: a file a codec takes goes alone in its block, whatever its size (up to
+				/// ZS_SA_MAXFILE); so a new block before it and after it. Unless the same codec took
+				/// the files of the block being filled and its ZPAQL handles several segments
+				/// (sa_join): then the file joins them, if the whole of it fits
+				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
+								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (int64_t)blocksize;
+				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
+				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
+					newblock= true;
+				if (sa_join)
+					newblock= false;
 				if (fi == vf.size())
 					newblock= true;
 				if (frags < 1)
@@ -250074,9 +250139,24 @@ int Jidac::add2()
 						/// m[0]='0';
 					}
 
-					string ma_comment;	/// -turbo tambien con -ma (ver ma_comprimir_bloque)
-					ma_comprimir_bloque(sb, m, ma_comment);
+					string ma_comment;
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
+					if (sa_blk_fi >= 0 && sa_blk_ok)
+					{
+						/// -sae/-sat: the codec runs in the compressing thread (sa_comprimir_bloque);
+						/// "k<cut>,<cut>...:" where each file after the first starts
+						string k;
+						for (size_t c= 0; c < sa_cuts.size(); ++c)
+							k+= (c ? "," : "k") + itos((int64_t)sa_cuts[c]);
+						m= "zsapend:" + itos(sa_blk_codec) + ":" + (k.empty() ? "" : k + ":") + m;
+						if (g_sa_mode == 't')
+							sa_name_set(fn, sa_names);
+					}
+					else
+						ma_comprimir_bloque(sb, m, ma_comment); /// -ma (see ma_comprimir_bloque)
+					sa_blk_fi= -1;
+					sa_cuts.clear();
+					sa_names.clear();
 
 					if (flagdebug3)
 						myprintf("02087: operating on %s\n", fn.c_str());
@@ -250113,6 +250193,8 @@ int Jidac::add2()
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
+								if (m.compare(0, 8, "zsapend:") == 0)
+									sa_comprimir_bloque(my_cj_in, m, comment, fn);
 								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str());
 								job.csize.push_back(my_cj_out.size());
 								if (job.out && my_cj_out.size() > 0)
@@ -250150,6 +250232,23 @@ int Jidac::add2()
 					memset(o1prev, 0, sizeof(o1prev));
 				} // newblock
 
+				if (sa_start)
+				{
+					if (sa_join)
+					{
+						sa_cuts.push_back(sb.size());
+						sa_names+= "\n" + vf[fi]->first;
+					}
+					else
+						sa_names= vf[fi]->first;
+					sa_blk_fi	= (int)fi;
+					sa_blk_codec= sa_file;
+					if (!sa_join)
+						sa_blk_ok= true;
+					if (g_sa_mode == 't')
+						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+								 sa_join ? ", in the same block as the previous file" : "");
+				}
 				assert(sz == 0 || fi < vf.size());
 				sb.write(dati, sz);
 				++frags;
@@ -250453,7 +250552,7 @@ int Jidac::add2()
 				{
 					s_add2frag &uno= turbofrags[k];
 					total_done+= uno.len;
-					const unsigned htptr= htinv.find(uno.sha1);
+					const unsigned htptr= sa_force ? 0 : htinv.find(uno.sha1); /// -sa: the file goes whole into its block
 					if (turboimg)
 					{
 						imgrileggi(uno.start + uno.len);
@@ -250907,6 +251006,8 @@ int Jidac::add2()
 				assert((uint64_t)sz == sha1.usize());
 				memcpy(sha1result, sha1.result(), 20);
 				htptr= htinv.find(sha1result);
+				if (sa_force)
+					htptr= 0; /// -sa: the file goes whole into its block
 				imgdash.frammento(sz, htptr == 0);
 			}
 
@@ -250993,8 +251094,19 @@ int Jidac::add2()
 					if (newsize >= blocksize)
 						newblock= true;
 				}
-				if (sb.size() + sz + 80 + frags * 4 >= blocksize)
+				/// -sae/-sat: a file a codec takes goes alone in its block, whatever its size (up to
+				/// ZS_SA_MAXFILE); so a new block before it and after it. Unless the same codec took
+				/// the files of the block being filled and its ZPAQL handles several segments
+				/// (sa_join): then the file joins them, if the whole of it fits
+				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
+								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (int64_t)blocksize;
+				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
+				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
+					newblock= true;
+				if (sa_join)
+					newblock= false;
 				if (fi == vf.size())
 					newblock= true;
 				if (frags < 1)
@@ -251021,9 +251133,24 @@ int Jidac::add2()
 						/// m[0]='0';
 					}
 
-					string ma_comment;	/// -turbo tambien con -ma (ver ma_comprimir_bloque)
-					ma_comprimir_bloque(sb, m, ma_comment);
+					string ma_comment;
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
+					if (sa_blk_fi >= 0 && sa_blk_ok)
+					{
+						/// -sae/-sat: the codec runs in the compressing thread (sa_comprimir_bloque);
+						/// "k<cut>,<cut>...:" where each file after the first starts
+						string k;
+						for (size_t c= 0; c < sa_cuts.size(); ++c)
+							k+= (c ? "," : "k") + itos((int64_t)sa_cuts[c]);
+						m= "zsapend:" + itos(sa_blk_codec) + ":" + (k.empty() ? "" : k + ":") + m;
+						if (g_sa_mode == 't')
+							sa_name_set(fn, sa_names);
+					}
+					else
+						ma_comprimir_bloque(sb, m, ma_comment); /// -ma (see ma_comprimir_bloque)
+					sa_blk_fi= -1;
+					sa_cuts.clear();
+					sa_names.clear();
 
 					if (flagdebug3)
 						myprintf("02087: operating on %s\n", fn.c_str());
@@ -251060,6 +251187,8 @@ int Jidac::add2()
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
+								if (m.compare(0, 8, "zsapend:") == 0)
+									sa_comprimir_bloque(my_cj_in, m, comment, fn);
 								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str());
 								job.csize.push_back(my_cj_out.size());
 								if (job.out && my_cj_out.size() > 0)
@@ -251097,6 +251226,23 @@ int Jidac::add2()
 					memset(o1prev, 0, sizeof(o1prev));
 				} // newblock
 
+				if (sa_start)
+				{
+					if (sa_join)
+					{
+						sa_cuts.push_back(sb.size());
+						sa_names+= "\n" + vf[fi]->first;
+					}
+					else
+						sa_names= vf[fi]->first;
+					sa_blk_fi	= (int)fi;
+					sa_blk_codec= sa_file;
+					if (!sa_join)
+						sa_blk_ok= true;
+					if (g_sa_mode == 't')
+						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+								 sa_join ? ", in the same block as the previous file" : "");
+				}
 				assert(sz == 0 || fi < vf.size());
 				sb.write(&fragbuf[0], sz);
 				++frags;
