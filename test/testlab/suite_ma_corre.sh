@@ -45,15 +45,14 @@ for a in $ALGOS; do
   # lz (lzlib) se guarda como el LZMA de adentro del miembro lzip, con la etiqueta
   # de -ma:lzma (ZPAQLZIP): "zpaqstd-ma2:lzma:<nivel>:<tamano>:lzip".
   [ "$a" = lz ] && n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2:lzma:[0-9]+:[0-9]+:lzip")
-  # Desde 65.3y-pre32, lz4/lz4hc/lz4f/lzav SON -m6/-m7 de zpaqfranz: no llevan etiqueta
-  # zpaqstd-ma. La prueba de que corrieron es que el archivo sea byte a byte el de su
-  # -m equivalente (misma fecha fija), con los niveles por defecto de cada uno.
-  case "$a" in lz4|lz4hc) eq="-m6h9";; lz4f) eq="-m6a9";; lzav) eq="-m7h";; *) eq="";; esac
-  if [ -n "$eq" ]; then
+  # lz4/lz4hc/lz4f/lzav no llevan etiqueta zpaqstd-ma: sus bloques son los de LZ4/LZAV con su
+  # ZPAQL congelado (los -m6/-m7 de zpaqfranz 65.3-65.4; desde 2.0.0 códecs propios, método
+  # interno L/V). La prueba de que corrieron: con -debug, ma_alias_m6m7 dice 02125 "... is -mL..." / "-mV..."
+  case "$a" in lz4|lz4hc|lz4f|lzav)
     rm -f "$OUT/eq.zpaq"
-    timeout 300 "$Z" a "$OUT/eq.zpaq" "$OUT/src" -t1 $eq -timestamp 2026-01-01_00:00:00 </dev/null >/dev/null 2>&1
-    n=0; cmp -s "$arch" "$OUT/eq.zpaq" && n=1
-  fi
+    n=$(timeout 300 "$Z" a "$OUT/eq.zpaq" "$OUT/src" -t1 -ma:$a -debug -timestamp 2026-01-01_00:00:00 </dev/null 2>&1 | grep -cE "02125: -ma:$a:[0-9-]+ is -m[LV]")
+    ;;
+  esac
   rm -rf "$OUT/o"; mkdir -p "$OUT/o"
   timeout 300 "$Z" x "$arch" -to "$OUT/o" -force </dev/null >/dev/null 2>&1
   g=$(find "$OUT/o" -type f -name t.txt -print -quit)

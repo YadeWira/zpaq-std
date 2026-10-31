@@ -171819,8 +171819,10 @@ ThreadReturn decompressThread(void *arg)
 			cpq_count(output_size, output_size, cpq_contado); // a -ma block is decoded after the loop
 			/// 65.15y: the fragments are good: now the end of the block. 65.15z6: only if its fragments decompressed go up to
 			/// its end (b.size, the ones of the files tested, b.frags all): else the rest of it would be decompressed only for
-			/// its end, a whole block for a small file (t of the last version on blocks of files deleted later): slower
-			if (job.controllablocchi && (b.size >= b.frags))
+			/// its end, a whole block for a small file (t of the last version on blocks of files deleted later): slower.
+			/// zpaq-std: not a -ma/-sa block, which the loop above read to its very end already (ma_leer_todo: every
+			/// segment and its end, readSegmentEnd); here it found "no end of segment" and t said so for every one
+			if (job.controllablocchi && (b.size >= b.frags) && (!ma_leer_todo))
 				anomalia= blocco_controllafine(d, out, sha1tutto, nomeblocco.s, commentoblocco.s, b.start, ancora);
 		}
 		// If out of memory, let another thread try
