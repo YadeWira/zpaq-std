@@ -88,6 +88,8 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) 1.7.1 | 0–15 | 0 |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10.0 | 1–12 | 9 |
+| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.20 | 0–1 | 1 |
 
 #### Experimental
 
@@ -99,8 +101,6 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) 517948e | 1–9 | 9 |
 | `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.5.4), plugin only | 0–10 | 1 |
 | `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.5.4, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10.0 | 1–12 | 9 |
-| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.20 | 0–1 | 1 |
 
 What each codec's levels mean, and notes on some of them (kanzi, lzh, bz2):
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#codec-notes). `codecinfo` lists them all; `codecinfo <codec>`
