@@ -54,6 +54,15 @@ codecinfo, -popgui and -franztime.
 - **`difftest` against 1.10.0:** 182 comparisons. Each version extracts what the other writes, and
   `l` and `t` agree. The bytes differ, as expected (the index of 65.x, the default `-m8`).
 - **`suite_sa`** 19/19, `suite_ma_corre` 39/39, `suite_sylz` 8/8 with sylz and with sylzec.
+- **Linux x86 and AArch64:** the same suites pass there; `-sa` with z blocks writes the same archive
+  on x64, x86 and AArch64, and all 288 cross extractions between the three are identical. On x86
+  the `-fast` file list record of a `-sa` archive gets another hash, and each architecture lists
+  and tests the other's archive alike.
+- **Windows 7 x64 and x86**, release binaries and the PJA 0.5.1 DLLs, on the 244 arithmetic-coded
+  JPEGs: identical extraction both ways (244/244), and on Linux with zpaq 7.15 and 1.10.0. The two
+  archives differ only in the `VFILE-info` record (`os=win64` / `os=win32`).
+- **CI is green on all six platforms.** The archives it compares across platforms are written with
+  `-nofast`, since the `VFILE-info` record names the OS.
 
 ### [1.10.0] - 2026-10-30
 
