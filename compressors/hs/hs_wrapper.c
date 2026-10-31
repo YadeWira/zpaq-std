@@ -135,6 +135,20 @@ int hs_compress_wrapper(const uint8_t* in, size_t inlen,
     return 0;
 }
 
+/* heatshrink_decoder_poll with the output buffer already full. Up to
+ * heatshrink-ex 0.7.1 a poll with no room returned HSDR_POLL_MORE (or EMPTY),
+ * and the loops below take MORE with produced >= outcap as "all hs_orig bytes
+ * are out". 0.7.2 answers a zero sized buffer with HSDR_POLL_ERROR_MISUSE, which
+ * failed good blocks whose last bytes came out before the last input byte
+ * (the padding bits of the last one). So with no room left the library is not
+ * asked: the block is complete. */
+static HSD_poll_res hs_poll(heatshrink_decoder* hsd, uint8_t* out, size_t outcap,
+                            size_t produced, size_t* out_used) {
+    *out_used = 0;
+    if (produced >= outcap) return HSDR_POLL_MORE;
+    return heatshrink_decoder_poll(hsd, out + produced, outcap - produced, out_used);
+}
+
 int hs_decompress_wrapper(const uint8_t* in, size_t inlen,
                           uint8_t* out, size_t outcap, size_t* produced_out) {
     if (!in || !out || !produced_out) return -1;
@@ -170,8 +184,7 @@ int hs_decompress_wrapper(const uint8_t* in, size_t inlen,
         if (sr == HSDR_SINK_FULL) {
             /* Internal input buffer is full. Poll to drain state, then retry. */
             size_t out_used = 0;
-            HSD_poll_res pr = heatshrink_decoder_poll(hsd, out + produced,
-                                                     outcap - produced, &out_used);
+            HSD_poll_res pr = hs_poll(hsd, out, outcap, produced, &out_used);
             if (pr < 0) { heatshrink_decoder_free(hsd); return -1; }
             produced += out_used;
             if (pr == HSDR_POLL_MORE) {
@@ -190,8 +203,7 @@ int hs_decompress_wrapper(const uint8_t* in, size_t inlen,
         do {
             if (++iter > MAX_ITER) { heatshrink_decoder_free(hsd); return -1; }
             size_t out_used = 0;
-            pr = heatshrink_decoder_poll(hsd, out + produced,
-                                         outcap - produced, &out_used);
+            pr = hs_poll(hsd, out, outcap, produced, &out_used);
             if (pr < 0) {
                 heatshrink_decoder_free(hsd);
                 return -1;
@@ -212,8 +224,7 @@ int hs_decompress_wrapper(const uint8_t* in, size_t inlen,
     while (fr == HSDR_FINISH_MORE) {
         if (++iter > MAX_ITER) { heatshrink_decoder_free(hsd); return -1; }
         size_t out_used = 0;
-        HSD_poll_res pr = heatshrink_decoder_poll(hsd, out + produced,
-                                                  outcap - produced, &out_used);
+        HSD_poll_res pr = hs_poll(hsd, out, outcap, produced, &out_used);
         if (pr < 0) {
             heatshrink_decoder_free(hsd);
             return -1;

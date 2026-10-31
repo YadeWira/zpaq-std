@@ -1,5 +1,5 @@
-heatshrink-ex 0.7.0 (tag v0.7.0, commit 97a2163, 2026-10-23), from the vendor tarball
-heatshrink-ex-0.7.0-vendor.tar.gz (sha256 73ec942caf46def8f7b1093417c31ca8973ae61cc14b884c5e916f868787c77f)
+heatshrink-ex 0.7.2 (tag v0.7.2, commit 7a03499, 2026-10-31), from the vendor tarball
+heatshrink-ex-0.7.2-vendor.tar.gz (sha256 3baaed0f3c666842e5aafa64ae3354d7be8ef20b5ebb5124b862141a333fdc70)
 of https://github.com/YadeWira/heatshrink-ex: a maintained, multi-platform fork of
 heatshrink 0.4.1 by Scott Vokes (https://github.com/atomicobject/heatshrink, unchanged
 since 2015). ISC, see LICENSE. Files copied unmodified: heatshrink_encoder.c/.h,
@@ -9,5 +9,9 @@ Same bitstream as 0.4.1, and for windows up to 14 bits (every -ma:hs level) the 
 same bytes, so -ma:hs archives do not change. Fixes over 0.4.1: a crash on empty input,
 window 15 (an int16_t index overflow that made the encoder loop), decoder_poll with an
 exactly sized buffer, free(NULL). 0.6.0 and 0.7.0 add optional frames to heatshrink-ex's
-command line tool only: the library is 0.5.0's but for the version number. zpaq-std 1.6.0 used
-heatshrink-ex 0.5.0; up to 1.5.1 this was heatshrink 0.4.1.
+command line tool only: the library is 0.5.0's but for the version number. 0.7.1 indexes
+by two bytes instead of one (HEATSHRINK_HASH_BITS, 9 by default: 1 KB of stack while it
+indexes), so the encoder skips matches that cannot win: the same bytes, 2 to 3 times
+faster at -ma:hs's levels. 0.7.2 makes a poll into a zero-sized buffer an error
+(HSDR_POLL_ERROR_MISUSE) instead of MORE; hs_wrapper.c no longer makes one (hs_poll).
+zpaq-std 2.0.2 used heatshrink-ex 0.7.0, 1.6.0 used 0.5.0; up to 1.5.1 this was heatshrink 0.4.1.

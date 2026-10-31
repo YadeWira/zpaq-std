@@ -105699,7 +105699,7 @@ static const zs_info_row ZS_INFO[]=
 	 "BSD-3-Clause", "release 1.3.1", "raw Snappy", "level 2 compresses more, at the same decompression speed"},
 	{"lzfse", false, 0, 1, 1, "ZPAQLZFSE", "lzfse-ex 1.0.4", "Apple Inc.; maintained by YadeWira", "https://github.com/YadeWira/lzfse-ex",
 	 "BSD-3-Clause", "v1.0.4, commit 3459927", "LZFSE stream", "LZFSE has one internal level; a fork of Apple's lzfse (same stream)"},
-	{"hs", false, 0, 2, 1, "ZPAQHS", "heatshrink-ex 0.7.0", "Scott Vokes; maintained by YadeWira", "https://github.com/YadeWira/heatshrink-ex",
+	{"hs", false, 0, 2, 1, "ZPAQHS", "heatshrink-ex 0.7.2", "Scott Vokes; maintained by YadeWira", "https://github.com/YadeWira/heatshrink-ex",
 	 "ISC", "v0.7.0, commit 97a2163", "heatshrink stream", "the level picks the window; a fork of heatshrink 0.4.1 (same stream)"},
 	{"bzip3", false, 1, 9, 9, "ZPAQBZIP3", "bzip3 1.5.5", "Kamila Szewczyk", "https://github.com/iczelia/bzip3",
 	 "LGPL-3.0-or-later", "release 1.5.5", "bzip3 blocks", ""},
