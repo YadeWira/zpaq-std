@@ -106088,6 +106088,72 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 static const int64_t ZS_SA_MAXFILE=(int64_t)64<<20;	/// bigger files are not looked at
 /// -sa: the most a block of several files a codec took may hold (sa_join)
 static const int64_t ZS_SA_GROUP=(int64_t)32<<20;
+/// -sa, stage 4.3: the files a codec for specific formats may take go one next to the other when
+/// they are the same picture saved again without loss (jpegtran -progressive, -optimize, metadata
+/// edited): their PJA streams have the same coefficients, which the LZ77 of a z codec takes back,
+/// if they share a group. zpaq's order (by size) puts them anywhere. The key, from the header only
+/// (the first 256 KB): the frame (SOF: size, components, sampling), the quantization tables (DQT)
+/// and Exif's DateTimeOriginal. Copies keep the three; another picture rarely has all three equal.
+/// "" for a file that is not a JPEG
+static std::string sa_chiave_jpeg(const std::string& i_file, int64_t i_size)
+{
+	if ((i_size < 4) || (i_size > ZS_SA_MAXFILE))
+		return "";
+	FILE* f= fopen(i_file.c_str(), "rb");
+	if (f == NULL)
+		return "";
+	std::vector<unsigned char> b((size_t)((i_size < (1 << 18)) ? i_size : (1 << 18)));
+	const size_t n= fread(&b[0], 1, b.size(), f);
+	fclose(f);
+	if ((n < 4) || (b[0] != 0xFF) || (b[1] != 0xD8))
+		return "";
+	std::string sof, dqt, quando;
+	size_t		q= 2;
+	while (q + 4 <= n)
+	{
+		if (b[q] != 0xFF)
+			break;
+		const unsigned char m= b[q + 1];
+		if (m == 0xFF)
+		{
+			q++;
+			continue;
+		}
+		if ((m == 0xD8) || ((m >= 0xD0) && (m <= 0xD7)) || (m == 0x01))
+		{
+			q+= 2;
+			continue;
+		}
+		const size_t lung= ((size_t)b[q + 2] << 8) | b[q + 3];
+		if ((lung < 2) || (q + 2 + lung > n))
+			break;
+		const char* seg= (const char*)&b[q + 4];
+		const size_t sl = lung - 2;
+		if ((m >= 0xC0) && (m <= 0xCF) && (m != 0xC4) && (m != 0xC8) && (m != 0xCC))
+			sof.assign(seg, sl);
+		else if ((m == 0xF7) || (m == 0xF8)) /// JPEG-LS: its frame and its parameters
+			sof.append(seg, sl);
+		else if (m == 0xDB)
+			dqt.append(seg, sl);
+		else if ((m == 0xE1) && (sl > 6) && (memcmp(seg, "Exif", 4) == 0) && quando.empty())
+		{
+			/// the first "YYYY:MM:DD HH:MM:SS" of Exif: DateTimeOriginal or DateTime
+			for (size_t k= 0; k + 19 <= sl; k++)
+				if ((seg[k + 4] == ':') && (seg[k + 7] == ':') && (seg[k + 10] == ' ') && (seg[k + 13] == ':') && (seg[k + 16] == ':')
+					&& isdigit((unsigned char)seg[k]) && isdigit((unsigned char)seg[k + 18]))
+				{
+					quando.assign(seg + k, 19);
+					break;
+				}
+		}
+		if (m == 0xDA) /// SOS: the header is over
+			break;
+		q+= 2 + lung;
+	}
+	if (sof.empty())
+		return "";
+	return sof + '\x01' + dqt + '\x01' + quando;
+}
 static int zs_sa_detect(const unsigned char* i_p, size_t i_n)
 {
 	if (g_sa.empty() || i_n<=16 || (int64_t)i_n>ZS_SA_MAXFILE)
@@ -253505,6 +253571,36 @@ int Jidac::add2()
 	if (flagverbose)
 		myprintf("65392: -turbo with %d thread(s)%s\n", turbothreads, (g_turbothreads > 0) ? "" : " (as -t)");
 	std::vector<std::vector<s_add2frag> > turbolists((size_t)turbothreads);
+	/// -sa, stage 4.3: the JPEGs one next to the other by their header (sa_chiave_jpeg), in the
+	/// places they had: the other files keep theirs. Two equal keys keep zpaq's order between them
+	if (g_sa_mode && !flagstdin && !flagimage)
+	{
+		std::vector<size_t>				posti;
+		std::vector<std::string>		chiavi;
+		for (size_t i= 0; i < vf.size(); i++)
+		{
+			const std::string k= sa_chiave_jpeg(vf[i]->first, vf[i]->second.size);
+			if (!k.empty())
+			{
+				posti.push_back(i);
+				chiavi.push_back(k);
+			}
+		}
+		if (posti.size() > 1)
+		{
+			std::vector<size_t> ordine(posti.size());
+			for (size_t i= 0; i < ordine.size(); i++)
+				ordine[i]= i;
+			std::stable_sort(ordine.begin(), ordine.end(), [&](size_t x, size_t y) { return chiavi[x] < chiavi[y]; });
+			std::vector<DTMap::iterator> presi(posti.size());
+			for (size_t i= 0; i < ordine.size(); i++)
+				presi[i]= vf[posti[ordine[i]]];
+			for (size_t i= 0; i < posti.size(); i++)
+				vf[posti[i]]= presi[i];
+			if (g_sa_mode == 't')
+				myprintf("00738: -sa%c: %s JPEG ordered by their header (frame, quantization tables, Exif date)\n", g_sa_mode, migliaia((int64_t)posti.size()));
+		}
+	}
 	/// -sae/-sat (and -sa): the block being filled holds only files that codec sa_blk_codec
 	/// took, the last one sa_blk_fi; sa_cuts: where each file after the first starts
 	int					sa_blk_fi= -1, sa_blk_codec= -1;
