@@ -8,6 +8,11 @@
 
 #### Checked
 
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 19/19, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.0.1: all 182 archives have the same size, each version extracts what the other writes, and `l` and `t` agree.
+- **The same archive whatever the threads:** `-sa` with `-t1` and `-t8` writes the same bytes.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs extracts identically both ways, and on Linux with zpaq 7.15 and 2.0.1. CI is green on all six platforms.
+
 ### [2.0.1] - 2026-10-30
 
 **`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f` and `-ma:lzav` are stable.** Also fixed: `-m8` no longer makes incompressible blocks bigger, and the main help lines up in every language.
