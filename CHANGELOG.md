@@ -8,6 +8,12 @@
 - **`-m8` stores a block that zstd does not make smaller.** It used to write zstd's output with its ZPAQL decoder (about 5 KB) even when that was bigger than the block. Data that is already compressed cost 5 KB more per block, and more with `-sa`, whose groups that do not gain go back to `-m8` one block each. PJA's ten 12-bit JPEGs (84 KB) took 96 KB with `-sa`; now 81.6 KB (80.9 KB without `-sa`, was 84.4).
 - **The main help lines up in every language.** The section names fit in 9 characters in Italian, Russian, Spanish and Portuguese too, as in English, so the commands start on the same column.
 
+#### Checked
+
+- **Full test battery:** every suite has 0 cases to review, `suite_lz4lzav` included (24/24); golden archives: 0 unexpected failures. `difftest` against 2.0.0: each version extracts what the other writes, and `l` and `t` agree.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs extracts identically both ways, and on Linux with zpaq 7.15 and 2.0.0. CI is green on all six platforms.
+
 ### [2.0.0] - 2026-10-30
 
 **zpaq-std on zpaqfranz 65.16.** Everything Franco Corbelli added from 65.5 to 65.16 is in, including
