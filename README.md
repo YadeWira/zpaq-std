@@ -133,7 +133,8 @@ None yet.
 | `-sa:pjalsx+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
-`-m`/`-ma` say. Consecutive files a codec takes share a block, and where it takes
+`-m`/`-ma` say. Consecutive files a codec takes share a block (JPEGs from the same
+camera and settings are put next to each other first), and where it takes
 fewer bytes the block also goes through an LZ77 that finds what repeats across
 them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
 size, against 71% without it). The plugin comes in the `extra-codecs` download. More:

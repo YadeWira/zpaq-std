@@ -1,3 +1,13 @@
+### [2.0.2] - 2026-10-31
+
+**`-sa` puts similar photos next to each other before grouping them.** JPEGs from the same camera and settings, taken close in time, now share a group, so the LZ77 of the z codecs finds what they have in common.
+
+- **The order comes from each JPEG's header:** its frame type (SOF), its quantization tables (DQT) and its Exif date, read from the first 256 KB. The JPEGs are reordered only among the places they already had; every other file keeps its place, and extraction gives back the same names and contents.
+- **A library of 151 photos plus a progressive copy of each:** 67.2 MB to **59.2 MB** (−12%), better than the pairing done by hand (61.0 MB). PJA's five test sets stay within 0.2% (its corpus: 23.34 to 23.29 MB).
+- **Cleanup after the 65.16 merge:** the old `add()` is zpaqfranz's again, byte for byte, without zpaq-std's unused prefetch pool. It runs only in builds zpaq-std does not make, so nothing changes for you; the next merge has less to resolve.
+
+#### Checked
+
 ### [2.0.1] - 2026-10-30
 
 **`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f` and `-ma:lzav` are stable.** Also fixed: `-m8` no longer makes incompressible blocks bigger, and the main help lines up in every language.
