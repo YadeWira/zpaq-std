@@ -6,8 +6,14 @@
 - **PJA 0.5.3** (`-sa`): its command and libpja repair scans cut short; for the plugin nothing changes, and `-sa` writes the archives of 0.5.1 byte for byte on PJA's five test sets.
 - **`-sa` stands for *specific algorithms*:** the README and the wiki say so now.
 - **THIRD-PARTY-LICENSES** listed PJA 0.1.0; now 0.5.3.
+- **The macOS binary is built on GitHub's macOS 15 runner** (macOS 14's retires on 2026-11-02); it still runs from macOS 11.
 
 #### Checked
+
+- **heatshrink-ex 0.7.2:** `codec_check` under AddressSanitizer and UBSan, and in 32 bits: no memory error. 28,331 blocks of 1 to 70,000 bytes (four kinds of data, levels 0–2) decode the same through the old wrapper and the new one.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 19/19, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.0.2: all 182 archives have the same size, each version extracts what the other writes, and `l` and `t` agree.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs extracts identically both ways, and on Linux with zpaq 7.15 and 2.0.2. CI is green on all six platforms.
 
 ### [2.0.2] - 2026-10-31
 
