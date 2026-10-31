@@ -1,3 +1,13 @@
+### [2.0.1] - 2026-10-30
+
+**`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f` and `-ma:lzav` are stable.** Also fixed: `-m8` no longer makes incompressible blocks bigger, and the main help lines up in every language.
+
+- **LZ4 1.10.0 and LZAV 5.20 leave experimental.** Since 2.0.0 they are zpaq-std's own codecs again, with the frozen ZPAQL decoders of zpaq-std 1.x. Their tests:
+  - **`codec_check`**, under AddressSanitizer and in 32 bits: 0 failures for both (973 and 278 blocks, every level). It checks round trip, determinism, the output cap, and hundreds of damaged copies per block.
+  - **`suite_lz4lzav.sh`, 24/24:** every level, with 16 and 64 MB blocks, extracts natively and in zpaq 7.15. The data blocks are those of 1.10.0. 480 extractions of damaged blocks (native and ZPAQL) all end in an error, never in a hang.
+- **`-m8` stores a block that zstd does not make smaller.** It used to write zstd's output with its ZPAQL decoder (about 5 KB) even when that was bigger than the block. Data that is already compressed cost 5 KB more per block, and more with `-sa`, whose groups that do not gain go back to `-m8` one block each. PJA's ten 12-bit JPEGs (84 KB) took 96 KB with `-sa`; now 81.6 KB (80.9 KB without `-sa`, was 84.4).
+- **The main help lines up in every language.** The section names fit in 9 characters in Italian, Russian, Spanish and Portuguese too, as in English, so the commands start on the same column.
+
 ### [2.0.0] - 2026-10-30
 
 **zpaq-std on zpaqfranz 65.16.** Everything Franco Corbelli added from 65.5 to 65.16 is in, including
