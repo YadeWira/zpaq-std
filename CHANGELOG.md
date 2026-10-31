@@ -1,3 +1,60 @@
+### [2.0.0] - 2026-10-30
+
+**zpaq-std on zpaqfranz 65.16.** Everything Franco Corbelli added from 65.5 to 65.16 is in, including
+-chunk with a strict maximum, repack, the help in Italian and Russian, the faster parallel add and
+-m8. zpaq-std's own parts were carried over: the -ma codecs, -sa with PJA and its z codecs, -mae/-mat,
+codecinfo, -popgui and -franztime.
+
+#### What changes for you
+
+- **Without `-m`, `a` writes `-m8`** (zpaqfranz 65.6): zstd blocks with their ZPAQL decoder. Any
+  zpaq extracts them, zpaq-std very fast. Before 2.0.0 the default was `-m1`; `-m1`..`-m5` are as ever.
+- **`-m6` and `-m7` mean something else**, as in zpaqfranz. `-m7` is zstd at level 19 with 64 MB
+  blocks, `-m9` zstd level 9, and `-m6` an enhanced `-m4`. In zpaq-std 1.x, `-m6` and `-m7` were LZ4
+  and LZAV. **`-ma:lz4`, `-ma:lz4hc`, `-ma:lz4f` and `-ma:lzav` are unchanged** and write the very
+  blocks of 1.x.
+- **`a` adds through zpaqfranz's parallel path** (`add2`, its old `-turbo`, now on by default;
+  `-noturbo` turns it off). `-sa` works with it: it no longer refuses `-turbo`.
+- **`-to` with a wildcard is refused** (zpaqfranz's 71386: one `-to` per file, or `-only`).
+  zpaq-std pre55 applied it.
+- **The help in five languages**: English, Italian, Russian, and now Spanish (neutral Latin
+  American) and Portuguese (Brazil). Choose with `-eng -it -ru -es -pt`, `ZPAQFRANZ_LANG`, or the
+  system's language. zpaq-std's own help lines are in all five too.
+- **Each version stores a `VFILE-info` record** (zpaqfranz 65.x): what wrote it and how. It
+  includes the run's duration, so two identical runs gave different archives; with `-timestamp`
+  zpaq-std writes 0 there, and the archive is the same at every run.
+
+#### Codecs
+
+- **LZ4 1.10.0 and LZAV 5.20 are zpaq-std's own codecs again.** zpaqfranz dropped them, with
+  `-m6`/`-m7`, in 65.5d. Their frozen ZPAQL decoders and the native path come back from the 65.4 base,
+  so the archives of 1.x still extract natively.
+- **One zstd:** zpaqfranz's embedded zstd 1.5.7 (for `-m7`/`-m8`/`-m9`) also serves `-ma:zstd`.
+- **PJA 0.5.1** (`-sa`): pjax measures the big MPOs right (PJA's MPO set 80.3% → 74.5%), and with
+  `-t` each file gets threads for its bands (that set compresses in 18 s, was 43).
+- **lzfse-ex 1.0.4**: a bug-fix release, the same bytes.
+
+#### -sa: bigger groups, several files at once
+
+- **A block of files a codec took holds up to 32 MB**, whatever `-m` says. Before, it took `-m`'s
+  block size, 16 MB with `-m1`, and the LZ77 of the z codecs saw less. A library of 151 photos plus
+  76 progressive copies of them (`-sa -m1`) goes from 64.2 to 59.9 MB, adding in 37 s (was 43) and
+  extracting in 11 s (was 16).
+- **The files of a block are compressed, checked and extracted several at once**, with threads
+  that stay within `-t`. Extracting PJA's 151 photos takes 8 s, against 15 s in 1.10.0.
+
+#### Fixed
+
+- **`t` reported good `-ma` and `-sa` blocks as damaged.** zpaqfranz 65.15's end-of-block check
+  did not know these blocks, which zpaq-std reads natively to their end. Fixed before release.
+
+#### Checked
+
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures.
+- **`difftest` against 1.10.0:** 182 comparisons. Each version extracts what the other writes, and
+  `l` and `t` agree. The bytes differ, as expected (the index of 65.x, the default `-m8`).
+- **`suite_sa`** 19/19, `suite_ma_corre` 39/39, `suite_sylz` 8/8 with sylz and with sylzec.
+
 ### [1.10.0] - 2026-10-30
 
 **`-sa` finds what repeats across files after modelling them.** The same picture saved again (progressive or not, other tables, other restart markers) gives JPEGs that differ byte for byte, but PJA turns them into streams with long stretches in common. 1.10.0 runs zpaq's level 1 LZ77 (the `-m1` method) over the PJA streams of a block's files, and a match may reach back into the files before it in the block. The block then carries PJA's decoder with an LZ77 expander in front (PJA 0.4.0's "z" codecs), so any zpaq still extracts it.
