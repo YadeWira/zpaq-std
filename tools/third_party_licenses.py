@@ -38,7 +38,7 @@ BUNDLED = [
     ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause', 'Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), YadeWira', ['compressors/lz6/LICENSE'], ''),
     ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
     ('lzfse-ex (LZFSE)', '1.0.4', 'BSD-3-Clause', 'Apple Inc.; maintained by YadeWira', ['compressors/lzfse/LICENSE'], ''),
-    ('heatshrink-ex', '0.7.0', 'ISC', 'Scott Vokes (heatshrink); YadeWira (heatshrink-ex)', ['compressors/hs/LICENSE'], 'A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.txt.'),
+    ('heatshrink-ex', '0.7.2', 'ISC', 'Scott Vokes (heatshrink); YadeWira (heatshrink-ex)', ['compressors/hs/LICENSE'], 'A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.txt.'),
     ('bzip3', '1.5.5', 'LGPL-3.0-or-later', 'Kamila Szewczyk',
      ['compressors/bzip3/LICENSE', 'compressors/bzip3/COPYING.GPL-3'],
      'bzip3 is linked statically. Its source, as built, is part of zpaq-std\'s source\n'
@@ -62,7 +62,7 @@ BUNDLED = [
     ('sylz and sylzec', 'syc v0.5.4', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
-    ('PJA', '0.1.0', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
+    ('PJA', '0.5.3', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
      ['compressors/pja/LICENSE', 'compressors/pja/NOTICE'],
      'The -sa codecs pjax and pja (JPEG), pjall (lossless JPEG), pjals and pjalsx (JPEG-LS). Free Pascal, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'

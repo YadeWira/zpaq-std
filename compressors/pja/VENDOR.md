@@ -1,6 +1,6 @@
-# PJA 0.5.1: the zpaq-std plugin, vendored
+# PJA 0.5.3: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.5.1`, commit `b52504c`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.5.3`, commit `d536935`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes (IJG for the arithmetic-coded JPEG,
 CharLS's BSD 3-Clause for JPEG-LS).
@@ -82,6 +82,14 @@ verdicts kept, by size and hash); pja's compress then only takes it apart
 zpaq-std's number of threads, of which each compress() and decompress()
 takes n / (the calls running) for its file's bands. Without it, one
 thread a call, as before; the streams are the same with any number.
+0.5.2 changes the `pja` command and libpja: a scan that ends early (a cut
+download included) is repaired, and libpja gives standard tables to a
+JPEG whose container keeps none. In these sources only pjacodec changes
+(the repair, in the PATCH mode only `Compress` with parts writes; its own
+check decodes with the original's size as the cap). The plugin's codecs,
+streams, ZPAQL and what each takes are 0.5.1's.
+0.5.3 changes libpja's filter only (not part of this tarball): these
+sources are 0.5.2's but for the version number.
 
 | | |
 |---|---|
@@ -99,7 +107,7 @@ FreePascal 3.2.2. From this directory, with the commit the info card
 (`ZS_DATA_INFO`, `codecinfoex`) shows:
 
 ```sh
-export PJA_COMMIT=b52504c
+export PJA_COMMIT=d536935
 mkdir -p build/lin build/win64 build/win32
 ```
 
