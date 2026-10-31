@@ -123542,20 +123542,6 @@ static bool acmeta_nome(const string &i_nome)
 }
 FP g_archivefp;
 FP g_archivefp_first;
-/// The archive being written is closed by exactly one side: the add, when it ends,
-/// or the control-C handler. Each one takes it out of g_archivefp atomically and
-/// closes it only if it got it. Before, the add closed its own copy of the handle
-/// and left g_archivefp pointing to a closed file: a control-C right then closed it
-/// a second time ("free(): double free detected", BUG-022/023, about 1 in 100)
-static bool archivefp_mine(FP i_fp)
-{
-	FP atteso= i_fp;
-	if (__atomic_compare_exchange_n(&g_archivefp, &atteso, (FP)FPNULL, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
-		return true; /// it was the archive, now ours
-	/// another file, or one never handed to the handler: close it. Taken by the
-	/// handler (control-C, g_archivefp empty): it closes it, not us
-	return (atteso != FPNULL) || !g_control_c;
-}
 
 //////////////////// zpaq stuff
 
@@ -139254,7 +139240,6 @@ struct tconfronto
 class Jidac
 {
   public:
-	friend struct FrontPrefetch;	// the prefetch worker calls updatehash() on its own files
 	Jidac(); /// the initial values of the members (no in-class initializers: C++98, gcc 3.4 of ESXi)
 	int64_t read_archive(callback_function i_advance, const char *arc, int *errors= 0, int i_myappend= 0, bool i_quiet= false); // read arc
 
@@ -178185,8 +178170,8 @@ void my_handler(int s)
 	}
 	else if (!g_transazionecompleta)
 	{
-		/// take it: if the add has closed it already, g_archivefp is empty (see
-		/// archivefp_mine)
+		/// take it: if the add has closed it already, g_archivefp is empty (it empties it
+		/// before closing it)
 		FP archivio= __atomic_exchange_n(&g_archivefp, (FP)FPNULL, __ATOMIC_SEQ_CST);
 		if ((archivio != FPNULL) && (archivio != NULL))
 		{
@@ -248705,155 +248690,14 @@ static void fragment_buffer(const unsigned char* data, size_t n,
 }
 
 
-struct FrontPrefetch
-{
-	enum Kind { NONE= 0, CONTAINER= 1, TOOBIG= 2, FRAG= 3 };
-	// T holds the bytes to fragment (PCF stream for PCF, raw file for FRAG); fraglist
-	// holds their precomputed fragment boundaries (FRAG kind, and PCF in step 3b).
-	struct Item { Kind kind= NONE; std::vector<unsigned char> T; std::vector<FrontFrag> fraglist; long long bytes= 0; bool done= false; bool hashed= false; int sa= -1; };
-
-	Jidac*											jd= NULL;	// -pc B(ii): for updatehash() from the worker
-	std::vector<DTMap::iterator>*					vf= NULL;
-	size_t											n= 0;
-	std::atomic<unsigned>							claim;
-	std::atomic<bool>								stopflag;
-	std::map<unsigned, std::shared_ptr<Item> >		cache;
-	std::mutex										mx;
-	std::condition_variable							cv_ready, cv_space;
-	long long										inflight= 0, cap= 0, maxfile= 0, maxahead= 512;
-	unsigned										fr_max= 0, fr_min= 0, fr_hthr= 0; // fragment_buffer params
-	bool											fr_chk= false;
-	std::vector<std::thread>						workers;
-	bool											active= false;
-
-	void start(Jidac* jdac, std::vector<DTMap::iterator>& v, int K, long long capbytes, long long maxfilebytes,
-	           unsigned fmax, unsigned fmin, unsigned fhthr, bool fchk)
-	{
-		jd= jdac;
-		vf= &v; n= v.size(); claim.store(0); stopflag.store(false);
-		inflight= 0; cap= capbytes; maxfile= maxfilebytes; active= true;
-		fr_max= fmax; fr_min= fmin; fr_hthr= fhthr; fr_chk= fchk;
-		for (int i= 0; i < K; i++) workers.push_back(std::thread(&FrontPrefetch::worker, this));
-	}
-	void worker()
-	{
-		for (;;)
-		{
-			if (stopflag.load()) return;
-			unsigned fi= claim.fetch_add(1);
-			if (fi >= n) return;
-			std::shared_ptr<Item> it(new Item());
-			DTMap::iterator p= (*vf)[fi];
-			int64_t esz= 0;
-			bool especial= false;
-#ifdef unix
-			/// -tar (65.4): un symlink, FIFO o dispositivo no se abre nunca. fopen seguiria
-			/// el symlink (se guardaria lo apuntado, no el link) y en un FIFO se quedaria
-			/// esperando para siempre. Queda para el hilo principal, que guarda el
-			/// destino del link como contenido (tar_content), como upstream.
-			especial= flagtar && tar_isspecial(p->second.attr);
-#endif
-			if (!stopflag.load() && !ismemfile(p->first) && !especial)
-			{
-				FP f= myfopen(p->first.c_str(), RB);
-				if (f != FPNULL)
-				{
-					// Real size from the handle: p->second.expectedsize is set lazily by the
-					// main loop (after it reaches the file), so it is not reliably populated
-					// when this worker claims the file ahead of main.
-					fseeko(f, 0, SEEK_END); esz= ftello(f); fseeko(f, 0, SEEK_SET);
-					if (esz < 0) esz= 0;
-					if (esz > maxfile)
-						it->kind= TOOBIG;            // too big to prefetch: main does it inline
-					else
-					{
-						// Read the whole file ONCE, then fragment. With the precompressors
-						// gone there is no longer a decision here: every prefetched file is
-						// a FRAG. (The franz-hash runs over the same buffer, so the main
-						// thread is left with dedup, assembly and dispatch.)
-						fseeko(f, 0, SEEK_SET);
-						std::vector<unsigned char> R((size_t)esz);
-						size_t rd= R.empty() ? 0 : fread(&R[0], 1, R.size(), f);
-						if (rd == R.size())
-						{
-							if (jd && g_franzotype > 0)
-							{
-								for (size_t off= 0; off < R.size();)
-								{
-									size_t ck= R.size() - off; if (ck > (16u << 20)) ck= (16u << 20);
-									jd->updatehash(&p, (char *)&R[off], (int)ck);
-									off+= ck;
-								}
-								it->hashed= true;
-							}
-							fragment_buffer(R.empty() ? (const unsigned char *)"" : &R[0],
-							                R.size(), fr_max, fr_min, fr_hthr, fr_chk, it->fraglist);
-							/// -sae/-sat: the classifier runs here, ahead of the main thread
-							it->sa= zs_sa_detect(R.empty() ? NULL : &R[0], R.size());
-							it->T.swap(R);   // T holds the raw bytes (fragmentation source)
-							it->kind= FRAG;
-						}
-					}
-					myfclose(&f);
-				}
-			}
-			{
-				std::unique_lock<std::mutex> lk(mx);
-				it->done= true;
-				it->bytes= (long long)it->T.size();
-				inflight+= it->bytes;
-				cache[fi]= it;
-				cv_ready.notify_all();
-				cv_space.wait(lk, [&] { return stopflag.load()
-					|| (inflight <= cap && (long long)cache.size() <= maxahead); });
-			}
-		}
-	}
-	std::shared_ptr<Item> get(unsigned fi)
-	{
-		std::unique_lock<std::mutex> lk(mx);
-		cv_ready.wait(lk, [&] { return stopflag.load() || (cache.count(fi) && cache[fi]->done); });
-		std::map<unsigned, std::shared_ptr<Item> >::iterator i= cache.find(fi);
-		return (i != cache.end()) ? i->second : std::shared_ptr<Item>();
-	}
-	void consumed(unsigned fi)
-	{
-		std::unique_lock<std::mutex> lk(mx);
-		std::map<unsigned, std::shared_ptr<Item> >::iterator i= cache.find(fi);
-		if (i != cache.end()) { inflight-= i->second->bytes; cache.erase(i); }
-		cv_space.notify_all();
-	}
-	void stop()
-	{
-		if (!active) return;
-		{ std::unique_lock<std::mutex> lk(mx); stopflag.store(true); cv_space.notify_all(); cv_ready.notify_all(); }
-		for (size_t i= 0; i < workers.size(); i++) if (workers[i].joinable()) workers[i].join();
-		workers.clear(); cache.clear(); inflight= 0; active= false;
-	}
-	~FrontPrefetch() { stop(); }   // RAII: always join workers on any add() exit path
-};
-
-// RAII for one add() file iteration: fetch the prefetched result on
-// construction, release its cache slot on destruction — so every file is consumed
-// exactly once, even across continue/break. Inactive (pf==NULL) when -pc prefetch
-// is off or on the sentinel iteration.
-struct FrontConsumeGuard
-{
-	FrontPrefetch*					pf;
-	unsigned						fi;
-	std::shared_ptr<FrontPrefetch::Item> item;
-	FrontConsumeGuard(FrontPrefetch* p, unsigned f): pf(p), fi(f) { if (pf) item= pf->get(fi); }
-	~FrontConsumeGuard() { if (pf) pf->consumed(fi); }
-};
 
 
-/// -ma:lz4 y -ma:lzav son OTRA FORMA DE ESCRIBIR -m6 y -m7 de la 65.3: el mismo
-/// bloque, byte a byte, con el decodificador ZPAQL de zpaqfranz adentro. Asi
-/// zpaqfranz decodifica nativo lo que escribe zpaq-std y al reves, hay un solo LZ4 y
-/// un solo LZAV en el binario, y se comprime en los hilos normales (y con -turbo).
-/// El digito de bloque es el que tendria el -m del usuario (la regla de add()).
-/// Niveles: lz4 1..4 = rapido con esa aceleracion (-m6aN), 5..12 = HC (-m6hN);
-/// lz4hc:N = -m6hN; lz4f:N = -m6aN; lzav:0 = -m7, lzav:1 (el default) = -m7h.
+/// -ma:lz4 y -ma:lzav: los bloques LZ4 y LZAV de zpaq-std 1.x (los -m6/-m7 de zpaqfranz
+/// 65.3-65.4, que 65.5d saco), con sus decodificadores ZPAQL congelados. Por dentro el
+/// metodo es L (LZ4) o V (LZAV): upstream usa -m6 y -m7 para otra cosa. El digito de
+/// bloque es el del -m del usuario (64 MB con -m2..-m5, si no 16 MB).
+/// Niveles: lz4 1..4 = rapido con esa aceleracion (LaN), 5..12 = HC (LhN);
+/// lz4hc:N = LhN; lz4f:N = LaN; lzav:0 = V, lzav:1 (el default) = Vh.
 static bool ma_es_alias_m6m7()
 {
 	return g_ma_algorithm=="lz4" || g_ma_algorithm=="lz4hc" || g_ma_algorithm=="lz4f" || g_ma_algorithm=="lzav";
@@ -250391,18 +250235,8 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 #ifdef ANCIENT /// 65.11k: the plain loop, for the old systems only (ESX, NAS): elsewhere add() is add2(), see there
 int Jidac::add()
 {
-	/// 32-bit build: it compresses again (it was extract-only from 64.7g-pre15 to
-	/// 65.4m-pre52), with at most 2 threads -- the cap numberOfProcessors() already
-	/// applies, now also over an explicit -t -- so two blocks in flight fit its
-	/// address space (4 GB on 64-bit Windows: the .exe is large-address-aware).
-	if (sizeof(void *) == 4 && howmanythreads > 2)
-	{
-		myprintf("65000: 32-bit build: compressing with 2 threads (asked for %d)\n", howmanythreads);
-		howmanythreads= 2;
-	}
 	string externaloutputfile= "";
 	g_inoutput				 = 0;
-	g_prog_cm= 0; g_prog_queued= 0; g_prog_sbpend= 0;
 	string primalettera		 = "";
 
 	string ffranzotype= decodefranzoffset(g_franzotype);
@@ -250587,7 +250421,6 @@ int Jidac::add()
 #else
 		method= "1";
 #endif
-	ma_alias_m6m7(method);	/// -ma:lz4 / -ma:lzav: zpaq-std's LZ4 / LZAV blocks (see the function)
 #ifdef ZPAQZSTD
 	/// -m8, -m8h19, -m8a3 have 16 MB blocks, like -m1: 84h19. Only -m86...
 	/// gives another size (the block digit comes right after the 8)
@@ -250602,7 +250435,7 @@ int Jidac::add()
 		else
 			method+= "4";
 	}
-	if (strchr("0123456789xsLV", method[0]) == 0) /// L, V: -ma:lz4, -ma:lzav (ma_alias_m6m7)
+	if (strchr("0123456789xs", method[0]) == 0)
 		error("-method must begin with 0..5, x, s");
 	assert(method.size() >= 2);
 	if (method[0] == 's' && index)
@@ -250759,7 +250592,7 @@ int Jidac::add()
 			(p->second.date == a->second.date) && (p->second.size == a->second.size) &&
 			(flagtouch || ((int32_t)a->second.attr && (int32_t)a->second.attr != (int32_t)p->second.attr)
 #ifdef unix
-			 || tar_ownerchanged(a, p) || tar_linkchanged(a, p)
+			 || tar_ownerchanged(a, p)
 #endif
 				 ))
 		{
@@ -251188,46 +251021,8 @@ int Jidac::add()
 	const unsigned HASH_MULT_HIT = 314159265u;
 	const unsigned HASH_MULT_MISS= 271828182u;
 
-	// Cross-file prefetch. K tied to howmanythreads => honours -t / -t0 and the
-	// 32-bit 2-core cap automatically. When active, the encoder runs INLINE in each
-	// worker (internal pool off) so the workers are the only parallelism axis (no
-	// pool _init race, no nested-pool deadlock); when inactive, it keeps its
-	// own pool but capped to the thread budget.
-	FrontPrefetch g_frontfetch;
-	int front_K= 0;
-	// Front-end prefetch pool. Active for every add() (>=2 threads, not stdin/image):
-	// workers read + franz-hash + fragment regular files (and, with -pc, encode the
-	// PCF stream) ahead of the main thread, which is then left with only dedup +
-	// block assembly + dispatch. -t1 disables it -> the serial step-2 path runs.
-	if (!flagstdin && !flagimage && howmanythreads >= 2)
-	{
-		front_K= howmanythreads - 1;
-		if (front_K > 32) front_K= 32;
-		if (front_K < 1) front_K= 1;
-	}
-	if (front_K > 0)
-	{
-		bool is64= (sizeof(void *) >= 8);
-		g_frontfetch.start(this, vf, front_K,
-		                is64 ? (512LL << 20) : (96LL << 20),   // RAM cache cap
-		                is64 ? (64LL << 20) : (16LL << 20),    // prefetch files up to this; bigger => inline
-		                MAX_FRAGMENT, MIN_FRAGMENT, h_threshold, check_boundary);
-	}
-
-	/// -sae/-sat: the block being filled holds only files that codec sa_blk_codec
-	/// took, the last one sa_blk_fi; sa_blk_ok stays true while every fragment of
-	/// them is new (a deduplicated fragment means a file is not whole in the block).
-	/// Several files only if the codec's ZPAQL handles several segments: then
-	/// sa_cuts has where each file after the first starts in sb (sa_comprimir_bloque)
-	int  sa_blk_fi= -1, sa_blk_codec= -1;
-	bool sa_blk_ok= false;
-	std::vector<size_t> sa_cuts;
-	std::string sa_names;
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
 	{
-		int sa_file= -1;	/// -sae/-sat: the codec that takes this file, or -1
-		// Pick up this file's prefetched result (and release it at iteration end)
-		FrontConsumeGuard pcg((front_K > 0 && fi < vf.size()) ? &g_frontfetch : NULL, (unsigned)fi);
 		FP				in	  = FPNULL;
 		int				bufptr= 0, buflen= 0; // read pointer and limit
 		DTMap::iterator p;
@@ -251306,96 +251101,7 @@ int Jidac::add()
 		int64_t workedsofar= 0;
 		int		blocchi	   = 0;
 		bool	brutalexit = false;
-
-		// Front-end fragmentation (Step 2): for a regular on-disk file that fits in
-		// RAM, read it once, hash it, and pre-compute every fragment boundary with
-		// fragment_buffer(). The fj-loop below then consumes that list instead of
-		// streaming+hashing inline. Byte-identical to the streaming path; serial
-		// foundation for the parallel front-end. Streaming sources (stdin / image /
-		// memfile / -pc RAM stream) and files over FRONT_WHOLE_MAX keep the old loop.
-		std::vector<FrontFrag>     fraglist;
-		std::vector<unsigned char> fb;
-		size_t                     frag_idx        = 0;
-		bool                       use_fraglist    = false;
-		const size_t               FRONT_WHOLE_MAX = ((size_t)64 << 20); // 64 MiB cap
-		if (pcg.item && pcg.item->kind == FrontPrefetch::FRAG)
-		{
-			// step 3: the prefetch worker already read + franz-hashed + fragmented this
-			// regular file in parallel. Take its buffers; the fj-loop consumes the list
-			// and the main thread does only dedup + block assembly + dispatch.
-			fb.swap(pcg.item->T);
-			fraglist.swap(pcg.item->fraglist);
-			use_fraglist= true;
-			sa_file= pcg.item->sa;
-		}
-		else if (fi < vf.size() && in != FPNULL
-		    && !flagstdin && !flagmemfile && !flagimage
-		    && p->second.expectedsize >= 0
-		    && (uint64_t)p->second.expectedsize <= (uint64_t)FRONT_WHOLE_MAX)
-		{
-			const size_t esz= (size_t)p->second.expectedsize;
-			if (esz == 0)
-				use_fraglist= true; // empty file: empty fraglist (matches streaming EOF)
-			else
-			{
-				fb.resize(esz);
-				if (fread(&fb[0], 1, esz, in) == esz)
-				{
-					if (g_franzotype > 0)
-						for (size_t off= 0; off < esz;)
-						{
-							size_t ck= esz - off; if (ck > (16u << 20)) ck= (16u << 20);
-							updatehash(&p, (char *)&fb[off], (int)ck);
-							off+= ck;
-						}
-					fragment_buffer(&fb[0], esz, MAX_FRAGMENT, MIN_FRAGMENT,
-					                h_threshold, check_boundary, fraglist);
-					use_fraglist= true;
-					sa_file= zs_sa_detect(&fb[0], esz);
-				}
-				else
-				{
-					fb.clear();               // short read -> fall back to streaming loop
-					fseeko(in, 0, SEEK_SET);
-				}
-			}
-		}
-
-		/// -sae/-sat: a codec for specific formats needs the whole file in its block.
-		/// If a fragment of it is already stored (in the archive, in the block being
-		/// filled, or earlier in the file itself), only its new fragments would go in,
-		/// so no such codec can take it: it goes as -m/-ma say. Checked here, before it
-		/// joins a block; before, it was noticed while the file was being added, and the
-		/// whole block went as -m, every file a codec had taken with it too, silently
-		/// -sa stage 5: with a "z" ZPAQL the LZ77 of the group takes back what
-		/// repeats, so such a file goes in whole (sa_force: every fragment stored anew),
-		/// unless none of it is new (then dedup keeps all of it)
-		bool sa_force= false;
-		if (sa_file >= 0 && use_fraglist)
-		{
-			std::set<std::string> own;
-			bool dup= false, fresh= false;
-			for (size_t q= 0; q < fraglist.size(); ++q)
-				if (htinv.find(fraglist[q].sha1) || !own.insert(std::string(fraglist[q].sha1, 20)).second)
-					dup= true;
-				else
-					fresh= true;
-			if (dup && fresh && !g_sa[sa_file].zcfg.empty())
-			{
-				sa_force= true;
-				if (g_sa_mode == 't')
-					myprintf("00734: %s: part of it is already in the archive, but %sz takes it whole\n",
-					         vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
-			}
-			else if (dup)
-			{
-				if (g_sa_mode == 't')
-					myprintf("00734: %s: %s would take it, but part of it is already in the archive: compressed as -m says\n",
-					         vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
-				sa_file= -1;
-			}
-		}
-
+		
 		// OPTIMIZED MAIN LOOP
 
 		for (unsigned fj= 0; true; ++fj)
@@ -251405,7 +251111,6 @@ int Jidac::add()
 			unsigned	  htptr			= 0;   // fragment index
 			char		  sha1result[20]= {0}; // fragment hash
 			unsigned char o1[256]		= {0}; // order 1 context -> predicted byte
-			bool		  frag_have_sha1= false; // step 3: sha1result supplied by fraglist (worker), skip recompute
 
 			if (fi < vf.size())
 			{
@@ -251415,22 +251120,6 @@ int Jidac::add()
 				/// c:\nz\dd if="\\\\.\\c:" bs=1048576 count=100000000000 |c:\zpaqfranz\zpaqfranz a j:\image\prova cimage.img -stdin
 
 				// OPTIMIZED LOOP
-				if (use_fraglist)
-				{
-					if (frag_idx < fraglist.size())
-					{
-						const FrontFrag &ff= fraglist[frag_idx++];
-						sz= ff.size;
-						if (sz) memcpy(&fragbuf[0], &fb[ff.off], (size_t)sz);
-						hits= ff.hits;
-						memcpy(o1, ff.o1, 256);
-						memcpy(sha1result, ff.sha1, 20); // step 3: use the worker's SHA1
-						frag_have_sha1= true;            // skip the recompute below
-					}
-					// else: fraglist exhausted -> sz stays 0 (EOF; the streaming
-					// loop likewise breaks on buflen==0, leaving sz==0)
-				}
-				else
 				while (true)
 				{
 					// Buffer filling
@@ -251824,15 +251513,11 @@ int Jidac::add()
 				if (sz == 0 && fj > 0)
 					break; /// fix alla versione d
 				// SHA1 update in blocco - gia' ottimizzato zpaqfranz
-				if (!frag_have_sha1) // step 3: skip when the worker already hashed this fragment
-				{
-					sha1.write(&fragbuf[0], sz);
-					assert((uint64_t)sz == sha1.usize());
-					memcpy(sha1result, sha1.result(), 20);
-				}
+				sha1.write(&fragbuf[0], sz);
+
+				assert((uint64_t)sz == sha1.usize());
+				memcpy(sha1result, sha1.result(), 20);
 				htptr= htinv.find(sha1result);
-				if (sa_force)
-					htptr= 0;	/// -sa stage 5: the file goes whole into its block
 				imgdash.frammento(sz, htptr == 0);
 			}
 
@@ -251850,8 +251535,6 @@ int Jidac::add()
 					}
 				}
 
-			if (htptr != 0 && (int)fi == sa_blk_fi)
-				sa_blk_ok= false;	/// -sa: part of the file is already in the archive
 			if (htptr == 0)
 			{
 				// Data type analysis - optimized with lookup table
@@ -251921,23 +251604,8 @@ int Jidac::add()
 					if (newsize >= blocksize)
 						newblock= true;
 				}
-				/// -sae/-sat: a file a codec takes goes alone in its block, whatever its
-				/// size (up to ZS_SA_MAXFILE); so a new block before it and after it.
-				/// Unless the same codec took the files of the block being filled and its
-				/// ZPAQL handles several segments (sa_join): then the file joins them, if
-				/// the whole of it fits
-				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
-				/// Since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
-				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
-				const int64_t sa_cap= (std::max)((int64_t)blocksize, ZS_SA_GROUP);
-				const bool sa_join= sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
-				                    && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < sa_cap;
-				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
+				if (sb.size() + sz + 80 + frags * 4 >= blocksize)
 					newblock= true;
-				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
-					newblock= true;
-				if (sa_join)
-					newblock= false;
 				if (fi == vf.size())
 					newblock= true;
 				if (frags < 1)
@@ -251948,14 +251616,11 @@ int Jidac::add()
 					assert(frags > 0);
 					assert(frags < ht.size());
 					/// uint64_t theblocksize=0;
-					int64_t prog_blockdata= 0;	// -innosetup: bytes de archivos de este bloque
 					for (unsigned i= ht.size() - frags; i < ht.size(); ++i)
 					{
 						// theblocksize+=ht[i].usize;
-						prog_blockdata+= ht[i].usize;
 						puti(sb, ht[i].usize, 4); // list of frag sizes
 					}
-					g_prog_sbpend= prog_blockdata;
 					puti(sb, 0, 4);		// omit first frag ID to make block movable
 					puti(sb, frags, 4); // number of frags
 					string m= method;
@@ -251964,28 +251629,10 @@ int Jidac::add()
 						int redz= redundancy / (sb.size() / 256 + 1);
 						m+= "," + itos(redz) + "," + itos((exe > frags) * 2 + (text > frags));
 
-												/// m[0]='0';
+						/// m[0]='0';
 					}
 
-					// External compression (-ma: ver ma_comprimir_bloque)
-					string ma_comment;
 					string fn= "jDC" + itos(date, 14) + "d" + itos(ht.size() - frags, 10);
-					if (sa_blk_fi >= 0 && sa_blk_ok)
-					{
-						/// -sae/-sat: the codec runs in the compressing thread (sa_comprimir_bloque);
-						/// "k<cut>,<cut>...:" where each file after the first starts
-						string k;
-						for (size_t c= 0; c < sa_cuts.size(); ++c)
-							k+= (c ? "," : "k") + itos((int64_t)sa_cuts[c]);
-						m= "zsapend:" + itos(sa_blk_codec) + ":" + (k.empty() ? "" : k + ":") + m;
-						if (g_sa_mode == 't')
-							sa_name_set(fn, sa_names);
-					}
-					else
-						ma_comprimir_bloque(sb, m, ma_comment);
-					sa_blk_fi= -1;
-					sa_cuts.clear();
-					sa_names.clear();
 
 					if (flagdebug3)
 						myprintf("02087: operating on %s\n", fn.c_str());
@@ -252007,16 +251654,7 @@ int Jidac::add()
 #endif
 							if (flagdebug2)
 								myprintf("02088: appendz %s %s \n", fn.c_str(), m.c_str());
-							{
-								/// La etiqueta -ma va ANTES de "jDC\x01": el comentario de un bloque de
-								/// journaling tiene que TERMINAR en "jDC\x01" (spec de zpaq; lo exigen el
-								/// verificador p y varias lecturas de zpaqfranz). Hasta pre43 iba despues
-								/// ("tam jDC\x01 zpaqstd-ma2:..."): p lo daba por streaming. Los lectores
-								/// buscan la etiqueta con find(), asi que leen las dos formas.
-								string mc= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
-								job.appendz(sb, fn.c_str(), m, mc.c_str(), prog_blockdata);
-								g_prog_queued+= prog_blockdata;
-							}
+							job.appendz(sb, fn.c_str(), m);
 						}
 						else
 						{
@@ -252024,17 +251662,11 @@ int Jidac::add()
 							/// this is a "monothread" compression: we need job (compressjob) for the job.csize vector
 							try
 							{
-								string		 comment= ma_comment.empty() ? "jDC\x01" : ma_comment+" jDC\x01";
+								string		 comment= "jDC\x01";
 								StringBuffer my_cj_in;	// uncompressed input
 								StringBuffer my_cj_out; // compressed output
 								my_cj_in.swap(sb);
-								g_prog_queued+= prog_blockdata;
-								g_prog_sbpend= 0;
-								if (m.compare(0, 8, "zsapend:") == 0)
-									sa_comprimir_bloque(my_cj_in, m, comment, fn);
-								const int64_t insz= my_cj_in.size();
-								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str(), true, &g_prog_cm);
-								g_prog_cm+= prog_blockdata - insz;
+								libzpaq::compressBlock(&my_cj_in, &my_cj_out, m.c_str(), fn.c_str(), comment.c_str());
 								job.csize.push_back(my_cj_out.size());
 								if (job.out && my_cj_out.size() > 0)
 								{
@@ -252066,32 +251698,13 @@ int Jidac::add()
 					}
 
 					assert(sb.size() == 0);
-					g_prog_sbpend= 0;
 					blocklist.push_back(ht.size() - frags); // mark block start
 					frags= redundancy= text= exe= 0;
 					memset(o1prev, 0, sizeof(o1prev));
 				} // newblock
 
-				if (sa_start)
-				{
-					if (sa_join)
-					{
-						sa_cuts.push_back(sb.size());
-						sa_names+= "\n" + vf[fi]->first;
-					}
-					else
-						sa_names= vf[fi]->first;
-					sa_blk_fi	 = (int)fi;
-					sa_blk_codec= sa_file;
-					if (!sa_join)
-						sa_blk_ok= true;
-					if (g_sa_mode == 't')
-						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
-						         sa_join ? ", in the same block as the previous file" : "");
-				}
 				assert(sz == 0 || fi < vf.size());
 				sb.write(&fragbuf[0], sz);
-				g_prog_sbpend= sb.size();
 				++frags;
 				redundancy+= hits;
 				exe+= exe1 * 4;
@@ -252172,11 +251785,6 @@ int Jidac::add()
 			join(tid[i]);
 		join(wid);
 	}
-	/// -innosetup: con todo comprimido, lo comprimido tiene que ser EXACTAMENTE lo
-	/// encolado, y nada pendiente. Si no, la barra no llegaria a 100 (o se pasaria).
-	if (flagdebug)
-		myprintf("02124: progress compressed=%s queued=%s pending=%s\n",
-		         migliaia(g_prog_cm.load()), migliaia2(g_prog_queued.load()), migliaia3(g_prog_sbpend.load()));
 
 	/// the index is built here, before the fragment tables: -fast
 	/// needs the records of this version to store the history
@@ -252309,6 +251917,9 @@ int Jidac::add()
 			}
 			out.seek(header_pos, SEEK_SET);
 #ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART
+			g_franzen_jidacheader= header_pos;
+#endif /// NOSFTPEND
 #endif
 			writeJidacHeader(&out, date, cdatasize, htsize);
 			if (flagdebug3)
@@ -252450,6 +252061,40 @@ int Jidac::add()
 							myprintf("02144$ WARNING trouble in touching\n");
 					}
 #ifndef NOFRANZEN
+#ifdef ZPAQFULL /// NOSFTPSTART					
+					if (g_franzen_filename!="")
+					{
+						if (fileexists(g_franzen_filename))
+						{
+		
+							int64_t newfranzen=prendidimensionefile(g_franzen_filename.c_str());
+							
+							if (newfranzen>g_starting_franzenfile)
+							{
+								
+								if (g_p_franzenfile)
+								{
+									myprintf("22032: Closing g_p_franzenfile\n");
+									g_p_franzenfile->close();
+								}
+							  // ALSO close the thread-local franzcri of the main thread!
+								// It was opened by get_thread_franzenfile() during InputArchive reading
+								cleanup_thread_franzenfile();
+								color_magenta();
+								myprintf("02141: Truncating franzenarchive from %s to %s (- %s)\n", migliaia(newfranzen), migliaia2(g_starting_franzenfile),migliaia3(newfranzen-g_starting_franzenfile));
+								color_restore();
+								if (truncate(g_franzen_filename.c_str(), g_starting_franzenfile))
+									printerr("trunc-franz", g_franzen_filename.c_str(), 0);
+							}
+							
+							if (g_starting_zpaqdate > 0)
+							{
+								if (!touch(g_franzen_filename.c_str(), g_starting_zpaqdate, g_starting_zpaqattr))
+									myprintf("02143$ WARNING trouble in touching franzen\n");
+							}
+						}
+					}
+#endif /// NOSFTPEND
 #endif
 
 				}
@@ -252609,6 +252254,9 @@ int Jidac::add()
 			}
 		}
 	gestisciposttest();
+#ifdef ZPAQFULL /// NOSFTPSTART
+	gestiscisfx();
+#endif /// NOSFTPEND
 
 	if (posterrori() != 0)
 		return 2;
