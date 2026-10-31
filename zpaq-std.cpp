@@ -95285,8 +95285,8 @@ struct zs_sa_official { const char* file; const char* algo; int level; const cha
 /// where its format v6 gains: 12 bits, DNL, DRI without RST, big JPEGs after the
 /// EOI as in MPO and Ultra HDR), then pja and pjals; -sa alone, every codec
 static const zs_sa_official ZS_SA_OFFICIAL[]={
-	{"pja", "pjax",  2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST)", true},
-	{"pja", "pja",   2, "JPEG (baseline, progressive, arithmetic)", true},
+	{"pja", "pjax7", 2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST), with stream v7's model", true},
+	{"pja", "pja7",  2, "JPEG (baseline, progressive, arithmetic), stream v7", true},
 	{"pja", "pjall", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
 	{"pja", "pjals", 2, "JPEG-LS", true},
 	{"pja", "pjalsx", 2, "JPEG-LS with subsampled components", true},

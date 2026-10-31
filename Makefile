@@ -576,11 +576,14 @@ plugins/codecs/sylz$(PLUGEXT): compressors/sylz/sylz.pas compressors/sylz/sylzhu
 
 # PJA (-sa: pjax, pja, pjall, pjals and pjalsx, one file), as its compressors/pja/VENDOR.md builds it; PJA_COMMIT is
 # what its card (codecinfoex) shows
-PJASRC := $(wildcard compressors/pja/pas/*.pas compressors/pja/pas/*.inc compressors/pja/pas/plugin/*.pas compressors/pja/pas/plugin/*.inc)
+# (since its stream v7, a C part too: pas/build_c.sh, objects that fpc links through -Fo)
+PJASRC := $(wildcard compressors/pja/pas/*.pas compressors/pja/pas/*.inc compressors/pja/pas/plugin/*.pas compressors/pja/pas/plugin/*.inc \
+  compressors/pja/pas/*.c compressors/pja/pas/*.h)
 plugins/codecs/pja$(PLUGEXT): $(PJASRC)
 	@mkdir -p plugins/codecs plugins/fpc-pja
-	PJA_COMMIT=d536935 $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
-	  -Fucompressors/pja/pas/plugin -Ficompressors/pja/pas/plugin -FUplugins/fpc-pja -oplugins/fpc-pja/pja$(PLUGEXT) compressors/pja/pas/plugin/pja_zpaqstd.pas
+	CC="$(SYLZC_CC) $(filter -m32,$(CFLAGS))" sh compressors/pja/pas/build_c.sh plugins/fpc-pja $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
+	PJA_COMMIT=9c3e61a $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
+	  -Fucompressors/pja/pas/plugin -Ficompressors/pja/pas/plugin -FUplugins/fpc-pja -Foplugins/fpc-pja -oplugins/fpc-pja/pja$(PLUGEXT) compressors/pja/pas/plugin/pja_zpaqstd.pas
 	mv -f plugins/fpc-pja/pja$(PLUGEXT) $@
 
 compressors/plug/zs_%.o: compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
