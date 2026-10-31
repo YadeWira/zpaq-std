@@ -31,7 +31,8 @@ n=0; bad=0; : > "../hashes-$PLAT.txt"
 for m in $methods; do
   n=$((n+1)); f=a$n.zpaq
   fixdates
-  if ! "$Z" a $f data $m -timestamp 2026-01-01_00:00:00 -noattributes -nomore >a.log 2>&1; then echo "FAIL a $m"; tail -3 a.log; bad=$((bad+1)); continue; fi
+# -nofast: no VFILE-info record (zpaqfranz 65.x), which names the OS: the bytes compared are the data
+  if ! "$Z" a $f data $m -timestamp 2026-01-01_00:00:00 -nofast -noattributes -nomore >a.log 2>&1; then echo "FAIL a $m"; tail -3 a.log; bad=$((bad+1)); continue; fi
   rm -rf x; "$Z" x $f -to x -nomore >x.log 2>&1
   if ! diff -r data x/data >/dev/null 2>&1; then echo "FAIL x $m"; tail -3 x.log; bad=$((bad+1)); fi
   "$Z" t $f -nomore >/dev/null 2>&1 || { echo "FAIL t $m"; bad=$((bad+1)); }

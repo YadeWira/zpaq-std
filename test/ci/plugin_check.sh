@@ -38,7 +38,7 @@ except OSError as e:
 fi
 for m in sylz:0 sylz:1 sylz:5 sylz:10 sylzec:0 sylzec:1 sylzec:9; do
   n=$((n+1)); f=p$n.zpaq
-  if ! ./zpaq-std a $f data -ma:$m -timestamp 2026-01-01_00:00:00 -noattributes -nomore >a.log 2>&1; then echo "FAIL a $m"; tail -3 a.log; bad=$((bad+1)); continue; fi
+  if ! ./zpaq-std a $f data -ma:$m -timestamp 2026-01-01_00:00:00 -nofast -noattributes -nomore >a.log 2>&1; then echo "FAIL a $m"; tail -3 a.log; bad=$((bad+1)); continue; fi
   rm -rf x; ./zpaq-std x $f -to x -nomore >/dev/null 2>&1
   diff -r data x/data >/dev/null 2>&1 || { echo "FAIL x $m"; bad=$((bad+1)); }
   echo "-ma:$m $(sha256 $f)" >> "../plughashes-$PLAT.txt"
