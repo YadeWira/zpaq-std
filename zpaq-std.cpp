@@ -104973,6 +104973,12 @@ static bool compressBlockZstd(StringBuffer* in, Writer* out, const std::string& 
   const int zstsize= zstd_encode(method, in->c_str(), (int)n, arg0+20, zst);
   if (zstsize<=0)
     return false;
+  /// zpaq-std: a block that zstd and its decoder (some KB, in every block) do not make smaller goes
+  /// stored. A block of JPEGs that -sa gave back took 5 KB more than the files (PJA's 12-bit set:
+  /// 84 KB of JPEG, 96 KB of archive)
+  static const size_t decodificador= zstd_canonical_bytes().size();
+  if ((uint64_t)zstsize + decodificador + 16 >= (uint64_t)n)
+    return false;
   const std::string config= zstd_config(arg0+20); /// M = the whole block
   int args[9]={0};
   libzpaq::Compressor co;
