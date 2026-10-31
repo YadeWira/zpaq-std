@@ -1,3 +1,14 @@
+### [2.0.3] - 2026-10-31
+
+**`-ma:hs` compresses 2 to 3 times faster**, with the same bytes, and `-sa` takes PJA 0.5.3.
+
+- **heatshrink-ex 0.7.2** (`-ma:hs`): its encoder skips the matches that cannot win. The corpus (104 MB) at levels 0, 1 and 2 takes 2.0, 2.5 and 3.7 s instead of 3.7, 5.6 and 11.0 s, and the archives are those of 2.0.2 byte for byte. 0.7.2 also treats a request for output with no room left as an error; zpaq-std's wrapper no longer makes one (with valid blocks it never did).
+- **PJA 0.5.3** (`-sa`): its command and libpja repair scans cut short; for the plugin nothing changes, and `-sa` writes the archives of 0.5.1 byte for byte on PJA's five test sets.
+- **`-sa` stands for *specific algorithms*:** the README and the wiki say so now.
+- **THIRD-PARTY-LICENSES** listed PJA 0.1.0; now 0.5.3.
+
+#### Checked
+
 ### [2.0.2] - 2026-10-31
 
 **`-sa` puts similar photos next to each other before grouping them.** JPEGs from the same camera and settings, taken close in time, now share a group, so the LZ77 of the z codecs finds what they have in common.
