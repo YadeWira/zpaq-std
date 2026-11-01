@@ -10,6 +10,8 @@
 
 - **`-ma:lzh:1` to `4` on 8 sets of the corpus, on Linux x64, x86 and AArch64 and on Windows x64 and x86:** all 160 archives are those of 2.1.0, byte for byte; they extract natively and in zpaq 7.15.
 - **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.1.0, built with the same version number: 0 of 182 archives differ.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical, and `-ma:lzh` writes the same archive on x64, x86 and AArch64.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.1.0. CI is green on all six platforms.
 
 ### [2.1.0] - 2026-10-31
 
