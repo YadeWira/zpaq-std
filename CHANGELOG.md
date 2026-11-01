@@ -10,6 +10,15 @@
 - **PJA 0.6.2** (`-sa`): on Windows the plugin takes its memory from the process heap. FreePascal's own, in a DLL, deletes its lock when the thread that loaded the DLL ends, and zpaq-std loads a plugin when it first needs it, also from a thread that extracts. No stream, ZPAQL or codec changes.
 - **The help:** the lines 65.17 adds or changes are in Spanish and Portuguese too. zpaq-std's own lines take ids 9846-9875, out of zpaqfranz's range, so its new lines no longer collide with them.
 
+#### Checked
+
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.1.1: all 182 archives have the same size, each version extracts what the other writes, and `l` and `t` agree; only the version stamp differs.
+- **Independent battery on the merged binaries:** zpaqfranz's #347 and #348 fixed, 33 bug repros with no new failure, repack suites identical to zpaqfranz 65.17 but for Franzen, which now stops by design; BUG-021 (tar hard links between versions) stays fixed, also with three runs in parallel.
+- **Franzen:** `-franzen`, `-franzen2`, `FRANZFRANZEN` and a `.franzen` archive stop with exit code 2 and write nothing, on Linux and Windows; `-key` works as before. The official zpaqfranz-open.exe 65.17 shows the old behaviour (reported as zpaqfranz #349).
+- **PJA 0.6.2 on Windows 10:** an `-sa` archive of 962 JPEGs in 8 blocks extracts 10 times out of 10 with `-t8`; written there, it extracts identically on Linux.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical, and `-sa` and `-ma:lzh` write the same archive on x64, x86 and AArch64.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.1.1. CI is green on all six platforms.
+
 ### [2.1.1] - 2026-11-01
 
 **lzham-ex 1.1.0 and lz5-ex 1.5.4.** Archives are byte for byte those of 2.1.0, with every method.
