@@ -18,6 +18,14 @@
 - **PJA's stream v7 model is in C**, built with the plugin (`compressors/pja/pas/build_c.sh`); the plugin is still the only way PJA ships.
 - **The wiki explains how to write a good `-sa`/`-sae` codec** (Adding a compressor), with what PJA's codecs taught: decoder size and speed, several files per block, z variants, detection, threads, testing.
 
+#### Checked
+
+- **Archives of earlier versions:** an archive of 2.0.3 (`pja`, `pjax`) extracts identically with 2.1.0 and decodes natively (0.46 s, against 9.5 s running its ZPAQL); an archive of 2.1.0 extracts identically with 2.0.3 and PJA 0.5.3, which runs its ZPAQL. `-sa:pjax` writes the same archive as `-sa:pjax7`.
+- **The smallest LZ77 window** (on the prototype, the very same sources): with the window forced to the least each group allows (2^16 to 2^24), `-sat` checks every block's ZPAQL and the five sets extract identically, natively and in zpaq 7.15.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.0.3: all 182 archives have the same size, each version extracts what the other writes, and `l` and `t` agree.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical, and `-sa` on the 244 arithmetic-coded JPEGs writes the same archive on x64, x86 and AArch64.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs extracts identically both ways, and on Linux with zpaq 7.15 and 2.0.3. CI is green on all six platforms.
+
 ### [2.0.3] - 2026-10-31
 
 **`-ma:hs` compresses 2 to 3 times faster**, with the same bytes, and `-sa` takes PJA 0.5.3.
