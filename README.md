@@ -108,7 +108,7 @@ shows its card (author, repository, version, hashes).
 
 ---
 
-## JPEG, lossless JPEG and JPEG-LS: `-sa` (experimental)
+## Specific Algorithms: `-sa` (experimental)
 
 > **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but keep another copy of what you archive with `-sa`.
 
@@ -142,7 +142,7 @@ them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
 size, against 71% without it). Since 2.1.0 JPEG goes with PJA's stream v7 (`pja7`,
 `pjax7`): 1–3% smaller and faster both ways; archives made with `pja` and `pjax`
 are still read. The plugin comes in the `extra-codecs` download. More:
-[wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#jpeg-and-jpeg-ls--sa).
+[wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#specific-algorithms--sa).
 
 ---
 
