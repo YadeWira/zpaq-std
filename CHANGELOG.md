@@ -1,3 +1,15 @@
+### [2.2.0] - 2026-11-01
+
+**zpaq-std on zpaqfranz 65.17, and Franzen stops instead of failing in silence.**
+
+#### What changes for you
+
+- **Exit code 2 where it was 0** (zpaqfranz #347): a word after the switches that none takes (`-m 5`, a value of an unknown switch) stops with 00569, a command that does not exist with 00573, a command without its archive with 00572. A script that ran `zpaq-std ... && rm source` no longer deletes the source when nothing was written. `-m 5` and `-t 2` with a space are taken, as `-m5` and `-t2`.
+- **Franzen is not in zpaq-std, and now it says so.** Franzen (ChaCha20, `.franzen` archives) is in zpaqfranz's full build only; zpaq-std is built from its open build, which kept the help and the variable without the code (zpaqfranz-open 65.17 does the same; reported to Franco Corbelli). Before, `-franzen` was an unknown option, `FRANZFRANZEN` left the archive **in clear** with exit code 0, and a `.franzen` archive was "not found". Now `-franzen` and `-franzen2` stop with 00739, `FRANZFRANZEN` set stops every command with 00741, a `.franzen` archive gives 00740, all with exit code 2 and nothing written; the help no longer lists Franzen. Encrypt with `-key` (AES) or `FRANZKEY`, as before.
+- **New from zpaqfranz 65.17:** `r -paranoid` (pieces read back from the media and checked), `work fileexists`, `nomefileseesistegia`, `prendinomefileebasta`, `linuxtowindows`, `includetrailingbackslash`, `keyfile` and `datebig` for scripts, `checkspace` with a 10% margin, `compare2` on the last row with the pattern, `-m8` storing what zstd and its decoder do not shrink (Franco's rule, the one of zpaq-std 2.0.1).
+- **PJA 0.6.2** (`-sa`): on Windows the plugin takes its memory from the process heap. FreePascal's own, in a DLL, deletes its lock when the thread that loaded the DLL ends, and zpaq-std loads a plugin when it first needs it, also from a thread that extracts. No stream, ZPAQL or codec changes.
+- **The help:** the lines 65.17 adds or changes are in Spanish and Portuguese too. zpaq-std's own lines take ids 9846-9875, out of zpaqfranz's range, so its new lines no longer collide with them.
+
 ### [2.1.1] - 2026-11-01
 
 **lzham-ex 1.1.0 and lz5-ex 1.5.4.** Archives are byte for byte those of 2.1.0, with every method.
