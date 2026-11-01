@@ -115,7 +115,7 @@ shows its card (author, repository, version, hashes).
 `-sa` stands for *specific algorithms*: zpaq-std's codecs for specific formats.
 
 ```bash
-zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax, pja, pjall, pjals, pjalsx
+zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax7, pja7, pjall, pjals, pjalsx
 zpaq-std a photos.zpaq /photos -sa:pjals -ma:zstd    # only JPEG-LS; the rest with zstd
 ```
 
@@ -127,9 +127,9 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.5.3, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
-| `-sa:pjax+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
-| (pja) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.6.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pjax7+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
+| (pja7) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
 | `-sa:pjals+N` | the same plugin | JPEG-LS | 2 | 2 |
 | `-sa:pjalsx+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
@@ -139,7 +139,9 @@ Files are chosen by their contents, never by name; the rest is compressed as
 camera and settings are put next to each other first), and where it takes
 fewer bytes the block also goes through an LZ77 that finds what repeats across
 them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
-size, against 71% without it). The plugin comes in the `extra-codecs` download. More:
+size, against 71% without it). Since 2.1.0 JPEG goes with PJA's stream v7 (`pja7`,
+`pjax7`): 1–3% smaller and faster both ways; archives made with `pja` and `pjax`
+are still read. The plugin comes in the `extra-codecs` download. More:
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#jpeg-and-jpeg-ls--sa).
 
 ---

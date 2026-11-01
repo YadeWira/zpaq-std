@@ -1,9 +1,9 @@
-# PJA, branch `v7z`: the zpaq-std plugin with the version 7 codecs (prototype)
+# PJA 0.6.0: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), local branch `v7z`, commit `9c3e61a`,
-on top of 0.5.3: a PROTOTYPE for zpaq-std 2.1.0, not a release (the card
-still says 0.5.3). Only the sources the plugin is built from. MIT
-(`LICENSE`); `NOTICE` has the third-party notes.
+PJA (https://github.com/YadeWira/PJA), tag `v0.6.0`, commit `8569253`:
+only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
+`NOTICE` has the third-party notes. The same sources as the prototype of
+commit `9c3e61a` (zpaq-std's exp/v7) but for the version number.
 
 ## What is new
 
@@ -40,7 +40,7 @@ then fpc with `-Fo<dir>` so `pjav7.pas`'s `{$L pjav7c.o}` and
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=9c3e61a
+export PJA_COMMIT=8569253
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):
@@ -67,7 +67,7 @@ fpc -Twin64 -Px86_64 -O3 -dPJA_FAST -Fupas -Fipas -Fupas/plugin -Fipas/plugin -F
 
 Windows x86: `CC=i686-w64-mingw32-gcc sh pas/build_c.sh build/win32/c`
 (build_c.sh adds `-fno-pic` for 32-bit x86), then `ppc386 -n -Twin32 ...
--Fobuild/win32/c`, as the 0.5.3 command with `-Fo` added.
+-Fobuild/win32/c`, as 0.5.3's with `-Fo` added.
 
 macOS arm64: `sh pas/build_c.sh build/mac/c -fPIC` with clang, then fpc with
 `-Fobuild/mac/c -Cg`.
@@ -77,8 +77,16 @@ loop, taken by cpuid at run time; every copy writes the same bits.
 
 ## Checked
 
-Every file back, natively and through the ZPAQL with libzpaq (zpaq 7.15's
-engine), at the `$3` the query gives:
+zpaq-std, through its whole path (`-sa -t8`, branch exp/v7, against its
+2.0.3): photos -3.1%, corpus -2.4%, MPO -1.0%, arithmetic-coded -3.1%,
+generated -2.6%; writing 1.3 to 1.6 times as fast, extracting natively
+1.2 to 1.6 times, zpaq 7.15 with the ZPAQL 1.5 to 1.6 times. Every file
+back, natively and with zpaq 7.15, with the smallest valid window forced
+in each group too; its CI (run 41227860640) on its six platforms, the
+same archive on every one.
+
+PJA: every file back, natively and through the ZPAQL with libzpaq (zpaq
+7.15's engine), at the `$3` the query gives:
 
 | set | v5 codec | v7 codec | compress (one thread) | decompress |
 |---|---|---|---|---|
@@ -97,5 +105,6 @@ ZPAQL interpreter.
 
 ## Frozen
 
-Nothing yet: the four names and their ZPAQL can change until zpaq-std
-decides they go in. Then they freeze as the others did.
+`pja7`, `pjax7`, `pja7z` and `pjax7z`: their streams, their ZPAQL
+(`pas/plugin/v7zpaql.inc`) and what each takes do not change under these
+names, as codecs 0 to 9's.

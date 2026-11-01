@@ -1,3 +1,23 @@
+### [2.1.0] - 2026-10-31
+
+**`-sa` compresses JPEG with PJA's stream v7: 1 to 3% smaller, and faster both ways.** You still write `-sa` or `-sa:pja`; archives made with earlier versions are still read.
+
+- **PJA 0.6.0:** its new codecs `pja7` and `pjax7` (and their z variants `pja7z` and `pjax7z`) take the place of `pja` and `pjax` in `-sa`. They use a better model, and their ZPAQL decoders are about 35 KB instead of 58 to 62 KB. Archive size, `-sa -t8`, against 2.0.3:
+
+  | Set | 2.0.3 | 2.1.0 | |
+  |---|---:|---:|---:|
+  | 244 arithmetic-coded JPEGs | 1,251,109 | 1,212,377 | −3.1% |
+  | 640 generated JPEGs | 3,183,477 | 3,099,865 | −2.6% |
+  | MPO photos | 30,570,193 | 30,254,230 | −1.0% |
+  | JPEGs of the corpus | 23,290,117 | 22,739,830 | −2.4% |
+  | 151 photos, all different | 59,009,713 | 57,151,702 | −3.1% |
+
+  Writing is 1.3 to 1.6 times faster and extracting 1.2 to 1.6 times. zpaq 7.15, which runs the blocks' ZPAQL, extracts 1.5 to 1.6 times faster (the 151 photos: 191 s to 121 s).
+- **New names, because the format is new.** A block's codec name tells zpaq-std which decoder it carries, so `pja` and `pjax` keep meaning the old decoders. They stay in the plugin, and archives made with them (1.7.0 to 2.0.3) still extract natively. 2.0.3 reads archives of 2.1.0 too, by running their ZPAQL.
+- **`-sa:pjax` still works:** it now means `pjax7`.
+- **PJA's stream v7 model is in C**, built with the plugin (`compressors/pja/pas/build_c.sh`); the plugin is still the only way PJA ships.
+- **The wiki explains how to write a good `-sa`/`-sae` codec** (Adding a compressor), with what PJA's codecs taught: decoder size and speed, several files per block, z variants, detection, threads, testing.
+
 ### [2.0.3] - 2026-10-31
 
 **`-ma:hs` compresses 2 to 3 times faster**, with the same bytes, and `-sa` takes PJA 0.5.3.
