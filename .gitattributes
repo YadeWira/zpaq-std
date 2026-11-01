@@ -1,0 +1,7 @@
+# GitHub's language bar: Linguist takes every .inc for SourcePawn.
+# PJA's and sylz's are Free Pascal includes; lzham's is a C++ macro list.
+compressors/pja/**/*.inc       linguist-language=Pascal
+compressors/sylz/**/*.inc      linguist-language=Pascal
+compressors/lzham/*.inc        linguist-language=C++
+# The ZPAQL decoders PJA generates (tools/zpaql/gen_pjadec.py): data, not code
+compressors/pja/pas/plugin/*zpaql.inc linguist-generated
