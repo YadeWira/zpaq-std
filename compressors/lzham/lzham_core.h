@@ -177,8 +177,11 @@
 
    #define LZHAM_NOTE_UNUSED(x) (void)x
 
-#elif (defined(__linux__) || defined(__unix__)) && !defined(LZHAM_ANSI_CPLUSPLUS)
-   // --- Generic GCC/clang POSIX path: Linux or Android on x86, x64, ARM or ARM64.
+#elif (defined(__linux__) || defined(__unix__)) && !defined(LZHAM_ANSI_CPLUSPLUS) && \
+      (LZHAM_CPU_X86 || LZHAM_CPU_X64 || LZHAM_CPU_ARM64)
+   // --- Generic GCC/clang POSIX path: Linux on x86, x64 or ARM64.
+   // 32-bit ARM (ARMv7) is not a supported target: it falls through to the ANSI build below, which keeps
+   // the codec correct but disables multithreaded compression and the atomic operations.
    // pthreads for threading, GCC built-ins for atomic ops.
    #define LZHAM_PLATFORM_PC 1
 

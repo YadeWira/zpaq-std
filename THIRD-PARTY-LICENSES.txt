@@ -19,7 +19,7 @@ PART 1 - BUNDLED COMPRESSORS
   bz2-ng               commit 517948e (no release yet) MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
   libdeflate           1.26                         MIT
   lizard-ex (Lizard)   2.3.2                        BSD-2-Clause (library)
-  lz5-ex               1.5.3                        BSD-2-Clause
+  lz5-ex               1.5.4                        BSD-2-Clause
   LZ4                  1.10.0                       BSD-2-Clause (library)
   LZAV                 5.20                         MIT
   lz6                  see compressors/lz6/VERSION.txt BSD-2-Clause
@@ -28,7 +28,7 @@ PART 1 - BUNDLED COMPRESSORS
   heatshrink-ex        0.7.2                        ISC
   bzip3                1.5.5                        LGPL-3.0-or-later
   libbsc               3.4.0, patched               Apache-2.0
-  lzham-ex (LZHAM 1.0) 1.0.2                        Public domain
+  lzham-ex (LZHAM 1.0) 1.1.0                        Public domain
   PPMd var.H (Ppmd7)   7-Zip / LZMA SDK             Public domain
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
@@ -620,7 +620,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-lz5-ex 1.5.3
+lz5-ex 1.5.4
 Licence: BSD-2-Clause
 Copyright: Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)
 A fork of LZ5 1.5 with the same block format.
@@ -1918,7 +1918,7 @@ is marked ZPAQSTD-PATCH in the sources, listed in compressors/bsc/PATCHES.
    limitations under the License.
 
 ===============================================================================
-lzham-ex (LZHAM 1.0) 1.0.2
+lzham-ex (LZHAM 1.0) 1.1.0
 Licence: Public domain
 Copyright: Richard Geldreich, Jr.; maintained by YadeWira
 

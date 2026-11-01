@@ -1207,7 +1207,10 @@ namespace lzham
       if (!check_params(&params))
          return NULL;
 
-      if (pState->m_params.m_decompress_flags & LZHAM_DECOMP_FLAG_OUTPUT_UNBUFFERED)
+      // Decide the ring-buffer mode and size from the parameters being installed, not from the previous ones:
+      // reinit() may change m_dict_size_log2, and sizing the buffer with the old dictionary overflows it when
+      // the new one is larger.
+      if (params.m_decompress_flags & LZHAM_DECOMP_FLAG_OUTPUT_UNBUFFERED)
       {
          lzham_free(pState->m_pRaw_decomp_buf);
          pState->m_pRaw_decomp_buf = NULL;
@@ -1216,7 +1219,7 @@ namespace lzham
       }
       else
       {
-         uint32 new_dict_size = 1U << pState->m_params.m_dict_size_log2;
+         uint32 new_dict_size = 1U << params.m_dict_size_log2;
          if ((!pState->m_pRaw_decomp_buf) || (pState->m_raw_decomp_buf_size < new_dict_size))
          {
             uint8 *pNew_dict = static_cast<uint8*>(lzham_realloc(pState->m_pRaw_decomp_buf, new_dict_size + 15));
@@ -1388,6 +1391,13 @@ namespace lzham
 
       if (!lzham_lib_decompress_reinit(pState, &params))
          return LZHAM_Z_STREAM_ERROR;
+
+      // inflateReset() is documented to leave the stream as inflateInit() does, so the counters restart too.
+      pStream->total_in = 0;
+      pStream->total_out = 0;
+      pStream->adler = 0;
+      pStream->msg = NULL;
+      pStream->data_type = 0;
 
       return LZHAM_Z_OK;
    }

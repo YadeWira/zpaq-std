@@ -77,13 +77,13 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 |
 | `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 |
 | `-ma:lizard:N` | [lizard-ex](https://github.com/YadeWira/lizard-ex) 2.3.2 (Lizard 2.1's format) | 10–49 | 17 |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.3 | 1–15 | 9 |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.4 | 1–15 | 9 |
 | `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 |
 | `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.4 | 0–1 | 1 |
 | `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.2 | 0–2 | 1 |
 | `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 |
 | `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 | 1–9 | 3 |
-| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.0.2 (LZHAM 1.0) | 1–4 | 4 |
+| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.1.0 (LZHAM 1.0) | 1–4 | 4 |
 | `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 | 6 |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |

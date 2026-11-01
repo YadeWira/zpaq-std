@@ -1,3 +1,16 @@
+### [2.1.1] - 2026-11-01
+
+**lzham-ex 1.1.0 and lz5-ex 1.5.4.** Archives are byte for byte those of 2.1.0, with every method.
+
+- **lzham-ex 1.1.0** (`-ma:lzh`): fixes `lzham_decompress_reinit()`, which sized its buffer from the old dictionary and overflowed it when the new one was larger, and starts no more helper threads than the input has blocks. zpaq-std runs LZHAM without helper threads and never reinitializes a decompressor, so neither reached it; the output with no helper threads is that of 1.0.2. The `ZPAQLZHAM10` decoder and the block tag do not change.
+- **lz5-ex 1.5.4** (`-ma:lz5`, `lz5hc`, `lz5f`): its fixes are in the frame API and the command, which zpaq-std does not bundle; the block code it uses is the same.
+- **GitHub no longer shows the repository as SourcePawn:** `.gitattributes` tells it that the `.inc` files are Pascal (PJA, sylz) and C++ (lzham), and that the ZPAQL decoders PJA generates are generated code.
+
+#### Checked
+
+- **`-ma:lzh:1` to `4` on 8 sets of the corpus, on Linux x64, x86 and AArch64 and on Windows x64 and x86:** all 160 archives are those of 2.1.0, byte for byte; they extract natively and in zpaq 7.15.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.1.0, built with the same version number: 0 of 182 archives differ.
+
 ### [2.1.0] - 2026-10-31
 
 **`-sa` compresses JPEG with PJA's stream v7: 1 to 3% smaller, and faster both ways.** You still write `-sa` or `-sa:pja`; archives made with earlier versions are still read.

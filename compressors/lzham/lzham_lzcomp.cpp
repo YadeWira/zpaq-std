@@ -327,6 +327,22 @@ namespace lzham
       if (status != LZHAM_COMP_STATUS_SUCCESS)
          return status;
 
+      // We know the whole input here, so don't start more helper threads than there are blocks to process.
+      // With one or two blocks the thread-pool setup dominates the run time and the parallel parse makes the
+      // output both larger and slower; with many blocks the cap changes nothing.
+      {
+         uint block_size = 1024U * 512U;
+         const uint max_block_size = (1U << internal_params.m_dict_size_log2) / 8U;
+         if (block_size > max_block_size)
+            block_size = max_block_size;
+         if (block_size)
+         {
+            const size_t num_blocks = src_len ? ((src_len + block_size - 1) / block_size) : 1;
+            if ((size_t)internal_params.m_max_helper_threads > num_blocks - 1)
+               internal_params.m_max_helper_threads = (lzham_uint32)(num_blocks - 1);
+         }
+      }
+
       task_pool *pTP = NULL;
       if (internal_params.m_max_helper_threads)
       {
@@ -493,6 +509,13 @@ namespace lzham
          return LZHAM_Z_STREAM_ERROR;
 
       pStream->state = (struct lzham_z_internal_state *)pComp;
+
+      // deflateReset() is documented to leave the stream as deflateInit() does, so the counters restart too.
+      pStream->total_in = 0;
+      pStream->total_out = 0;
+      pStream->adler = LZHAM_Z_ADLER32_INIT;
+      pStream->msg = NULL;
+      pStream->data_type = 0;
 
       return LZHAM_Z_OK;
    }

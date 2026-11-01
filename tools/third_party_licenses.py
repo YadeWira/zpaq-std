@@ -31,7 +31,7 @@ BUNDLED = [
     ('libdeflate', '1.26', 'MIT', 'Eric Biggers', ['compressors/libdeflate/LICENSE'], ''),
     ('lizard-ex (Lizard)', '2.3.2', 'BSD-2-Clause (library)', 'Yann Collet, Przemyslaw Skibinski (Lizard); YadeWira (lizard-ex)', ['compressors/lizard/LICENSE'],
      'The maintained successor of Lizard 2.1, same format: see compressors/lizard/VERSION.txt.'),
-    ('lz5-ex', '1.5.3', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
+    ('lz5-ex', '1.5.4', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('LZ4', '1.10.0', 'BSD-2-Clause (library)', 'Yann Collet', ['compressors/lz4/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lz4, lz4hc, lz4f).'),
     ('LZAV', '5.20', 'MIT', 'Aleksey Vaneev', ['compressors/lzav/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lzav).'),
@@ -50,7 +50,7 @@ BUNDLED = [
      'Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed\n'
      'with either. Modified by zpaq-std (bounds checks in the decoder): every change\n'
      'is marked ZPAQSTD-PATCH in the sources, listed in compressors/bsc/PATCHES.'),
-    ('lzham-ex (LZHAM 1.0)', '1.0.2', 'Public domain', 'Richard Geldreich, Jr.; maintained by YadeWira',
+    ('lzham-ex (LZHAM 1.0)', '1.1.0', 'Public domain', 'Richard Geldreich, Jr.; maintained by YadeWira',
      ['compressors/lzham/LICENSE'], ''),
     ('PPMd var.H (Ppmd7)', '7-Zip / LZMA SDK', 'Public domain', 'Dmitry Shkarin, Igor Pavlov',
      ['compressors/ppmd/LICENSE-PPMD.txt'], ''),

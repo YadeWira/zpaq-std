@@ -76,8 +76,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.1.0"
-#define ZPAQSTD_DATE "(2026-10-31)"
+#define ZPAQSTD_VERSION "2.1.1"
+#define ZPAQSTD_DATE "(2026-11-01)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.16i"
@@ -105690,12 +105690,12 @@ static const zs_info_row ZS_INFO[]=
 	 "MIT", "release v1.26", "raw DEFLATE (RFC 1951)", ""},
 	{"lizard", false, 10, 49, 17, "ZPAQLIZARD, ZPAQLIZARDH (levels 30-49)", "lizard-ex 2.3.2", "Yann Collet, Przemyslaw Skibinski (Lizard); YadeWira (lizard-ex)", "https://github.com/YadeWira/lizard-ex",
 	 "BSD-2-Clause", "v2.3.2 (Lizard 2.1's format and bytes)", "Lizard block", "levels 30-49 add Huffman"},
-	{"lz5", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
-	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "lz5-ex is a fork of LZ5 1.5 with the same format"},
-	{"lz5hc", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
-	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "lz5's high-compression parser; same plugin as lz5"},
-	{"lz5f", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.3", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
-	 "BSD-2-Clause", "v1.5.3, commit 7e4388e", "LZ5 1.5 block", "same plugin as lz5"},
+	{"lz5", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.4", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
+	 "BSD-2-Clause", "v1.5.4, commit dd5abf7", "LZ5 1.5 block", "lz5-ex is a fork of LZ5 1.5 with the same format"},
+	{"lz5hc", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.4", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
+	 "BSD-2-Clause", "v1.5.4, commit dd5abf7", "LZ5 1.5 block", "lz5's high-compression parser; same plugin as lz5"},
+	{"lz5f", false, 1, 15, 9, "ZPAQLZ5", "lz5-ex 1.5.4", "Yann Collet, Przemyslaw Skibinski (LZ5); YadeWira (lz5-ex)", "https://github.com/YadeWira/lz5-ex",
+	 "BSD-2-Clause", "v1.5.4, commit dd5abf7", "LZ5 1.5 block", "same plugin as lz5"},
 	{"snappy", false, 1, 2, 2, "ZPAQSNAPPY", "Snappy 1.3.1", "Google Inc.", "https://github.com/google/snappy",
 	 "BSD-3-Clause", "release 1.3.1", "raw Snappy", "level 2 compresses more, at the same decompression speed"},
 	{"lzfse", false, 0, 1, 1, "ZPAQLZFSE", "lzfse-ex 1.0.4", "Apple Inc.; maintained by YadeWira", "https://github.com/YadeWira/lzfse-ex",
@@ -105706,8 +105706,8 @@ static const zs_info_row ZS_INFO[]=
 	 "LGPL-3.0-or-later", "release 1.5.5", "bzip3 blocks", ""},
 	{"bsc", false, 1, 9, 3, "ZPAQBSC", "libbsc 3.4.0", "Ilya Grebnov", "https://github.com/IlyaGrebnov/libbsc",
 	 "Apache-2.0", "release v3.4.0", "bsc block", "the level picks the block sorter (ST3 to ST5)"},
-	{"lzh", false, 1, 4, 4, "ZPAQLZHAM10", "lzham-ex 1.0.2", "Richard Geldreich, Jr.; maintained by YadeWira", "https://github.com/YadeWira/lzham-ex",
-	 "public domain", "v1.0.2, commit 8af13a8", "LZHAM 1.0 stream (0x1010)", "1..4 are LZHAM's fastest..better levels; archives from 1.5.1 and earlier hold the older alpha format (ZPAQLZHAM), still read"},
+	{"lzh", false, 1, 4, 4, "ZPAQLZHAM10", "lzham-ex 1.1.0", "Richard Geldreich, Jr.; maintained by YadeWira", "https://github.com/YadeWira/lzham-ex",
+	 "public domain", "v1.1.0, commit 3421b10", "LZHAM 1.0 stream (0x1010)", "1..4 are LZHAM's fastest..better levels; archives from 1.5.1 and earlier hold the older alpha format (ZPAQLZHAM), still read"},
 	{"ppmd", false, 2, 32, 6, "ZPAQPPMD", "PPMd var.H (Ppmd7)", "Dmitry Shkarin, Igor Pavlov", "https://www.7-zip.org/sdk.html",
 	 "public domain", "7-Zip / LZMA SDK", "PPMd7 (var.H) with 7-Zip's range coder", "the level is the model order"},
 	{"kanzi", false, 1, 9, 2, "ZPAQKANZI1B, ZPAQKANZI3B, ZPAQKANZI5C, ZPAQKANZI7B, ZPAQKANZI8B (by level)", "kanzi 2.6.0", "Frederic Langlet", "https://github.com/flanglet/kanzi-cpp",
