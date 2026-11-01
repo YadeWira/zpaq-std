@@ -80,8 +80,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define ZPAQSTD_DATE "(2026-11-01)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
-#define ZPAQ_VERSION "65.16i"
-#define ZPAQ_DATE "(2026-10-30)"
+#define ZPAQ_VERSION "65.17o"
+#define ZPAQ_DATE "(2026-10-31)"
 
 
 /*
@@ -36215,6 +36215,7 @@ struct Conn {
         for (;;) {
             int n = mbedtls_ssl_read(&ssl, (unsigned char *) buf, len);
             if (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+            if (n == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue; /* 65.17g: TLS 1.3, not an error */
             if (n == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || n == MBEDTLS_ERR_SSL_CONN_EOF) return 0;
             if (n == MBEDTLS_ERR_SSL_TIMEOUT) throw Fail(EX_NET, "receive timeout");
             if (n < 0)
@@ -37130,6 +37131,118 @@ int Mail::send()
 const char *Mail::result_name(int code)
 {
     return exit_name(code);
+}
+
+/*
+	65.17g: one HTTPS request with the TLS of this file (work prox start: no libcurl, the same on Windows and *nix).
+	The certificate of a Proxmox is self-signed: it is not verified, but with i_impronta (its SHA-256 in hex, with or
+	without :) it must be that one. i_intestazioni: more lines of header, each with its CRLF. 0 = an answer came
+	(o_stato, o_corpo), else the error in o_errore. o_vista: the SHA-256 of the certificate seen
+*/
+int https_chiama(const std::string &i_host, int i_porta, const std::string &i_metodo, const std::string &i_percorso,
+                 const std::string &i_intestazioni, const std::string &i_impronta, int i_secondi,
+                 int &o_stato, std::string &o_corpo, std::string &o_vista, std::string &o_errore,
+                 const std::string &i_corpo = std::string())
+{
+    o_stato = 0;
+    o_corpo.clear();
+    o_vista.clear();
+    o_errore.clear();
+    Logger saved = g_log;
+    g_log = Logger();
+    g_log.console_level = -1;
+#ifdef _WIN32
+    WSADATA wsa;
+    if (postami_sys::WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        g_log = saved;
+        o_errore = "WSAStartup failed";
+        return EX_NET;
+    }
+#endif
+    int rc = 0;
+    try {
+        Conn c;
+        c.connect(i_host, i_porta, i_secondi * 1000);
+        c.start_tls(i_host, "", "", true, 0);
+        const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&c.ssl);
+        if (peer == NULL) throw Fail(EX_TLS, "the server sent no certificate");
+        unsigned char hash[32];
+        if (mbedtls_sha256(peer->raw.p, peer->raw.len, hash, 0) != 0) throw Fail(EX_TLS, "SHA-256 failed");
+        static const char esa[] = "0123456789abcdef";
+        for (int i = 0; i < 32; i++) {
+            o_vista += esa[hash[i] >> 4];
+            o_vista += esa[hash[i] & 15];
+        }
+        std::string voluta;
+        for (size_t i = 0; i < i_impronta.size(); i++)
+            if (i_impronta[i] != ':')
+                voluta += (char) tolower((unsigned char) i_impronta[i]);
+        if ((voluta != "") && (voluta != o_vista))
+            throw Fail(EX_TLS, "the certificate of the server is not the expected one: it is " + o_vista);
+        std::string richiesta = i_metodo + " " + i_percorso + " HTTP/1.1\r\nHost: " + i_host +
+                                "\r\nUser-Agent: zpaqfranz\r\nAccept: application/json\r\nConnection: close\r\n";
+        if ((i_metodo == "POST") || (i_metodo == "PUT")) {
+            char lunghezza[32];
+            snprintf(lunghezza, sizeof(lunghezza), "%lu", (unsigned long) i_corpo.size());
+            richiesta += "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: " + std::string(lunghezza) + "\r\n";
+        }
+        richiesta += i_intestazioni + "\r\n" + i_corpo;
+        c.send_all(richiesta);
+        std::string risposta;
+        size_t finetesta = std::string::npos;
+        long attesi = -1;
+        bool chunked = false;
+        char pezzo[8192];
+        for (;;) {
+            int n = c.recv_some(pezzo, sizeof(pezzo));
+            if (n == 0) break;
+            risposta.append(pezzo, (size_t) n);
+            if (risposta.size() > (1 << 24)) throw Fail(EX_PROTO, "answer too big");
+            if (finetesta == std::string::npos) {
+                finetesta = risposta.find("\r\n\r\n");
+                if (finetesta != std::string::npos) {
+                    std::string testa = risposta.substr(0, finetesta + 2);
+                    for (size_t i = 0; i < testa.size(); i++) testa[i] = (char) tolower((unsigned char) testa[i]);
+                    const size_t lung = testa.find("\r\ncontent-length:");
+                    if (lung != std::string::npos) attesi = atol(testa.c_str() + lung + 17);
+                    chunked = (testa.find("\r\ntransfer-encoding: chunked") != std::string::npos);
+                }
+            }
+            if ((finetesta != std::string::npos) && (attesi >= 0) && (risposta.size() >= finetesta + 4 + (size_t) attesi))
+                break;
+        }
+        if ((finetesta == std::string::npos) || (risposta.compare(0, 5, "HTTP/") != 0))
+            throw Fail(EX_PROTO, "not an HTTP answer");
+        const size_t spazio = risposta.find(' ');
+        if (spazio != std::string::npos) o_stato = atoi(risposta.c_str() + spazio + 1);
+        if ((o_stato >= 400) && (spazio != std::string::npos)) { /// Proxmox says why here: 500 user 'x' already exists
+            const size_t testo = risposta.find(' ', spazio + 1);
+            const size_t fine = risposta.find("\r\n");
+            if ((testo != std::string::npos) && (testo < fine)) o_errore = risposta.substr(testo + 1, fine - testo - 1);
+        }
+        std::string corpo = risposta.substr(finetesta + 4);
+        if (chunked) {
+            size_t p = 0;
+            for (;;) {
+                const size_t fine = corpo.find("\r\n", p);
+                if (fine == std::string::npos) break;
+                const long lung = strtol(corpo.substr(p, fine - p).c_str(), NULL, 16);
+                if (lung <= 0) break;
+                o_corpo += corpo.substr(fine + 2, (size_t) lung);
+                p = fine + 2 + (size_t) lung + 2;
+                if (p >= corpo.size()) break;
+            }
+        } else
+            o_corpo = corpo;
+    } catch (const Fail &f) {
+        rc = f.code;
+        o_errore = f.msg;
+    }
+#ifdef _WIN32
+    postami_sys::WSACleanup();
+#endif
+    g_log = saved;
+    return rc;
 }
 
 } /* namespace postami */
@@ -87724,6 +87837,7 @@ std::string g_mail_maila; /// -maila: gone, only said
 std::string g_mysql_host;
 std::string g_mysql_user;
 std::string g_mysql_password;
+std::string g_mysql_filepassword; /// 65.17j: what my_handler takes away: a control-C does not leave a password on the disk
 int			g_mysql_port;
 
 
@@ -87795,6 +87909,9 @@ int64_t		g_robocopy_openoutfile;
 int64_t		g_robocopy_fclose;
 int64_t		g_robocopy_fread;
 int64_t		g_robocopy_fwrite;
+int64_t		g_robocopy_pezzi;	  /// 65.17m: r -paranoid: pieces read back and checked
+int64_t		g_robocopy_riscritti; /// pieces that differed, written again
+int64_t		g_robocopy_verificati; /// files checked
 
 bool	 g_testifselected;
 uint64_t g_chunk_size	= 0;
@@ -87827,6 +87944,7 @@ int64_t	 g_rd_expected	 = 0;
 int64_t	 g_startrd		 = 0;
 int64_t	 g_startdownload = 0;
 int		 g_rd_ultimotempo= 0;
+uint32_t g_spazfalliti	 = 0;  // 65.17n: work frugal -kill: files that could not be deleted
 uint32_t g_rd_errors	 = 0;  // rd: objects that could NOT be deleted
 uint32_t g_rd_lasterror	 = 0; // rd: the FIRST error found (Windows code)
 std::string g_rd_errorpath= ""; // rd: ...and on which object (std:: : we are before using std::string)
@@ -87962,6 +88080,8 @@ int			 g_argc= 0;	   /// 65.15a: the command line as main got it (-lowram runs i
 const char **g_argv= NULL;
 bool flagfranzhash;
 bool flaghashdeep;
+bool flagzfsttl; /// 65.17d: zfslist zfssize zfspurge -ttl, the snapshots past their zfSnap TTL
+bool g_leggidispositivi= false; /// 65.17f: scandir reads a block device as a file (zfsproxbackup: a zvol, an LVM)
 bool flagkill;
 bool flaght;
 bool flagnocaptcha;
@@ -104974,11 +105094,9 @@ static bool compressBlockZstd(StringBuffer* in, Writer* out, const std::string& 
   const int zstsize= zstd_encode(method, in->c_str(), (int)n, arg0+20, zst);
   if (zstsize<=0)
     return false;
-  /// zpaq-std: a block that zstd and its decoder (some KB, in every block) do not make smaller goes
-  /// stored. A block of JPEGs that -sa gave back took 5 KB more than the files (PJA's 12-bit set:
-  /// 84 KB of JPEG, 96 KB of archive)
-  static const size_t decodificador= zstd_canonical_bytes().size();
-  if ((uint64_t)zstsize + decodificador + 16 >= (uint64_t)n)
+  /// 65.17a: the decoder travels in the block (5.481 bytes): when zstd does not save more than that
+  /// (a JPEG, a ZIP, a small block) the stored one is smaller. It was bigger than -m1, repack grew it
+  if ((int64_t)zstsize+(int64_t)zstd_canonico().size()+16>=(int64_t)n)
     return false;
   const std::string config= zstd_config(arg0+20); /// M = the whole block
   int args[9]={0};
@@ -116283,7 +116401,9 @@ int64_t getfreespace(string i_path)
 	struct statvfs stat;
 	if (statvfs(i_path.c_str(), &stat) != 0)
 		return 0;
-	return stat.f_bsize * stat.f_bavail;
+	/// 65.17n: f_bavail counts blocks of f_frsize (POSIX, as the NetBSD branch above). f_bsize is the preferred size of
+	/// an I/O: on macOS 1 MB against 4 KB: the free space 256 times too much
+	return (int64_t)(stat.f_frsize ? stat.f_frsize : stat.f_bsize) * (int64_t)stat.f_bavail;
 #endif // corresponds to #if (#if defined(__linux__) || (defined(__APPLE__) && defined(__MACH__) && (!defined(__ppc__))) || defined(SOLARIS))
 #endif // corresponds to #ifdef (#ifdef BSD)
 #ifdef _WIN32
@@ -120086,6 +120206,16 @@ string franz_do_hash::filehash(int64_t i_offset, string i_filename, bool i_flagc
 
 
 // Binary compare, slow but steady
+/// 65.17n: the names of zpaqfranz are UTF-8: on Windows a plain fopen takes them for the ANSI code page. With an accent in
+/// the path no Franzen archive could be created or opened, work fc said DIFFERENT of two identical files
+static FILE *cri_fopen(const char *i_nome, const char *i_modo)
+{
+#ifdef _WIN32
+	return _wfopen(utow(i_nome).c_str(), utow(i_modo).c_str());
+#else
+	return fopen(i_nome, i_modo);
+#endif
+}
 bool compare_files_binary(const char *file1, const char *file2)
 {
 	// Confronta le dimensioni
@@ -120098,8 +120228,8 @@ bool compare_files_binary(const char *file1, const char *file2)
 	if (size1 != size2)
 		return false;
 
-	FILE *f1= fopen(file1, "rb");
-	FILE *f2= fopen(file2, "rb");
+	FILE *f1= cri_fopen(file1, "rb");
+	FILE *f2= cri_fopen(file2, "rb");
 	if (!f1 || !f2)
 	{
 		if (f1)
@@ -121067,6 +121197,24 @@ bool delete_dir(const char *i_directory)
 }
 /// risky command to make a rd folder /s (or rm -r)
 #ifdef unix
+/// as the Windows one: count it, remember the first one
+static void erredbarrasfallito(const std::string &i_path, const char *i_cosa)
+{
+	const int errore= errno;
+	g_rd_errors++;
+	if (g_rd_lasterror == 0)
+	{
+		g_rd_lasterror= (uint32_t)errore;
+		g_rd_errorpath= i_path;
+	}
+	if (flagdebug || flagverbose)
+		myprintf("71342! cannot %s (%s) <<%Z>>\n", i_cosa, strerror(errore), i_path.c_str());
+}
+/*
+	65.17m: lstat, as the Windows one that never walks into a junction. stat followed the links: a link to a folder was
+	walked into and what it points to was DELETED, wherever it was (r -kill on a slave folder with a link inside emptied
+	the target, rc 0); a broken link stopped everything. It stopped at the first error too, and the caller did not know
+*/
 int erredbarras(const std::string &i_path)
 {
 	bool risultato= false;
@@ -121075,7 +121223,7 @@ int erredbarras(const std::string &i_path)
 	{
 		const struct dirent *p;
 		risultato= true;
-		while (risultato && (p= readdir(d)))
+		while ((p= readdir(d)))
 		{
 			if (!strcmp(p->d_name, ".") || !strcmp(p->d_name, ".."))
 				continue;
@@ -121086,7 +121234,7 @@ int erredbarras(const std::string &i_path)
 				temp= i_path + p->d_name;
 			else
 				temp= i_path + "/" + p->d_name;
-			if (!stat(temp.c_str(), &statbuf))
+			if (!lstat(temp.c_str(), &statbuf))
 			{
 				if (S_ISDIR(statbuf.st_mode))
 					risultato2= erredbarras(temp);
@@ -121094,18 +121242,31 @@ int erredbarras(const std::string &i_path)
 				{
 					if (flagdebug)
 						myprintf("00114: delete file %s\n", temp.c_str());
-					risultato2= delete_file(temp.c_str());
+					risultato2= delete_file(temp.c_str()); /// a link: the link, not what it points to
+					if (risultato2)
+						g_rd++;
+					else
+						erredbarrasfallito(temp, "delete");
 				}
 			}
-			risultato= risultato2;
+			if (!risultato2)
+				risultato= false;
 		}
 		closedir(d);
 	}
+	else
+		erredbarrasfallito(i_path, "open the folder");
 	if (risultato)
 	{
 		if (flagdebug)
 			myprintf("00115: delete dir  %s\n\n", i_path.c_str());
-		delete_dir(i_path.c_str());
+		if (delete_dir(i_path.c_str()))
+			g_rd++;
+		else
+		{
+			erredbarrasfallito(i_path, "remove the folder");
+			risultato= false;
+		}
 	}
 	return risultato;
 }
@@ -121157,9 +121318,31 @@ bool stermina(string i_path, int32_t i_expectedfile= 0)
 	g_rd_errors		= 0;
 	g_rd_lasterror	= 0;
 	g_rd_errorpath	= "";
+	/// 65.17m: what was given is itself a link or a junction: only the link goes. Walking into it emptied its target
 #ifdef _WIN32
-	erredbarras(utow(i_path.c_str()));
+	const std::wstring wpercorso= utow(i_path.c_str());
+	const DWORD		   attributi= GetFileAttributesW(wpercorso.c_str());
+	if ((attributi != INVALID_FILE_ATTRIBUTES) && (attributi & FILE_ATTRIBUTE_REPARSE_POINT))
+	{
+		const bool fatto= (attributi & FILE_ATTRIBUTE_DIRECTORY) ? (RemoveDirectoryW(wpercorso.c_str()) != FALSE) : (DeleteFileW(wpercorso.c_str()) != FALSE);
+		if (fatto)
+			g_rd++;
+		else
+			erredbarrasfallito(wpercorso, "remove the junction");
+		return fatto;
+	}
+	erredbarras(wpercorso);
 #else
+	struct stat sb;
+	if ((lstat(i_path.c_str(), &sb) == 0) && S_ISLNK(sb.st_mode))
+	{
+		const bool fatto= delete_file(i_path.c_str());
+		if (fatto)
+			g_rd++;
+		else
+			erredbarrasfallito(i_path, "delete");
+		return fatto;
+	}
 	erredbarras(i_path);
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 	return (!direxists(i_path));
@@ -121845,6 +122028,10 @@ static string ini_chiave(const string &i_switch, bool i_hasher= true)
 		if (i_switch == uguali[i][0])
 			return uguali[i][1];
 	/// as cli_getstring and cli_getint read them: -m3 -mx6.0 = -method, -t8 = -threads, -P3306...
+	if (i_switch == "-m") /// 65.17a: -m 3 and -t 8 too
+		return "-method";
+	if (i_switch == "-t")
+		return "-threads";
 	if ((i_switch.size() > 2) && (i_switch[0] == '-'))
 	{
 		const bool cifra= isdigit((unsigned char)i_switch[2]) != 0;
@@ -122361,7 +122548,7 @@ string excludetrailingbackslash(const string& i_dir)
 		return "";
 	if ((i_dir[i_dir.size() - 1] == '\\') || (i_dir[i_dir.size() - 1] == '/'))
 		return i_dir.substr(0, i_dir.size() - 1);
-	return "";
+	return i_dir; /// 65.17n: it was "": a folder with no trailing slash vanished
 }
 
 // Create directories as needed. For example if path="/tmp/foo/bar"
@@ -122460,7 +122647,12 @@ bool saggiascrivibilitacartella(string i_cartella)
 	testfile= nomefileseesistegia(testfile);
 	if (flagdebug2)
 		myprintf("00179: TEST FILE POST <<%s>>\n", testfile.c_str());
+#ifdef _WIN32
+	/// 65.17k: the path is UTF-8, fopen reads it in the code page: on a folder with an accent every a, 02042 "Cannot write"
+	FILE *testbyte= _wfopen(utow(testfile.c_str()).c_str(), L"wb");
+#else
 	FILE *testbyte= fopen(testfile.c_str(), "wb");
+#endif
 	if (testbyte != NULL)
 	{
 		fprintf(testbyte, "this-file-can-be-deleted");
@@ -123768,7 +123960,7 @@ class InputArchive : public ArchiveBase, public libzpaq::Reader
 
 
 bool is_file_franzen(const string& filename) {
-    FILE* f = fopen(filename.c_str(), "rb");
+    FILE* f = cri_fopen(filename.c_str(), "rb"); /// 65.17n: as is_file_zpaq: on Windows an accent in the path was "not a franzen file"
     if (f == NULL) return false;
     char magic[8];
     bool result = false;
@@ -123781,7 +123973,7 @@ bool is_file_franzen(const string& filename) {
 
 // True only for AES+Franzen files (FRENZEN magic): they need -key too
 bool is_file_frenzen(const string& filename) {
-    FILE* f = fopen(filename.c_str(), "rb");
+    FILE* f = cri_fopen(filename.c_str(), "rb");
     if (f == NULL) return false;
     char magic[8];
     bool result = false;
@@ -124038,7 +124230,7 @@ bool InputArchive::read_header_bytes(char* buffer, size_t len)
 			myprintf("leggo header da archivio fisico per len %d\n",(int)len);
 
 		// Read directly from physical file
-		FILE* f = fopen(physical_file.c_str(), "rb");
+		FILE* f = fopen(physical_file.c_str(), "rb"); /// 65.17n: UTF-8 names (zpaq-std: fopen is already UTF-8, see the merge note on xfopen above)
 		if (f == NULL)
 			return false;
 		
@@ -139540,7 +139732,9 @@ class Jidac
 	/// bool flagnosort;              		// do not sort files std::sort(vf.begin(), vf.end(), compareFilename);
 	uint32_t filelength;
 	uint32_t dirlength;
+	int		 opzioniignote; /// 65.17c: how many "Unknown option ignored" (00562): zfspurge refuses then
 	string	 snapmark;
+	string	 proxstorage; /// 65.17e: proxvzrestore -storage
 	string	 searchfrom; // search something in path
 	string	 replaceto;	 // replace (something like awk)
 	string	 searchhash;
@@ -139696,7 +139890,7 @@ class Jidac
 	void   writefranzattr(DTMap::iterator i_dtmap, libzpaq::StringBuffer &i_sb, uint64_t i_data, unsigned int i_quanti, string i_filename, uint32_t i_crc32fromfragments, uint32_t i_crc32, string i_thehash, int64_t i_creationdate, int64_t i_accessdate, const struct franz_tar *i_posix, bool i_isadded);
 	int	   enumeratecomments();
 	int	   searchcomments(string i_testo, vector<DTMap::iterator> &filelist);
-	string zfs_get_snaplist(string i_header, string i_footer, vector<string> &o_array_primachiocciola, vector<string> &o_array_dopochiocciola, vector<string> &o_array_size);
+	string zfs_get_snaplist(string i_header, string i_footer, vector<string> &o_array_primachiocciola, vector<string> &o_array_dopochiocciola, vector<string> &o_array_size, int i_modo= 0);
 	string sanitizzanomefile(string i_filename, int i_filelength, int &io_collisioni, MAPPAFILEHASH &io_mappacollisioni);
 	uint32_t sanitizzawindows();
 	bool	 nomesanato(const string &i_nome, string &o_fixato); /// 65.16i
@@ -145669,6 +145863,9 @@ void print_progress(int64_t ts, int64_t td, int64_t i_scritti, int i_percentuale
     static int64_t ultimi_secondi     = 0;
     static int     ultima_percentuale = 0;
 
+    /// 65.17g: -stdin with no size (a pipe, proxvzdump): "So far in= out=" is the line, this one wrote over it
+    if (flagstdin && (g_stdinsize == 0))
+        return;
     // Parameter validation
     if (td > ts)
         td = ts;
@@ -146321,8 +146518,8 @@ static const franz_helpriga g_helprighe[]=
 	HRU(51, 0xA0A12B73, "Поиск скрытых ошибок после сборки"),
 	HES(51, 0xA0A12B73, "Busca errores ocultos tras la compilación"),
 	HPT(51, 0xA0A12B73, "Procura erros ocultos após a compilação"),
-#ifdef ZPAQFULL /// NOSFTPSTART
-	/// isopen
+#if defined(ZPAQFULL) && defined(_WIN32) /// NOSFTPSTART
+	/// isopen (65.17m: Windows only: on *nix it said "NOT open" of everything)
 	HU(52, "isopen", "CMD isopen()", "Check if a file is open (and execute some kind of script)"),
 	HIT(52, 0x9926F74A, "Controlla se un file e' aperto (ed esegue uno script)"),
 	HRU(52, 0x9926F74A, "Проверить, открыт ли файл (и запустить скрипт)"),
@@ -147169,20 +147366,55 @@ static const franz_helpriga g_helprighe[]=
 	HRU(210, 0xA5718316, "Показать размер X (можно несколько / шаблоны)"),
 	HES(210, 0xA5718316, "Muestra el tamaño de X (se permiten varios / comodines)"),
 	HPT(210, 0xA5718316, "Mostra o tamanho de X (permite vários / curingas)"),
-	HU(211, "work", "checkspace", "Check if enough free space"),
-	HIT(211, 0x56771E52, "Controlla se c'e' abbastanza spazio libero"),
-	HRU(211, 0x56771E52, "Проверить, достаточно ли свободного места"),
-	HES(211, 0x56771E52, "Verifica si hay suficiente espacio libre"),
-	HPT(211, 0x56771E52, "Verifica se há espaço livre suficiente"),
+	HU(211, "work", "checkspace", "Check if enough free space (the minimum + 10%)"),
+	HIT(211, 0x4F307C6B, "Controlla se c'e' abbastanza spazio (il minimo + 10%)"),
+	HRU(211, 0x4F307C6B, "Проверить, достаточно ли свободного места (минимум + 10%)"),
+	HES(211, 0x4F307C6B, "Verifica si hay suficiente espacio libre (el mínimo + 10%)"),
+	HPT(211, 0x4F307C6B, "Verifica se há espaço livre suficiente (o mínimo + 10%)"),
+	HU(1902, "work", "datebig [format]", "As date, in big digits (datetimebig, timebig too)"),
+	HIT(1902, 0x4E5D363F, "Come date, a cifre grandi (anche datetimebig, timebig)"),
+	HRU(1902, 0x4E5D363F, "Как date, крупными цифрами (также datetimebig, timebig)"),
+	HES(1902, 0x4E5D363F, "Como date, con dígitos grandes (y datetimebig, timebig)"),
+	HPT(1902, 0x4E5D363F, "Como date, em dígitos grandes (também datetimebig, timebig)"),
+	HU(1903, "work", "fileexists F", "Exit code 0 if the file exists, 2 if not (for scripts)"),
+	HIT(1903, 0x4E2A61EA, "Uscita 0 se il file esiste, 2 se no (per gli script)"),
+	HRU(1903, 0x4E2A61EA, "Код выхода 0, если файл есть, 2 если нет (для скриптов)"),
+	HES(1903, 0x4E2A61EA, "Sale con 0 si el archivo existe, 2 si no (para scripts)"),
+	HPT(1903, 0x4E2A61EA, "Sai com 0 se o arquivo existe, 2 se não (para scripts)"),
+	HU(1904, "work", "nomefileseesistegia F", "The name, or a free one near it if it exists (for scripts)"),
+	HIT(1904, 0x1EBB4220, "Il nome, o uno libero simile se esiste (per gli script)"),
+	HRU(1904, 0x1EBB4220, "Имя или свободное похожее, если оно занято (для скриптов)"),
+	HES(1904, 0x1EBB4220, "El nombre, o uno libre parecido si ya existe (para scripts)"),
+	HPT(1904, 0x1EBB4220, "O nome, ou um livre parecido se já existir (para scripts)"),
+	HU(1905, "work", "prendinomefileebasta F", "The name of the file, no folder, no extension (for scripts)"),
+	HIT(1905, 0x526F74EC, "Il nome senza cartella ne' estensione (per gli script)"),
+	HRU(1905, 0x526F74EC, "Имя файла без папки и расширения (для скриптов)"),
+	HES(1905, 0x526F74EC, "El nombre, sin carpeta ni extensión (para scripts)"),
+	HPT(1905, 0x526F74EC, "O nome do arquivo, sem pasta nem extensão (para scripts)"),
+	HU(1906, "work", "linuxtowindows P", "With \\ in place of / (for scripts)"),
+	HIT(1906, 0x9B9741FB, "Con \\ al posto di / (per gli script)"),
+	HRU(1906, 0x9B9741FB, "С \\ вместо / (для скриптов)"),
+	HES(1906, 0x9B9741FB, "Con \\ en lugar de / (para scripts)"),
+	HPT(1906, 0x9B9741FB, "Com \\ no lugar de / (para scripts)"),
+	HU(1907, "work", "includetrailingbackslash P", "With its final slash (for scripts)"),
+	HIT(1907, 0x8AC7E34C, "Con la barra finale (per gli script)"),
+	HRU(1907, 0x8AC7E34C, "С косой чертой в конце (для скриптов)"),
+	HES(1907, 0x8AC7E34C, "Con su barra final (para scripts)"),
+	HPT(1907, 0x8AC7E34C, "Com a barra final (para scripts)"),
+	HU(1908, "work", "keyfile F", "The key of a keyfile (at least 4 KB, good entropy), to keep on paper.|On Windows it goes to the clipboard too, to paste it"),
+	HIT(1908, 0x6E013D11, "La chiave di un keyfile (almeno 4 KB, buona entropia), da conservare|su carta. Su Windows va anche negli appunti, per incollarla"),
+	HRU(1908, 0x6E013D11, "Ключ файла-ключа (от 4 KB, хорошая энтропия), хранить на бумаге.|В Windows также копируется в буфер обмена для вставки"),
+	HES(1908, 0x6E013D11, "La clave de un keyfile (al menos 4 KB, buena entropía), para|guardar en papel. En Windows también va al portapapeles, para pegarla"),
+	HPT(1908, 0x6E013D11, "A chave de um keyfile (ao menos 4 KB, boa entropia), para|guardar em papel. No Windows vai também para a área de|transferência, para colar"),
 #ifdef ZPAQFULL /// NOSFTPSTART
-	HU(212, "work", "encode f1 f2 pass", "FRANZEN encrypt. Use -ssd for multithread (limit with -tX)"),
-	HIT(212, 0x510B7889, "Cifra con FRANZEN. -ssd per il multithread (limite con -tX)"),
-	HRU(212, 0x510B7889, "Шифрование FRANZEN. -ssd для|  многопоточности (ограничение -tX)"),
+	HU(212, "work", "encode f1 f2 pass", "FRANZEN encrypt. Use -ssd for multithread (limit with -tX). -force to overwrite"),
+	HIT(212, 0xF543D6DB, "Cifra con FRANZEN. -ssd per il multithread|  (limite con -tX). -force per sovrascrivere"),
+	HRU(212, 0xF543D6DB, "Шифрование FRANZEN. -ssd для многопоточности|  (ограничение -tX). -force для перезаписи"),
 	HES(212, 0x510B7889, "FRANZEN cifra. Use -ssd para multihilo (limite con -tX)"),
 	HPT(212, 0x510B7889, "FRANZEN cifra. Use -ssd para multithread (limite com -tX)"),
-	HU(213, "work", "decode f1 f2 pass", "FRANZEN decrypt. Use -ssd for multithread (limit with -tX)"),
-	HIT(213, 0xA8A3C3E1, "Decifra con FRANZEN. -ssd per il|  multithread (limite con -tX)"),
-	HRU(213, 0xA8A3C3E1, "Расшифровка FRANZEN. -ssd для|  многопоточности (ограничение -tX)"),
+	HU(213, "work", "decode f1 f2 pass", "FRANZEN decrypt. Use -ssd for multithread (limit with -tX). -force to overwrite"),
+	HIT(213, 0x11FBA583, "Decifra con FRANZEN. -ssd per il multithread|  (limite con -tX). -force per sovrascrivere"),
+	HRU(213, 0x11FBA583, "Расшифровка FRANZEN. -ssd для многопоточности|  (ограничение -tX). -force для перезаписи"),
 	HES(213, 0xA8A3C3E1, "FRANZEN descifra. Use -ssd para multihilo (limite con -tX)"),
 	HPT(213, 0xA8A3C3E1, "FRANZEN decifra. Use -ssd para multithread (limite com -tX)"),
 	HU(214, "work", "test   f1 pass", "FRANZEN test.    Use -ssd for multithread (limit with -tX)"),
@@ -147211,11 +147443,11 @@ static const franz_helpriga g_helprighe[]=
 	HES(218, 0xEFACA8CF, "Gestor de franzVSS"),
 	HPT(218, 0xEFACA8CF, "Gerenciador do franzVSS"),
 #endif /// NOSFTPEND
-	HU(219, "work", "compare2", "Compare substrings from 2 files"),
-	HIT(219, 0xB4E868D1, "Confronta sottostringhe di 2 file"),
-	HRU(219, 0xB4E868D1, "Сравнить подстроки из 2 файлов"),
-	HES(219, 0xB4E868D1, "Compara subcadenas de 2 archivos"),
-	HPT(219, 0xB4E868D1, "Compara substrings de 2 arquivos"),
+	HU(219, "work", "compare2", "Compare substrings from 2 files (the last row with the pattern)"),
+	HIT(219, 0x57F70028, "Confronta sottostringhe di 2 file (l'ultima riga col pattern)"),
+	HRU(219, 0x57F70028, "Сравнить подстроки из 2 файлов (последняя строка с шаблоном)"),
+	HES(219, 0x57F70028, "Compara subcadenas de 2 archivos (la última fila con el patrón)"),
+	HPT(219, 0x57F70028, "Compara substrings de 2 arquivos (a última linha com o padrão)"),
 	HU(220, "work", "fc", "Binary comparing two files"),
 	HIT(220, 0x51F1A055, "Confronto binario di due file"),
 	HRU(220, 0x51F1A055, "Двоичное сравнение двух файлов"),
@@ -147244,6 +147476,20 @@ static const franz_helpriga g_helprighe[]=
 	HPT(224, 0xC007E952, "Envia um e-mail (SMTP/TLS), veja abaixo"),
 	HINCLUDI("work", 'u', "email", 'u'),
 #endif
+#ifdef ZPAQFULL /// NOSFTPSTART
+	HU(1876, "work", "prox start H ID T F", "Starts a Proxmox guest by its API (host, vmid, token,|SHA-256 of the certificate): it waits for it. No libcurl"),
+	HIT(1876, 0x819392E7, "Avvia un ospite di Proxmox via API (host, vmid, token,|SHA-256 del certificato) e lo aspetta. Niente libcurl"),
+	HRU(1876, 0x819392E7, "Запускает гостя Proxmox через API (хост, vmid, токен,|SHA-256 сертификата) и ждёт его. Без libcurl"),
+	HU(1877, "work", "prox user ID [name]", "Text for the console of Proxmox: a user and a token that can|only start the guest ID. It prints the line for the client"),
+	HIT(1877, 0xA7FCE3C8, "Testo per la console di Proxmox: un utente e un token che|possono solo avviare l'ospite ID. Stampa la riga|per il client"),
+	HRU(1877, 0xA7FCE3C8, "Текст для консоли Proxmox: пользователь и токен, которые|могут только запускать гостя ID. Печатает строку для клиента"),
+	HU(1880, "work", "proxmox H [U [P [F]]]", "A small manager of a Proxmox of the LAN, a menu by numbers:|guests and their disks, storages (as df -h), start halt stop,|users, a start-only user with its token, backup check.|Host, user (root), password (asked), SHA-256 of the certificate"),
+	HIT(1880, 0x44D9CF31, "Piccolo manager di un Proxmox in rete locale, menu a numeri:|ospiti e dischi, storage (come df -h), avvio halt stop,|utenti, utente di sola accensione col token, controllo|backup. Host, utente (root), password (chiesta), SHA-256"),
+	HRU(1880, 0x44D9CF31, "Небольшой менеджер Proxmox в локальной сети, меню по номерам:|гости и диски, хранилища (как df -h), пуск останов стоп,|пользователи, токен только для пуска, проверка бэкапов.|Хост, пользователь (root), пароль (запрос), SHA-256"),
+	HU(1898, "work", "proxmoxvma -stdout", "A VMA from stdin to stdout with a fixed UUID (proxvzdump -proxmox)"),
+	HIT(1898, 0x0AA4D318, "Un VMA da stdin a stdout con l'UUID fisso (proxvzdump -proxmox)"),
+	HRU(1898, 0x0AA4D318, "VMA из stdin в stdout с постоянным UUID (proxvzdump -proxmox)"),
+#endif /// NOSFTPEND
 	HESEMPI("work", 'b'),
 	HE(225, "work", "Write a large ASCII string", "work big \"count the ok\""),
 	HIT(225, 0x56FC44A8, "Scrive in grande, in ASCII"),
@@ -147418,6 +147664,17 @@ static const franz_helpriga g_helprighe[]=
 	HRU(254, 0xC61D9513, "Упаковать журнал в zip (открывается щелчком)"),
 	HES(254, 0xC61D9513, "Comprimir un log en zip (clic para abrir)"),
 	HPT(254, 0xC61D9513, "Compactar um log em zip (clique para abrir)"),
+#ifdef ZPAQFULL /// NOSFTPSTART
+	HE(1878, "work", "Start the guest 101 (from work prox user)", "work prox start 192.168.1.2 101 \"zpaqstart-101@pve!start=uuid\" 4FCEE2BD..."),
+	HIT(1878, 0x5507BC94, "Avvia l'ospite 101 (da work prox user)"),
+	HRU(1878, 0x5507BC94, "Запустить гостя 101 (из work prox user)"),
+	HE(1879, "work", "User and token to start the guest 101", "work prox user 101"),
+	HIT(1879, 0xAB4E2118, "Utente e token per avviare l'ospite 101"),
+	HRU(1879, 0xAB4E2118, "Пользователь и токен для запуска гостя 101"),
+	HE(1881, "work", "Manager of a Proxmox (it asks for the password)", "work proxmox 192.168.1.2"),
+	HIT(1881, 0x79BB27B6, "Manager di un Proxmox (chiede la password)"),
+	HRU(1881, 0x79BB27B6, "Менеджер Proxmox (спросит пароль)"),
+#endif /// NOSFTPEND
 	HBREVE(255, "work", "Run multiple commands"),
 	HIT(255, 0xA5D20944, "Esegue piu' comandi"),
 	HRU(255, 0xA5D20944, "Выполнить несколько команд"),
@@ -152460,11 +152717,16 @@ losetup -d /dev/loop0
 	HRU(1145, 0xA3DB2332, "Включить .zfs"),
 	HES(1145, 0xA3DB2332, "Incluye .zfs"),
 	HPT(1145, 0xA3DB2332, "Inclui .zfs"),
-	HU(1146, "r", "-append", "Only append data (*risky, use with zpaq archives)"),
-	HIT(1146, 0xF08559D4, "Accoda solo i dati (*rischioso, da usare con archivi zpaq)"),
-	HRU(1146, 0xF08559D4, "Только дописывать данные (*рискованно, для архивов zpaq)"),
-	HES(1146, 0xF08559D4, "Solo agrega datos al final (*riesgoso, usar con archivos|  zpaq)"),
-	HPT(1146, 0xF08559D4, "Só anexa dados (*arriscado, usar com arquivos zpaq)"),
+	HU(1146, "r", "-append", "Only append data to .zpaq: what is there is checked by quick hash;|larger than the source, or different: written again in full"),
+	HIT(1146, 0x139D4073, "Accoda solo i dati ai .zpaq: la parte presente e' controllata con|hash quick; piu' grande o diversa dalla sorgente: riscritto tutto"),
+	HRU(1146, 0x139D4073, "Только дописывать данные в .zpaq: имеющееся проверяется быстрым|хешем; больше источника или отличается: переписывается целиком"),
+	HES(1146, 0x139D4073, "Solo agrega datos al .zpaq: lo que ya está se verifica por hash|rápido; si es más grande que el origen, o distinto: se reescribe|entero"),
+	HPT(1146, 0x139D4073, "Só acrescenta dados ao .zpaq: o que já está é verificado por hash|rápido; maior que a origem, ou diferente: gravado de novo inteiro"),
+	HU(1900, "r", "-paranoid", "During the copy: by pieces, each read back from the media and|checked, written again if it differs (as cp -verify).|-n X: pieces of X%. Files already equal are not read"),
+	HIT(1900, 0x8424B82D, "Durante la copia: a pezzi, ognuno riletto dal supporto e|controllato, riscritto se diverso (come cp -verify).|-n X: pezzi del X%. I file gia' uguali non si leggono"),
+	HRU(1900, 0x8424B82D, "При копировании: по частям, каждая перечитывается с носителя|и проверяется, при отличии пишется заново (как cp -verify).|-n X: части по X%. Уже одинаковые файлы не читаются"),
+	HES(1900, 0x8424B82D, "Durante la copia: por partes, cada una releída del medio y|verificada, escrita de nuevo si difiere (como cp -verify).|-n X: partes de X%. Los archivos ya iguales no se leen"),
+	HPT(1900, 0x8424B82D, "Durante a cópia: por partes, cada uma relida da mídia e|verificada, gravada de novo se diferir (como cp -verify).|-n X: partes de X%. Arquivos já iguais não são lidos"),
 	HU(1147, "r", "-zero", "Fill all output file with zeros (for debug)"),
 	HIT(1147, 0xDD9D0C5E, "Riempie di zeri tutto il file di output (per debug)"),
 	HRU(1147, 0xDD9D0C5E, "Заполнить весь выходной файл нулями (для отладки)"),
@@ -152560,6 +152822,11 @@ losetup -d /dev/loop0
 	HRU(1164, 0x0F680ECD, "Robocopy с ограничением 100MB/s (НАСТОЯЩИЙ прогон)"),
 	HES(1164, 0x0F680ECD, "Robocopy limitado a 100MB/s (ejecución REAL)"),
 	HPT(1164, 0x0F680ECD, "Robocopy limitado a 100MB/s (execução REAL)"),
+	HE(1901, "r", "Robocopy reading back    (WET run)", "r c:\\d0 k:\\d1 -kill -paranoid"),
+	HIT(1901, 0x1F720D99, "Robocopy con rilettura    (esecuzione VERA)"),
+	HRU(1901, 0x1F720D99, "Robocopy с перечитыванием (НАСТОЯЩИЙ прогон)"),
+	HES(1901, 0x1F720D99, "Robocopy releyendo        (ejecución REAL)"),
+	HPT(1901, 0x1F720D99, "Robocopy relendo          (execução REAL)"),
 	HBREVE(1165, "r", "Robocopy master to multiple slave folders"),
 	HIT(1165, 0xF3C1475F, "Robocopy di un master su piu' cartelle slave"),
 	HRU(1165, 0xF3C1475F, "Robocopy главной папки в несколько подчинённых"),
@@ -152653,6 +152920,9 @@ losetup -d /dev/loop0
 	HU(0, "zfs", "--- Make / restore zfs backups of proxmox VM", ""),
 	HU(0, "zfs", "zfsproxbackup", ""),
 	HU(0, "zfs", "zfsproxrestore", ""),
+	HU(0, "zfs", "--- Proxmox: vzdump into zpaq, one archive per guest (65.17e)", ""),
+	HU(0, "zfs", "proxvzdump", ""),
+	HU(0, "zfs", "proxvzrestore", ""),
 	HTESTO(1180, "zfs", 'e', 0, "Ask extensive help, example zpaqfranz h zfsadd       zpaqfranz h zfslist"),
 	HIT(1180, 0x3BFD8EEB, "Chiedere l'help esteso, es. zpaqfranz h zfsadd       zpaqfranz h zfslist"),
 	HRU(1180, 0x3BFD8EEB, "Подробная справка, напр. zpaqfranz h zfsadd       zpaqfranz h zfslist"),
@@ -152679,6 +152949,12 @@ losetup -d /dev/loop0
 	HRU(1184, 0xAA67E2E1, "Выполнить заморозку (настоящий прогон)"),
 	HES(1184, 0xAA67E2E1, "Congela de verdad (wet run)"),
 	HPT(1184, 0xAA67E2E1, "Congela de verdade (wet run)"),
+	HU(1847, "zfsadd", " ", "One dataset per archive. The snapshots already in it are|skipped: run it again (cron) for the new ones"), /// 65.17d
+	HIT(1847, 0xC77127DA, "Un dataset per archivio. Gli snapshot gia' presenti sono|saltati: rilanciarlo (cron) per i nuovi"),
+	HRU(1847, 0xC77127DA, "Один dataset на архив. Снапшоты, уже в нем,|пропускаются: запускать снова (cron) для новых"),
+	HU(1848, "zfsadd", "-key -franzen", "Encrypted archive (AES, Franzen or both); -script|wants FRANZKEY / FRANZFRANZEN when it runs"), /// 65.17d
+	HIT(1848, 0x30C1BBBC, "Archivio cifrato (AES, Franzen o entrambi); -script|vuole FRANZKEY / FRANZFRANZEN quando gira"),
+	HRU(1848, 0x30C1BBBC, "Зашифрованный архив (AES, Franzen или оба); -script|требует FRANZKEY / FRANZFRANZEN при запуске"),
 	HESEMPI("zfsadd", 'b'),
 	HE(0, "zfsadd", " ", "!USE THE DOUBLEQUOTES!"),
 	HE(0, "zfsadd", " ", "BEWARE of single -  \"-pippo\" DOES NOT WORK!"),
@@ -152702,6 +152978,9 @@ losetup -d /dev/loop0
 	HRU(1187, 0x5B5AFE67, "pi.sh Записать готовый скрипт в pi.sh (псевдоним -out)"),
 	HES(1187, 0x5B5AFE67, "pi.sh Escribe un script listo en pi.sh (alias -out)"),
 	HPT(1187, 0x5B5AFE67, "pi.sh Grava um script pronto em pi.sh (alias -out)"),
+	HU(1849, "zfspurge", "-ttl", "Only the ones past their zfSnap TTL (name--1h --7d|--2w --1m --1y, 1d12h): creation + TTL < now"), /// 65.17d
+	HIT(1849, 0x1477F830, "Solo quelli oltre il loro TTL zfSnap (nome--1h --7d|--2w --1m --1y, 1d12h): creazione + TTL < adesso"),
+	HRU(1849, 0x1477F830, "Только те, что старше своего TTL zfSnap (имя--1h --7d|--2w --1m --1y, 1d12h): создание + TTL < сейчас"),
 	HESEMPI("zfspurge", 'b'),
 	HE(0, "zfspurge", " ", "!USE THE DOUBLEQUOTES!"),
 	HE(0, "zfspurge", " ", "BEWARE of single -  \"-pippo\" DOES NOT WORK!"),
@@ -152709,6 +152988,9 @@ losetup -d /dev/loop0
 	HE(0, "zfspurge", " ", "zfspurge \"*\" \"*\""),
 	HE(0, "zfspurge", " ", "zfspurge \"tank\" \"--7d\""),
 	HE(0, "zfspurge", " ", "zfspurge \"tank\" \"--7d\" -script mygoodscript.sh"),
+	HE(1850, "zfspurge", "Expired (zfSnap TTL) to a script", "zfspurge \"tank/d@\" -ttl -script purge.sh"), /// 65.17d
+	HIT(1850, 0x14E6307C, "Scaduti (TTL zfSnap) in uno script"),
+	HRU(1850, 0x14E6307C, "Просроченные (TTL zfSnap) в скрипт"),
 	HBREVE(1188, "zfspurge", "Purge snapshots with wildcards"),
 	HIT(1188, 0xE89D4C18, "Elimina gli snapshot con caratteri jolly"),
 	HRU(1188, 0xE89D4C18, "Удалить снапшоты по шаблону"),
@@ -152725,6 +153007,9 @@ losetup -d /dev/loop0
 	HRU(1190, 0x5B5AFE67, "pi.sh Записать готовый скрипт в pi.sh (псевдоним -out)"),
 	HES(1190, 0x5B5AFE67, "pi.sh Escribe un script listo en pi.sh (alias -out)"),
 	HPT(1190, 0x5B5AFE67, "pi.sh Grava um script pronto em pi.sh (alias -out)"),
+	HU(1851, "zfslist", "-ttl", "Only the ones past their zfSnap TTL (see zfspurge)"), /// 65.17d
+	HIT(1851, 0xC4F5A0BB, "Solo quelli oltre il loro TTL zfSnap (vedi zfspurge)"),
+	HRU(1851, 0xC4F5A0BB, "Только те, что старше своего TTL zfSnap (см. zfspurge)"),
 	HESEMPI("zfslist", 'b'),
 	HESEMPIO(0, "zfslist", 'E', " ", "!USE THE DOUBLEQUOTES!"),
 	HESEMPIO(0, "zfslist", 'E', " ", "BEWARE of single -  \"-pippo\" DOES NOT WORK!"),
@@ -152755,133 +153040,201 @@ losetup -d /dev/loop0
 	HRU(1193, 0x9B89D36C, "Список РАЗМЕРОВ снапшотов zfs по шаблону"),
 	HES(1193, 0x9B89D36C, "Lista el TAMAÑO de snapshots de zfs con comodines"),
 	HPT(1193, 0x9B89D36C, "Lista o TAMANHO de snapshots do zfs com curingas"),
-	/// zfsproxbackup
-	HU(1194, "zfsproxbackup", "CMD zfsproxbackup", "|Archiving proxmox backups (from zfs local storage)|Getting VM disks from /var/lib/vz"),
-	HIT(1194, 0x22401FA0, "|Archiviazione dei backup di|proxmox (dallo storage locale zfs)|Prende i dischi delle VM da /var/lib/vz"),
-	HRU(1194, 0x22401FA0, "|Архивация backup proxmox (из локального хранилища zfs)|Диски VM берутся из /var/lib/vz"),
-	HES(1194, 0x22401FA0, "|Archiva backups de proxmox (desde almacenamiento zfs local)|Toma los discos de VM de /var/lib/vz"),
-	HPT(1194, 0x22401FA0, "|Arquiva backups do proxmox (do armazenamento zfs local)|Pega os discos de VM de /var/lib/vz"),
-	HU(1195, "zfsproxbackup", "-force", "Destroy temporary snapshot (before backup)"),
-	HIT(1195, 0xA33284B0, "Distrugge lo snapshot temporaneo (prima del backup)"),
-	HRU(1195, 0xA33284B0, "Удалить временный снапшот (до backup)"),
 	HES(1195, 0xA33284B0, "Destruye el snapshot temporal (antes del backup)"),
 	HPT(1195, 0xA33284B0, "Destrói o snapshot temporário (antes do backup)"),
-	HU(1196, "zfsproxbackup", "-kill", "Remove snapshot (after backup)"),
-	HIT(1196, 0x89F53F92, "Toglie lo snapshot (dopo il backup)"),
-	HRU(1196, 0x89F53F92, "Удалить снапшот (после backup)"),
 	HES(1196, 0x89F53F92, "Elimina el snapshot (después del backup)"),
 	HPT(1196, 0x89F53F92, "Remove o snapshot (depois do backup)"),
-	HU(1197, "zfsproxbackup", "-all", "Get all VM"),
-	HIT(1197, 0xAD006E49, "Prende tutte le VM"),
-	HRU(1197, 0xAD006E49, "Взять все VM"),
-	HES(1197, 0xAD006E49, "Toma todas las VM"),
-	HPT(1197, 0xAD006E49, "Pega todas as VMs"),
-	HU(1198, "zfsproxbackup", "-not", "Do not backup (exclude)"),
-	HIT(1198, 0x4B617E28, "Non fa il backup (esclude)"),
-	HRU(1198, 0x4B617E28, "Не делать backup (исключить)"),
-	HES(1198, 0x4B617E28, "No respalda (excluye)"),
-	HPT(1198, 0x4B617E28, "Não faz backup (exclui)"),
-	HU(1199, "zfsproxbackup", "-snapshot kj", "Make 'snapname' to kj (default: francoproxmox)"),
-	HIT(1199, 0x70B22E00, "'snapname' diventa kj (default: francoproxmox)"),
-	HRU(1199, 0x70B22E00, "Задать 'snapname' равным kj (по умолчанию: francoproxmox)"),
 	HES(1199, 0x70B22E00, "Fija 'snapname' en kj (predeterminado: francoproxmox)"),
 	HPT(1199, 0x70B22E00, "Define 'snapname' como kj (padrão: francoproxmox)"),
+	/// zfsproxbackup (65.17f: the disks as they are; 65.17g: a folder or a file)
+	HU(1194, "zfsproxbackup", "CMD zfsproxbackup", "Proxmox guests (VM, container): their disks read as they are|(no vzdump), from a snapshot where the storage has them (ZFS,|LVM-thin, btrfs), else with the guest off|A folder: one archive per guest (zfsproxbackup-qemu-ID.zpaq)|A file (.zpaq, .franzen): every guest in it, the best dedup"),
+	HIT(1194, 0xA773CEF3, "Ospiti di Proxmox (VM, container): i dischi letti come sono|(niente vzdump), da uno snapshot dove lo storage li ha (ZFS,|LVM-thin, btrfs), altrimenti con l'ospite spento|Una cartella: un archivio per ospite|Un file (.zpaq, .franzen): tutti dentro, massima deduplica"),
+	HRU(1194, 0xA773CEF3, "Гости Proxmox (VM, контейнеры): диски читаются как есть|(без vzdump), из снапшота, где хранилище их умеет (ZFS,|LVM-thin, btrfs), иначе при выключенном госте|Папка: один архив на гостя|Файл (.zpaq, .franzen): все в нём, лучшая дедупликация"),
+	HES(1194, 0x22401FA0, "|Archiva backups de proxmox (desde almacenamiento zfs local)|Toma los discos de VM de /var/lib/vz"),
+	HPT(1194, 0x22401FA0, "|Arquiva backups do proxmox (do armazenamento zfs local)|Pega os discos de VM de /var/lib/vz"),
+	HU(1197, "zfsproxbackup", "-all", "Every VM and container of this node"),
+	HIT(1197, 0xE5A5D0B4, "Tutte le VM e i container di questo nodo"),
+	HRU(1197, 0xE5A5D0B4, "Все VM и контейнеры этого узла"),
+	HES(1197, 0xAD006E49, "Toma todas las VM"),
+	HPT(1197, 0xAD006E49, "Pega todas as VMs"),
+	HU(1198, "zfsproxbackup", "-not", "Not this vmid (with -all)"),
+	HIT(1198, 0x1BEF9DE3, "Non questo vmid (con -all)"),
+	HRU(1198, 0x1BEF9DE3, "Кроме этого vmid (с -all)"),
+	HES(1198, 0x4B617E28, "No respalda (excluye)"),
+	HPT(1198, 0x4B617E28, "Não faz backup (exclui)"),
+	HU(1871, "zfsproxbackup", "-key -franzen", "Encrypted archives (AES, Franzen or both)"),
+	HIT(1871, 0xF1677752, "Archivi cifrati (AES, Franzen o entrambi)"),
+	HRU(1871, 0xF1677752, "Зашифрованные архивы (AES, Franzen или оба)"),
 	HESEMPI("zfsproxbackup", 'b'),
-	HE(1200, "zfsproxbackup", "Backup/encrypt w/key 'pippo' VM 200", "zfsproxbackup /bak/200.zpaq 200 -force -kill -key pippo"),
-	HIT(1200, 0x316036DF, "Backup/cifratura con chiave 'pippo' della VM 200"),
-	HRU(1200, 0x316036DF, "Backup/шифрование с ключом 'pippo' VM 200"),
+	HE(1200, "zfsproxbackup", "Guest 200 into /bak, encrypted", "zfsproxbackup /bak 200 -key pippo"),
+	HIT(1200, 0x2E6BE9E2, "L'ospite 200 in /bak, cifrato"),
+	HRU(1200, 0x2E6BE9E2, "Гость 200 в /bak, с шифрованием"),
 	HES(1200, 0x316036DF, "Backup/cifrado con clave 'pippo' de la VM 200"),
 	HPT(1200, 0x316036DF, "Backup/cifrado com chave 'pippo' da VM 200"),
-	HE(1201, "zfsproxbackup", "Backup 2 VMs: 200 and 300", "zfsproxbackup /bak/200_300.zpaq 200 300"),
-	HIT(1201, 0x312DCDDD, "Backup di 2 VM: 200 e 300"),
-	HRU(1201, 0x312DCDDD, "Backup 2 VM: 200 и 300"),
+	HE(1201, "zfsproxbackup", "Backup 2 guests: 200 and 300", "zfsproxbackup /bak 200 300"),
+	HIT(1201, 0x169B095A, "Backup di 2 ospiti: 200 e 300"),
+	HRU(1201, 0x169B095A, "Backup 2 гостей: 200 и 300"),
 	HES(1201, 0x312DCDDD, "Backup de 2 VM: 200 y 300"),
 	HPT(1201, 0x312DCDDD, "Backup de 2 VMs: 200 e 300"),
-	HE(1202, "zfsproxbackup", "Backup ALL VMs", "zfsproxbackup /bak/all.zpaq  -all -force -kill"),
-	HIT(1202, 0x66834246, "Backup di TUTTE le VM"),
-	HRU(1202, 0x66834246, "Backup ВСЕХ VM"),
+	HE(1202, "zfsproxbackup", "Backup ALL guests", "zfsproxbackup /bak -all"),
+	HIT(1202, 0x02B8006D, "Backup di TUTTI gli ospiti"),
+	HRU(1202, 0x02B8006D, "Backup ВСЕХ гостей"),
 	HES(1202, 0x66834246, "Backup de TODAS las VM"),
 	HPT(1202, 0x66834246, "Backup de TODAS as VMs"),
-	HE(1203, "zfsproxbackup", "Backup all EXCEPT 200 and 300", "zfsproxbackup /bak/part.zpaq -all -not 200 -not 300 -force -kill"),
-	HIT(1203, 0x3CF4EABB, "Backup di tutte TRANNE 200 e 300"),
+	HE(1203, "zfsproxbackup", "Backup all EXCEPT 200 and 300", "zfsproxbackup /bak -all -not 200 -not 300"),
+	HIT(1203, 0x3CF4EABB, "Backup di tutti TRANNE 200 e 300"),
 	HRU(1203, 0x3CF4EABB, "Backup всех, КРОМЕ 200 и 300"),
 	HES(1203, 0x3CF4EABB, "Backup de todas EXCEPTO 200 y 300"),
 	HPT(1203, 0x3CF4EABB, "Backup de todas EXCETO 200 e 300"),
-	HBREVE(1204, "zfsproxbackup", "Backup of proxmox on zfs"),
-	HIT(1204, 0x9ABE2F1D, "Backup di proxmox su zfs"),
-	HRU(1204, 0x9ABE2F1D, "Backup proxmox на zfs"),
+	HE(1873, "zfsproxbackup", "All in one file, the best dedup", "zfsproxbackup /bak/all.zpaq -all"),
+	HIT(1873, 0xB2303E00, "Tutti in un file, massima deduplica"),
+	HRU(1873, 0xB2303E00, "Все в одном файле, лучшая дедупликация"),
+	HBREVE(1204, "zfsproxbackup", "Backup of Proxmox guests, disk by disk"),
+	HIT(1204, 0xF7487FDB, "Backup degli ospiti di Proxmox, disco per disco"),
+	HRU(1204, 0xF7487FDB, "Backup гостей Proxmox, диск за диском"),
 	HES(1204, 0x9ABE2F1D, "Backup de proxmox sobre zfs"),
 	HPT(1204, 0x9ABE2F1D, "Backup do proxmox sobre zfs"),
-	/// zfsproxrestore
-	HU(1205, "zfsproxrestore", "CMD zfsproxrestore", "Restore proxmox backups (on local storage)"),
-	HIT(1205, 0x82F65A49, "Ripristina i backup di proxmox (sullo storage locale)"),
-	HRU(1205, 0x82F65A49, "Восстановить backup proxmox (в локальное хранилище)"),
+	/// zfsproxrestore (65.17g)
+	HU(1205, "zfsproxrestore", "CMD zfsproxrestore", "A guest of zfsproxbackup back: on new volumes, then its config;|the old ones go away only if all is good"),
+	HIT(1205, 0x183A1966, "Un ospite di zfsproxbackup di nuovo al suo posto: su volumi|nuovi, poi la configurazione; i vecchi spariscono solo se|e' andato tutto bene"),
+	HRU(1205, 0x183A1966, "Восстановить гостя из zfsproxbackup: на новые тома, затем|конфигурацию; старые удаляются, только если всё хорошо"),
 	HES(1205, 0x82F65A49, "Restaura backups de proxmox (en almacenamiento local)"),
 	HPT(1205, 0x82F65A49, "Restaura backups do proxmox (no armazenamento local)"),
-#ifndef _WIN32
-	HU(1206, "zfsproxrestore", " ", "into /var/lib/vz and /etc/pve/qemu-server"),
-	HIT(1206, 0x98447F6F, "in /var/lib/vz e /etc/pve/qemu-server"),
-	HRU(1206, 0x98447F6F, "в /var/lib/vz и /etc/pve/qemu-server"),
+	HU(1206, "zfsproxrestore", " ", "A number: the new vmid (with more guests: which one, then|the new vmid). No number: the guest as it was"),
+	HIT(1206, 0xC96EC50B, "Un numero: il vmid nuovo (con piu' ospiti: quale, poi il|vmid nuovo). Nessun numero: l'ospite com'era"),
+	HRU(1206, 0xC96EC50B, "Число: новый vmid (если гостей несколько: какой, затем|новый vmid). Без числа: гость как был"),
 	HES(1206, 0x98447F6F, "en /var/lib/vz y /etc/pve/qemu-server"),
 	HPT(1206, 0x98447F6F, "em /var/lib/vz e /etc/pve/qemu-server"),
-	HU(1207, "zfsproxrestore", " ", "Without files selection restore everything"),
-	HIT(1207, 0x9F8829CD, "Senza scegliere i file ripristina tutto"),
-	HRU(1207, 0x9F8829CD, "Без выбора файлов восстанавливается всё"),
+	HU(1207, "zfsproxrestore", "-until X", "An older version (zpaqfranz i archive: the list)"),
+	HIT(1207, 0xA4C318BC, "Una versione precedente (zpaqfranz i archivio: l'elenco)"),
+	HRU(1207, 0xA4C318BC, "Более старая версия (zpaqfranz i архив: список)"),
 	HES(1207, 0x9F8829CD, "Sin selección de archivos restaura todo"),
 	HPT(1207, 0x9F8829CD, "Sem seleção de arquivos restaura tudo"),
-#endif
-	HU(1208, "zfsproxrestore", " ", "Files can be a sequence of WMIDs (ex. 200 300)"),
-	HIT(1208, 0xE0B5F569, "I file possono essere una sequenza di WMID (es. 200 300)"),
-	HRU(1208, 0xE0B5F569, "Файлы могут быть последовательностью WMID (напр. 200 300)"),
+	HU(1208, "zfsproxrestore", "-storage S", "Its volumes on the storage S"),
+	HIT(1208, 0xCA5199E4, "I suoi volumi sullo storage S"),
+	HRU(1208, 0xCA5199E4, "Его тома на хранилище S"),
 	HES(1208, 0xE0B5F569, "Los archivos pueden ser una serie de WMID (ej. 200 300)"),
 	HPT(1208, 0xE0B5F569, "Os arquivos podem ser uma sequência de WMIDs (ex. 200 300)"),
-	HU(1209, "zfsproxrestore", "-kill", "Remove snapshot (after backup)"),
-	HIT(1209, 0x89F53F92, "Toglie lo snapshot (dopo il backup)"),
-	HRU(1209, 0x89F53F92, "Удалить снапшот (после backup)"),
+	HU(1209, "zfsproxrestore", "-force", "Overwrite the guest that is there (it must be off)"),
+	HIT(1209, 0x9CEB68F1, "Sovrascrive l'ospite che c'e' (deve essere spento)"),
+	HRU(1209, 0x9CEB68F1, "Перезаписать существующего гостя (он должен быть выключен)"),
 	HES(1209, 0x89F53F92, "Elimina el snapshot (después del backup)"),
 	HPT(1209, 0x89F53F92, "Remove o snapshot (depois do backup)"),
-	HU(1210, "zfsproxrestore", "-not", "Do not restore (exclude)"),
-	HIT(1210, 0x7EF9AFBE, "Non ripristina (esclude)"),
-	HRU(1210, 0x7EF9AFBE, "Не восстанавливать (исключить)"),
+	HU(1210, "zfsproxrestore", "-key -franzen", "The passwords of the archive"),
+	HIT(1210, 0xAD5EA74A, "Le password dell'archivio"),
+	HRU(1210, 0xAD5EA74A, "Пароли архива"),
 	HES(1210, 0x7EF9AFBE, "No restaura (excluye)"),
 	HPT(1210, 0x7EF9AFBE, "Não restaura (exclui)"),
+	HU(1872, "zfsproxrestore", " ", "Archives of before 65.17f: as ever (VMIDs, -not, -kill)"),
+	HIT(1872, 0x16156992, "Archivi di prima della 65.17f: come sempre|(VMID, -not, -kill)"),
+	HRU(1872, 0x16156992, "Архивы до 65.17f: как раньше (VMID, -not, -kill)"),
 	HESEMPI("zfsproxrestore", 'b'),
-	HE(1211, "zfsproxrestore", "Restore all VMs", "zfsproxrestore /backup/allvm.zpaq"),
-	HIT(1211, 0x696C5210, "Ripristina tutte le VM"),
-	HRU(1211, 0x696C5210, "Восстановить все VM"),
+	HE(1211, "zfsproxrestore", "Guest 200 back, as it was", "zfsproxrestore /bak/zfsproxbackup-qemu-200.zpaq -force"),
+	HIT(1211, 0x1A85F7C8, "L'ospite 200 di nuovo com'era"),
+	HRU(1211, 0x1A85F7C8, "Гость 200 обратно, как был"),
 	HES(1211, 0x696C5210, "Restaura todas las VM"),
 	HPT(1211, 0x696C5210, "Restaura todas as VMs"),
-	HE(1212, "zfsproxrestore", "Restore 2 VMs: 200 and 300", "zfsproxrestore /backup/allvm.zpaq 200 300"),
-	HIT(1212, 0x62A971C7, "Ripristina 2 VM: 200 e 300"),
-	HRU(1212, 0x62A971C7, "Восстановить 2 VM: 200 и 300"),
+	HE(1212, "zfsproxrestore", "As a new VM 999, on local-zfs", "zfsproxrestore /bak/zfsproxbackup-qemu-200.zpaq 999 -storage local-zfs"),
+	HIT(1212, 0x05C6ECCA, "Come nuova VM 999, su local-zfs"),
+	HRU(1212, 0x05C6ECCA, "Как новая VM 999, на local-zfs"),
 	HES(1212, 0x62A971C7, "Restaura 2 VM: 200 y 300"),
 	HPT(1212, 0x62A971C7, "Restaura 2 VMs: 200 e 300"),
-	HE(1213, "zfsproxrestore", "Restore VM 200, release snapshot", "zfsproxrestore /backup/allvm.zpaq 200 -kill"),
-	HIT(1213, 0xB464AEF3, "Ripristina la VM 200, rilascia lo snapshot"),
-	HRU(1213, 0xB464AEF3, "Восстановить VM 200, освободить снапшот"),
+	HE(1213, "zfsproxrestore", "VM 200 from a file with many", "zfsproxrestore /bak/all.zpaq 200 -force"),
+	HIT(1213, 0xB1FE14CE, "La VM 200 da un file con molti ospiti"),
+	HRU(1213, 0xB1FE14CE, "VM 200 из файла со многими гостями"),
 	HES(1213, 0xB464AEF3, "Restaura la VM 200, libera el snapshot"),
 	HPT(1213, 0xB464AEF3, "Restaura a VM 200, libera o snapshot"),
-	HE(1214, "zfsproxrestore", "Restore all VMs, except 200", "zfsproxrestore /backup/allvm.zpaq -not 200 -kill"),
-	HIT(1214, 0x71A50A0F, "Ripristina tutte le VM, tranne la 200"),
-	HRU(1214, 0x71A50A0F, "Восстановить все VM, кроме 200"),
+	HE(1214, "zfsproxrestore", "The version 3 of the guest", "zfsproxrestore /bak/zfsproxbackup-qemu-200.zpaq -until 3 -force"),
+	HIT(1214, 0xF51C2FCD, "La versione 3 dell'ospite"),
+	HRU(1214, 0xF51C2FCD, "Версия 3 гостя"),
 	HES(1214, 0x71A50A0F, "Restaura todas las VM, excepto 200"),
 	HPT(1214, 0x71A50A0F, "Restaura todas as VMs, exceto 200"),
-	HBREVE(1215, "zfsproxrestore", "Restore of proxmox on zfs"),
-	HIT(1215, 0xC6438EE7, "Ripristino di proxmox su zfs"),
-	HRU(1215, 0xC6438EE7, "Восстановление proxmox на zfs"),
+	HBREVE(1215, "zfsproxrestore", "Restore of a Proxmox guest"),
+	HIT(1215, 0x5C327CEE, "Ripristino di un ospite di Proxmox"),
+	HRU(1215, 0x5C327CEE, "Восстановление гостя Proxmox"),
 	HES(1215, 0xC6438EE7, "Restauración de proxmox sobre zfs"),
 	HPT(1215, 0xC6438EE7, "Restauração do proxmox sobre zfs"),
+	/// proxvzdump (65.17e; 65.17g: a folder or a file)
+	HU(1854, "proxvzdump", "CMD proxvzdump", "vzdump of Proxmox guests (VM, container) into zpaqfranz|A folder: one archive per guest (proxvzdump-qemu-ID.zpaq)|A file (.zpaq, .franzen): every guest in it, the best dedup|A version each run, deduplicated. Any storage"),
+	HIT(1854, 0xCC705B5D, "vzdump degli ospiti di Proxmox (VM, container) in zpaqfranz|Una cartella: un archivio per ospite|Un file (.zpaq, .franzen): tutti dentro, massima deduplica|Una versione a ogni giro, deduplicata. Qualsiasi storage"),
+	HRU(1854, 0xCC705B5D, "vzdump гостей Proxmox (VM, контейнеры) в zpaqfranz|Папка: один архив на гостя|Файл (.zpaq, .franzen): все в нём, лучшая дедупликация|Версия на каждый запуск. Любое хранилище"),
+	HU(1855, "proxvzdump", "-all", "Every VM and container of this node"),
+	HIT(1855, 0xE5A5D0B4, "Tutte le VM e i container di questo nodo"),
+	HRU(1855, 0xE5A5D0B4, "Все VM и контейнеры этого узла"),
+	HU(1856, "proxvzdump", "-not", "Not this vmid (with -all)"),
+	HIT(1856, 0x1BEF9DE3, "Non questo vmid (con -all)"),
+	HRU(1856, 0x1BEF9DE3, "Кроме этого vmid (с -all)"),
+	HU(1857, "proxvzdump", "-key -franzen", "Encrypted archives (AES, Franzen or both)"),
+	HIT(1857, 0xF1677752, "Archivi cifrati (AES, Franzen o entrambi)"),
+	HRU(1857, 0xF1677752, "Зашифрованные архивы (AES, Franzen или оба)"),
+	HU(1896, "proxvzdump", "-proxmox", "The same guest, the same bytes: a run costs KB, not MB.|Not the file of vzdump (VMA: fixed UUID; tar: no PID, atime,|ctime), a good one: the restore is the same"),
+	HIT(1896, 0x3D16872E, "Stesso ospite, stessi byte: un giro costa KB, non MB.|Non e' il file di vzdump (VMA: UUID fisso; tar: niente PID,|atime, ctime) ma e' valido: il restore e' lo stesso"),
+	HRU(1896, 0x3D16872E, "Тот же гость, те же байты: запуск стоит КБ, а не МБ.|Это не файл vzdump (VMA: постоянный UUID; tar: без PID,|atime, ctime), но он исправен: восстановление то же"),
+	HESEMPI("proxvzdump", 'b'),
+	HE(1858, "proxvzdump", "VM 100 and CT 200 into /backup", "proxvzdump /backup 100 200"),
+	HIT(1858, 0x09C15D3C, "VM 100 e CT 200 in /backup"),
+	HRU(1858, 0x09C15D3C, "VM 100 и CT 200 в /backup"),
+	HE(1859, "proxvzdump", "Every guest but 300", "proxvzdump /backup -all -not 300"),
+	HIT(1859, 0xBAB4D676, "Tutti gli ospiti tranne il 300"),
+	HRU(1859, 0xBAB4D676, "Все гости, кроме 300"),
+	HE(1860, "proxvzdump", "Every guest, encrypted", "proxvzdump /backup -all -key pippo"),
+	HIT(1860, 0x41CA0698, "Tutti gli ospiti, cifrati"),
+	HRU(1860, 0x41CA0698, "Все гости, с шифрованием"),
+	HE(1874, "proxvzdump", "All in one file, the best dedup", "proxvzdump /backup/all.zpaq -all"),
+	HIT(1874, 0xB2303E00, "Tutti in un file, massima deduplica"),
+	HRU(1874, 0xB2303E00, "Все в одном файле, лучшая дедупликация"),
+	HE(1897, "proxvzdump", "Every guest, little space each run", "proxvzdump /backup -all -proxmox"),
+	HIT(1897, 0xB1417C6E, "Tutti gli ospiti, poco spazio a ogni giro"),
+	HRU(1897, 0xB1417C6E, "Все гости, мало места на каждый запуск"),
+	HBREVE(1861, "proxvzdump", "vzdump of Proxmox guests into zpaq"),
+	HIT(1861, 0xCAADBBCA, "vzdump degli ospiti di Proxmox in zpaq"),
+	HRU(1861, 0xCAADBBCA, "vzdump гостей Proxmox в zpaq"),
+	/// proxvzrestore (65.17e)
+	HU(1862, "proxvzrestore", "CMD proxvzrestore", "A guest of proxvzdump back (no temporary file), as it was|A number: the new vmid, with a new MAC (with more guests in|the archive: which one, then the new vmid)"),
+	HIT(1862, 0x64C42983, "Rimette un ospite di proxvzdump (niente file temporanei)|com'era. Un numero: il vmid nuovo, con un MAC nuovo (con|piu' ospiti nell'archivio: quale, poi il vmid nuovo)"),
+	HRU(1862, 0x64C42983, "Восстановить гостя из proxvzdump (без временных файлов)|как был. Число: новый vmid, новый MAC (если гостей|в архиве несколько: какой, затем новый vmid)"),
+	HU(1863, "proxvzrestore", "-until N", "An older version (zpaqfranz i archive: the list)"),
+	HIT(1863, 0xA4C318BC, "Una versione precedente (zpaqfranz i archivio: l'elenco)"),
+	HRU(1863, 0xA4C318BC, "Более старая версия (zpaqfranz i архив: список)"),
+	HU(1864, "proxvzrestore", "-storage S", "The disks of a VM on S (of a container: all its volumes)"),
+	HIT(1864, 0x19935D0D, "I dischi di una VM su S|(di un container: tutti i suoi volumi)"),
+	HRU(1864, 0x19935D0D, "Диски VM на S (у контейнера: все его тома)"),
+	HU(1865, "proxvzrestore", "-force", "Overwrite the guest that is there"),
+	HIT(1865, 0xA609F858, "Sovrascrive l'ospite che c'e'"),
+	HRU(1865, 0xA609F858, "Перезаписать существующего гостя"),
+	HU(1870, "proxvzrestore", "-key -franzen", "The passwords of the archive"),
+	HIT(1870, 0xAD5EA74A, "Le password dell'archivio"),
+	HRU(1870, 0xAD5EA74A, "Пароли архива"),
+	HESEMPI("proxvzrestore", 'b'),
+	HE(1866, "proxvzrestore", "VM 100 back, as it was", "proxvzrestore /backup/proxvzdump-qemu-100.zpaq -force"),
+	HIT(1866, 0x0A1D4A26, "La VM 100 di nuovo com'era"),
+	HRU(1866, 0x0A1D4A26, "VM 100 обратно, как была"),
+	HE(1867, "proxvzrestore", "As a new VM 999, on local-zfs", "proxvzrestore /backup/proxvzdump-qemu-100.zpaq 999 -storage local-zfs"),
+	HIT(1867, 0x05C6ECCA, "Come nuova VM 999, su local-zfs"),
+	HRU(1867, 0x05C6ECCA, "Как новая VM 999, на local-zfs"),
+	HE(1868, "proxvzrestore", "The version 3 of the CT 200", "proxvzrestore /backup/proxvzdump-lxc-200.zpaq -until 3 -force"),
+	HIT(1868, 0x9C57B9A2, "La versione 3 del CT 200"),
+	HRU(1868, 0x9C57B9A2, "Версия 3 CT 200"),
+	HE(1875, "proxvzrestore", "VM 100 from a file with many", "proxvzrestore /backup/all.zpaq 100 -force"),
+	HIT(1875, 0xE9A57027, "La VM 100 da un file con molti ospiti"),
+	HRU(1875, 0xE9A57027, "VM 100 из файла со многими гостями"),
+	HBREVE(1869, "proxvzrestore", "Restore a guest from proxvzdump"),
+	HIT(1869, 0xF588B779, "Ripristina un ospite da proxvzdump"),
+	HRU(1869, 0xF588B779, "Восстановить гостя из proxvzdump"),
 	/// zfsbackup
 	HU(1216, "zfsbackup", "CMD zfsbackup", "Backup w/incremental zfs snapshots for long-term storage|Usually root privileges required"),
 	HIT(1216, 0xAF1061D6, "Backup con snapshot zfs incrementali per conservare a lungo|Di solito servono i privilegi di root"),
 	HRU(1216, 0xAF1061D6, "Backup с инкрементными снапшотами zfs для долгого хранения|Обычно нужны права root"),
 	HES(1216, 0xAF1061D6, "Backup con snapshots zfs incrementales a largo plazo|Suele requerir privilegios de root"),
 	HPT(1216, 0xAF1061D6, "Backup com snapshots zfs incrementais de longo prazo|Geralmente requer privilégios de root"),
-	HU(1217, "zfsbackup", "-snapshot kj", "Make 'snapname' to kj (default: zpaqfranco)"),
-	HIT(1217, 0x08DAA85D, "'snapname' diventa kj (default: zpaqfranco)"),
-	HRU(1217, 0x08DAA85D, "Задать 'snapname' равным kj (по умолчанию: zpaqfranco)"),
+	HU(1217, "zfsbackup", "-snapshot kj", "Make 'snapname' to kj (default: zpaqfranz)"), /// 65.17c: it said zpaqfranco
+	HIT(1217, 0xA88ACFA1, "'snapname' diventa kj (default: zpaqfranz)"),
+	HRU(1217, 0xA88ACFA1, "Задать 'snapname' равным kj (по умолчанию: zpaqfranz)"),
 	HES(1217, 0x08DAA85D, "Fija 'snapname' en kj (predeterminado: zpaqfranco)"),
 	HPT(1217, 0x08DAA85D, "Define 'snapname' como kj (padrão: zpaqfranco)"),
+	HU(1852, "zfsbackup", "-key -franzen", "Encrypted archive (AES, Franzen or both): the|passwords go to its zpaqfranz in FRANZKEY / FRANZFRANZEN"), /// 65.17d
+	HIT(1852, 0x2E86612F, "Archivio cifrato (AES, Franzen o entrambi): le|password vanno al suo zpaqfranz in FRANZKEY / FRANZFRANZEN"),
+	HRU(1852, 0x2E86612F, "Зашифрованный архив (AES, Franzen или оба): пароли|передаются его zpaqfranz через FRANZKEY / FRANZFRANZEN"),
 	HESEMPI("zfsbackup", 'b'),
 	HE(1218, "zfsbackup", "Update tank/d backup,retain snapshot", "zfsbackup /tmp/incr.zpaq tank/d"),
 	HIT(1218, 0xCC6165EC, "Aggiorna il backup di tank/d, tiene lo snapshot"),
@@ -152893,7 +153246,7 @@ losetup -d /dev/loop0
 	HRU(1219, 0x6FE3361F, "Обновить backup tank, удалить снапшот"),
 	HES(1219, 0x6FE3361F, "Actualiza backup de tank, borra snapshot"),
 	HPT(1219, 0x6FE3361F, "Atualiza backup de tank, apaga snapshot"),
-	HE(1220, "zfsbackup", "Update tank/d backup,w/hashdeep", "zfsbackup /tmp/incr.zpaq tank/d"),
+	HE(1220, "zfsbackup", "Update tank/d backup,w/hashdeep", "zfsbackup /tmp/incr.zpaq tank/d -hashdeep"), /// 65.17c: it had no -hashdeep
 	HIT(1220, 0x33A14061, "Aggiorna il backup di tank/d, con hashdeep"),
 	HRU(1220, 0x33A14061, "Обновить backup tank/d, с hashdeep"),
 	HES(1220, 0x33A14061, "Actualiza backup de tank/d, con hashdeep"),
@@ -152946,6 +153299,9 @@ losetup -d /dev/loop0
 	HRU(1229, 0xF5A58E72, "kj  Задать 'snapname' равным kj (по умолчанию: franco)"),
 	HES(1229, 0xF5A58E72, "kj  Fija 'snapname' en kj (predeterminado: franco)"),
 	HPT(1229, 0xF5A58E72, "kj  Define 'snapname' como kj (padrão: franco)"),
+	HU(1853, "zfsreceive", "-key -franzen", "Encrypted archive: export FRANZKEY / FRANZFRANZEN|before the script (they are not written in it)"), /// 65.17d
+	HIT(1853, 0x79ED7333, "Archivio cifrato: export FRANZKEY / FRANZFRANZEN|prima dello script (non ci sono scritte)"),
+	HRU(1853, 0x79ED7333, "Зашифрованный архив: export FRANZKEY / FRANZFRANZEN|перед скриптом (в нем они не записаны)"),
 	HESEMPI("zfsreceive", 'b'),
 	HE(1230, "zfsreceive", "Rebuild rpool/restored from archive", "zfsreceive /tmp/ordinato.zpaq rpool/restored -script myscript.sh"),
 	HIT(1230, 0x90DAA4F3, "Ricostruisce rpool/restored dall'archivio"),
@@ -153121,11 +153477,11 @@ losetup -d /dev/loop0
 	HES(1261, 0x166FE626, "Deduplica archivo(s) en una carpeta (sin piedad)"),
 	HPT(1261, 0x166FE626, "Deduplica arquivo(s) em uma pasta (sem piedade)"),
 	/// mysqldump
-	HU(1262, "mysqldump", "CMD mysqldump", "Dump all MySQL/MariaDB databases|Requires 'mysql' (or 'mariadb') and 'mysqldump' (or 'mariadb-dump')"),
-	HIT(1262, 0xCB6AFF61, "Dump di tutti i database MySQL/MariaDB|Servono 'mysql' (o 'mariadb') e 'mysqldump' (o 'mariadb-dump')"),
-	HRU(1262, 0xCB6AFF61, "Дамп всех баз данных MySQL/MariaDB|Нужны 'mysql' (или 'mariadb') и 'mysqldump' (или 'mariadb-dump')"),
-	HES(1262, 0xCB6AFF61, "Vuelca todas las bases MySQL/MariaDB|Requiere 'mysql' (o 'mariadb') y 'mysqldump' (o 'mariadb-dump')"),
-	HPT(1262, 0xCB6AFF61, "Despeja todos os bancos MySQL/MariaDB|Requer 'mysql' (ou 'mariadb') e 'mysqldump' (ou 'mariadb-dump')"),
+	HU(1262, "mysqldump", "CMD mysqldump", "MySQL/MariaDB databases to zpaqfranz, read while they work, with routines,|events and triggers. Exit code 0 only if every dump is whole|A folder: one archive per database (mysqldump-NAME.zpaq)|A file (.zpaq, .franzen): all of them in it, a version each|It needs mysql (or mariadb) and mysqldump (or mariadb-dump)"),
+	HIT(1262, 0x1F1DD06C, "Database MySQL/MariaDB in zpaqfranz, letti mentre lavorano, con|routine, eventi e trigger. Exit code 0 solo se ogni dump e' intero|Una cartella: un archivio per database|Un file (.zpaq, .franzen): tutti dentro, una versione ciascuno|Servono mysql (o mariadb) e mysqldump (o mariadb-dump)"),
+	HRU(1262, 0x1F1DD06C, "Базы MySQL/MariaDB в zpaqfranz, читаются на ходу, с процедурами,|событиями и триггерами. Код 0, только если все дампы целы|Папка: один архив на базу|Файл (.zpaq, .franzen): все в нём, по версии на базу|Нужны mysql (или mariadb) и mysqldump (или mariadb-dump)"),
+	HES(1262, 0x1F1DD06C, "Bases MySQL/MariaDB a zpaqfranz, leídas mientras trabajan, con rutinas,|eventos y triggers. Código de salida 0 solo si cada volcado está entero|Una carpeta: un archivo por base (mysqldump-NOMBRE.zpaq)|Un archivo (.zpaq, .franzen): todas adentro, una versión cada una|Necesita mysql (o mariadb) y mysqldump (o mariadb-dump)"),
+	HPT(1262, 0x1F1DD06C, "Bancos MySQL/MariaDB para o zpaqfranz, lidos em uso, com rotinas,|eventos e triggers. Código de saída 0 só se cada dump estiver inteiro|Uma pasta: um arquivo por banco (mysqldump-NOME.zpaq)|Um arquivo (.zpaq, .franzen): todos nele, uma versão cada|Precisa de mysql (ou mariadb) e mysqldump (ou mariadb-dump)"),
 #ifdef _WIN32
 	HU(1263, "mysqldump", " ", "On Windows, append '.exe' to executable names [of course]"),
 	HIT(1263, 0xFEB669E4, "Su Windows, aggiungere '.exe' ai|  nomi degli eseguibili [ovviamente]"),
@@ -153167,26 +153523,26 @@ losetup -d /dev/loop0
 	HES(1269, 0x08586B62, "Descarga mysql.exe y mysqldump.exe de Internet"),
 	HPT(1269, 0x08586B62, "Baixa mysql.exe e mysqldump.exe da Internet"),
 #endif
-	HU(1270, "mysqldump", "-u user", "MySQL/MariaDB username"),
-	HIT(1270, 0x3BDFADF6, "Utente MySQL/MariaDB"),
-	HRU(1270, 0x3BDFADF6, "Имя пользователя MySQL/MariaDB"),
-	HES(1270, 0x3BDFADF6, "Usuario de MySQL/MariaDB"),
-	HPT(1270, 0x3BDFADF6, "Usuário do MySQL/MariaDB"),
-	HU(1271, "mysqldump", "-p password", "MySQL/MariaDB password (use quotes if it contains spaces)"),
-	HIT(1271, 0xACFE92E2, "Password MySQL/MariaDB (tra virgolette se contiene spazi)"),
-	HRU(1271, 0xACFE92E2, "Пароль MySQL/MariaDB (в кавычках, если есть пробелы)"),
-	HES(1271, 0xACFE92E2, "Contraseña MySQL/MariaDB (entre comillas si hay espacios)"),
-	HPT(1271, 0xACFE92E2, "Senha do MySQL/MariaDB (entre aspas se tiver espaços)"),
-	HU(1272, "mysqldump", "-h host", "MySQL/MariaDB host (e.g., localhost or IP address)"),
-	HIT(1272, 0xC6EC5EC4, "Host MySQL/MariaDB (es. localhost o un indirizzo IP)"),
-	HRU(1272, 0xC6EC5EC4, "Хост MySQL/MariaDB (напр. localhost или IP-адрес)"),
-	HES(1272, 0xC6EC5EC4, "Host de MySQL/MariaDB (ej. localhost o dirección IP)"),
-	HPT(1272, 0xC6EC5EC4, "Host do MySQL/MariaDB (ex. localhost ou endereço IP)"),
-	HU(1273, "mysqldump", "-P port", "MySQL/MariaDB port (default: 3306)"),
-	HIT(1273, 0x41E673E3, "Porta MySQL/MariaDB (default: 3306)"),
-	HRU(1273, 0x41E673E3, "Порт MySQL/MariaDB (по умолчанию: 3306)"),
-	HES(1273, 0x41E673E3, "Puerto de MySQL/MariaDB (predeterminado: 3306)"),
-	HPT(1273, 0x41E673E3, "Porta do MySQL/MariaDB (padrão: 3306)"),
+	HU(1270, "mysqldump", "-u user", "MySQL/MariaDB username. No -u, no -p: the defaults of the client|(on a stock MariaDB: root by its socket, nothing to give)"),
+	HIT(1270, 0xD533DB95, "Utente MySQL/MariaDB. Niente -u e -p: i default del client|(su un MariaDB normale: root dal socket, niente da dare)"),
+	HRU(1270, 0xD533DB95, "Пользователь MySQL/MariaDB. Без -u и -p: настройки клиента|(на обычном MariaDB: root через сокет, ничего не нужно)"),
+	HES(1270, 0xD533DB95, "Usuario de MySQL/MariaDB. Sin -u ni -p: lo que use el cliente|(en un MariaDB de fábrica: root por su socket, nada que dar)"),
+	HPT(1270, 0xD533DB95, "Usuário do MySQL/MariaDB. Sem -u nem -p: o padrão do cliente|(num MariaDB de fábrica: root pelo socket, nada a informar)"),
+	HU(1271, "mysqldump", "-p password", "MySQL/MariaDB password (quotes if it has spaces). It goes in a|temporary file only you can read, on no command line of a child"),
+	HIT(1271, 0x071197D0, "Password MySQL/MariaDB (tra virgolette se ha spazi). Va in un|file temporaneo che leggi solo tu, su nessuna riga di comando"),
+	HRU(1271, 0x071197D0, "Пароль MySQL/MariaDB (в кавычках, если есть пробелы). Идёт|во временный файл только для вас, не в командную строку"),
+	HES(1271, 0x071197D0, "Contraseña de MySQL/MariaDB (entre comillas si tiene espacios).|Va a un archivo temporal que solo usted puede leer, nunca en la|línea de comandos de un hijo"),
+	HPT(1271, 0x071197D0, "Senha do MySQL/MariaDB (entre aspas se tiver espaços). Vai|para um arquivo temporário que só você lê, nunca na linha de|comando de um filho"),
+	HU(1272, "mysqldump", "-h host", "MySQL/MariaDB host (with -p: 127.0.0.1 if not given)"),
+	HIT(1272, 0x23E377C2, "Host MySQL/MariaDB (con -p: 127.0.0.1 se non indicato)"),
+	HRU(1272, 0x23E377C2, "Хост MySQL/MariaDB (с -p: 127.0.0.1, если не указан)"),
+	HES(1272, 0x23E377C2, "Host de MySQL/MariaDB (con -p: 127.0.0.1 si no se da)"),
+	HPT(1272, 0x23E377C2, "Host do MySQL/MariaDB (com -p: 127.0.0.1 se não informado)"),
+	HU(1273, "mysqldump", "-P port", "MySQL/MariaDB port (with -p: 3306 if not given)"),
+	HIT(1273, 0x1D1E535E, "Porta MySQL/MariaDB (con -p: 3306 se non indicata)"),
+	HRU(1273, 0x1D1E535E, "Порт MySQL/MariaDB (с -p: 3306, если не указан)"),
+	HES(1273, 0x1D1E535E, "Puerto de MySQL/MariaDB (con -p: 3306 si no se da)"),
+	HPT(1273, 0x1D1E535E, "Porta do MySQL/MariaDB (com -p: 3306 se não informada)"),
 	HU(1274, "mysqldump", "-key pwd", "Password for encrypting the ZPAQ archive"),
 	HIT(1274, 0x44D542B9, "Password per cifrare l'archivio ZPAQ"),
 	HRU(1274, 0x44D542B9, "Пароль для шифрования архива ZPAQ"),
@@ -153202,16 +153558,26 @@ losetup -d /dev/loop0
 	HRU(1276, 0x5F266848, "Быть... многословным"),
 	HES(1276, 0x5F266848, "Sé... detallado"),
 	HPT(1276, 0x5F266848, "Seja... detalhado"),
-	HU(1277, "mysqldump", "-only", "pattern Select only databases containing the specified text or matching pattern|-only 2015 matches any DB containing '2015' (e.g., db2015, test2015prod)"),
-	HIT(1277, 0x982F95A5, "pattern Sceglie solo i database che contengono|il testo o corrispondono al pattern|-only 2015 prende ogni DB che contiene '2015' (es. db2015, test2015prod)"),
-	HRU(1277, 0x982F95A5, "pattern Выбрать только базы, содержащие текст или соответствующие шаблону|-only 2015 подходит любой БД с '2015' (напр. db2015, test2015prod)"),
-	HES(1277, 0x982F95A5, "pattern Solo bases que contengan el texto indicado o coincidan con el patrón|-only 2015 elige toda base que contenga '2015' (ej. db2015, test2015prod)"),
-	HPT(1277, 0x982F95A5, "pattern Só bancos que contenham o texto indicado ou casem com o padrão|-only 2015 pega todo banco que contenha '2015' (ex. db2015, test2015prod)"),
-	HU(1278, "mysqldump", "-not", "pattern  Exclude databases containing the specified text or matching pattern|-not temp matches any DB containing 'temp' (e.g., temporary, temp_db)|*** Note: System databases (information_schema, performance_schema,|    sys) are automatically excluded"),
-	HIT(1278, 0xA02F805D, "pattern Esclude i database che contengono|il testo o corrispondono al pattern|-not temp prende ogni DB che contiene 'temp' (es. temporary, temp_db)|*** Nota: i database di sistema (information_schema, performance_schema,|    sys) sono esclusi da soli"),
-	HRU(1278, 0xA02F805D, "pattern  Исключить базы, содержащие текст или соответствующие шаблону|-not temp подходит любой БД с 'temp' (напр. temporary, temp_db)|*** Примечание: системные базы (information_schema, performance_schema,|    sys) исключаются автоматически"),
-	HES(1278, 0xA02F805D, "pattern  Excluye bases que contengan el texto indicado o casen con el patrón|-not temp excluye toda base que contenga 'temp' (ej. temporary, temp_db)|*** Nota: las bases del sistema (information_schema, performance_schema,|    sys) se excluyen automáticamente"),
-	HPT(1278, 0xA02F805D, "pattern  Exclui bancos que contenham o texto indicado ou casem com o padrão|-not temp exclui todo banco que contenha 'temp' (ex. temporary, temp_db)|*** Nota: os bancos do sistema (information_schema, performance_schema,|    sys) são excluídos automaticamente"),
+	HU(1277, "mysqldump", "-only", "Only the databases containing this text, or matching a mask|-only 2015: db2015, test2015prod. -only sales*: sales, sales2015"),
+	HIT(1277, 0x2AB1065B, "Solo i database che contengono questo testo, o con una maschera|-only 2015: db2015, test2015prod. -only sales*: sales, sales2015"),
+	HRU(1277, 0x2AB1065B, "Только базы, содержащие этот текст, или по маске|-only 2015: db2015, test2015prod. -only sales*: sales, sales2015"),
+	HES(1277, 0x2AB1065B, "Solo las bases que contienen este texto, o con esta máscara|-only 2015: db2015, test2015prod. -only sales*: sales, sales2015"),
+	HPT(1277, 0x2AB1065B, "Só os bancos que contêm este texto, ou batem com uma máscara|-only 2015: db2015, test2015prod. -only sales*: sales, sales2015"),
+	HU(1278, "mysqldump", "-not", "Not the databases containing this text, or matching a mask|-not temp: temporary, temp_db|*** information_schema, performance_schema, sys are never dumped"),
+	HIT(1278, 0x543965CF, "Non i database che contengono questo testo, o con una maschera|-not temp: temporary, temp_db|*** information_schema, performance_schema, sys mai nel dump"),
+	HRU(1278, 0x543965CF, "Кроме баз, содержащих этот текст, или по маске|-not temp: temporary, temp_db|*** information_schema, performance_schema, sys не выгружаются"),
+	HES(1278, 0x543965CF, "No las bases que contienen este texto, o con esta máscara|-not temp: temporary, temp_db|*** information_schema, performance_schema, sys nunca se vuelcan"),
+	HPT(1278, 0x543965CF, "Não os bancos que contêm este texto, ou batem com uma máscara|-not temp: temporary, temp_db|*** information_schema, performance_schema, sys: nunca no dump"),
+	HU(1882, "mysqldump", "-franzen pwd", "Archives with Franzen (with -key too: both)"),
+	HIT(1882, 0x3C1C696A, "Archivi con Franzen (anche con -key: entrambi)"),
+	HRU(1882, 0x3C1C696A, "Архивы с Franzen (вместе с -key: оба)"),
+	HES(1882, 0x3C1C696A, "Archivos con Franzen (con -key también: los dos)"),
+	HPT(1882, 0x3C1C696A, "Arquivos com Franzen (com -key também: os dois)"),
+	HU(1883, "mysqldump", "-force", "Past the errors of mysqldump (a broken view): what it can read|is kept, exit code 1. Without: that database is not kept, rc 2"),
+	HIT(1883, 0x1651041B, "Oltre gli errori di mysqldump (una vista rotta): resta quel|che riesce a leggere, exit code 1. Senza: quel database non|resta, rc 2"),
+	HRU(1883, 0x1651041B, "Пропустить ошибки mysqldump (сломанное представление): что|прочитано, остаётся, код 1. Без него: база не сохраняется,|код 2"),
+	HES(1883, 0x1651041B, "Sigue tras errores de mysqldump (vista rota): guarda lo que|pueda leer, código 1. Sin esto: esa base no se guarda, rc 2"),
+	HPT(1883, 0x1651041B, "Segue após erros do mysqldump (view quebrada): guarda o que|consegue ler, código 1. Sem isto: esse banco não fica, rc 2"),
 	HESEMPI("mysqldump", 'b'),
 	HE(1279, "mysqldump", "Dump all databases (Windows)", "mysqldump z:\\1.zpaq -u root -p pluto -h 127.0.0.1 -P 3306 -key pippo -m2"),
 	HIT(1279, 0xB45D431E, "Dump di tutti i database (Windows)"),
@@ -153248,11 +153614,73 @@ losetup -d /dev/loop0
 	HRU(1285, 0x23562585, "Несколько условий"),
 	HES(1285, 0x23562585, "Varias condiciones"),
 	HPT(1285, 0x23562585, "Várias condições"),
-	HBREVE(1286, "mysqldump", "Dump all MySQL databases to .zpaq"),
-	HIT(1286, 0x6C888FFF, "Dump di tutti i database MySQL in un .zpaq"),
-	HRU(1286, 0x6C888FFF, "Дамп всех баз MySQL в .zpaq"),
-	HES(1286, 0x6C888FFF, "Vuelca todas las bases MySQL a .zpaq"),
-	HPT(1286, 0x6C888FFF, "Despeja todos os bancos MySQL em .zpaq"),
+	HE(1884, "mysqldump", "One archive per database, in /bak", "mysqldump /bak -u backup -p pluto"),
+	HIT(1884, 0x4EC167B5, "Un archivio per database, in /bak"),
+	HRU(1884, 0x4EC167B5, "Один архив на базу, в /bak"),
+	HES(1884, 0x4EC167B5, "Un archivo por base, en /bak"),
+	HPT(1884, 0x4EC167B5, "Um arquivo por banco, em /bak"),
+	HE(1885, "mysqldump", "As root on a stock MariaDB, encrypted", "mysqldump /bak/all.zpaq -franzen pippo"),
+	HIT(1885, 0x7D448103, "Da root su un MariaDB normale, cifrato"),
+	HRU(1885, 0x7D448103, "От root на обычном MariaDB, с шифрованием"),
+	HES(1885, 0x7D448103, "Como root en un MariaDB de fábrica, cifrado"),
+	HPT(1885, 0x7D448103, "Como root num MariaDB de fábrica, criptografado"),
+	HBREVE(1286, "mysqldump", "MySQL/MariaDB databases to .zpaq"),
+	HIT(1286, 0xD70C5093, "Database MySQL/MariaDB in .zpaq"),
+	HRU(1286, 0xD70C5093, "Базы MySQL/MariaDB в .zpaq"),
+	HES(1286, 0xD70C5093, "Bases MySQL/MariaDB a .zpaq"),
+	HPT(1286, 0xD70C5093, "Bancos MySQL/MariaDB para .zpaq"),
+	/// mysqlrestore (65.17j)
+	HU(1886, "mysqlrestore", "CMD mysqlrestore", "A database of mysqldump back, no temporary file. One in the archive:|a name is the new name. More: which one, then the new name"),
+	HIT(1886, 0x245B138E, "Un database di mysqldump di nuovo al suo posto, senza file|temporanei. Uno nell'archivio: un nome e' il nome nuovo|Piu': quale, poi il nome"),
+	HRU(1886, 0x245B138E, "Вернуть базу из mysqldump, без временных файлов. Одна в архиве:|имя = новое имя. Несколько: какую, затем новое имя"),
+	HES(1886, 0x245B138E, "Recupera una base de mysqldump, sin archivo temporal. Si hay una:|un nombre es el nombre nuevo. Varias: cuál, y luego el nombre nuevo"),
+	HPT(1886, 0x245B138E, "Restaura um banco do mysqldump, sem arquivo temporário. Se há um:|um nome é o nome novo. Vários: qual, e depois o nome novo"),
+	HU(1887, "mysqlrestore", "-until N", "An older version (zpaqfranz i archive: the list)"),
+	HIT(1887, 0xA4C318BC, "Una versione precedente (zpaqfranz i archivio: l'elenco)"),
+	HRU(1887, 0xA4C318BC, "Более старая версия (zpaqfranz i архив: список)"),
+	HES(1887, 0xA4C318BC, "Una versión anterior (zpaqfranz i archivo: la lista)"),
+	HPT(1887, 0xA4C318BC, "Uma versão anterior (zpaqfranz i arquivo: a lista)"),
+	HU(1888, "mysqlrestore", "-force", "Replace a database that is there"),
+	HIT(1888, 0x59FC643C, "Sostituisce un database che c'e'"),
+	HRU(1888, 0x59FC643C, "Заменить существующую базу"),
+	HES(1888, 0x59FC643C, "Reemplaza una base que ya existe"),
+	HPT(1888, 0x59FC643C, "Substitui um banco que já existe"),
+	HU(1889, "mysqlrestore", "-force -kill", "The database mysql too, users and grants of the server"),
+	HIT(1889, 0xE83D5050, "Anche il database mysql, utenti e permessi del server"),
+	HRU(1889, 0xE83D5050, "Также базу mysql, пользователей и права сервера"),
+	HES(1889, 0xE83D5050, "También la base mysql, usuarios y permisos del servidor"),
+	HPT(1889, 0xE83D5050, "Também o banco mysql, usuários e permissões do servidor"),
+	HU(1890, "mysqlrestore", "-u -p -h -P -bin", "As mysqldump"),
+	HIT(1890, 0x67641239, "Come mysqldump"),
+	HRU(1890, 0x67641239, "Как в mysqldump"),
+	HES(1890, 0x67641239, "Como en mysqldump"),
+	HPT(1890, 0x67641239, "Como no mysqldump"),
+	HU(1891, "mysqlrestore", "-key -franzen", "The passwords of the archive"),
+	HIT(1891, 0xAD5EA74A, "Le password dell'archivio"),
+	HRU(1891, 0xAD5EA74A, "Пароли архива"),
+	HES(1891, 0xAD5EA74A, "Las contraseñas del archivo"),
+	HPT(1891, 0xAD5EA74A, "As senhas do arquivo"),
+	HESEMPI("mysqlrestore", 'b'),
+	HE(1892, "mysqlrestore", "Database shop back, as a new database", "mysqlrestore /bak/mysqldump-shop.zpaq shop_old"),
+	HIT(1892, 0x70B282E3, "Il database shop di nuovo, come nuovo database"),
+	HRU(1892, 0x70B282E3, "База shop обратно, как новая база"),
+	HES(1892, 0x70B282E3, "Recupera la base shop, como una base nueva"),
+	HPT(1892, 0x70B282E3, "Restaura o banco shop, como um banco novo"),
+	HE(1893, "mysqlrestore", "Over the one that is there", "mysqlrestore /bak/mysqldump-shop.zpaq -force"),
+	HIT(1893, 0xC460B575, "Sopra quello che c'e'"),
+	HRU(1893, 0xC460B575, "Поверх существующей"),
+	HES(1893, 0xC460B575, "Sobre la que ya existe"),
+	HPT(1893, 0xC460B575, "Sobre o que já existe"),
+	HE(1894, "mysqlrestore", "From a file with many, version 3", "mysqlrestore /bak/all.zpaq shop -until 3 -force"),
+	HIT(1894, 0x6647EF5C, "Da un file con molti, versione 3"),
+	HRU(1894, 0x6647EF5C, "Из файла со многими, версия 3"),
+	HES(1894, 0x6647EF5C, "De un archivo con muchas, versión 3"),
+	HPT(1894, 0x6647EF5C, "De um arquivo com vários, versão 3"),
+	HBREVE(1895, "mysqlrestore", "Restore of a MySQL/MariaDB database"),
+	HIT(1895, 0xC89463D5, "Ripristino di un database MySQL/MariaDB"),
+	HRU(1895, 0xC89463D5, "Восстановление базы MySQL/MariaDB"),
+	HES(1895, 0xC89463D5, "Restaura una base MySQL/MariaDB"),
+	HPT(1895, 0xC89463D5, "Restaura um banco MySQL/MariaDB"),
 #ifdef _WIN32
 	/// image
 	HU(1287, "image", "CMD image", "Restore/export zpaqfranz images (RISKY: can overwrite drives; use with caution)"),
@@ -155788,6 +156216,11 @@ losetup -d /dev/loop0
 	HRU(1757, 0x138E09CC, "pakka: каждая версия файла на своей строке (catpaq)"),
 	HES(1757, 0x138E09CC, "pakka: cada versión de un archivo en su propia línea (catpaq)"),
 	HPT(1757, 0x138E09CC, "pakka: cada versão de um arquivo em sua própria linha (catpaq)"),
+	HTESTO(1899, "@flag", 'a', 0, "proxvzdump: two runs of a guest, the same bytes"),
+	HIT(1899, 0x6C91DFF2, "proxvzdump: due giri di un ospite, gli stessi byte"),
+	HRU(1899, 0x6C91DFF2, "proxvzdump: два запуска гостя, те же байты"),
+	HES(1899, 0x6C91DFF2, "proxvzdump: dos corridas de un huésped, los mismos bytes"),
+	HPT(1899, 0x6C91DFF2, "proxvzdump: duas execuções de um convidado, os mesmos bytes"),
 	HTESTO(1758, "@flag", 'a', 0, "Sfx force"),
 	HIT(1758, 0xE281F5C7, "Sfx forzato"),
 	HRU(1758, 0xE281F5C7, "Sfx принудительно"),
@@ -156179,6 +156612,7 @@ static const franz_helpcomando g_helpcomandi[]=
 	{"backup", "backup", "Backup   ", 1},
 #ifdef ZPAQFULL /// NOSFTPSTART
 	{"mysqldump", "mysqldump", "Backup   ", 1},
+	{"mysqlrestore", "mysqlrestore", "Restore  ", 2}, /// 65.17j
 #endif /// NOSFTPEND
 #ifdef ZPAQFULL /// NOSFTPSTART
 #if defined(_WIN32)
@@ -156304,8 +156738,8 @@ static const franz_helpcomando g_helpcomandi[]=
 	{"work", "work", "Utils    ", 8},
 	{"z", "z", "Utils    ", 8},
 #ifdef ZPAQFULL /// NOSFTPSTART
-	{"isopen", "isopen", "Utils    ", 8},
 #if defined(_WIN32)
+	{"isopen", "isopen", "Utils    ", 8},
 	{"sfx", "sfx", "Utils    ", 8},
 #endif
 #endif /// NOSFTPEND
@@ -156314,6 +156748,8 @@ static const franz_helpcomando g_helpcomandi[]=
 	{"zfs", "zfs", "Admin    ", 7},
 	{"zfsproxbackup", "zfsproxbackup", "Backup   ", 1},
 	{"zfsproxrestore", "zfsproxrestore", "Restore  ", 2},
+	{"proxvzdump", "proxvzdump", "Backup   ", 1}, /// 65.17e
+	{"proxvzrestore", "proxvzrestore", "Restore  ", 2},
 	{"zfsbackup", "zfsbackup", "Backup   ", 1},
 	{"zfsrestore", "zfsrestore", "Restore  ", 2},
 	{"zfsreceive", "zfsreceive", "Backup   ", 1},
@@ -158090,6 +158526,15 @@ string finalizza_entropy(void* p_hash)
 	return "";
 }
 
+/// 65.17c: zfslist zfspurge zfssize zfsadd (B C H A) take a filter that begins with -- (the TTL of zfSnap,
+/// "--60d", as their help says): it was "Unknown option ignored" and the filter was lost, so zfspurge listed
+/// EVERY snapshot of the dataset to destroy. No switch begins with --
+static bool zfs_doppiotrattino(char i_command, const char* i_arg)
+{
+	if ((i_command!='A') && (i_command!='B') && (i_command!='C') && (i_command!='H'))
+		return false;
+	return (i_arg!=NULL) && (i_arg[0]=='-') && (i_arg[1]=='-') && (i_arg[2]!=0);
+}
 /// this must compile on 20-years-old C++
 bool Jidac::cli_filesandcommand(const string& i_opt,string i_string,char i_command,int argc,const char** argv, int* i_i)
 {
@@ -158105,7 +158550,7 @@ bool Jidac::cli_filesandcommand(const string& i_opt,string i_string,char i_comma
 	if (i_opt==i_string)
 	{
 		command=i_command;
-		while (++(*i_i)<argc && argv[(*i_i)][0]!='-')
+		while (++(*i_i)<argc && ((argv[(*i_i)][0]!='-') || zfs_doppiotrattino(command,argv[(*i_i)])))
 			files.push_back(argv[(*i_i)]);
 		(*i_i)--;
 		if (!do_not_print_headers())
@@ -158287,6 +158732,16 @@ bool Jidac::cli_getstring	(const string& i_opt,string i_string,bool	i_flagoption
 	else
 	if (i_short.size()==2)
 	{
+		/// 65.17a: -m 1 as -m1 (the help of repack says -m X). It was "Unknown option ignored: -m",
+		/// then the 1 alone gave the help: nothing done, exit code 0
+		if ((i_opt==i_short) && (i_short!=i_string) && ((*i_i)<argc-1) && (argv[(*i_i)+1][0]!='-') && (argv[(*i_i)+1][0]!=0))
+		{
+			(*o_thestring)=argv[++(*i_i)];
+			if (!do_not_print_headers())
+				if (flagdebug)
+					myprintf("00520: franz:%-21s %21s\n",i_string.c_str(),(*o_thestring).c_str());
+			return true;
+		}
 		if ((i_opt[0]=='-') && (isdigit(i_opt[2])))
 			if (i_opt[1]==i_short[1])
 			{
@@ -158405,6 +158860,15 @@ bool Jidac::cli_getint(const string& i_opt,string i_string,bool	i_flagoptional,c
 	else
 	if (i_short.size()==2)
 	{
+		/// 65.17a: -t 4 as -t4 (the help of repack says -t N), see cli_getstring
+		if ((i_opt==i_short) && (i_short!=i_string) && ((*i_i)<argc-1) && (isdigit((unsigned char)argv[(*i_i)+1][0])))
+		{
+			(*o_thenumber)=(int)myatoll(argv[++(*i_i)]);
+			if (!do_not_print_headers())
+				if (flagdebug)
+					myprintf("00525: franz:%-21s %21s\n",i_string.c_str(),migliaia(*o_thenumber));
+			return true;
+		}
 		if ((i_opt[0]=='-') && (isdigit(i_opt[2])))
 			if (i_opt[1]==i_short[1])
 			{
@@ -158935,6 +159399,7 @@ void programflags_riempi(bool *i_flagtest)
 	g_programflags.add(&flaglowram,			"-lowram",				"x in passes: little RAM, millions of files",		"x;");
 	g_programflags.add(&flagfranzhash,		"-franzhash",			"Use franzhash",									"");
 	g_programflags.add(&flaghashdeep,		"-hashdeep",			"Hashdeep",											"");
+	g_programflags.add(&flagzfsttl,			"-ttl",					"",													""); /// 65.17d: in the help of zfspurge and zfslist
 	g_programflags.add(&flagignore,			"-ignore",				"Ignore (do not show) file errors",												"a;");
 #ifndef ANCIENT
 	g_programflags.add(&flaghuge,			"-huge",				"Extract without gaps (zeros written), no sparse",	"");
@@ -159295,10 +159760,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 	g_thechosenhash		=FRANZO_SHA_1; //FRANZO_SHA_1;
 	g_thechosenhash_str	="SHA-1";
   	plainpassword		="";
-	g_mysql_host		="127.0.0.1";
-	g_mysql_port		=3306;
+	g_mysql_host		=""; /// 65.17j: no -u -h -P, the client decides (root by its socket)
+	g_mysql_port		=0;
 	g_mysql_password	="";
-	g_mysql_user		="root";
+	g_mysql_user		="";
 
 	g_device_fd			=-1;
 	g_device_size		=0;
@@ -159364,7 +159829,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 	menoenne			=0;
 	versioncomment		="";
 	searchfrom			="";
+	opzioniignote		=0;
 	snapmark			="";
+	proxstorage			="";
 	orderby				="";
 	replaceto			="";
 	searchhash			="";
@@ -159883,7 +160350,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_filesandcommand(opt,"tree",		2,argc,argv,&i));
 		else if (cli_filesandcommand(opt,"mc",			3,argc,argv,&i)); /// 65.10a
 		else if (cli_filesandcommand(opt,"find",		'j',argc,argv,&i));
-		else if (cli_filesandcommand(opt,"isopen",		'!',argc,argv,&i));
+#ifdef _WIN32
+		else if (cli_filesandcommand(opt,"isopen",		'!',argc,argv,&i)); /// 65.17m: Windows only
+#endif
 		else if (cli_filesandcommand(opt,"password",	'6',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"grep",		'3',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"1on1",		')',argc,argv,&i));
@@ -159917,6 +160386,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_filesandcommand(opt,"repack",		4,argc,argv,&i)); /// 65.16a
 		else if (cli_filesandcommand(opt,"purge",		4,argc,argv,&i)); /// 65.16g: repack, by another name
 		else if (cli_filesandcommand(opt,"zfsrestore",	'%',argc,argv,&i));
+#ifdef ZPAQFULL ///NOSFTPSTART
+		else if (cli_filesandcommand(opt,"zfsproxbackup",	'=',argc,argv,&i)); /// 65.17f: <folder> vmid...
+		else if (cli_filesandcommand(opt,"proxvzdump",	5,argc,argv,&i)); /// 65.17e
+		else if (cli_filesandcommand(opt,"proxvzrestore",	6,argc,argv,&i)); /// 65.17e
+		else if (cli_filesandcommand(opt,"mysqldump",		'M',argc,argv,&i)); /// 65.17j: <folder or file>
+		else if (cli_filesandcommand(opt,"mysqlrestore",	7,argc,argv,&i)); /// 65.17j
+#endif ///NOSFTPEND
 		else if (cli_filesandcommand(opt,"zfslist",		'B',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"zfspurge",	'C',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"zfssize",		'H',argc,argv,&i));
@@ -159942,7 +160418,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		opt=="extract" 			||
 		opt=="last" 			||
 		opt=="list" 			||
-		opt=="mysqldump" 		||
 		opt=="ls" 				||
 		opt=="tui" 				||
 		opt=="gui" 				||
@@ -159981,7 +160456,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 		opt=="dirsize"  		||
 		opt=="zfsadd"  			||
 		opt=="zfsreceive"  		||
-		opt=="zfsproxbackup"  	||
 		opt=="zfsproxrestore"  	||
 		opt=="zfsbackup")
         && i<argc-1 && argv[i+1][0]!='-' && command==0)
@@ -160016,8 +160490,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			if (opt=="checkpassword")
 				command='N';
-			if (opt=="mysqldump")
-				command='M';
 			if (opt=="image")
 				command='E';
 			if (opt=="xc") /// 65.9p: the restore of what ac saved (Jidac::xc, by the door of image)
@@ -160054,8 +160526,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 				command=';';
 			if (opt=="zfsbackup")
 				command='$';
-			if (opt=="zfsproxbackup")
-				command='=';
 			if (opt=="zfsproxrestore")
 				command='(';
 			if (opt=="extract")
@@ -160117,7 +160587,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			const char* dot		=strrchr(slash ? slash : argv[i], '.');
 			if (!dot && archive!="")
 				archive+=".zpaq";
-			while (++i<argc && argv[i][0]!='-')
+			while (++i<argc && ((argv[i][0]!='-') || zfs_doppiotrattino(command,argv[i]))) /// 65.17c: zfsadd "--60d"
 				files.push_back(argv[i]);
 			--i;
 			/// 65.9n: ac archive = the a command on the disk of Windows: a c: -image, then what ac_prepara says
@@ -160259,7 +160729,32 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			i--;
 		}
-		else if ((!flagforzarobocopy) && ((opt.size()<2 || opt[0]!='-')) && (!g_programflags.exists(opt))) { usage(false); seppuku(2); } /// bad argument: NOT a success /// 65.13b: /os /od /on after a switch (s x -home /os) are flags, already set: not the usage
+		else if ((!flagforzarobocopy) && ((opt.size()<2 || opt[0]!='-')) && (!g_programflags.exists(opt))) /// 65.13b: /os /od /on after a switch (s x -home /os) are flags, already set: not the usage
+		{
+			/// 65.17a: a word after the switches that none of them took (-n 7 8, a value of a switch
+			/// that is unknown). It was the help and exit code 0: "repack ... -m 1 && rm" deleted the
+			/// source with no new archive
+			if (i>1)
+			{
+				myprintf("00569! Misplaced argument <<%Z>> (after %s): not a switch, nor a value of one. Nothing done\n",argv[i],argv[i-1]);
+				return 2;
+			}
+			/// 65.17b: the first word, a command that does not exist (zpaqfranz ad x.zpaq, an archive
+			/// in a script) or one with no archive after it (zpaqfranz x): the help as before, then exit
+			/// code 2. h help ? /? with more words: the help, 0
+			if (stringcomparei(opt,"h") || stringcomparei(opt,"help") || (opt=="?") || (opt=="/?"))
+				usage();
+			usage(false);
+			bool comando=false;
+			for (size_t k=0; k<g_helpcomandiquanti; k++)
+				if ((g_helpcomandi[k].categoria[0]!=0) && (opt==g_helpcomandi[k].nome))
+					comando=true;
+			if (comando)
+				myprintf("00572! <<%s>> wants its archive right after it: nothing done\n",argv[i]);
+			else
+				myprintf("00573! <<%Z>>: not a command (or one without its archive right after it): nothing done\n",argv[i]);
+			return 2;
+		}
 		else if (cli_getint		(opt,"-P",			false,	"-P",							argc,argv,&i,4,					&g_mysql_port));
 		else if (cli_getint		(opt,"-bandwidth",	false,	"",								argc,argv,&i,0,					&g_sftp_bandwidth));
 		else if (cli_getint		(opt,"-all",		false,	"",								argc,argv,&i,4,					&all));
@@ -160778,6 +161273,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getint		(opt,"-summary",	true, 	"",								argc,argv,&i,1,					&summary));
 		///else if (cli_getint		(opt,"-red4",		false, 	"",								argc,argv,&i,-1,				&red4));
 		else if (cli_onlystring	(opt,"-snapshot",			"",				snapmark,		argc,argv,&i,					NULL));
+		else if (cli_onlystring	(opt,"-storage",			"",				proxstorage,	argc,argv,&i,					NULL)); /// 65.17e: proxvzrestore
 #ifdef unix
 		else if (cli_onlystring	(opt,"-dataset",			"",				g_dataset,		argc,argv,&i,					NULL));
 #endif // corresponds to #ifdef (#ifdef unix)
@@ -160968,7 +161464,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else
 		{
 			if (!g_programflags.exists(argv[i]))
+			{
 				myprintf("00562! Unknown option ignored: %s\n", argv[i]);
+				opzioniignote++;
+			}
 		}
 	}
 	if (flaghelpcheck) /// 65.14b: hidden, the help against this parser (no cli_ took it: they all told their name)
@@ -165827,7 +166326,7 @@ int Jidac::doCommand()
 	}
 	else if (command=='+') return crop();
 	else if (command==4)   return repackversions(); /// 65.16a: repack
-#ifdef ZPAQFULL ///NOSFTPSTART
+#if defined(ZPAQFULL) && defined(_WIN32) ///NOSFTPSTART
 	else if (command=='!') return isopen();
 #endif ///NOSFTPEND
 	else if (command=='|') return versum();
@@ -168057,6 +168556,22 @@ void Jidac::scandir(bool i_checkifselected, DTMap &i_edt, string filename, bool 
 	if (!lstat(filename.c_str(), &sb))
 	{
 		int64_t creationdate= 0;
+		/// 65.17f: zfsproxbackup, a zvol or an LVM (a link to /dev/zd32, /dev/dm-5) read as a regular file, its date
+		/// now (always read again: a disk changes, its date does not)
+		struct stat dispositivo;
+		if (g_leggidispositivi && (!S_ISREG(sb.st_mode)) && (!S_ISDIR(sb.st_mode)) && (stat(filename.c_str(), &dispositivo) == 0) && S_ISBLK(dispositivo.st_mode))
+		{
+			int64_t dimensione= 0;
+			FILE   *blocchi	  = fopen(filename.c_str(), "rb");
+			if (blocchi != NULL)
+			{
+				fseeko(blocchi, 0, SEEK_END);
+				dimensione= ftello(blocchi);
+				fclose(blocchi);
+			}
+			addfile(i_checkifselected, i_edt, filename, decimal_time(time(NULL)), dimensione, 'u' + ((int64_t)(S_IFREG | 0600) << 8), 0, 0);
+			return;
+		}
 
 		if (S_ISREG(sb.st_mode))
 		{
@@ -175270,6 +175785,7 @@ enum
 	CP_MAPPA = 2  /// one file on a console: the map of the file
 };
 string cp_copia(const string &i_infile, const string &i_cartella, bool i_append, bool i_overwrite, bool i_verifica, unsigned int i_percento, int i_vista);
+bool   cp_paranoica(const string &i_sorgente, const string &i_destinazione, bool i_append, unsigned int i_percento, int i_vista, int64_t i_banda, int64_t &o_scritti); /// 65.17m: r -paranoid
 
 static FILE *cp_apri(const string &i_file, const char *i_modo)
 {
@@ -178101,6 +178617,8 @@ void my_handler(int s)
 		myprintf("01249: STOPPED by an error, try some housekeeping...\n");
 	else
 		myprintf("01250: CONTROL-C detected, try some housekeeping...\n");
+	if (g_mysql_filepassword != "")
+		delete_file(g_mysql_filepassword.c_str());
 	
 #ifdef _WIN32
 	show_cursor(); /// the dashboards (f -test, a -image -dashboard) hide it: the console keeps it so
@@ -182679,7 +183197,8 @@ string Jidac::secure_copy_file(
 	int64_t s1= mtime();
 	if (isdirectory(i_filename))
 	{
-		makepath(i_outfilename);
+		if (flagkill) /// 65.17m: the dry run comes here too (= or +), and it touches nothing
+			makepath(i_outfilename);
 		return "OK";
 	}
 	g_robocopy_makepath+= mtime() - s1;
@@ -182746,7 +183265,8 @@ string Jidac::secure_copy_file(
 				if (flagdebug2)
 					myprintf("01547: Equal XLS: skip %s\n", i_outfilename.c_str());
 				int64_t s3= mtime();
-				close(i_outfilename.c_str(), sorgente_data, sorgente_attr);
+				if (flagkill)
+					close(i_outfilename.c_str(), sorgente_data, sorgente_attr);
 				g_robocopy_close+= mtime() - s3;
 				return "=";
 			}
@@ -182787,7 +183307,7 @@ string Jidac::secure_copy_file(
 							close(i_outfilename.c_str(), sorgente_data, sorgente_attr);
 							g_robocopy_close2+= mtime() - s3;
 						}
-					o_writtensize+= sorgente_dimensione;
+					/// 65.17m: not in o_writtensize: "Written bytes" said the size of the master with nothing written
 					o_donesize+= sorgente_dimensione;
 					o_donecount++;
 					if (!flagnoeta)
@@ -182868,22 +183388,20 @@ string Jidac::secure_copy_file(
 		myprintf("01555: ERR <%s> kind %d\n", i_filename.c_str(), err);
 		return "KAPUTT";
 	}
-	if (flagappend)
-	{
-		if (destinazione_dimensione >= sorgente_dimensione)
-			flagappend= false; // full overwrite
-		if (!iszpaq(i_filename))
+	/*
+		65.17m: -append: a .zpaq already there is resumed only if what is there is the beginning of the source, by the
+		quick hash of that portion, as cp does. r is a mirror, as robocopy: a slave larger than the source, or not its
+		beginning, is written again in full (cp stops there). It was a change of the global flagappend: the first file
+		that was not a .zpaq, or was not shorter, turned -append off for all the following ones
+	*/
+	bool accoda= flagappend && iszpaq(i_filename) && destinazione_esiste && (destinazione_dimensione > 0);
+	if (accoda)
+		if ((destinazione_dimensione > sorgente_dimensione) || (!cp_quickuguale(i_filename, i_outfilename, destinazione_dimensione)))
 		{
-			if (flagdebug)
-				myprintf("01556: not a ZPAQ / not flagappend!\n");
-			flagappend= false;
+			if (flagverbose)
+				myprintf("01560: -append: not the beginning of the source, written again in full %Z\n", i_outfilename.c_str());
+			accoda= false;
 		}
-		else
-		{
-			if (flagdebug)
-				myprintf("01557: we have a ZPAQ and a --append!\n");
-		}
-	}
 	/// to fix excluded myaddfiles()
 
 	int64_t s6= mtime();
@@ -182892,6 +183410,33 @@ string Jidac::secure_copy_file(
 	if (!direxists(percorso))
 		makepath(i_outfilename);
 	g_robocopy_makepath2+= mtime() - s6;
+
+	/// 65.17m: -paranoid, the verified copy of cp: by pieces, every piece on the media, read back and checked, written
+	/// again if it differs. -append and the quick hash are in there too
+	if (flagparanoid)
+	{
+		fclose(inFile);
+		const int64_t s12	 = mtime();
+		const bool	  console= (!isAnyOutputRedirected()) && (!flagnoeta) && (!flagterse) && (!flagsilent) && (!flagnoconsole) && (!flagcatpaqmode);
+		const bool	  riga	 = console && (sorgente_dimensione > LARGEFILE); /// a file that takes time: its line with the bar
+		if (riga)
+			myprintf("79703: %Z (%s)\n", i_outfilename.c_str(), tohuman(sorgente_dimensione));
+		int64_t	   scritti= 0;
+		const bool buona  = cp_paranoica(i_filename, i_outfilename, accoda, menoenne, riga ? CP_RIGA : CP_NIENTE, g_sftp_bandwidth, scritti);
+		g_robocopy_fread+= mtime() - s12;
+		o_writtensize+= scritti;
+		o_donecount++;
+		if (!buona)
+			return "79704: NOT VERIFIED";
+		g_robocopy_verificati++;
+		const int64_t s13= mtime();
+		close(i_outfilename.c_str(), sorgente_data, sorgente_attr);
+		g_robocopy_touch+= mtime() - s13;
+		o_donesize+= sorgente_dimensione;
+		if ((!flagnoeta) && (!riga))
+			myavanzamento(o_donesize, i_totalsize, i_startcopy);
+		return "OK";
+	}
 
 	int64_t s7	   = mtime();
 	FILE   *outFile= NULL;
@@ -182902,16 +183447,9 @@ string Jidac::secure_copy_file(
 		else
 			myprintf("01559: NON ESISTE APPEND %s\n", i_outfilename.c_str());
 	}
-	if (flagappend)
-		if (!isfilesequal(i_filename, i_outfilename, true))
-		{
-			if (flagdebug)
-				myprintf("01560: fast check failed, turn back to full copy %s %s\n", i_filename.c_str(), i_outfilename.c_str());
-			flagappend= false;
-		}
 #ifdef _WIN32
 	wstring widename= utow(i_outfilename.c_str());
-	if (flagappend)
+	if (accoda)
 	{
 		if (flagdebug)
 		{
@@ -182930,7 +183468,7 @@ string Jidac::secure_copy_file(
 		outFile= _wfopen(widename.c_str(), L"wb");
 	}
 #else
-	if (flagappend)
+	if (accoda)
 		outFile= fopen(i_outfilename.c_str(), "ab");
 	else
 		outFile= fopen(i_outfilename.c_str(), "wb");
@@ -182955,7 +183493,7 @@ string Jidac::secure_copy_file(
 	int		lastbarra	 = 0;
 	if ((sorgente_dimensione > LARGEFILE) && (larghezzaconsole > 0))
 		myprintf("%s", tohuman(sorgente_dimensione));
-	if (flagappend)
+	if (accoda)
 	{
 		if (destinazione_dimensione < sorgente_dimensione)
 		{
@@ -182972,6 +183510,16 @@ string Jidac::secure_copy_file(
 			dascrivere= sorgente_dimensione - destinazione_dimensione;
 			if (flagdebug3)
 				myprintf("01567: Da scrivere             %19s\n", migliaia(dascrivere));
+		}
+		else /// 65.17m: the same size, another date: nothing to add (it read the source from its start and appended it)
+		{
+			dascrivere= 0;
+			if (fseeko(inFile, 0, SEEK_END) != 0)
+			{
+				fclose(inFile);
+				fclose(outFile);
+				return "79712: cannot seek the source";
+			}
 		}
 	}
 	int64_t s8		= mtime();
@@ -183116,7 +183664,7 @@ string Jidac::secure_copy_file(
 		}
 	}
 
-	if (flagappend)
+	if (accoda)
 		if (flagdebug)
 		{
 			myprintf("\n");
@@ -183133,17 +183681,11 @@ string Jidac::secure_copy_file(
 
 	int64_t s9= mtime();
 	fclose(inFile);
-	fclose(outFile);
+	const bool chiuso= (fclose(outFile) == 0); /// 65.17m: a delayed write fails here (a share, a full disk), with all the bytes "written"
 	g_robocopy_fclose+= mtime() - s9;
 
-	/// note: this is a "touch" for the attr
-	int64_t s10= mtime();
-	close(i_outfilename.c_str(), sorgente_data, sorgente_attr);
-	/// touch(i_outfilename.c_str(),sorgente_data,sorgente_attr);
-
-	g_robocopy_touch+= mtime() - s10;
-
 	o_donecount++;
+	/// 65.17m: a copy that went wrong does not get the date of the source: it looked good until the size was compared
 	if (scrittitotali != dascrivere)
 	{
 		myprintf("\n");
@@ -183151,6 +183693,15 @@ string Jidac::secure_copy_file(
 		myprintf("01571: Corrupted source files? Lost connection? Cannot access? Media full?\n");
 		return "35109: COPY CORRUPTED";
 	}
+	if (!chiuso)
+		return "79707: write error on the destination (close)";
+
+	/// note: this is a "touch" for the attr
+	int64_t s10= mtime();
+	close(i_outfilename.c_str(), sorgente_data, sorgente_attr);
+	/// touch(i_outfilename.c_str(),sorgente_data,sorgente_attr);
+
+	g_robocopy_touch+= mtime() - s10;
 	return "OK";
 }
 int pos(const std::string &i_stringa, const std::string &i_cerca)
@@ -183168,13 +183719,23 @@ int Jidac::zero()
 	myprintf("\n");
 	if (files.size() == 0)
 	{
-		myprintf("01616: no folder selected\n");
-		return 1;
+		myprintf("01616! no folder selected\n");
+		return 2;
 	}
 	flagverbose	 = true;
 	int risultato= 0;
 	for (unsigned i= 0; i < files.size(); ++i)
-		risultato+= removeemptydirs(files[i], flagkill);
+	{
+		if (!exists(files[i])) /// 65.17m: "zero candidates" rc 0 on a wrong name
+		{
+			myprintf("79715! <<%Z>> does not exist\n", files[i].c_str());
+			risultato= 2;
+			continue;
+		}
+		const int questo= removeemptydirs(files[i], flagkill);
+		if (questo > risultato)
+			risultato= questo;
+	}
 	return risultato;
 }
 
@@ -183190,7 +183751,19 @@ int Jidac::robocopy()
 		myprintf("01619: (-big is a specific switch for... big files)\n");
 		flagbig= false;
 	}
+	if (flagparanoid && flagbig)
+	{
+		myprintf("79708: -paranoid writes by pieces, removing -big\n");
+		flagbig= false;
+	}
 #endif // corresponds to #ifdef (#ifdef _WIN32)
+	if (flagparanoid && flagzero)
+	{
+		myprintf("79709: -zero: the output is not the source, removing -paranoid\n");
+		flagparanoid= false;
+	}
+	if (flagparanoid)
+		myprintf("79710: -paranoid: what is copied is read back and checked, as cp -verify (pieces of 10%% of a file, at most %s; files under %s: one piece; -n X: X%%)\n", tohuman(CP_PEZZOMAX), tohuman2(CP_SOGLIA));
 	if (!flagkill)
 		myprintf("01620: *** -kill missing: dry run *** ");
 	if (!flagforcezfs)
@@ -183198,15 +183771,15 @@ int Jidac::robocopy()
 	myprintf("\n");
 	if (files.size() < 2)
 	{
-		myprintf("01622: at least two folders needed (instead of %d)\n", (int)files.size());
+		myprintf("01622! at least two folders needed (instead of %d)\n", (int)files.size());
 		for (unsigned int i= 0; i < files.size(); i++)
 			myprintf("01623: %08d %s\n", (int)i, files[i].c_str());
-		return 1;
+		return 2; /// 65.17m: these stops were 1, the warning of a run that did something
 	}
 	if (!direxists(files[0]))
 	{
-		myprintf("01624: Master dir does not exists <<%s>>\n", files[0].c_str());
-		return 1;
+		myprintf("01624! Master dir does not exists <<%s>>\n", files[0].c_str());
+		return 2;
 	}
 	/// slow, but the cardinality is so small
 	vector<string> checkdupe;
@@ -183220,6 +183793,7 @@ int Jidac::robocopy()
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 		checkdupe.push_back(outputfolder);
 	}
+	const vector<string> nomi= files; /// as given: what is shown, and what getfreespace understands
 	if (flagdebug3)
 	{
 		myprintf("01625: Size checkdup %s\n", migliaia(checkdupe.size()));
@@ -183229,13 +183803,18 @@ int Jidac::robocopy()
 	for (unsigned int i= 1; i < files.size(); i++)
 		if (checkdupe[0] == checkdupe[i])
 		{
-			myprintf("01627: a slave dir is == to the master, quit\n");
-			return 1;
+			myprintf("01627! a slave dir is == to the master, quit\n");
+			return 2;
 		}
 #ifdef _WIN32
-	if (flaglongpath)
-		for (unsigned int i= 0; i < files.size(); i++)
-			files[i]= makelongpath(files[i]);
+	/*
+		65.17m: always the extended syntax, as rd, -longpath or not. Without it the scan stops in silence at MAX_PATH: a
+		file of the master too deep to be seen, and not too deep in a slave with a shorter path, was "not in the master"
+		and it was DELETED from the slave. forcelongpath: makelongpath leaves a relative path as it is
+	*/
+	flaglongpath= true;
+	for (unsigned int i= 0; i < files.size(); i++)
+		files[i]= forcelongpath(files[i]);
 	if (flagdebug3)
 		for (unsigned int i= 0; i < files.size(); i++)
 			myprintf("01628: after %03d files[i] %s\n", (int)i, files[i].c_str());
@@ -183252,27 +183831,48 @@ int Jidac::robocopy()
 			bool spazioinsufficiente= false;
 			for (unsigned int i= 1; i < files.size(); i++)
 			{
-				int64_t spaziolibero= getfreespace(files[i]);
+				int64_t spaziolibero= getfreespace(nomi[i]);
 				if (spaziolibero >= 0)
 				{
-					if (files_size[0] > spaziolibero)
+					/// 65.17m: what this slave needs, not the whole master: a mirror already made on a disk with less
+					/// free space than the master was refused at every run. What differs, less what goes away
+					int64_t serve= 0;
+					for (DTMap::iterator p= files_edt[0].begin(); p != files_edt[0].end(); ++p)
+						if (!isdirectory(p->first))
+						{
+							string nome= p->first;
+							myreplace(nome, files[0], files[i]);
+							DTMap::iterator cerca= files_edt[i].find(nome);
+							if (cerca == files_edt[i].end())
+								serve+= p->second.size;
+							else if ((cerca->second.size != p->second.size) || (myabs(cerca->second.date, p->second.date) > 2))
+								serve+= p->second.size - cerca->second.size;
+						}
+					for (DTMap::iterator p= files_edt[i].begin(); p != files_edt[i].end(); ++p)
+						if (!isdirectory(p->first))
+						{
+							string nome= p->first;
+							myreplace(nome, files[i], files[0]);
+							if (files_edt[0].find(nome) == files_edt[0].end())
+								serve-= p->second.size;
+						}
+					if (serve > spaziolibero)
 					{
-						myprintf("01629: space needed %s but only %s reported free on <<%s>>\n", tohuman(files_size[0]), tohuman2(spaziolibero), files[i].c_str());
+						myprintf("01629: space needed %s but only %s reported free on <<%s>>\n", tohuman(serve), tohuman2(spaziolibero), nomi[i].c_str());
 						spazioinsufficiente= true;
 					}
 				}
 			}
 			if (spazioinsufficiente)
 			{
-				myprintf("01630: exit, not enough space/destination does not exists; use -space if you want\n");
-				return 1;
+				myprintf("01630! exit, not enough space/destination does not exists; use -space if you want\n");
+				return 2;
 			}
 		}
 
 	int64_t	 startscan= mtime();
-	uint64_t strangethings;
 	myprintf("\n");
-	myprintf("01631: Master  %s (%s files %s) <<%s>>\n", migliaia(files_size[0]), tohuman(files_size[0]), migliaia2(files_count[0]), files[0].c_str());
+	myprintf("01631: Master  %s (%s files %s) <<%s>>\n", migliaia(files_size[0]), tohuman(files_size[0]), migliaia2(files_count[0]), nomi[0].c_str());
 	printbar('-');
 	int64_t	 total_size		= files_size[0];
 	int64_t	 total_count	= files_count[0];
@@ -183304,6 +183904,9 @@ int Jidac::robocopy()
 	g_robocopy_fclose			 = 0;
 	g_robocopy_fread			 = 0;
 	g_robocopy_fwrite			 = 0;
+	g_robocopy_pezzi			 = 0;
+	g_robocopy_riscritti		 = 0;
+	g_robocopy_verificati		 = 0;
 
 	int64_t timegetfolderinfo = 0;
 	int64_t timegetfolderinfo2= 0;
@@ -183336,11 +183939,11 @@ int Jidac::robocopy()
 	///	we start by 1 (the first slave); 0 is the master
 	for (unsigned i= 1; i < files.size(); ++i)
 	{
-		strangethings= 0;
 		if (flagkill)
 		{
 			int64_t s14	   = mtime();
-			bool	exists1= exists(files[i]);
+			/// 65.17m: direxists: exists() cuts the last / and the root of a drive in the extended syntax is not found
+			bool	exists1= direxists(files[i]);
 			timelocalexists+= mtime() - s14;
 
 			if (!exists1)
@@ -183351,14 +183954,19 @@ int Jidac::robocopy()
 			}
 		}
 		int64_t s16	   = mtime();
-		bool	exists2= exists(files[i]);
+		bool	exists2= direxists(files[i]);
 		timelocalexists2+= mtime() - s16;
 
 		if (!exists2)
 		{
-			if (!flagkill)
+			if (flagkill) /// 65.17m: a slave that cannot be made was left out in silence, rc 0
 			{
-				myprintf("01633: Dir %d (slavez) DOES NOT EXISTS %s\n", (int)i, files[i].c_str());
+				myprintf("79718! cannot make the folder <<%s>>\n", nomi[i].c_str());
+				risultato= 2;
+			}
+			else
+			{
+				myprintf("01633: Dir %d (slavez) DOES NOT EXISTS %s\n", (int)i, nomi[i].c_str());
 				risultato= 1;
 			}
 		}
@@ -183386,19 +183994,18 @@ int Jidac::robocopy()
 					{
 						string temp= p->first;
 						///	myprintf("01635: AAAAAAAAAAAAAAAAAAAAA %s\n",temp.c_str());
+						/// 65.17m: what happened is looked at. delete_dir() == 0 was true when it failed, the delete of
+						/// a file was not looked at: not deleted, counted as deleted, rc 0
 						bool riuscito= true;
 						if (isdirectory(temp))
-						{
-							stermina(temp); // risky!!
-							riuscito= delete_dir(temp.c_str()) == 0;
-						}
-						else
-						{
-							/// delete without mercy!
-							delete_file(temp.c_str());
-						}
+							riuscito= stermina(temp); // risky!!
+						else /// delete without mercy! (and it may be gone with its folder: *nix says false)
+							riuscito= delete_file(temp.c_str()) || (!exists(temp));
 						if (!riuscito)
-							myprintf("01636: ERROR DELETING  <%s>\n", p->first.c_str());
+						{
+							myprintf("01636! ERROR DELETING  <%s>\n", p->first.c_str());
+							risultato= 2;
+						}
 						else
 						{
 							robodeleted++;
@@ -183406,15 +184013,9 @@ int Jidac::robocopy()
 						}
 					}
 				}
-				if (menoenne > 0)
-					if (strangethings > menoenne)
-					{
-						myprintf("01637: **** TOO MANY STRANGE THINGS (-n %d)  %s\n", menoenne, migliaia(strangethings));
-						break;
-					}
 			}
 			/// OK now do the copy from master-0 to slave-i
-			timedelete			   = mtime() - startdelete;
+			timedelete+= mtime() - startdelete; /// 65.17m: the last slave only
 			int64_t globalstartcopy= mtime();
 
 			for (DTMap::iterator p= files_edt[0].begin(); p != files_edt[0].end(); ++p)
@@ -183439,22 +184040,21 @@ int Jidac::robocopy()
 					dest_attr= cerca->second.attr;
 				}
 				int64_t startcopy	  = mtime();
-				string	copyfileresult= "OK";
-				if (flagkill)
-					copyfileresult= secure_copy_file(
-						filename0, filenamei, globalstartcopy, total_size * (files.size() - 1), total_count * (files.size() - 1), written_size, done_size, done_count,
-						p->second.size,
-						p->second.date,
-						p->second.attr,
-						dest_size,
-						dest_date,
-						dest_attr,
-						buf,
-						g_ioBUFSIZE);
+				/// 65.17m: the dry run too: it stops before writing, and says = for what is equal (it was + for all)
+				string	copyfileresult= secure_copy_file(
+					filename0, filenamei, globalstartcopy, total_size * (files.size() - 1), total_count * (files.size() - 1), written_size, done_size, done_count,
+					p->second.size,
+					p->second.date,
+					p->second.attr,
+					dest_size,
+					dest_date,
+					dest_attr,
+					buf,
+					g_ioBUFSIZE);
 				/// the return code can be OK (file copied) or = (file not copied because it is ==)
 				if ((copyfileresult != "OK") && (copyfileresult != "="))
 				{
-					myprintf("01639: error robocoping data  <%s> to %s\n", copyfileresult.c_str(), filenamei.c_str());
+					myprintf("01639! error robocoping data  <%s> to %s\n", copyfileresult.c_str(), filenamei.c_str());
 					risultato= 2;
 				}
 				else
@@ -183480,12 +184080,6 @@ int Jidac::robocopy()
 						}
 					}
 				}
-				if (menoenne > 0)
-					if (strangethings > menoenne)
-					{
-						myprintf("01640: **** TOO MANY STRANGE THINGS (-n %d)  %s\n", menoenne, migliaia(strangethings));
-						break;
-					}
 			}
 		}
 	}
@@ -183626,8 +184220,14 @@ int Jidac::robocopy()
 	myprintf("01654: Robocopy time  %9.2f  - Slaves getinfo %9.2f s\n", tempo, g_robocopy_check_destinazione / 1000.0);
 
 	myprintf("01655: Written bytes %s (%s) @ %s B/s\n", migliaia(written_size), tohuman(written_size), migliaia2((int64_t)(written_size / tempo)));
+	if (flagparanoid && flagkill)
+		myprintf("79711: -paranoid: %s file(s) read back and checked, %s piece(s), %s written again\n", migliaia(g_robocopy_verificati), migliaia2(g_robocopy_pezzi), migliaia3(g_robocopy_riscritti));
 	if (foldertoucherror > 0)
+	{
 		myprintf("01656$ WARNING - SOME FOLDER TOUCH ERROR %s\n", migliaia(foldertoucherror));
+		if (risultato == 0) /// 65.17m: a warning that gave 0
+			risultato= 1;
+	}
 
 	if (flagverbose)
 	{
@@ -183654,7 +184254,8 @@ int Jidac::robocopy()
 	if (!flagforcezfs)
 		myprintf(" ignoring .zfs and :$DATA");
 	myprintf("\n");
-	return dircompare(false, true);
+	const int confronto= dircompare(false, true);
+	return (confronto > risultato) ? confronto : risultato; /// 65.17m: the errors of the copy were lost here
 }
 
 /// do a s (get size) or c (compare). The second flag is for output when called by robocopy
@@ -183663,8 +184264,8 @@ int Jidac::dircompare(bool i_flagonlysize, bool i_flagrobocopy)
 	if (!i_flagonlysize)
 		if (files.size() < 2)
 		{
-			myprintf("66395: On dircompare you need at least one master and one slave\n");
-			return 1;
+			myprintf("66395! On dircompare you need at least one master and one slave\n");
+			return 2; /// 65.17m: it was a warning
 		}
 	/// 65.13b: s x /os -home: the /os written before the switches is in files too (it is not a folder,
 	/// as for dir); alone it stays (on *nix it may be a real /os)
@@ -183683,7 +184284,8 @@ int Jidac::dircompare(bool i_flagonlysize, bool i_flagrobocopy)
 			return homesize();
 
 	/// If you specify a checksum, do hard compare
-	flagchecksum= ischecksum();
+	/// 65.17m: -checksum alone was thrown away here: "NO diff (fast check, only size)" rc 0 on files with other bytes
+	flagchecksum= ischecksum() || ((!i_flagonlysize) && flagchecksum);
 
 	int risultato= 0;
 	if (i_flagonlysize)
@@ -183758,6 +184360,9 @@ int Jidac::dircompare(bool i_flagonlysize, bool i_flagrobocopy)
 	for (unsigned i= 1; i < files.size(); ++i)
 	{
 		strangethings= 0;
+		/// 65.17m: flagerror of this slave: after a slave with differences the next ones never said ==
+		const bool diversiprima= flagerror;
+		flagerror			   = false;
 		if (!exists(files[i]))
 		{
 			myprintf("[%03d] ERROR DOES NOT EXISTS <<%Z>>\n", i, files[i].c_str());
@@ -183855,6 +184460,7 @@ int Jidac::dircompare(bool i_flagonlysize, bool i_flagrobocopy)
 
 			printbar('-');
 		}
+		flagerror= flagerror || diversiprima;
 	}
 
 	if (!flagerror)
@@ -185190,7 +185796,19 @@ int Jidac::dir(bool flagtreeview)
     files.clear();
     for (unsigned int f = 0; f < folders.size(); f++)
         files.push_back(folders[f]);
-    
+
+    /// 65.17m: a folder that is not there: "0 File" rc 0, as an empty one
+    int mancanti = 0;
+    for (unsigned int f = 0; f < folders.size(); f++)
+        if ((!exists(folders[f])) && (!direxists(folders[f])))
+        {
+            myprintf("79717! <<%Z>> does not exist\n", folders[f].c_str());
+            mancanti++;
+#ifdef _WIN32
+            flagignore = false; /// the flagignore of the first line, for the files of a scan: it would turn this rc 2 into 0
+#endif
+        }
+
     // print scan header
     if (!flagterse)
     {
@@ -185402,10 +186020,10 @@ myprintf("VEDIAMO: files[0] = %s, folder = %s\n",
         myprintf("\n");
         myprintf("    %10s File %20s byte\n", migliaia(treefiles), migliaia2(treesize));
         myprintf("    %10s Dir\n", migliaia(treedirs));
-        
-        return 0;
+
+        return (mancanti > 0) ? 2 : 0;
     }
-    
+
     // handle duplicate detection mode
     if (flagduplicati)
     {
@@ -185760,8 +186378,8 @@ myprintf("VEDIAMO: files[0] = %s, folder = %s\n",
             (finehash - iniziohash) / 1000.0, 
             migliaia3((int64_t)(hash_calcolati / ((finehash - iniziohash + 1) / 1000.0))));
     }
-    
-    return 0;
+
+    return (mancanti > 0) ? 2 : 0;
 }
 
 
@@ -185839,7 +186457,7 @@ string prendiprimariga(const string i_filename)
 		return "";
 	}
 
-	FILE *backupfile= fopen(i_filename.c_str(), "rb");
+	FILE *backupfile= freadopen(i_filename.c_str()); /// 65.17n: UTF-8 names
 	if (backupfile == NULL)
 	{
 		myprintf("01792: Cannot open file\n");
@@ -191102,6 +191720,8 @@ int Jidac::removeemptydirs(string i_folder, bool i_kill)
 	if (!i_kill)
 	{
 		myprintf("02525: Empty folders        %12s on <<%Z>>\n", migliaia(candidati), i_folder.c_str());
+		for (unsigned int i= 0; i < tobedeleted.size(); i++) /// 65.17m: as n: the dry run says what it would delete
+			myprintf("79716: to be deleted <<%Z>>\n", tobedeleted[i].c_str());
 		myprintf("02526: dry run, exiting (no -kill)\n");
 		return 0;
 	}
@@ -191234,6 +191854,10 @@ int Jidac::windowsc()
 	
 			for (unsigned int i=0;i<notfiles.size();i++)
 			{
+				/// 65.17m: the ones above are already on the snapshot: c:/franzsnap/pagefile.sys became
+				/// c:/franzsnap/franzsnap/pagefile.sys, and with -frugal nothing kept the pagefile out
+				if (notfiles[i].compare(0, g_franzsnap.size() + 1, g_franzsnap + "/") == 0)
+					continue;
 				myreplace(notfiles[i],"c:/",g_franzsnap+"/");
 				myreplace(notfiles[i],"C:/",g_franzsnap+"/");
 			}
@@ -191732,10 +192356,27 @@ int Jidac::oneonone()
 	printbar(' ');
 	myprintf("\n");
 
+	/// 65.17m: a file that cannot be read has no hash, and "" was the same hash of another file that cannot be read:
+	/// two files never compared, same name, the one of -deleteinto deleted. Out of the game, and said
+	for (unsigned int i= 0; i < tobehashedsource_hashname.size(); i++)
+		if (tobehashedsource_hashname[i].first == "")
+		{
+			myprintf("79700! cannot read <<%Z>>: not compared\n", tobehashedsource_hashname[i].second.c_str());
+			errors++;
+		}
+	for (unsigned int i= 0; i < tobehasheddest_hashname.size(); i++)
+		if (tobehasheddest_hashname[i].first == "")
+		{
+			myprintf("79700! cannot read <<%Z>>: not compared\n", tobehasheddest_hashname[i].second.c_str());
+			errors++;
+		}
+
 	vector<uint64_t> temp;
 	for (unsigned int i= 0; i < tobehashedsource_hashname.size(); i++)
 	{
 		string										cerco= tobehashedsource_hashname[i].first;
+		if (cerco == "")
+			continue;
 		vector<std::pair<string, string> >::iterator basso= std::lower_bound(tobehasheddest_hashname.begin(), tobehasheddest_hashname.end(), cerco, mycomparestringstring());
 		if ((basso != tobehasheddest_hashname.end()))
 		{
@@ -191768,6 +192409,8 @@ int Jidac::oneonone()
 	for (unsigned int i= 0; i < tobehashedsource_hashname.size(); i++)
 	{
 		string										cerco= tobehashedsource_hashname[i].first;
+		if (cerco == "") /// 65.17m: see 79700
+			continue;
 		vector<std::pair<string, string> >::iterator basso= std::lower_bound(tobehasheddest_hashname.begin(), tobehasheddest_hashname.end(), cerco, mycomparestringstring());
 		if ((basso != tobehasheddest_hashname.end()))
 		{
@@ -192023,58 +192666,35 @@ int Jidac::last2()
 		std::vector<char> buffer_mem(LINE_BUFSIZE);
 		char* line = buffer_mem.data();
 #endif
+		/*
+			65.17m: the last two rows, read once. It counted the rows, read again up to the row n-1 without reading
+			it, and took as "n-1" the line it had in hand: rows n-2 and n-1 compared, the last one never. A file with
+			exactly two rows worked by luck (the same two, swapped); with three "A B B" gave different, "B B C" equal
+			(rc 0 on a remote hash that differs). One row: a seppuku. No rows: rc 0
+		*/
+		string spenultima= "";
+		string sultima	 = "";
 		while (fgets(line, LINE_BUFSIZE, myfile))
 		{
 			if (flagdebug3)
 				myprintf("02693: %08d %s", riga, line);
 			riga++;
+			spenultima= sultima;
+			sultima	  = line;
 		}
-		if (riga > 0)
+		const bool lettura= (ferror(myfile) == 0);
+		fclose(myfile);
+		if (!lettura)
 		{
-			fseeko(myfile, 0, SEEK_SET);
-			int penultima= riga - 2;
-			riga		 = 0;
-			while (!feof(myfile) && !ferror(myfile) && (riga != penultima))
-			{
-				if (fgets(line, LINE_BUFSIZE, myfile) == NULL)
-					break;
-
-				if (flagdebug3)
-					myprintf("02694: %08d %08d %s", riga, penultima, line);
-				riga++;
-			}
-			string spenultima= "";
-			string sultima	 = "";
-			spenultima		 = line;
-			// Pre-emptive check of file status
-			if (feof(myfile) || ferror(myfile))
-			{
-				myprintf("02695! File not in valid state for reading\n");
-				seppuku(2);
-				return 2;
-			}
-
-			if (fgets(line, LINE_BUFSIZE, myfile) == NULL)
-			{
-				// Distinguish between EOF and read error
-				if (feof(myfile))
-				{
-					myprintf("02695! Unexpected end of file\n");
-				}
-				else if (ferror(myfile))
-				{
-					myprintf("02695! Error reading from file\n");
-				}
-				else
-				{
-					myprintf("02695! GURU running fgets\n");
-				}
-				seppuku(2);
-				return 2;
-			}
-
-			sultima= line;
-
+			myprintf("02695! Error reading from file\n");
+			return 2;
+		}
+		if (riga < 2)
+		{
+			myprintf("02695! last2 needs two rows (found %d) %Z\n", riga, filename.c_str());
+			return 2;
+		}
+		{
 			for (unsigned int i= 0; i < spenultima.size(); i++)
 				if ((spenultima[i] == 10) || (spenultima[i] == 13))
 					spenultima[i]= ' ';
@@ -192111,7 +192731,6 @@ int Jidac::last2()
 					risultato= 2;
 			}
 		}
-		fclose(myfile);
 	}
 	return risultato;
 }
@@ -193137,7 +193756,7 @@ int Jidac::backup()
 	{
 		if (!saggiascrivibilitacartella(g_pidname))
 			myprintf("95143$ cannot write pid <<%Z>>\n", g_pidname.c_str());
-		FILE *handlepid= fopen(g_pidname.c_str(), "wb");
+		FILE *handlepid= cri_fopen(g_pidname.c_str(), "wb"); /// 65.17n: UTF-8 names: backup into a folder with an accent stopped here on Windows
 		if (handlepid == NULL)
 		{
 			myprintf("02812! cannot write on pid %Z (no writeable folder?)\n", g_pidname.c_str());
@@ -193557,7 +194176,7 @@ int Jidac::rebuildbackupindex()
 
         // --- Scrittura file .txt ---
         myprintf("92805: Writing .txt to %Z\n", temp3.c_str());
-        FILE *backupfile = fopen(temp3.c_str(), "wb");
+        FILE *backupfile = cri_fopen(temp3.c_str(), "wb");
         if (backupfile == NULL)
         {
             myprintf("02138: Cannot write .txt file %Z\n", temp3.c_str());  // fix: era temp2
@@ -193744,7 +194363,7 @@ int Jidac::consolidatebackup()
 				myprintf("96027! guru cannot open the backup %Z\n", theindex.c_str());
 				return 2;
 			}
-			FILE *backupfile= fopen(newindex.c_str(), "wb");
+			FILE *backupfile= cri_fopen(newindex.c_str(), "wb");
 			if (backupfile == NULL)
 			{
 				myprintf("96085! Cannot write on newindex %Z\n", newindex.c_str());
@@ -194039,7 +194658,7 @@ int Jidac::consolidatebackup()
 	myprintf("02841: final %s %s: %s\n", hashreloaded.c_str(), thehash.c_str(), g_archive.c_str());
 	myprintf("02842: Doing backup stuff\n");
 	myprintf("02843: Creating backup txt %Z\n", backuptxt.c_str());
-	FILE *backupfile= fopen(backuptxt.c_str(), "wb");
+	FILE *backupfile= cri_fopen(backuptxt.c_str(), "wb");
 	if (backupfile == NULL)
 	{
 		myprintf("02845! Cannot write on backupfile\n");
@@ -194816,7 +195435,7 @@ int Jidac::versum()
 	if (errori > 0)
 		printbar('-');
 	int64_t hashtime= endhash - starthash;
-	int64_t myspeed = (int64_t)(total_hashed * 1000.0 / (hashtime));
+	int64_t myspeed = (int64_t)(total_hashed * 1000.0 / (hashtime + 1)); /// 65.17m: +1: in 0 ms the double is inf, and its int64_t anything
 	myprintf("02924: Time  %15.3f s, average speed %s/s (%s/s)\n", hashtime / 1000.0, migliaia(myspeed), tohuman(myspeed));
 
 	if (risultato == 2)
@@ -194899,8 +195518,8 @@ int Jidac::fastquicktxt()
 
 	if (thedt.size() == 0)
 	{
-		myprintf("02932: Nothing to do (wrong file selection?)\n");
-		return 0;
+		myprintf("02932$ Nothing to do (wrong file selection?)\n");
+		return 1; /// 65.17m: it says something may be wrong: a warning, not 0
 	}
 
 	int64_t larghezzain= 0;
@@ -200452,14 +201071,18 @@ int Jidac::collision(bool i_flagall)
 	myprintf("03023: Inspecting %s entries...\n", migliaia((int64_t)dt.size()));
 	int howmany= checksha1collision(dt, true);
 	myprintf("\n");
+	int risultato= 0;
 	if (howmany > 0)
 	{
 		myprintf("03024$ WARNING: some files cannot be restored correctly due to a suspected SHA-1 collision(s).\n");
-		return 1;
+		risultato= 1;
 	}
 	else
 		myprintf("03025: No suspected collisions detected (this is good)\n");
-	return 0;
+	/// 65.17m: an archive with blocks missing said its 72415! and then "this is good", rc 0: what was not read was not inspected
+	if ((errors > 0) && (risultato == 0))
+		risultato= 1;
+	return conlastoria(risultato);
 }
 
 
@@ -200556,7 +201179,6 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 
 	myprintf("03062: Processing %s (%s) in %s files\n", migliaia(total_size), tohuman(total_size), migliaia2(int((*i_vf).size())));
 
-	HTIndex		   htinv(myht, myht.size() + (total_size >> (10 + myfragment)) + (*i_vf).size());
 	const unsigned htsize= myht.size(); // fragments at start of update
 
 	writeJidacHeader(&out, 0, -1, htsize);
@@ -200577,8 +201199,6 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 		seppuku();
 		return 2;
 	}
-
-	XXH3_state_t state128;
 
 	for (unsigned fi= 0; fi <= (*i_vf).size(); ++fi)
 	{
@@ -200614,7 +201234,6 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 			int64_t		  sz			= 0;   // fragment size;
 			unsigned	  hits			= 0;   // correct prediction count
 			unsigned	  htptr			= 0;   // fragment index
-			char		  sha1result[20]= {0}; // fragment hash
 			unsigned char o1[256]		= {0}; // order 1 context -> predicted byte
 			int			  c				= EOF; // current byte
 			if (fi < (*i_vf).size())
@@ -200646,14 +201265,9 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 				}
 				assert(sz <= MAX_FRAGMENT);
 				total_done+= sz;
-				// Look for matching fragment
-
-				(void)XXH3_128bits_reset(&state128);
-				(void)XXH3_128bits_update(&state128, &fragbuf[0], sz);
-				XXH128_hash_t myhash= XXH3_128bits_digest(&state128);
-				memcpy(sha1result, &myhash.high64, 8);
-				memcpy(sha1result + 8, &myhash.low64, 8);
-				htptr= htinv.find(sha1result);
+				/// 65.17m: every fragment is looked at. fragbuf is not filled (it is not needed), so the hash was the one
+				/// of sz zeros: a fragment with the size of another one was a "duplicate" and left out, a file got no
+				/// numbers (000 [256...000]); and a real duplicate would say nothing of the second file anyway
 			} // end if fiize()
 
 			if (flagdebug2)
@@ -200736,7 +201350,11 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 				if (frags < 1)
 					newblock= false; // block is empty?
 
-				int redz= redundancy / (sb.size() / 256 + 1);
+				/// 65.17m: this fragment. It was the block so far, without this fragment: a small file got the numbers of
+				/// the file before it (a text after a random file: 000)
+				int redz= (int)(hits / (sz / 256 + 1));
+				if (redz > 255)
+					redz= 255;
 				if (fi < (*i_vf).size())
 				{
 					if (flagdebug2)
@@ -200773,17 +201391,6 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 				}
 			} // end if frag not matched or last block
 
-			// Update HT and ptr list
-			if (fi < (*i_vf).size())
-			{
-				if (htptr == 0)
-				{
-					htptr= myht.size();
-					myht.push_back(HT(sha1result, sz));
-					htinv.update();
-				}
-				(*i_vf)[fi]->second.ptr.push_back(htptr);
-			}
 			if (c == EOF)
 				break;
 		} // end for each fragment fj
@@ -200802,9 +201409,24 @@ int reduz(vector<string> *i_files, DTMap *i_myedt, vector<DTMap::iterator> *i_vf
 
 int Jidac::redu()
 {
+	/// 65.17m: no files, a wrong name: rc 0 with an empty list
+	if (files.size() == 0)
+	{
+		myprintf("79713! redu needs files or folders\n");
+		return 2;
+	}
+	int mancanti= 0;
+	for (unsigned int i= 0; i < files.size(); i++)
+		if ((!iswildcard(files[i])) && (!exists(files[i])))
+		{
+			myprintf("79714! <<%Z>> does not exist\n", files[i].c_str());
+			mancanti++;
+		}
 	vector<DTMap::iterator> vf;
 	int64_t					startredu= mtime();
 	int						risultato= reduz(&files, &edt, &vf);
+	if (mancanti > 0)
+		risultato= 2;
 	myprintf("\n");
 	myprintf("03067: Average redundancy [0..255]. 0='random', 255='very compressible'\n");
 	for (unsigned i= 0; i < vf.size(); i++)
@@ -200818,7 +201440,7 @@ int Jidac::redu()
 			 migliaia(totalfilesize), tohuman(totalfilesize),
 			 migliaia2((int64_t)(totalfilesize / seconds)));
 
-	return risultato;
+	return (risultato > 0) ? 2 : 0; /// 65.17m: it was the number of errors (256 = exit code 0 on *nix)
 }
 
 
@@ -202187,8 +202809,15 @@ int Jidac::hasha()
 	vector<string> mydirs;
 
 	exclude_output();
+	int errori= 0; /// 65.17m: what was not hashed. It was always 0: a wrong name "Nothing to do" rc 0, a file that cannot be read an empty hash rc 0
 	for (unsigned i= 0; i < files.size(); ++i)
 	{
+		if ((!iswildcard(files[i])) && (!exists(files[i])))
+		{
+			myprintf("79701! <<%Z>> does not exist\n", files[i].c_str());
+			errori++;
+			continue;
+		}
 		string thepath= fix_scandir(files[i]);
 		scandir(true, edt, thepath, !flagnorecursion);
 	}
@@ -202217,7 +202846,7 @@ int Jidac::hasha()
 	if (myfiles.size() == 0)
 	{
 		myprintf("03282: Nothing to do\n");
-		return 0;
+		return (errori > 0) ? 2 : 0;
 	}
 
 	if (flaglast)
@@ -202264,6 +202893,12 @@ int Jidac::hasha()
 			if (flagdebug3)
 				myprintf("03286: filehash on %s\n", myfiles[i].c_str());
 			string risu	   = dummy.filehash(0, myfiles[i], false, inizio, total_size);
+			if (risu == "")
+			{
+				myprintf("79702! cannot read <<%Z>>\n", myfiles[i].c_str());
+				errori++;
+				continue;
+			}
 			int	   printlen= 0;
 			if (flagstdout)
 				myprintf("%s ", stringtolower(risu).c_str());
@@ -202281,7 +202916,7 @@ int Jidac::hasha()
 			}
 			myprintf("\n");
 		}
-		return 0;
+		return (errori > 0) ? 2 : 0;
 	}
 
 	/// multithread
@@ -202363,15 +202998,20 @@ int Jidac::hasha()
 			vec.push_back(mypair);
 		}
 	std::sort(vec.begin(), vec.end(), stringpairsortbyfirst);
-	int errori= 0;
 	for (unsigned int i= 0; i < vec.size(); i++)
 	{
+		if (vec[i].second == "")
+		{
+			myprintf("79702! cannot read <<%Z>>\n", vec[i].first.c_str());
+			errori++;
+			continue;
+		}
 		myprintf("%s ", stringtolower(vec[i].second).c_str());
 		printUTF8(vec[i].first.c_str());
 		myprintf("\n");
 	}
 
-	return errori;
+	return (errori > 0) ? 2 : 0;
 }
 
 /// 65.13b: s -home /os, the rows from the smallest folder to the biggest (same size: by name)
@@ -205409,8 +206049,8 @@ int Jidac::comparehex()
 		myprintf("03392! You must enter FOUR parameters for comparehex\n");
 		myprintf("03393: File1 (ex. z:\\1.txt\n");
 		myprintf("03394: File2 (ex. z:\\2.txt\n");
-		myprintf("03395: The haystack (ex. \"GLOBAL SHA256:\"");
-		myprintf("03396: Expected len (ex. 64\n");
+		myprintf("03395: The haystack (ex. \"GLOBAL SHA256:\")\n");
+		myprintf("03396: Expected len (ex. 64)\n");
 		return 2;
 	}
 
@@ -205509,7 +206149,7 @@ int Jidac::count()
 		myprintf("03413! You must enter TWO or THREE parameters for count\n");
 		myprintf("03414: [1] filename (ex. z:\\1.txt\n");
 		myprintf("03415: [2] count    (ex. 3)\n");
-		myprintf("03416: [3] thestring (optional, ex. \"(all OK)\"");
+		myprintf("03416: [3] thestring (optional, ex. \"(all OK)\")\n");
 		return 2;
 	}
 
@@ -205639,7 +206279,7 @@ double calculate_entropy(std::string filename)
 		return -1.0;
 	}
 
-	FILE *file= fopen(filename.c_str(), "rb");
+	FILE *file= freadopen(filename.c_str()); /// 65.17n: a keyfile with an accent in the path was a seppuku on Windows
 	if (!file)
 	{
 		myprintf("82873: error cannot open %s\n", filename.c_str());
@@ -205963,7 +206603,7 @@ string Jidac::keyfile_to_string(string i_keyfile)
 		seppuku();
 	}
 	int64_t dimensionekeyfile= prendidimensionefile(i_keyfile.c_str());
-	if (dimensionekeyfile <= 4096)
+	if (dimensionekeyfile < 4096) /// 65.17n: as it says: 4.096 bytes were refused
 	{
 		myprintf("83270: Keyfile <<%Z>> too small (must be >=4KB) %s\n", i_keyfile.c_str(), migliaia(dimensionekeyfile));
 		seppuku();
@@ -206230,7 +206870,7 @@ int64_t Jidac::gestiscispaz(bool i_silent)
 	
     if (infos.empty())
     {
-		if (i_silent)
+		if (!i_silent) /// 65.17n: the two tests here were upside down: nobody calls it silent, nobody saw these lines
 			myprintf("94102: All folders empty or below threshold\n");
         return 0;
     }
@@ -206245,7 +206885,7 @@ int64_t Jidac::gestiscispaz(bool i_silent)
             myprintf("%12s    %s\n", tohuman(infos[i].size), infos[i].path.c_str());
         printbar('-');
     }
-    if (i_silent)
+    if (!i_silent)
 	{
 		color_cyan();
 		myprintf("%12s    TOTAL SPACE in %s folders\n", tohuman(totale_spazzatura), migliaia(infos.size()));
@@ -206339,6 +206979,7 @@ int64_t Jidac::gestiscispaz(bool i_silent)
             color_red();
             myprintf("Failed:  %s files (permission denied or locked)\n", migliaia(failed_count));
             color_restore();
+            g_spazfalliti= (uint32_t)failed_count;
         }
         
         if (deleted_count == 0 && failed_count == 0)
@@ -206369,8 +207010,9 @@ int my_stricmp(const char* s1, const char* s2) {
 
 // Funzione helper che apre il file, cerca il pattern ed estrae il contenuto successivo
 // Ritorna "" se non trova nulla o se non riesce ad aprire il file
+// 65.17o: the LAST row with the pattern, as comparehex (with two "GLOBAL SHA256:" in a log they compared different rows)
 std::string trova_e_estrai(const std::string& filename, const std::string& pattern) {
-    FILE* f = fopen(filename.c_str(), "r");
+    FILE* f = freadopen(filename.c_str()); /// 65.17n: "r" lost a file with an accent in the path, on Windows
     if (!f) {
         myprintf("Error: Cannot open file %s\n", filename.c_str());
         return "";
@@ -206403,7 +207045,6 @@ std::string trova_e_estrai(const std::string& filename, const std::string& patte
 
             result = std::string(start_val);
             found = true;
-            break; // Trovato, smettiamo di cercare
         }
     }
 
@@ -206980,7 +207621,12 @@ int Jidac::work()
 		/// work zip thefile thezip: thefile compressed (deflate) into a new .zip
 		if (files.size() != 3)
 		{
-			myprintf("97801: work zip needs two parameters: the file and the .zip to create\n");
+			myprintf("97801! work zip needs two parameters: the file and the .zip to create\n");
+			return 2;
+		}
+		if (stessofile(files[1], files[2])) /// 65.17n: ./x and x are the same file: with -force the zip took the place of its source
+		{
+			myprintf("97804! <<%Z>> is the source itself\n", files[2].c_str());
 			return 2;
 		}
 		string errore;
@@ -207023,7 +207669,7 @@ int Jidac::work()
 
 	if (mycommand == "printbar")
 	{
-		if (files.size() == 1)
+		if ((files.size() == 1) || (files[1] == "")) /// 65.17n: "" was an exception of std::string
 			printbar('-');
 		else
 			printbar(files[1].at(0));
@@ -207045,7 +207691,7 @@ int Jidac::work()
 	{
 		if (files.size() < 2)
 		{
-			myprintf("83340: You need at least one pattern ex z:\\pippo*.zpaq\n");
+			myprintf("83340! You need at least one pattern ex z:\\pippo*.zpaq\n");
 			return 2;
 		}
 		flagskipzfs= true; // strip down zfs
@@ -207055,7 +207701,8 @@ int Jidac::work()
 		g_dimensione = 0;
 		g_worked	 = 0;
 
-		for (unsigned i= 0; i < files.size(); ++i)
+		/// 65.17n: from 1: files[0] is the word last. A file called last in the current folder was in the list
+		for (unsigned i= 1; i < files.size(); ++i)
 			scandir(true, edt, files[i].c_str());
 		eol();
 		if (!edt.empty())
@@ -207077,7 +207724,7 @@ int Jidac::work()
 	{
 		if (files.size() < 2)
 		{
-			myprintf("83440: You need at LEAST ONE parameter\n");
+			myprintf("83440! You need at LEAST ONE parameter\n");
 			return 2;
 		}
 
@@ -207088,7 +207735,7 @@ int Jidac::work()
 		g_dimensione = 0;
 		g_worked	 = 0;
 
-		for (unsigned i= 0; i < files.size(); ++i)
+		for (unsigned i= 1; i < files.size(); ++i) /// 65.17n: from 1, as last
 			scandir(true, edt, files[i].c_str());
 
 		/// myprintf("\r");
@@ -207120,6 +207767,11 @@ int Jidac::work()
 			color_green();
 			myprintf("72631: Total %21s (%10s)\n", migliaia(dimensionetotale), tohuman(dimensionetotale));
 			color_restore();
+		}
+		if (scritti == 0) /// 65.17n: a wrong name, nothing printed and rc 0
+		{
+			myprintf("72638! nothing found\n");
+			return 2;
 		}
 
 		return 0;
@@ -207300,7 +207952,7 @@ int Jidac::work()
 			return 2;
 		}
 		int64_t dimensionekeyfile= prendidimensionefile(keyfile.c_str());
-		if (dimensionekeyfile <= 4096)
+		if (dimensionekeyfile < 4096) /// 65.17n: as it says, and as keyfile_to_string
 		{
 			myprintf("83240: Keyfile too small (must be >=4KB) %s\n", migliaia(dimensionekeyfile));
 			return 2;
@@ -207410,8 +208062,8 @@ int Jidac::work()
 		}
 		else
 		{
-			myprintf("83304: Cannot get entropy\n");
-			return 1;
+			myprintf("83304! Cannot get entropy\n");
+			return 2; /// 65.17n: no key: not a warning
 		}
 		return 0;
 	}
@@ -207428,9 +208080,16 @@ int Jidac::work()
 		int risultato= 0;
 		if ((files.size() - 1) % 2 != 0)
 		{
-			myprintf("84420: Invalid parameters\n");
+			myprintf("84420! Invalid parameters\n");
 			return 2;
 		}
+		/// 65.17n: pippo as a size was 0 = "no minimum" = OK, rc 0: a typo that always passes
+		for (unsigned int i= 2; i < files.size(); i+= 2)
+			if (!isdigit((unsigned char)files[i][0]))
+			{
+				myprintf("84421! <<%s>> is not a size\n", files[i].c_str());
+				return 2;
+			}
 
 		myprintf("84424: Now is %s\n", dateToString(true, now()).c_str());
 
@@ -207445,6 +208104,17 @@ int Jidac::work()
 
 			string percorso= files[i];
 			percorso	   = includetrailingbackslash(percorso);
+
+			/// 65.17n: a folder that is not there (a disk not mounted, a share down): getfreespace gives the nearest one
+			/// that exists, usually the system disk: OK, rc 0, and the backup then fills the wrong disk
+			if (!direxists(percorso))
+			{
+				color_red();
+				myprintf("84465: Free %10s min %10s Status: %-5s <<%Z>>\n", "?", tohuman(myatoll(files[i + 1].c_str())), "NOPATH", percorso.c_str());
+				color_restore();
+				risultato= 2;
+				continue;
+			}
 
 			int64_t spaziopresente= getfreespace(percorso);
 			if (spaziopresente < 0)
@@ -207466,13 +208136,7 @@ int Jidac::work()
 				status= "OK";
 				color_green();
 			}
-			else if (spaziopresente >= spaziominimo) // Above but <10%
-			{
-				status= "WARN";
-				color_yellow();
-				risultato= 2;
-			}
-			else // Below the minimum
+			else // Below the minimum, or above it by less than 10%: 65.17o an error, as its rc 2 (it said WARN)
 			{
 				status= "ERROR";
 				color_red();
@@ -207501,6 +208165,13 @@ int Jidac::work()
             myprintf("83218! For fc you need: fc <file1> <file2>\n");
             return 2;
         }
+		/// 65.17n: as fc and cmp: 0 equal, 1 different, 2 cannot compare (a file not there said DIFFERENT, rc 1)
+		for (unsigned int i= 1; i < 3; i++)
+			if (!fileexists(files[i]))
+			{
+				myprintf("20935! <<%Z>> does not exist\n", files[i].c_str());
+				return 2;
+			}
 		bool risultato=compare_files_binary(files[1].c_str(),files[2].c_str());
 		eol();
 		if (risultato)
@@ -220687,36 +221358,6 @@ std::string searchfile(const std::string &i_directory, const std::string &i_file
 #endif
 
 
-#ifdef unix
-void exec_with_realtime_output(const char *cmd)
-{
-#ifdef ANCIENT
-	(void)cmd;
-	myprintf("00321: Real-time output not supported in ANCIENT mode\n");
-#else
-	char  buffer[128];
-	FILE *pipe= popen(cmd, "r");
-	if (!pipe)
-	{
-		myprintf("00322! popen kaputt\n");
-		return;
-	}
-
-	while (fgets(buffer, sizeof(buffer), pipe) != NULL)
-		myprintf("%s", buffer);
-
-	int status= pclose(pipe);
-	if (status == -1)
-	{
-		myprintf("00323! pclose failed\n");
-	}
-	else if (status != 0)
-	{
-		myprintf("00324! Command '%s' exited with status %d\n", cmd, status);
-	}
-#endif
-}
-#endif
 
 
 
@@ -221531,7 +222172,7 @@ void Jidac::printDigitalString(const char *inputString)
 
 	if (charCount == 0)
 	{
-		printf("Nessun carattere valido trovato.\n");
+		printf("No character that can be shown\n");
 		return;
 	}
 
@@ -227400,8 +228041,20 @@ class franzcopia
   public:
 	franzcopia(const string &i_sorgente, const string &i_destinazione, bool i_verifica, unsigned int i_percento, int i_vista);
 	bool copia(bool i_append);
+	/// 65.17m: r -paranoid: no line for every file (a run can be of a million), the limit of -bandwidth
+	void	zitta(int64_t i_banda)
+	{
+		m_zitta= true;
+		m_banda= i_banda;
+	}
+	int		pezzi() const { return m_pezzi; }
+	int		riscritti() const { return m_riscritti; }
+	int64_t nuovi() const { return m_nuovi; }
 
   private:
+	bool							   m_zitta;
+	int64_t							   m_banda;		   /// bytes/s, 0 no limit
+	int64_t							   m_nuovi;		   /// bytes written in this run
 	string							   m_sorgente;
 	string							   m_destinazione;
 	bool							   m_verifica;
@@ -227475,6 +228128,9 @@ void franzcopia::rovina(int64_t i_dove)
 
 franzcopia::franzcopia(const string &i_sorgente, const string &i_destinazione, bool i_verifica, unsigned int i_percento, int i_vista)
 {
+	m_zitta		   = false;
+	m_banda		   = 0;
+	m_nuovi		   = 0;
 	m_sorgente	   = i_sorgente;
 	m_destinazione = i_destinazione;
 	m_verifica	   = i_verifica;
@@ -227794,12 +228450,27 @@ bool franzcopia::scrivi(FILE *i_in, int64_t i_da, int64_t i_quanti, XXH128_hash_
 			break;
 		}
 		fatti+= n;
+		m_nuovi+= n;
 		m_posizione= i_da + fatti;
 		if (m_posizione > m_scritti)
 			m_scritti= m_posizione;
 		m_lavoro+= n;
 		m_lavorofase+= n;
 		mostra(false);
+		if (m_banda > 0) /// 65.17m: r -bandwidth: the average of the writes of this file, a second of sleep at most
+		{
+			const int64_t atteso   = m_nuovi * 1000 / m_banda;
+			const int64_t trascorso= mtime() - m_inizio;
+			if (atteso > trascorso)
+			{
+				const int attesa= (int)(((atteso - trascorso) > 1000) ? 1000 : (atteso - trascorso));
+#ifdef _WIN32
+				Sleep(attesa);
+#else
+				usleep(attesa * 1000);
+#endif
+			}
+		}
 	}
 	/// -verify: on the media (on a share: on the server) before it is read back. An error of a delayed
 	/// write comes out at the flush or at the close, not at the fwrite
@@ -227884,6 +228555,8 @@ bool franzcopia::fine(bool i_ok)
 	stacca();
 	if (!i_ok)
 		return false;
+	if (m_zitta && (!flagverbose))
+		return true;
 	const double tempo= (mtime() - m_inizio) / 1000.0;
 	if (m_verifica)
 		myprintf("03524: %Z verified: %s in %d piece(s) of %s, %d written again, %.1f s\n", m_destinazione.c_str(), tohuman(m_dimensione), m_pezzi, tohuman2(m_pezzo), m_riscritti, tempo);
@@ -228042,7 +228715,7 @@ bool franzcopia::copia(bool i_append)
 			/// what is left on the destination has been checked: -append resumes from there
 			if (m_verifica && taglia(da))
 			{
-				snprintf(testo, sizeof(testo), "the destination cut back to %s (checked): -append to resume", migliaia(da));
+				snprintf(testo, sizeof(testo), m_zitta ? "the destination cut back to %s (checked)" : "the destination cut back to %s (checked): -append to resume", migliaia(da));
 				avvisa("03522: %s\n", testo);
 			}
 			break;
@@ -228082,6 +228755,19 @@ string cp_copia(const string &i_infile, const string &i_cartella, bool i_append,
 	}
 	franzcopia copia(i_infile, destinazione, i_verifica, i_percento, i_vista);
 	return copia.copia(i_append) ? destinazione : "";
+}
+
+/// 65.17m: r -paranoid: one file as cp -verify writes it (by pieces, read back, written again if it differs; what is
+/// left after an error has been checked). The name is the one of the mirror, not a file in a folder
+bool cp_paranoica(const string &i_sorgente, const string &i_destinazione, bool i_append, unsigned int i_percento, int i_vista, int64_t i_banda, int64_t &o_scritti)
+{
+	franzcopia copia(i_sorgente, i_destinazione, true, i_percento, i_vista);
+	copia.zitta(i_banda);
+	const bool ok= copia.copia(i_append);
+	o_scritti	 = copia.nuovi();
+	g_robocopy_pezzi+= copia.pezzi();
+	g_robocopy_riscritti+= copia.riscritti();
+	return ok;
 }
 
 /*
@@ -235534,6 +236220,12 @@ void Jidac::vssmenu()
 			int c;
 			while ((c= getchar()) != '\n' && c != EOF)
 				;
+			if (c == EOF) /// 65.17n: no stdin (a script, a redirect): the menu again, for ever
+			{
+				myprintf("\nNo more input\n");
+				running= false;
+				break;
+			}
 			myprintf("\nInvalid input! Please enter a number.\n");
 			continue;
 		}
@@ -247696,7 +248388,7 @@ int Jidac::gestisciwrite()
 		if (!flagnopid)
 			if (g_pidname != "")
 			{
-				FILE *handlepid= fopen(g_pidname.c_str(), "ab");
+				FILE *handlepid= cri_fopen(g_pidname.c_str(), "ab");
 				if (handlepid == NULL)
 				{
 					myprintf("02043! cannot append on pid %Z\n", g_pidname.c_str());
@@ -248248,7 +248940,7 @@ int Jidac::calcolifinali(const string &thephysical)
 			}
 			if (checktxt != "")
 			{
-				FILE *myoutput= fopen(checktxt.c_str(), "wb");
+				FILE *myoutput= cri_fopen(checktxt.c_str(), "wb");
 				if (myoutput == NULL)
 				{
 					myprintf("02184! cannot write on %Z\n", checktxt.c_str());
@@ -248271,7 +248963,7 @@ int Jidac::calcolifinali(const string &thephysical)
 				{
 					if (flagverbose)
 						myprintf("02187: Creating backup txt %Z\n", backuptxt.c_str());
-					FILE *backupfile= fopen(backuptxt.c_str(), "wb");
+					FILE *backupfile= cri_fopen(backuptxt.c_str(), "wb");
 					if (backupfile == NULL)
 					{
 						myprintf("02188! Cannot write on backupfile\n");
@@ -248297,7 +248989,7 @@ int Jidac::calcolifinali(const string &thephysical)
 
 					string quickhash= dummyquick.filehash(0, thephysical, false, startverify, larghezzain);
 
-					FILE *backupfile= fopen(backuptxt.c_str(), "rb");
+					FILE *backupfile= cri_fopen(backuptxt.c_str(), "rb");
 					if (backupfile == NULL)
 					{
 						myprintf("02192! Cannot append on backupfile\n");
@@ -248358,7 +249050,7 @@ int Jidac::calcolifinali(const string &thephysical)
 					}
 					fclose(backupfile);
 
-					backupfile= fopen(backuptxt.c_str(), "a");
+					backupfile= cri_fopen(backuptxt.c_str(), "a");
 					if (backupfile == NULL)
 					{
 						myprintf("02200! Cannot append on backupfile <<%Z>>\n", backuptxt.c_str());
@@ -250874,8 +251566,9 @@ int Jidac::add()
 	{
 		const int64_t newdate= decimal_time(unix_time(ver.back().lastdate) + 1);
 		fflush(stdout);
-		fprintf(stderr, "Warning: adjusting date from %s to %s\n",
-				dateToString(flagutc, date).c_str(), dateToString(flagutc, newdate).c_str());
+		if ((!flagstdin) || flagverbose) /// 65.17j: a stream a second (mysqldump): the rule, not a warning
+			fprintf(stderr, "Warning: adjusting date from %s to %s\n",
+					dateToString(flagutc, date).c_str(), dateToString(flagutc, newdate).c_str());
 		assert(newdate > date);
 		date= newdate;
 	}
@@ -253328,8 +254021,9 @@ int Jidac::add2()
 	{
 		const int64_t newdate= decimal_time(unix_time(ver.back().lastdate) + 1);
 		fflush(stdout);
-		fprintf(stderr, "Warning: adjusting date from %s to %s\n",
-				dateToString(flagutc, date).c_str(), dateToString(flagutc, newdate).c_str());
+		if ((!flagstdin) || flagverbose) /// 65.17j: a stream a second (mysqldump): the rule, not a warning
+			fprintf(stderr, "Warning: adjusting date from %s to %s\n",
+					dateToString(flagutc, date).c_str(), dateToString(flagutc, newdate).c_str());
 		assert(newdate > date);
 		date= newdate;
 	}
