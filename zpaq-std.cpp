@@ -122282,7 +122282,7 @@ int ini_scrivi(const vector<string> &i_riga, const vector<int> &i_inizi, const s
 #else
 		myprintf("03626$ Protect it: chmod 600 \"%s\"\n", g_writeini.c_str());
 #endif
-		myprintf("03627$ Or leave the password out: -key alone asks for it, FRANZKEY / FRANZFRANZEN hold it\n");
+		myprintf("03627$ Or leave the password out: -key alone asks for it, FRANZKEY holds it\n");
 	}
 	return 0;
 }
@@ -124107,6 +124107,13 @@ ArchiveType InputArchive::detect_archive_type(const string& base_file)
 	{
 		printf("zpaq_exists    %d %s\n",int(zpaq_exists),zpaq_file.c_str());
 		printf("franzen_exists %d %s\n",int(franzen_exists),franzen_file.c_str());
+	}
+	/// zpaq-std: only its .franzen there. The open build has no Franzen: say so, not "Archive not found"
+	if ((!zpaq_exists) && franzen_exists)
+	{
+		myprintf("00740! %s is a Franzen archive (ChaCha20): zpaq-std, built from zpaqfranz's open build,\n", franzen_file.c_str());
+		myprintf("00740! cannot open it. zpaqfranz can (its full build)\n");
+		error("Franzen archive");
 	}
 #ifndef NOFRANZEN
 #endif	
@@ -146250,7 +146257,7 @@ struct franz_helpriga
 #define HRU(n, k, x)				{"", LINGUA_RU, 'T', 0, "", x, n, k}
 #define HES(n, k, x)				{"", LINGUA_ES, 'T', 0, "", x, n, k}
 #define HPT(n, k, x)				{"", LINGUA_PT, 'T', 0, "", x, n, k}
-static const franz_helpriga g_helprighe[]=
+static const franz_helpriga g_helprighe_tutte[]=
 {
 	/// @range
 	HRIGA(1, "@range", 'a', "-range X:Y", "Range versions [X-Y]"),
@@ -156442,7 +156449,55 @@ losetup -d /dev/loop0
 	HES(9872, 0x91CF218C, "Los códecs -ma y los plugins: una tabla, o la ficha de un códec"),
 	HPT(9872, 0x91CF218C, "Os codecs -ma e os plugins: uma tabela, ou a ficha de um codec"),
 };
-static const size_t g_helpquante= sizeof(g_helprighe) / sizeof(g_helprighe[0]);
+/// zpaq-std: built from zpaqfranz's open build, which has no Franzen (ChaCha20, .franzen): the help left
+/// it in. Out: the switches -franzen and -franzen2 (also "-key -franzen" of commands the open build has not),
+/// work's FRANZEN encode/decode/test, the examples with a Franzen archive, the help of the command franzen,
+/// and the translations of those lines
+static bool help_contiene(const char *i_testo, const char *i_cosa) /// without case
+{
+	if ((i_testo == NULL) || (i_cosa == NULL))
+		return false;
+	const size_t n= strlen(i_cosa);
+	for (const char *p= i_testo; *p; p++)
+	{
+		size_t k= 0;
+		while ((k < n) && p[k] && (tolower((unsigned char)p[k]) == tolower((unsigned char)i_cosa[k])))
+			k++;
+		if (k == n)
+			return true;
+	}
+	return false;
+}
+static bool help_franzen(const franz_helpriga &r)
+{
+	if ((r.comando != NULL) && (!strcmp(r.comando, "franzencommand")))
+		return true;
+	if (r.tipo == 'r')
+		return help_contiene(r.testata, "-franzen") || ((r.testo != NULL) && (!strncmp(r.testo, "FRANZEN ", 8)));
+	if (r.tipo == 'e')
+		return help_contiene(r.testo, "franzen") || help_contiene(r.testata, "franzen");
+	return false;
+}
+static std::vector<franz_helpriga> help_senza_franzen()
+{
+	const size_t tutte= sizeof(g_helprighe_tutte) / sizeof(g_helprighe_tutte[0]);
+	std::set<int> via;
+	for (size_t i= 0; i < tutte; i++)
+		if ((g_helprighe_tutte[i].tipo != 'T') && (g_helprighe_tutte[i].id > 0) && help_franzen(g_helprighe_tutte[i]))
+			via.insert(g_helprighe_tutte[i].id);
+	std::vector<franz_helpriga> out;
+	for (size_t i= 0; i < tutte; i++)
+	{
+		const franz_helpriga &r= g_helprighe_tutte[i];
+		if (((r.tipo != 'T') && help_franzen(r)) || ((r.id > 0) && via.count(r.id)))
+			continue;
+		out.push_back(r);
+	}
+	return out;
+}
+static const std::vector<franz_helpriga> g_helprighe_v= help_senza_franzen();
+static const franz_helpriga *const		 g_helprighe  = g_helprighe_v.data();
+static const size_t						 g_helpquante = g_helprighe_v.size();
 /// 65.14l: the language of the help (lingua_scegli); -helpid: the id of every line shown
 int					g_lingua= LINGUA_EN;
 bool				g_helpid= false;
@@ -161302,6 +161357,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getdate	(opt,"-datefrom",											argc,argv,&i,					&g_datefrom));
 		else if (cli_getdate	(opt,"-dateto",												argc,argv,&i,					&g_dateto));
 		else if (cli_getarray	(opt,"-not",												argc,argv,&i,					&notfiles,		&nottype));
+		else if ((opt == "-franzen") || (opt == "-franzen2")) /// zpaq-std: the open build has no Franzen
+		{
+			myprintf("00739! %s: Franzen (ChaCha20, .franzen) is not in zpaq-std, which is built from zpaqfranz's open\n", opt.c_str());
+			myprintf("00739! build: nothing done. -key encrypts with AES; a .franzen archive opens with zpaqfranz\n");
+			return 2;
+		}
 		else if (cli_getarray	(opt,"-only",												argc,argv,&i,					&onlyfiles,		NULL));
 		else if (cli_getarray	(opt,"-always",												argc,argv,&i,					&alwaysfiles,	NULL));
 		///else if (cli_getarray	(opt,"-level0",												argc,argv,&i,					&level0,		NULL));
@@ -161485,8 +161546,18 @@ int Jidac::loadparameters(int argc, const char** argv)
 */
 	// zpaqfranz 64.8: take the -key (AES) password from the FRANZKEY env var when -key
 	// was not given on the command line. Hashed identically to cli_getkey (SHA256 of the
-	// chars + any -keyfile hash) so FRANZKEY=X yields the same key as -key X. FRANZFRANZEN
-	// is not ported here: the Franzen path is compiled out (NOFRANZEN).
+	// chars + any -keyfile hash) so FRANZKEY=X yields the same key as -key X.
+	// zpaq-std: FRANZFRANZEN, Franzen's password, stops it: the open build has no Franzen, and the
+	// archive was written in clear with no word (zpaqfranz's open build does the same)
+	{
+		const char *env_franzen= getenv("FRANZFRANZEN");
+		if ((env_franzen != NULL) && (env_franzen[0] != '\0'))
+		{
+			myprintf("00741! FRANZFRANZEN is set, but Franzen (ChaCha20, .franzen) is not in zpaq-std, which is built\n");
+			myprintf("00741! from zpaqfranz's open build: nothing done. Unset it; -key (or FRANZKEY) encrypts with AES\n");
+			return 2;
+		}
+	}
 	if (g_password == NULL)
 	{
 		const char *env_key = getenv("FRANZKEY");
