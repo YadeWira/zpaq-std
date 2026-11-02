@@ -1,3 +1,11 @@
+### [2.2.1] - 2026-11-02
+
+**`-sa` says in one line what it uses, and PJA 0.6.3.** Archives are those of 2.2.0.
+
+- **`-sa`'s messages:** it printed the banner of `-sat` ("a TEST archive ..., not part of zpaq-std") with every codec's details, and the experimental warning (00737) once for each of the family's five codecs. Now the warning comes once, naming the codecs, and one line says the plugin and the codecs `-sa` uses; `-verbose` shows the details. `-sat` and `-sae` are unchanged.
+- **PJA 0.6.3** (`-sa`): no stream, ZPAQL or codec changes. A JPEG-LS file that ends with no EOI is refused when PJA reads it: `pjals` and `pjalsx` took it and then could not give it back, so `-sa` sent it to `-m` after a wasted try (nothing was ever lost: every block is checked before it is written). The repair of damaged JPEGs no longer takes minutes; on Windows the plugin's memory fails cleanly when it runs out; the 32-bit x86 plugin's C part runs on any 686 (the same bits).
+- **The wiki explains how to use `-sa`** (Usage, "Using it: commands and examples"): setting the plugin up, what `-sa`, `-sa:pja`, `-sa:pja7`, `-sa:pjax7` and a list use, examples with `-m` and `-ma`, reading without the plugin, and `-sat` to see where each file goes.
+
 ### [2.2.0] - 2026-11-01
 
 **zpaq-std on zpaqfranz 65.17, and Franzen stops instead of failing in silence.**

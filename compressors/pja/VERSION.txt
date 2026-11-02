@@ -1,6 +1,6 @@
-PJA 0.6.2 (tag v0.6.2, commit 113e1b6), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.6.2-zpaqstd.tar.gz (sha256
-94f6fc827629b33ad3bf9d114f0b86156b916e752816fbe67c99ced4a429a4c2), copied unmodified.
+PJA 0.6.3 (tag v0.6.3, commit fdcfbc9), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.6.3-zpaqstd.tar.gz (sha256
+eacc0759485670e6b04a1886c0edca53f5e9139b888f416ada91e519d9971e62), copied unmodified.
 For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
 (they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
 (pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's
@@ -18,7 +18,11 @@ pas/build_c.sh and linked by fpc). 0.6.2 changes no stream, ZPAQL or codec: on W
 the plugin takes its memory from the process heap (pas/pjaheap.pas), since FreePascal
 3.2.2's own heap, in a DLL, deletes its lock when the thread that loaded the DLL ends,
 and zpaq-std loads a plugin when it first needs it, also from a thread that extracts.
-Files:
+0.6.3 changes no stream, ZPAQL or codec either: a JPEG-LS file that ends with no EOI
+is refused when parsed (pjals and pjalsx took it, then could not give it back, so -sa
+sent it to -m after trying), the repair of damaged JPEGs no longer takes minutes, the
+Windows heap fails cleanly when memory runs out, and 32-bit x86 builds the C part
+with -march=i686 (the same bits, without SSE2). Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 
