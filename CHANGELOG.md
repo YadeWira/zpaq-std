@@ -6,6 +6,13 @@
 - **PJA 0.6.3** (`-sa`): no stream, ZPAQL or codec changes. A JPEG-LS file that ends with no EOI is refused when PJA reads it: `pjals` and `pjalsx` took it and then could not give it back, so `-sa` sent it to `-m` after a wasted try (nothing was ever lost: every block is checked before it is written). The repair of damaged JPEGs no longer takes minutes; on Windows the plugin's memory fails cleanly when it runs out; the 32-bit x86 plugin's C part runs on any 686 (the same bits).
 - **The wiki explains how to use `-sa`** (Usage, "Using it: commands and examples"): setting the plugin up, what `-sa`, `-sa:pja`, `-sa:pja7`, `-sa:pjax7` and a list use, examples with `-m` and `-ma`, reading without the plugin, and `-sat` to see where each file goes.
 
+#### Checked
+
+- **PJA 0.6.3:** a JPEG-LS file cut before its EOI is no longer taken (2.2.0 took it and sent its whole block, a good JPEG-LS file too, to `-m`); everything extracts identically. `-sa` on the 244 arithmetic-coded JPEGs writes 2.2.0's archive size, and the same bytes on x64, x86 (its C part now built for any 686) and AArch64.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.2.0: all 182 archives have the same size, each version extracts what the other writes, and `l` and `t` agree; only the version stamp differs.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.2.0. CI is green on all six platforms.
+
 ### [2.2.0] - 2026-11-01
 
 **zpaq-std on zpaqfranz 65.17, and Franzen stops instead of failing in silence.**
