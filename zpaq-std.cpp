@@ -162088,21 +162088,44 @@ int Jidac::loadparameters(int argc, const char** argv)
 					myprintf("00733: -sat:%s:%s: and %sz, LZ77 over each group's segments, where it takes fewer bytes\n",
 					         sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str());
 			}
-			if (g_sa_official)
-				for (size_t k=0; k<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); k++)
-					if (sc.algo==ZS_SA_OFFICIAL[k].algo && ZS_SA_OFFICIAL[k].experimental)
-						myprintf("00737! -sa:%s is EXPERIMENTAL and not recommended yet: keep another copy of\n"
-						         "       what you archive with it. Its blocks carry their ZPAQL decoder and open in any zpaq\n",
-						         sc.algo.c_str());
+			/// 2.2.1: once for all the experimental codecs of the command (it was once for each)
+			if (g_sa_official && (q==0))
+			{
+				std::string sperimentali;
+				for (size_t j=0; j<g_sa.size(); j++)
+					for (size_t k=0; k<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); k++)
+						if (g_sa[j].algo==ZS_SA_OFFICIAL[k].algo && ZS_SA_OFFICIAL[k].experimental)
+							sperimentali+=(sperimentali.empty() ? "" : " ")+g_sa[j].algo;
+				if (!sperimentali.empty())
+					myprintf("00737! -sa (%s): EXPERIMENTAL, not recommended yet:\n"
+					         "       keep another copy of what you archive with it. Its blocks carry their\n"
+					         "       ZPAQL decoder and open in any zpaq\n",
+					         sperimentali.c_str());
+			}
 			if (g_sa_mode=='e' && !g_sa_official)
 				myprintf("00732! -sae:%s:%s is NOT an official zpaq-std codec: zpaq-std does not guarantee\n"
 				         "       its support. Its blocks carry the codec's own ZPAQL decoder, so they open in any\n"
 				         "       zpaq; with codecs/%s, zpaq-std also decodes them natively\n",
 				         sc.file.c_str(), sc.algo.c_str(), sc.file.c_str());
+			else if (g_sa_official && !flagverbose)
+			{
+				/// zpaq-std 2.2.1: -sa printed -sat's banner ("a TEST archive ..., not part of zpaq-std") and its
+				/// details; one line says what it uses (-verbose: the details)
+				if (q==0)
+				{
+					std::string nomi;
+					for (size_t k=0; k<g_sa.size(); k++)
+						nomi+=(k ? " " : "")+g_sa[k].algo;
+					myprintf("00733: -sa: codecs/%s%s, %s\n", sc.file.c_str(), ZS_PLUGIN_EXT, nomi.c_str());
+				}
+			}
 			else
 			{
 				if (q==0)
 				{
+					if (g_sa_official)
+						myprintf("00733: -sa: zpaq-std's codecs for specific formats (experimental)\n");
+					else
 					myprintf("00733: -sat: a TEST archive with codecs for specific formats, not part of zpaq-std\n");
 					myprintf("00733:   plugin    %s%s%s\n", zs_plugin_dir().c_str(), sc.file.c_str(), ZS_PLUGIN_EXT);
 					myprintf("00733:   codecs    %s\n", xe->names.c_str());
@@ -162124,7 +162147,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					         "             (ZPAQEXTNONE): another zpaq reports the block as damaged instead\n"
 					         "             of giving back the compressed bytes as the file. Only zpaq-std with\n"
 					         "             codecs/%s%s extracts those blocks\n", sc.file.c_str(), ZS_PLUGIN_EXT);
-				if (q+1==g_sa.size())
+				if ((q+1==g_sa.size()) && !g_sa_official)
 					myprintf("00733:   blocks    original size (u32) + the codec's output; tag zpaqstd-sat:%s:<codec>\n", sc.file.c_str());
 			}
 		}
