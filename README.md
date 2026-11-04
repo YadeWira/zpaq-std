@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.17.**
 
-A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **21 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was added.
 
@@ -88,7 +88,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) 1.7.1 | 0–15 | 0 |
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.10.0 | 1–12 | 9 |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.0 | 1–12 | 9 |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.20 | 0–1 | 1 |
 
 #### Experimental

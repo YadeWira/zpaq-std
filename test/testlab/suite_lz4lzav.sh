@@ -57,8 +57,13 @@ ga=sorted(a,key=len)[-2:]; gb=sorted(b,key=len)[-2:]
 print('iguales' if ga==gb else 'distintos')
 PY
 )
-    [ "$s" = iguales ] || r="$r datos-distintos-de-1.10"
-    ok "-ma:$m: los bloques de datos de 1.10.0, y 2.0 los lee" "$r"
+    # 2.2.2: LZ4 1.11.0 writes other bytes at some levels (the same block format, the same
+    # frozen decoder): only LZAV, whose library did not change, must still match 1.10.0
+    case $m in
+      lzav*) [ "$s" = iguales ] || r="$r datos-distintos-de-1.10"
+             ok "-ma:$m: los bloques de datos de 1.10.0, y 2.0 los lee" "$r" ;;
+      *)     ok "-ma:$m: 2.0 lee los de 1.10.0 (bloques de datos: $s; LZ4 1.11.0 puede cambiarlos)" "$r" ;;
+    esac
   done
 fi
 # 3. daño: bytes cambiados en los datos del bloque mas grande (no en su programa ZPAQL: correr un

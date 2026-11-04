@@ -1,3 +1,11 @@
+### [2.2.2] - 2026-11-04
+
+**LZ4 1.11.0, and the documentation brought up to date.**
+
+- **LZ4 1.11.0** (`-ma:lz4`, `lz4hc`, `lz4f`): some levels write other bytes than 1.10.0, slightly smaller (on the test corpus, `lz4f` −0.6%, `lz4` −0.3%, `lz4hc` −0.1%) at the same speed. The block format is LZ4's as ever: the blocks carry the same frozen ZPAQL decoder, and archives of 1.10.0 and 1.11.0 extract with every version. LZ4's new multithreaded compression is in its frame API, which zpaq-std does not use.
+- **`codecinfo`** says LZ4 and LZAV are built in, from `compressors/lz4` and `compressors/lzav` (it said "inside zpaq-std (zpaqfranz)", true only up to 1.x), and describes their blocks as those of zpaqfranz 65.3–65.4's `-m6` and `-m7`.
+- **CONTRIBUTORS** lists every bundled library at the version zpaq-std has (several were behind), the same list as THIRD-PARTY-LICENSES. **README** and the **wiki**: 23 bundled libraries; LZ4 and LZAV described as they are since 2.0.0; bzip3 1.5.5, lz5-ex 1.5.4, syc 0.5.4, PJA 0.6.3 and bz2-ng 517948e where an older version was named; `-m0` … `-m9` in the table of what any zpaq extracts.
+
 ### [2.2.1] - 2026-11-02
 
 **`-sa` says in one line what it uses, and PJA 0.6.3.** Archives are those of 2.2.0.

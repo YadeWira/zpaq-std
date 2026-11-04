@@ -33,7 +33,7 @@ BUNDLED = [
      'The maintained successor of Lizard 2.1, same format: see compressors/lizard/VERSION.txt.'),
     ('lz5-ex', '1.5.4', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
-    ('LZ4', '1.10.0', 'BSD-2-Clause (library)', 'Yann Collet', ['compressors/lz4/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lz4, lz4hc, lz4f).'),
+    ('LZ4', '1.11.0', 'BSD-2-Clause (library)', 'Yann Collet', ['compressors/lz4/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lz4, lz4hc, lz4f).'),
     ('LZAV', '5.20', 'MIT', 'Aleksey Vaneev', ['compressors/lzav/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lzav).'),
     ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause', 'Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), YadeWira', ['compressors/lz6/LICENSE'], ''),
     ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),

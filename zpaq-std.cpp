@@ -76,8 +76,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.2.1"
-#define ZPAQSTD_DATE "(2026-11-02)"
+#define ZPAQSTD_VERSION "2.2.2"
+#define ZPAQSTD_DATE "(2026-11-04)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.17o"
@@ -105841,14 +105841,14 @@ static const zs_info_row ZS_INFO[]=
 	{"sylzec", true, 0, 10, 1, "ZPAQSYLZ3", "sylzec (syc v0.5.4)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
 	 "MIT", "syc v0.5.4, commit b161b8c", "sylz format v3 (frozen at syc v0.2.14): sylz with Huffman-coded literals; a block may be plain v2",
 	 "Free Pascal, so a plugin only (codecs/sylz, with sylz)"},
-	{"lz4", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
-	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "1-4 as -m6a, 5-12 as -m6h"},
-	{"lz4hc", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
-	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "written as -m6h"},
-	{"lz4f", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.10.0", "Yann Collet", "https://github.com/lz4/lz4",
-	 "BSD-2-Clause", "1.10.0, inside zpaqfranz", "zpaqfranz -m6", "written as -m6a"},
+	{"lz4", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.0", "Yann Collet", "https://github.com/lz4/lz4",
+	 "BSD-2-Clause", "1.11.0, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "1-4 fast, 5-12 HC"},
+	{"lz4hc", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.0", "Yann Collet", "https://github.com/lz4/lz4",
+	 "BSD-2-Clause", "1.11.0, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "always HC"},
+	{"lz4f", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.0", "Yann Collet", "https://github.com/lz4/lz4",
+	 "BSD-2-Clause", "1.11.0, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "always fast"},
 	{"lzav", false, 0, 1, 1, "zpaq-std's LZAV block (frozen LZAV decoder)", "LZAV 5.20", "Aleksey Vaneev", "https://github.com/avaneev/lzav",
-	 "MIT", "5.17, inside zpaqfranz", "zpaqfranz -m7", "0 as -m7, 1 as -m7h"},
+	 "MIT", "5.20, compressors/lzav", "LZAV format 3, as zpaqfranz 65.3-65.4's -m7", "0 fast, 1 high ratio"},
 };
 /// the program of a codec's ZPAQL decoder(s), for their SHA-256
 static void zs_info_bytecodes(const std::string& i_ma, std::vector<std::pair<std::string, const std::string*> >& o_bc)
@@ -105972,7 +105972,7 @@ static std::string zs_info_where(const zs_info_row& i_r, std::string* o_path)
 		*o_path="";
 	const std::string plug=zs_plugin_name(i_r.ma);
 	if (plug=="")
-		return "inside zpaq-std (zpaqfranz)";
+		return "built in";
 	bool only=false;
 	for (size_t k=0; k<sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0]); ++k)
 		only=only || plug==ZS_PLUGIN_ONLY[k];
