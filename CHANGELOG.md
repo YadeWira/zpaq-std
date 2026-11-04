@@ -6,6 +6,13 @@
 - **`codecinfo`** says LZ4 and LZAV are built in, from `compressors/lz4` and `compressors/lzav` (it said "inside zpaq-std (zpaqfranz)", true only up to 1.x), and describes their blocks as those of zpaqfranz 65.3–65.4's `-m6` and `-m7`.
 - **CONTRIBUTORS** lists every bundled library at the version zpaq-std has (several were behind), the same list as THIRD-PARTY-LICENSES. **README** and the **wiki**: 23 bundled libraries; LZ4 and LZAV described as they are since 2.0.0; bzip3 1.5.5, lz5-ex 1.5.4, syc 0.5.4, PJA 0.6.3 and bz2-ng 517948e where an older version was named; `-m0` … `-m9` in the table of what any zpaq extracts.
 
+#### Checked
+
+- **LZ4 1.11.0 against 1.10.0:** the three codecs at every level on six data sets: 288 native extractions and 72 with zpaq 7.15 (running the frozen ZPAQL) give back the source. 2.2.2 reads the archives of 1.10.0 and 2.2.1; LZAV writes the same bytes as before.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24: its check that LZ4 blocks are byte for byte those of 1.10.0 now applies to LZAV only); golden archives: 0 unexpected failures. `difftest` against 2.2.1: 182 archives, 0 divergences.
+- **Linux x86 and AArch64:** the same suites pass; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.2.1. CI is green on all six platforms.
+
 ### [2.2.1] - 2026-11-02
 
 **`-sa` says in one line what it uses, and PJA 0.6.3.** Archives are those of 2.2.0.
