@@ -6,6 +6,13 @@
 - Without the plugin (zpaq 7.15, or zpaq-std without `codecs/`) each block runs its ZPAQL decoder in one thread, so such a folder now extracts as slowly as a folder of photos only already did (on the test folder 25 s -> 53-85 s; with the plugin 1.2 s -> 1.5 s). Smaller groups were measured and kept out: with 8 MB a set of photos saved again lost 14%, with 16 MB 8%.
 - **PJA 0.6.4** (`-sa`): the fixes of an audit, no stream, ZPAQL or codec change. `pjall` asks for enough memory for a big lossless JPEG, `pjax7` refuses in its detect a JPEG with more scans than it handles, and the detect's verdict is found by size and hash, also when data follow the JPEG's end.
 
+#### Checked
+
+- **The new order:** on PJA's five sets (arithmetic-coded JPEGs, corpus, generated, MPO, photos) the archives are 2.2.2's, except corpus (22,739,999 -> 22,556,854 bytes); everything extracts identically, natively and with zpaq 7.15. Without `-sa` the archives are byte for byte 2.2.2's, `-tar -sa` too. A second version added to the same archive (2.2.2: 33,523,521 bytes, 2.3.0: 32,970,382) extracts both versions and tests clean.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 22/22, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.2.2: 182 archives, 0 divergences.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.2.2. CI is green on all six platforms.
+
 ### [2.2.2] - 2026-11-04
 
 **LZ4 1.11.0, and the documentation brought up to date.**
