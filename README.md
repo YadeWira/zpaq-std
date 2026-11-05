@@ -115,8 +115,8 @@ shows its card (author, repository, version, hashes).
 `-sa` stands for *specific algorithms*: zpaq-std's codecs for specific formats.
 
 ```bash
-zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax7, pja7, pjall, pjals, pjalsx
-zpaq-std a photos.zpaq /photos -sa:pjals -ma:zstd    # only JPEG-LS; the rest with zstd
+zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax7, pja7, pjallo, pjalso, pjalsxo
+zpaq-std a photos.zpaq /photos -sa:pjalso -ma:zstd   # only JPEG-LS; the rest with zstd
 ```
 
 #### Stable
@@ -127,12 +127,12 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.6.4, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.7.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
 | `-sa:pjax7+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja7) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
-| `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
-| `-sa:pjals+N` | the same plugin | JPEG-LS | 2 | 2 |
-| `-sa:pjalsx+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
+| `-sa:pjallo+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
+| `-sa:pjalso+N` | the same plugin | JPEG-LS | 2 | 2 |
+| `-sa:pjalsxo+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
 `-m`/`-ma` say. The files a codec takes share a block, whatever lies between them:

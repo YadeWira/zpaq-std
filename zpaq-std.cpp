@@ -76,8 +76,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.3.0"
-#define ZPAQSTD_DATE "(2026-11-04)"
+#define ZPAQSTD_VERSION "2.4.0"
+#define ZPAQSTD_DATE "(2026-11-05)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.17o"
@@ -95403,14 +95403,17 @@ struct zs_sa_official { const char* file; const char* algo; int level; const cha
 /// In the order the codecs are tried. A file's name ("pja") stands for all its
 /// codecs: -sa:pja is the family, pjax7 first (it takes only what pja7 cannot do or
 /// where its format v6 gains: 12 bits, DNL, DRI without RST, big JPEGs after the
-/// EOI as in MPO and Ultra HDR), then pja7, pjall, pjals and pjalsx; -sa alone,
-/// every codec. pjax and pja (up to 2.0.3) stay in the plugin, to read
+/// EOI as in MPO and Ultra HDR), then pja7, pjallo, pjalso and pjalsxo; -sa alone,
+/// every codec. pjax and pja (up to 2.0.3) stay in the plugin, to read; so do pjall,
+/// pjals and pjalsx (up to 2.3.0): PJA 0.7.0's o codecs are the same codecs with the
+/// same streams, and a ZPAQL compiled with zpaqlc's opt=2, half the size and over
+/// twice as fast in any zpaq
 static const zs_sa_official ZS_SA_OFFICIAL[]={
 	{"pja", "pjax7", 2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST), with stream v7's model", true},
 	{"pja", "pja7",  2, "JPEG (baseline, progressive, arithmetic), stream v7", true},
-	{"pja", "pjall", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
-	{"pja", "pjals", 2, "JPEG-LS", true},
-	{"pja", "pjalsx", 2, "JPEG-LS with subsampled components", true},
+	{"pja", "pjallo", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
+	{"pja", "pjalso", 2, "JPEG-LS", true},
+	{"pja", "pjalsxo", 2, "JPEG-LS with subsampled components", true},
 };
 std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
@@ -105751,13 +105754,25 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 /// A codec that is only the "z" variant of another of its plugin: named <base>z,
 /// with <base>'s library and ", lz77" (PJA's pjaz, pjaxz...; before the
 /// library's last " (...)", if any). Its ZPAQL expects
-/// the LZ77 that -sa puts in front, so it is never used by itself (-mae, -sae...)
+/// the LZ77 that -sa puts in front, so it is never used by itself (-mae, -sae...).
+/// PJA 0.7.0's o codecs put the z before the o: pjallzo is pjallo's.
+/// zs_z_base: the base a z name would have ("" if it cannot be one)
+static std::string zs_z_base(const std::string& i_algo)
+{
+	const size_t n=i_algo.size();
+	if (n>=2 && i_algo[n-1]=='z')
+		return i_algo.substr(0, n-1);
+	if (n>=3 && i_algo[n-2]=='z' && i_algo[n-1]=='o')
+		return i_algo.substr(0, n-2)+"o";
+	return "";
+}
 static bool zs_ext_is_z(const std::string& i_file, const std::string& i_algo)
 {
-	if (i_algo.size()<2 || i_algo[i_algo.size()-1]!='z')
+	const std::string base=zs_z_base(i_algo);
+	if (base.empty())
 		return false;
 	const zs_ext* xz=zs_ext_get(i_file, i_algo);
-	const zs_ext* xb=zs_ext_get(i_file, i_algo.substr(0, i_algo.size()-1));
+	const zs_ext* xb=zs_ext_get(i_file, base);
 	if (!xz || !xz->c || !xb || !xb->c || !xz->c->library || !xb->c->library)
 		return false;
 	/// "pja stream v5 full, lz77 (YadeWira/PJA)" for "pja stream v5 full (YadeWira/PJA)"
@@ -106137,7 +106152,7 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 				}
 			/// a z variant (pjaz...) is part of its official base codec
 			const bool zvar=zs_ext_is_z(ext[i], names[k]);
-			const std::string zbase=zvar ? names[k].substr(0, names[k].size()-1) : std::string();
+			const std::string zbase=zvar ? zs_z_base(names[k]) : std::string();
 			if (zvar)
 				for (size_t q=0; q<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); q++)
 					if (ext[i]==ZS_SA_OFFICIAL[q].file && zbase==ZS_SA_OFFICIAL[q].algo)
@@ -106376,11 +106391,21 @@ static bool zs_ext_run(const std::string& i_cfg, int i_a1, int i_a2, int i_a345,
 /// (padded to a byte at its end), but a match may reach back into the block's
 /// earlier segments: the ZPAQL keeps them in M, a ring of 2^$1 bytes.
 /// The "z" ZPAQL: codec <algo>z of the same plugin, which gives only that (its
-/// detect, compress and decompress are <algo>'s); none, and -sa is as before
+/// detect, compress and decompress are <algo>'s); none, and -sa is as before.
+/// An o codec (PJA 0.7.0: pjallo, pjalso, pjalsxo) has its z before the o: pjallzo
+static std::string sa_zname(const std::string& i_file, const std::string& i_algo)
+{
+	const std::string z=i_algo+"z";
+	const zs_ext* xz=zs_ext_get(i_file, z);	/// never NULL: an entry without c if there is none
+	if ((xz && xz->c) || i_algo.size()<2 || i_algo[i_algo.size()-1]!='o')
+		return z;
+	return i_algo.substr(0, i_algo.size()-1)+"zo";
+}
 static std::string sa_zcfg(const std::string& i_file, const std::string& i_algo)
 {
-	const zs_ext* xz=zs_ext_get(i_file, i_algo+"z");
-	if (xz && xz->c && !xz->zpaql.empty() && zs_ext_is_z(i_file, i_algo+"z"))
+	const std::string zn=sa_zname(i_file, i_algo);
+	const zs_ext* xz=zs_ext_get(i_file, zn);
+	if (xz && xz->c && !xz->zpaql.empty() && zs_ext_is_z(i_file, zn))
 		return xz->zpaql;
 	return "";
 }
@@ -155253,11 +155278,11 @@ losetup -d /dev/loop0
 	HRU(9850, 0xE6FEDD45, "То же, для ПРОВЕРКИ кодека: показывает плагин и каждый блок (размеры, время, обратное|    декодирование плагином и его ZPAQL). Без декодера ZPAQL его блоки открываются|    только в zpaq-std с этим плагином (любой другой zpaq сочтёт их повреждёнными)"),
 	HES(9850, 0xE6FEDD45, "Lo mismo, para PROBAR un códec: muestra el plugin y cada bloque (tamaños, tiempos,|    decodificado de vuelta por el plugin y por su ZPAQL). Sin decodificador ZPAQL sus|    bloques se abren solo en zpaq-std con ese plugin (cualquier otro zpaq los da por|    dañados)"),
 	HPT(9850, 0xE6FEDD45, "O mesmo, para TESTAR um codec: mostra o plugin e cada bloco (tamanhos, tempos,|    decodificado de volta pelo plugin e pelo seu ZPAQL). Sem decodificador ZPAQL seus|    blocos só abrem no zpaq-std com esse plugin (qualquer outro zpaq os acusa|    danificados)"),
-	HRIGA(9851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):|    PJA's family (-sa or -sa:pja): pjax7 (JPEG with PJA's format v6), pja7 (JPEG),|    pjall (lossless JPEG), pjals (JPEG-LS) and pjalsx (subsampled JPEG-LS),|    from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say.|    Archives made with pjax and pja (before 2.1.0) are still read"),
-	HIT(9851, 0x3A5B3AF8, "Codec di zpaq-std per FORMATI SPECIFICI (SPERIMENTALI, non ancora consigliati):|    famiglia di PJA (-sa o -sa:pja): pjax7 (JPEG col formato v6 di PJA), pja7 (JPEG),|    pjall (JPEG lossless), pjals (JPEG-LS) e pjalsx (JPEG-LS sottocampionato), da|    codecs/pja.dll o .so (il download extra-codecs). Ogni file va, in base al|    contenuto, al codec che lo prende; il resto come dicono -m/-ma.|    Gli archivi fatti con pjax e pja (prima della 2.1.0) si leggono ancora"),
-	HRU(9851, 0x3A5B3AF8, "Кодеки zpaq-std для ОСОБЫХ ФОРМАТОВ (ЭКСПЕРИМЕНТАЛЬНО, пока не рекомендуется):|    семейство PJA (-sa или -sa:pja): pjax7 (JPEG в формате PJA v6), pja7 (JPEG),|    pjall (JPEG без потерь), pjals (JPEG-LS) и pjalsx (JPEG-LS с субдискретизацией),|    из codecs/pja.dll или .so (загрузка extra-codecs).|    Каждый файл по содержимому идёт к кодеку, который его берёт; остальное по -m/-ma.|    Архивы, созданные с pjax и pja (до 2.1.0), по-прежнему читаются"),
-	HES(9851, 0x3A5B3AF8, "Códecs de zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, aún no recomendado):|    familia de PJA (-sa o -sa:pja): pjax7 (JPEG con el formato v6 de PJA), pja7 (JPEG),|    pjall (JPEG sin pérdida), pjals (JPEG-LS) y pjalsx (JPEG-LS submuestreado),|    de codecs/pja.dll o .so (la descarga extra-codecs).|    Cada archivo va, según su contenido, al códec que lo toma; el resto según -m/-ma.|    Los archivos hechos con pjax y pja (antes de 2.1.0) se siguen leyendo"),
-	HPT(9851, 0x3A5B3AF8, "Codecs do zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, ainda não recomendado):|    família do PJA (-sa ou -sa:pja): pjax7 (JPEG com o formato v6 do PJA), pja7 (JPEG),|    pjall (JPEG sem perdas), pjals (JPEG-LS) e pjalsx (JPEG-LS subamostrado),|    de codecs/pja.dll ou .so (o download extra-codecs).|    Cada arquivo vai, pelo seu conteúdo, ao codec que o aceita; o resto conforme -m/-ma.|    Arquivos feitos com pjax e pja (antes da 2.1.0) continuam sendo lidos"),
+	HRIGA(9851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):|    PJA's family (-sa or -sa:pja): pjax7 (JPEG with PJA's format v6), pja7 (JPEG),|    pjallo (lossless JPEG), pjalso (JPEG-LS) and pjalsxo (subsampled JPEG-LS),|    from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say.|    Archives made with pjax and pja (before 2.1.0) are still read"),
+	HIT(9851, 0x93DD8DD5, "Codec di zpaq-std per FORMATI SPECIFICI (SPERIMENTALI, non ancora consigliati):|    famiglia di PJA (-sa o -sa:pja): pjax7 (JPEG col formato v6 di PJA), pja7 (JPEG),|    pjallo (JPEG lossless), pjalso (JPEG-LS) e pjalsxo (JPEG-LS sottocampionato), da|    codecs/pja.dll o .so (il download extra-codecs). Ogni file va, in base al|    contenuto, al codec che lo prende; il resto come dicono -m/-ma.|    Gli archivi fatti con pjax e pja (prima della 2.1.0) si leggono ancora"),
+	HRU(9851, 0x93DD8DD5, "Кодеки zpaq-std для ОСОБЫХ ФОРМАТОВ (ЭКСПЕРИМЕНТАЛЬНО, пока не рекомендуется):|    семейство PJA (-sa или -sa:pja): pjax7 (JPEG в формате PJA v6), pja7 (JPEG),|    pjallo (JPEG без потерь), pjalso (JPEG-LS) и pjalsxo (JPEG-LS с субдискретизацией),|    из codecs/pja.dll или .so (загрузка extra-codecs).|    Каждый файл по содержимому идёт к кодеку, который его берёт; остальное по -m/-ma.|    Архивы, созданные с pjax и pja (до 2.1.0), по-прежнему читаются"),
+	HES(9851, 0x93DD8DD5, "Códecs de zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, aún no recomendado):|    familia de PJA (-sa o -sa:pja): pjax7 (JPEG con el formato v6 de PJA), pja7 (JPEG),|    pjallo (JPEG sin pérdida), pjalso (JPEG-LS) y pjalsxo (JPEG-LS submuestreado),|    de codecs/pja.dll o .so (la descarga extra-codecs).|    Cada archivo va, según su contenido, al códec que lo toma; el resto según -m/-ma.|    Los archivos hechos con pjax y pja (antes de 2.1.0) se siguen leyendo"),
+	HPT(9851, 0x93DD8DD5, "Codecs do zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, ainda não recomendado):|    família do PJA (-sa ou -sa:pja): pjax7 (JPEG com o formato v6 do PJA), pja7 (JPEG),|    pjallo (JPEG sem perdas), pjalso (JPEG-LS) e pjalsxo (JPEG-LS subamostrado),|    de codecs/pja.dll ou .so (o download extra-codecs).|    Cada arquivo vai, pelo seu conteúdo, ao codec que o aceita; o resto conforme -m/-ma.|    Arquivos feitos com pjax e pja (antes da 2.1.0) continuam sendo lidos"),
 	HRIGA(9852, "*voodoo", 'o', "-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):|    each file goes, by its contents, to the first codec that takes it (more codecs:|    -sae:file:c1+N:c2+N), alone in its block (or, if its ZPAQL allows, with the next|    files it takes, one segment each); the rest as -m/-ma say. Like -mae, it|    needs their ZPAQL decoders. Every block is decoded back before it is written"),
 	HIT(9852, 0x42695A75, "Codec per FORMATI SPECIFICI da codecs/file.dll o .so (esterni): ogni file va, in|    base al contenuto, al primo codec che lo prende (piu' codec:|    -sae:file:c1+N:c2+N), da solo nel suo blocco (o, se il suo ZPAQL lo consente,|    con i file successivi che prende, un segmento ciascuno); il resto come -m/-ma.|    Come -mae, servono i loro decoder ZPAQL. Ogni blocco e' ridecodificato prima di|    scriverlo"),
 	HRU(9852, 0x42695A75, "Кодеки для ОСОБЫХ ФОРМАТОВ из codecs/файл.dll или .so (внешние):|    каждый файл по содержимому идёт к первому кодеку, который его берёт (несколько:|    -sae:файл:c1+N:c2+N), один в своём блоке (или, если ZPAQL позволяет, со|    следующими взятыми файлами, по сегменту на каждый); остальное по -m/-ma. Как и|    -mae, нужны их декодеры ZPAQL. Каждый блок декодируется обратно перед записью"),
@@ -160988,9 +161013,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 							isfile=true;
 							fam.push_back(string(ZS_SA_OFFICIAL[k].algo)+lv);
 						}
-					/// 2.1.0: pjax is now pjax7 (PJA's stream v7); -sa:pjax keeps working
+					/// 2.1.0: pjax is now pjax7 (PJA's stream v7); -sa:pjax keeps working.
+					/// with PJA 0.7.0, pjall, pjals and pjalsx are their o codecs (the same streams)
 					if (!isfile)
-						fam.push_back(nm=="pjax" ? "pjax7"+lv : part[q]);
+						fam.push_back(nm=="pjax" ? "pjax7"+lv : (nm=="pjall" || nm=="pjals" || nm=="pjalsx") ? nm+"o"+lv : part[q]);
 				}
 				part.swap(fam);
 			}
@@ -161947,7 +161973,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		{
 			myprintf("00619! -ma%c:%s:%s: %s is the LZ77 variant of %s, which -sa uses by itself where it\n"
 			         "       gains; it is not a codec of its own\n", g_ext_mode, g_ext_file.c_str(), g_ext_algo.c_str(),
-			         g_ext_algo.c_str(), g_ext_algo.substr(0, g_ext_algo.size()-1).c_str());
+			         g_ext_algo.c_str(), zs_z_base(g_ext_algo).c_str());
 			seppuku(2);
 		}
 		const zs_codec* c=xe->c;
@@ -162036,7 +162062,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			{
 				myprintf("00730! -sa%c:%s:%s: %s is the LZ77 variant of %s, which -sa uses by itself where it\n"
 				         "       gains; write %s instead\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str(),
-				         sc.algo.substr(0, sc.algo.size()-1).c_str(), sc.algo.substr(0, sc.algo.size()-1).c_str());
+				         zs_z_base(sc.algo).c_str(), zs_z_base(sc.algo).c_str());
 				seppuku(2);
 			}
 			const zs_codec* c=xe->c;
@@ -162085,8 +162111,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 					seppuku(2);
 				}
 				if (g_sa_mode=='t' && !sc.zcfg.empty())
-					myprintf("00733: -sat:%s:%s: and %sz, LZ77 over each group's segments, where it takes fewer bytes\n",
-					         sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str());
+					myprintf("00733: -sat:%s:%s: and %s, LZ77 over each group's segments, where it takes fewer bytes\n",
+					         sc.file.c_str(), sc.algo.c_str(), sa_zname(sc.file, sc.algo).c_str());
 			}
 			/// 2.2.1: once for all the experimental codecs of the command (it was once for each)
 			if (g_sa_official && (q==0))
@@ -249977,7 +250003,7 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		zok=ran && zo.size()==(size_t)orig_size && memcmp(zo.data(), sb.data(), (size_t)orig_size)==0;
 		zres=!ran ? "ZPAQL ERROR ("+zerr+")" : zok ? "ZPAQL OK" : "ZPAQL WRONG ("+std::string(migliaia((int64_t)zo.size()))+" bytes)";
 		if (z)
-			zres=sc.algo+"z "+zres;
+			zres=sa_zname(sc.file, sc.algo)+" "+zres;
 	}
 	if (!pok || !zok)
 	{
@@ -249999,7 +250025,7 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 		g_ext_print().enter();
 		const std::string files=nseg==1 ? std::string("alone") : "in "+itos((int64_t)nseg)+" files, one segment each";
 		myprintf("00734: %s: %s, %s -> %s bytes (%.1f%%) %s, compress %d ms; plugin decode %d ms OK; %s %d ms\n",
-		         fname.c_str(), z ? (sc.algo+"z").c_str() : sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), 100.0*out.size()/orig_size, files.c_str(),
+		         fname.c_str(), z ? sa_zname(sc.file, sc.algo).c_str() : sc.algo.c_str(), migliaia(orig_size), migliaia2((int64_t)out.size()), 100.0*out.size()/orig_size, files.c_str(),
 		         (int)(t1-t0+tz), (int)(t3-t2), zres.c_str(), (int)(t5-t3));
 		g_ext_print().leave();
 	}

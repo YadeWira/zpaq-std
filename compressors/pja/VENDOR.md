@@ -1,34 +1,35 @@
-# PJA 0.6.4: the zpaq-std plugin, vendored
+# PJA 0.7.0: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.6.4`, commit `c435ec8`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.7.0`, commit `b38e02c`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
 
-0.6.4 changes no stream and no ZPAQL: the 14 codecs and their decoders are
-0.6.0's, and every block written before decodes as before. What a code
-audit found, in files the plugin shares with the command and in the
-plugin itself:
+## What is new in 0.7.0: the o codecs
 
-- `pja_zpaqstd.pas`, `plugin/pjazpaqlargs.pas`: pjall's H counted one band
-  where a large lossless JPEG has several (2^21 samples or more could ask
-  for too small an H); pjax's and pjax7's detect and query refuse a part
-  with more scans than `pjadec.zl`'s MAXSCANS (pja's, pja7's and pjall's
-  queries check it too); the detect verdict is found by size and BLAKE3,
-  and compress() finds it when zpaq-std's fragment list follows the EOI.
-  A codec's compress writes the same bytes as 0.6.3 for every file it
-  took.
-- `pjacodec.pas`: a repair whose filler outgrew the file was refused
-  (now taken; positions and deletions capped by the filler's own bound,
-  the inner stream by the repaired size); a thread the system refuses no
-  longer leaves others on freed memory (the bands left run on the
-  caller's thread); verification no longer stops at 256 MiB.
-- `pjajpeg.pas`: scans grow by doubling, at most 1024 when compressing
-  (more go as bytes); MPF offsets in Int64 on 32-bit.
-- `pjajls.pas`: interleaved scans with components smaller than the frame
-  are refused (they crashed), and so, when compressing, is a component
-  coded in two scans; fill bytes before a marker are taken.
-- `pjamodel.pas`: ParkThreadModels/UnparkThreadModels, used by libpja
-  only; the plugin does not call them.
+Six codecs, indices 14 to 19 of `zpaqstd_codecs_v1`; 0 to 13 are 0.6.4's,
+unchanged (streams, ZPAQL, what each takes):
+
+| index | codec | is | ZPAQL (PCOMP) | frozen one it replaces in `-sa` |
+|---|---|---|---|---|
+| 14 | `pjalso` | pjals | 24,076 bytes | pjals, 55,989 |
+| 15 | `pjallo` | pjall | 15,058 bytes | pjall, 30,508 |
+| 16 | `pjalsxo` | pjalsx | 25,623 bytes | pjalsx, 60,776 |
+| 17 | `pjalszo` | pjalsz | 24,724 bytes | pjalsz, 32,984 |
+| 18 | `pjallzo` | pjallz | 15,693 bytes | pjallz, 18,003 |
+| 19 | `pjalsxzo` | pjalsxz | 26,278 bytes | pjalsxz, 36,110 |
+
+- Each o codec is its codec with another ZPAQL: the same library field,
+  streams, detect, compress, decompress and query (its H is its codec's
+  to the word), and the same config (`comp 0 0 $3 $1+1 0`; the z ones
+  `comp 0 0 $3 $1 0`). The decoders are the same programs compiled with
+  zpaqlc's opt=2, in `pas/plugin/ozpaql.inc`.
+- libzpaq (zpaq 7.15's engine) extracts with them 2.2 to 2.3 times as
+  fast: JPEG-LS 78.5 -> 36.2 s (24 files), lossless JPEG 2.8 -> 1.2 s
+  (36), subsampled JPEG-LS 410.9 -> 178.6 s (67), every file back.
+- Checked on Windows XP: zpaq 7.15 (32-bit, no plugin) extracts archives
+  written by zpaq-std 2.2.2 with pjalso, pjallo and pjalsxo byte for byte,
+  and the x86 plugin round-trips every file with each of the six.
+- Frozen in 0.7.0: the six names, their streams and their ZPAQL.
 
 As in 0.6.1, either clang or gcc builds these sources; clang is the faster.
 
@@ -67,7 +68,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=c435ec8
+export PJA_COMMIT=b38e02c
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

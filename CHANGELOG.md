@@ -1,3 +1,11 @@
+### [2.4.0] - 2026-11-05
+
+**PJA 0.7.0: `-sa`'s decoders for lossless JPEG and JPEG-LS, half the size and twice as fast in any zpaq.**
+
+- **PJA 0.7.0** (`-sa`): its o codecs `pjallo`, `pjalso` and `pjalsxo` take the place of `pjall`, `pjals` and `pjalsx` in `-sa`. They are the same codecs, with the same streams and the same compression; only the ZPAQL decoder that every block carries changes: PJA had built the old ones without its compiler's optimizer, and 0.7.0 builds them with it. They take half the bytes (lossless JPEG 30,508 -> 15,058, JPEG-LS 55,989 -> 24,076, subsampled JPEG-LS 60,776 -> 25,623; the z variants `pjallzo`, `pjalszo`, `pjalsxzo` too) and a zpaq without the plugin (zpaq 7.15, or zpaq-std without `codecs/`) runs them 2.2 to 2.3 times as fast. With the plugin nothing changes: it decodes natively.
+- `-sa:pjall`, `-sa:pjals` and `-sa:pjalsx` still work and mean the o codecs; archives written with the old ones are read as before (they stay in the plugin). `pjax7` and `pja7` are unchanged.
+- On PJA's corpus set the archive is 8,254 bytes smaller (the JPEG-LS block's decoder); sets with no lossless JPEG or JPEG-LS write the archive of 2.3.0.
+
 ### [2.3.0] - 2026-11-04
 
 **`-sa` keeps the files a codec takes in one block, and PJA 0.6.4.**
