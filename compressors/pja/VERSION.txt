@@ -1,6 +1,6 @@
-PJA 0.7.0 (tag v0.7.0, commit b38e02c), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.7.0-zpaqstd.tar.gz (sha256
-f795f881c498a3e79d86f1fd751fa86c7047ded325b17f44f6914dfad8e966ba), copied unmodified.
+PJA 0.8.0 (tag v0.8.0, commit ea9ca81), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.8.0-zpaqstd.tar.gz (sha256
+99d7279bf08e13d33d1455ce149ed778a55a15e9c19cd579ca203925c40b2663), copied unmodified.
 For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
 (they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
 (pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's
@@ -30,7 +30,11 @@ even when zpaq-std's fragment list follows the EOI. 0.7.0 adds the o codecs (pja
 pjallo, pjalsxo and their z, pjalszo, pjallzo, pjalsxzo): pjals, pjall and pjalsx with
 the same streams and a ZPAQL compiled with zpaqlc's opt=2 (pas/plugin/ozpaql.inc), half
 the size and over twice as fast in any zpaq; they take the place of pjall, pjals and
-pjalsx in -sa, which stay in the plugin, to read. Files:
+pjalsx in -sa, which stay in the plugin, to read. 0.8.0 adds the 8 codecs (pja78, pjax78,
+pjall8, pjals8, pjalsx8 and their z, pja7z8, pjax7z8, pjallz8, pjalsz8, pjalsxz8): the
+same codecs and streams once more, every decoder -sa uses compiled with zpaqlc's opt=3
+(pas/plugin/v8zpaql.inc), 3 to 8% smaller and a little faster; they take the place of
+pja7, pjax7 and the o codecs in -sa, which all stay in the plugin, to read. Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
 

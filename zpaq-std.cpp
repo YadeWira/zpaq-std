@@ -64,7 +64,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define ZPAQZSTD
 
 /// -ma:lz4 / -ma:lzav: zpaq-std's LZ4 and LZAV blocks (the -m6/-m7 of zpaqfranz 65.3-65.4,
-/// that 65.5d dropped): their frozen ZPAQL decoders and the native road
+/// that 65.5d dropped): their frozen ZPAQL decoders and the native road. Since 2.5.0
+/// -ma:lzav writes LZAV's format 4 (LZAV 7.x), with its own decoder (LZAV4_PCOMP)
 #define ZPAQLZ4
 #define ZPAQLZAV
 
@@ -76,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.4.0"
+#define ZPAQSTD_VERSION "2.5.0"
 #define ZPAQSTD_DATE "(2026-11-05)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -95403,17 +95404,18 @@ struct zs_sa_official { const char* file; const char* algo; int level; const cha
 /// In the order the codecs are tried. A file's name ("pja") stands for all its
 /// codecs: -sa:pja is the family, pjax7 first (it takes only what pja7 cannot do or
 /// where its format v6 gains: 12 bits, DNL, DRI without RST, big JPEGs after the
-/// EOI as in MPO and Ultra HDR), then pja7, pjallo, pjalso and pjalsxo; -sa alone,
+/// EOI as in MPO and Ultra HDR), then pja78, pjall8, pjals8 and pjalsx8; -sa alone,
 /// every codec. pjax and pja (up to 2.0.3) stay in the plugin, to read; so do pjall,
-/// pjals and pjalsx (up to 2.3.0): PJA 0.7.0's o codecs are the same codecs with the
-/// same streams, and a ZPAQL compiled with zpaqlc's opt=2, half the size and over
-/// twice as fast in any zpaq
+/// pjals and pjalsx (up to 2.3.0; PJA 0.7.0's o codecs, the same with a ZPAQL compiled
+/// with zpaqlc's opt=2, in 2.4.0), and pja7 and pjax7 (2.1.0 to 2.4.0). Since 2.5.0 the
+/// 8 codecs of PJA 0.8.0: the same codecs and streams again, every decoder compiled with
+/// opt=3, 3 to 8% smaller and a little faster in any zpaq
 static const zs_sa_official ZS_SA_OFFICIAL[]={
-	{"pja", "pjax7", 2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST), with stream v7's model", true},
-	{"pja", "pja7",  2, "JPEG (baseline, progressive, arithmetic), stream v7", true},
-	{"pja", "pjallo", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
-	{"pja", "pjalso", 2, "JPEG-LS", true},
-	{"pja", "pjalsxo", 2, "JPEG-LS with subsampled components", true},
+	{"pja", "pjax78", 2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST), with stream v7's model", true},
+	{"pja", "pja78",  2, "JPEG (baseline, progressive, arithmetic), stream v7", true},
+	{"pja", "pjall8", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
+	{"pja", "pjals8", 2, "JPEG-LS", true},
+	{"pja", "pjalsx8", 2, "JPEG-LS with subsampled components", true},
 };
 std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
@@ -96143,8 +96145,10 @@ public:
   std::string lz4in;
 #endif
 #ifdef ZPAQLZAV
-  /// -m7: the pcomp is the canonical LZAV decoder, decoded natively
+  /// -m7: the pcomp is the canonical LZAV decoder, decoded natively; lzavfmt
+  /// the LZAV format of that decoder (3: LZAV_PCOMP, 4: LZAV4_PCOMP, since 2.5.0)
   bool lzavnative;
+  int lzavfmt;
   std::string lzavin;
 #endif
 };
@@ -98414,8 +98418,8 @@ bool lz4_is_canonical(const U8* i_code, int i_len);
 void lz4_native_decode(const std::string& i_in, ZPAQL& z);
 #endif
 #ifdef ZPAQLZAV
-bool lzav_is_canonical(const U8* i_code, int i_len);
-void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm);
+bool lzav_is_canonical(const U8* i_code, int i_len, int* o_fmt=NULL);
+void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm, int i_fmt);
 #endif
 bool pcomp_indice_noto(const U8* i_code, int i_len); /// 65.15b: after compressBlock
 /// 65.15b: the name of the first segment of a block of the index of jidac: jDC, the date (14 digits), c h or i,
@@ -98441,6 +98445,7 @@ extern int zstdprogramma; /// 65.15z9
 void PostProcessor::init(int h, int m) {
 #ifdef ZPAQLZAV
   lzavnative=false;
+  lzavfmt=0;
   lzavin.clear();
 #endif
 #ifdef ZPAQLZ4
@@ -98610,7 +98615,7 @@ int PostProcessor::write(int c) {
         lz4native=lz4_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
 #endif
 #ifdef ZPAQLZAV
-        lzavnative=lzav_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
+        lzavnative=lzav_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin, &lzavfmt);
 #endif
 #ifdef ZPAQZSTD
         zstdnative=zstd_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
@@ -98627,7 +98632,7 @@ int PostProcessor::write(int c) {
         if (c>=0)
           lzavin+=(char)c;
         else {
-          lzav_native_decode(lzavin, z, pm);
+          lzav_native_decode(lzavin, z, pm, lzavfmt);
           lzavin.clear();
         }
         break;
@@ -104969,6 +104974,181 @@ static const char* LZAV_PCOMP=
 "  halt\n"
 "end\n";
 
+/*
+	2.5.0: LZAV 7.x writes only its data format 4, so -ma:lzav (-m7) blocks
+	carry LZAV4_PCOMP, a new decoder next to LZAV_PCOMP (which stays, for the
+	blocks of format 3 written up to 2.4.0). Format 4, from lzav.h
+	(lzav_write_blk_4, lzav_decompress_4):
+	- the prefix byte: format<<4 | mref; then blocks; the last is literals
+	- literal block CC00LLLL: LLLL literals (0: a length byte follows, +16;
+	  255 there: a varint, 2 bytes LE, and 2 more if their top bit is set,
+	  15 + 16 bits); CC two offset-carry bits, put BELOW the pending ones
+	  (cv = cv<<2 | CC). A literal block is always followed by a reference
+	  block, whatever its type bits say (type 0: no offset bytes, the offset
+	  is the carry alone)
+	- reference block OETTRRRR: TT offset bytes (1-3); the offset's own bits
+	  are O | bytes<<1, 9, 15 or 22 of them, 3 fewer if E is set; the top bits
+	  of the last offset byte not used (2 or 3, 3 more with E) are the carry
+	  of the next reference. offset = own << (carry bits pending) | cv
+	- RRRR = match length - mref + 1 (0: a length byte after the offset
+	  bytes, +16, 255 a varint as above)
+	The size is not stored: the decoder ends with the input, as LZAV_PCOMP.
+	Checked with zpaqd 7.15 against LZAV 7.1 (default and hi): 402 streams,
+	the test corpus, raster images, text and synthetic ones (an 8 MB match,
+	3 MB of literals, a 7 MB offset).
+	DO NOT CHANGE A SINGLE BYTE of it: the native path recognizes the
+	compiled bytecode (ZPAQ_LZAV4_PCOMP_SHA1)
+*/
+static const char* LZAV4_PCOMP=
+"pcomp lzav4 ;\n"
+"(LZAV4: decoder of LZAV's data format 4 (LZAV 7.x). One byte per call; the\n"
+" block's segment is the LZAV stream, which ends with a literal block.\n"
+" r1 state, r2 mref-1, r3 cv (offset carry), r4 k (carry bits pending),\n"
+" r5 length, r6 raw offset bits, r7 block header, r8 shift of the next offset\n"
+" byte, r9 block type (3 bits, with E), r10 offset, r11 = 1 after a literal\n"
+" block (the next header is a reference, of any type), r12 varint for a\n"
+" literal (0) or a reference (1), r13 varint value, r14 varint bytes read,\n"
+" r15 the last offset byte; b write position, c copy source.\n"
+" States: 0 prefix byte, 1 header, 2 literals, 3 literal length byte,\n"
+" 4 offset bytes, 6 reference length byte, 8 varint bytes.)\n"
+"  a> 255 if\n"
+"    a=0 b=a r=a 1 r=a 3 r=a 4 r=a 11\n"
+"    halt\n"
+"  endif\n"
+"  c=a\n"
+"  a=r 1 a== 0 if\n"
+"    a=c a&= 15 a-- r=a 2\n"
+"    a=0 b=a r=a 3 r=a 4 r=a 11\n"
+"    a= 1 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a== 2 if\n"
+"    a=c *b=a out b++\n"
+"    a=r 5 a-- r=a 5\n"
+"    a== 0 if\n"
+"      a= 1 r=a 1\n"
+"    endif\n"
+"    halt\n"
+"  endif\n"
+"  a== 1 ifl\n"
+"    a=c r=a 7\n"
+"    a>>= 4 a&= 3 d=a\n"
+"    a=r 11 a|=d a== 0 ifl\n"
+"      (literal block: CC00LLLL, CC two carry bits below the pending ones)\n"
+"      a= 1 r=a 11\n"
+"      a=r 3 a<<= 2 r=a 3\n"
+"      a=c a>>= 6 d=a a=r 3 a|=d r=a 3\n"
+"      a=r 4 a+= 2 r=a 4\n"
+"      a=c a&= 15 r=a 5\n"
+"      a== 0 if\n"
+"        a= 3 r=a 1\n"
+"      else\n"
+"        a= 2 r=a 1\n"
+"      endif\n"
+"      halt\n"
+"    endif\n"
+"    (reference block: OETTRRRR)\n"
+"    a=0 r=a 11 r=a 15\n"
+"    a=c a>>= 4 a&= 7 r=a 9\n"
+"    a=c a>>= 7 r=a 6\n"
+"    a= 1 r=a 8\n"
+"    a=r 9 a&= 3 a== 0 ifnot\n"
+"      a= 4 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    a= 5 r=a 1\n"
+"  endif\n"
+"  a=r 1 a== 4 if\n"
+"    a=c r=a 15 d=r 8 a<<=d d=a a=r 6 a+=d r=a 6\n"
+"    a=r 8 a+= 8 r=a 8\n"
+"    a=r 9 a&= 3 a<<= 3 a++ d=a a=r 8 a<d if\n"
+"      halt\n"
+"    endif\n"
+"    a= 5 r=a 1\n"
+"  endif\n"
+"  a=r 1 a== 5 ifl\n"
+"    (the offset: own bits << k | cv; then the carry this block leaves)\n"
+"    a=0 r=a 16\n"
+"    (width of the own bits by type, tested downwards: no width is a later type)\n"
+"    a=r 9 a== 7 if a= 19 r=a 16 endif\n"
+"    a== 6 if a= 12 r=a 16 endif\n"
+"    a== 5 if a= 6 r=a 16 endif\n"
+"    a== 3 if a= 22 r=a 16 endif\n"
+"    a== 2 if a= 15 r=a 16 endif\n"
+"    a== 1 if a= 9 r=a 16 endif\n"
+"    d=r 16 a= 1 a<<=d a-- d=a\n"
+"    a=r 6 a&=d\n"
+"    d=r 4 a<<=d\n"
+"    d=r 3 a|=d r=a 10\n"
+"    a=r 9 a== 2 if a= 2 else\n"
+"    a== 3 if a= 3 else\n"
+"    a== 5 if a= 3 else\n"
+"    a== 6 if a= 5 else\n"
+"    a== 7 if a= 6 else\n"
+"    a=0 endif endif endif endif endif\n"
+"    r=a 4\n"
+"    a== 0 if\n"
+"      r=a 3\n"
+"    else\n"
+"      d=a a= 8 a-=d d=a a=r 15 a>>=d r=a 3\n"
+"    endif\n"
+"    a=r 7 a&= 15 a== 0 if\n"
+"      a= 6 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    d=r 2 a+=d r=a 5\n"
+"    a= 7 r=a 1\n"
+"  endif\n"
+"  a=r 1 a== 6 if\n"
+"    a=c a== 255 if\n"
+"      a= 1 r=a 12 a=0 r=a 13 r=a 14 a= 8 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    d=r 2 a+=d a+= 16 r=a 5\n"
+"    a= 7 r=a 1\n"
+"  endif\n"
+"  a=r 1 a== 3 if\n"
+"    a=c a== 255 if\n"
+"      a=0 r=a 12 r=a 13 r=a 14 a= 8 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    a+= 16 r=a 5\n"
+"    a= 2 r=a 1\n"
+"    halt\n"
+"  endif\n"
+"  a=r 1 a== 8 ifl\n"
+"    a=r 14 a<<= 3 d=a a=c a<<=d d=a a=r 13 a+=d r=a 13\n"
+"    a=r 14 a++ r=a 14\n"
+"    a== 2 if\n"
+"      a=r 13 a>>= 15 a&= 1 a== 1 if\n"
+"        halt\n"
+"      endif\n"
+"    else\n"
+"      a== 4 if\n"
+"        a=r 13 a>>= 16 a<<= 15 r=a 16 a=r 13 a<<= 17 a>>= 17 d=r 16 a|=d r=a 13\n"
+"      else\n"
+"        halt\n"
+"      endif\n"
+"    endif\n"
+"    a=r 12 a== 0 if\n"
+"      a=r 13 a+= 16 r=a 5\n"
+"      a= 2 r=a 1\n"
+"      halt\n"
+"    endif\n"
+"    a=r 13 d=r 2 a+=d a+= 16 r=a 5\n"
+"    a= 7 r=a 1\n"
+"  endif\n"
+"  (state 7: copy r5 bytes from r10 back)\n"
+"  d=r 10 a=b a-=d c=a\n"
+"  d=r 5\n"
+"  do a=d a> 0 if\n"
+"    d--\n"
+"    a=*c *b=a out c++ b++\n"
+"  forever endif\n"
+"  a= 1 r=a 1\n"
+"  halt\n"
+"end\n";
+
 /// -m7 default, -m7h LZAV "hi" (better ratio, slower). Returns the
 /// compressed size, 0 if it did not shrink (=> stored)
 int lzav_encode(const std::string& i_method, const char* i_src, int i_n, std::vector<char>& o_dst)
@@ -104993,6 +105173,10 @@ static std::string lzav_config(int i_pm)
 {
 	return "comp 0 0 0 "+itos(i_pm)+" 0\nhcomp\nhalt\n"+LZAV_PCOMP;
 }
+static std::string lzav4_config(int i_pm)	/// 2.5.0: what -ma:lzav writes
+{
+	return "comp 0 0 0 "+itos(i_pm)+" 0\nhcomp\nhalt\n"+LZAV4_PCOMP;
+}
 /// the bytecode of LZAV_PCOMP (the pm of the header is not part of it)
 static std::string lzav_canonical_bytes()
 {
@@ -105002,10 +105186,30 @@ static std::string lzav_canonical_bytes()
 	Compiler(config.c_str(), args, hz, pz, NULL);
 	return std::string((const char*)&pz.header[pz.hbegin], (size_t)(pz.hend-pz.hbegin));
 }
-bool lzav_is_canonical(const U8* i_code, int i_len)
+static std::string lzav4_canonical_bytes()
+{
+	libzpaq::ZPAQL hz, pz;
+	int args[9]={0};
+	const std::string config= lzav4_config(24);
+	Compiler(config.c_str(), args, hz, pz, NULL);
+	return std::string((const char*)&pz.header[pz.hbegin], (size_t)(pz.hend-pz.hbegin));
+}
+/// o_fmt: the LZAV format of the decoder recognized (3 or 4)
+bool lzav_is_canonical(const U8* i_code, int i_len, int* o_fmt)
 {
 	static const std::string canonico= lzav_canonical_bytes();
-	return i_len==(int)canonico.size() && memcmp(i_code, canonico.data(), (size_t)i_len)==0;
+	static const std::string canonico4= lzav4_canonical_bytes();
+	if (i_len==(int)canonico.size() && memcmp(i_code, canonico.data(), (size_t)i_len)==0)
+	{
+		if (o_fmt) *o_fmt=3;
+		return true;
+	}
+	if (i_len==(int)canonico4.size() && memcmp(i_code, canonico4.data(), (size_t)i_len)==0)
+	{
+		if (o_fmt) *o_fmt=4;
+		return true;
+	}
+	return false;
 }
 /*
 	The native twin of LZAV_PCOMP. The size is not stored anywhere, but M of
@@ -105013,17 +105217,23 @@ bool lzav_is_canonical(const U8* i_code, int i_len)
 	stream then ends with LZAV_E_DSTLEN ("shorter than the room") and the
 	number of bytes written, anything else is a broken block
 */
-void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm)
+void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm, int i_fmt)
 {
-	if (i_in.size()<11 || ((U8)i_in[0]>>4)!=3)
+	/// the stream's format has to be the one its decoder reads: another zpaq runs that decoder
+	if (i_fmt==3 && (i_in.size()<11 || ((U8)i_in[0]>>4)!=3))
 		error("LZAV: not a format 3 stream");
+	if (i_fmt==4 && (i_in.size()<27 || ((U8)i_in[0]>>4)!=4))
+		error("LZAV: not a format 4 stream");
+	if (i_fmt!=3 && i_fmt!=4)
+		error("LZAV: unknown decoder");
 	if (i_pm<10 || i_pm>30)
 		error("LZAV: strange block size");
 	const int spazio= 1<<i_pm;
 	std::string fuori;
 	fuori.resize((size_t)spazio+64);
 	int scritti= 0;
-	const int esito= zlzav::lzav_decompress_3(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti);
+	const int esito= i_fmt==4 ? zlzav::lzav_decompress_4(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti)
+	                          : zlzav::lzav_decompress_3(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti);
 	int lunghezza= 0;
 	if (esito>=0)
 		lunghezza= esito;
@@ -105054,6 +105264,7 @@ void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm)
 */
 #define ZPAQ_LZ4_PCOMP_SHA1	 "D80D8DFA1D0F58C9D0919192D79C76986320FD3A"
 #define ZPAQ_LZAV_PCOMP_SHA1 "B9FF18F22627E2AABB6D41BB7C032D9CCBE7DCF0"
+#define ZPAQ_LZAV4_PCOMP_SHA1 "97FAAFD15FC883B93BE9B9E0D9392250141FBA0B"
 /// number of PCOMP whose bytecode is not the frozen one (0 = all good)
 int lzpcomp_frozen_check(bool i_verbose)
 {
@@ -105073,6 +105284,13 @@ int lzpcomp_frozen_check(bool i_verbose)
 		const bool ok= (h==ZPAQ_LZAV_PCOMP_SHA1);
 		if (i_verbose || !ok)
 			myprintf("65401%s -m7 LZAV_PCOMP bytecode SHA-1 %s %s\n", ok ? ":" : "!", h.c_str(), ok ? "(frozen, OK)" : "CHANGED! expected " ZPAQ_LZAV_PCOMP_SHA1);
+		errori+= !ok;
+	}
+	{
+		const std::string h= pcomp_sha1hex(lzav4_canonical_bytes());
+		const bool ok= (h==ZPAQ_LZAV4_PCOMP_SHA1);
+		if (i_verbose || !ok)
+			myprintf("65402%s -ma:lzav LZAV4_PCOMP bytecode SHA-1 %s %s\n", ok ? ":" : "!", h.c_str(), ok ? "(frozen, OK)" : "CHANGED! expected " ZPAQ_LZAV4_PCOMP_SHA1);
 		errori+= !ok;
 	}
 #endif // ZPAQLZAV
@@ -105412,7 +105630,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     std::vector<char> lzav;
     const int lzavsize= lzav_encode(method, in->c_str(), (int)n, lzav);
     if (lzavsize>0) {
-      const std::string config= lzav_config(arg0+20); /// M = the whole block
+      const std::string config= lzav4_config(arg0+20); /// M = the whole block (2.5.0: LZAV format 4)
       int args[9]={0};
       libzpaq::Compressor co;
       co.setOutput(out);
@@ -105755,15 +105973,15 @@ static const zs_ext* zs_ext_get(const std::string& i_file, const std::string& i_
 /// with <base>'s library and ", lz77" (PJA's pjaz, pjaxz...; before the
 /// library's last " (...)", if any). Its ZPAQL expects
 /// the LZ77 that -sa puts in front, so it is never used by itself (-mae, -sae...).
-/// PJA 0.7.0's o codecs put the z before the o: pjallzo is pjallo's.
-/// zs_z_base: the base a z name would have ("" if it cannot be one)
+/// PJA 0.7.0's o codecs and 0.8.0's 8 codecs put the z before that letter: pjallzo is
+/// pjallo's, pja7z8 pja78's. zs_z_base: the base a z name would have ("" if none)
 static std::string zs_z_base(const std::string& i_algo)
 {
 	const size_t n=i_algo.size();
 	if (n>=2 && i_algo[n-1]=='z')
 		return i_algo.substr(0, n-1);
-	if (n>=3 && i_algo[n-2]=='z' && i_algo[n-1]=='o')
-		return i_algo.substr(0, n-2)+"o";
+	if (n>=3 && i_algo[n-2]=='z' && (i_algo[n-1]=='o' || i_algo[n-1]=='8'))
+		return i_algo.substr(0, n-2)+i_algo[n-1];
 	return "";
 }
 static bool zs_ext_is_z(const std::string& i_file, const std::string& i_algo)
@@ -105862,8 +106080,8 @@ static const zs_info_row ZS_INFO[]=
 	 "BSD-2-Clause", "1.11.0, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "always HC"},
 	{"lz4f", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.0", "Yann Collet", "https://github.com/lz4/lz4",
 	 "BSD-2-Clause", "1.11.0, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "always fast"},
-	{"lzav", false, 0, 1, 1, "zpaq-std's LZAV block (frozen LZAV decoder)", "LZAV 5.20", "Aleksey Vaneev", "https://github.com/avaneev/lzav",
-	 "MIT", "5.20, compressors/lzav", "LZAV format 3, as zpaqfranz 65.3-65.4's -m7", "0 fast, 1 high ratio"},
+	{"lzav", false, 0, 1, 1, "zpaq-std's LZAV block (frozen LZAV decoder)", "LZAV 7.1", "Aleksey Vaneev", "https://github.com/avaneev/lzav",
+	 "MIT", "7.1, compressors/lzav", "LZAV format 4 since 2.5.0 (LZAV4_PCOMP); the format 3 blocks of 2.0.0-2.4.0 and of zpaqfranz 65.3-65.4's -m7 are read", "0 fast, 1 high ratio"},
 };
 /// the program of a codec's ZPAQL decoder(s), for their SHA-256
 static void zs_info_bytecodes(const std::string& i_ma, std::vector<std::pair<std::string, const std::string*> >& o_bc)
@@ -106392,14 +106610,16 @@ static bool zs_ext_run(const std::string& i_cfg, int i_a1, int i_a2, int i_a345,
 /// earlier segments: the ZPAQL keeps them in M, a ring of 2^$1 bytes.
 /// The "z" ZPAQL: codec <algo>z of the same plugin, which gives only that (its
 /// detect, compress and decompress are <algo>'s); none, and -sa is as before.
-/// An o codec (PJA 0.7.0: pjallo, pjalso, pjalsxo) has its z before the o: pjallzo
+/// An o or 8 codec (PJA 0.7.0: pjallo...; PJA 0.8.0: pja78, pjall8...) has its z
+/// before that last letter: pjallzo, pja7z8
 static std::string sa_zname(const std::string& i_file, const std::string& i_algo)
 {
 	const std::string z=i_algo+"z";
 	const zs_ext* xz=zs_ext_get(i_file, z);	/// never NULL: an entry without c if there is none
-	if ((xz && xz->c) || i_algo.size()<2 || i_algo[i_algo.size()-1]!='o')
+	const char u=i_algo.empty() ? 0 : i_algo[i_algo.size()-1];
+	if ((xz && xz->c) || i_algo.size()<2 || (u!='o' && u!='8'))
 		return z;
-	return i_algo.substr(0, i_algo.size()-1)+"zo";
+	return i_algo.substr(0, i_algo.size()-1)+"z"+u;
 }
 static std::string sa_zcfg(const std::string& i_file, const std::string& i_algo)
 {
@@ -155278,11 +155498,11 @@ losetup -d /dev/loop0
 	HRU(9850, 0xE6FEDD45, "То же, для ПРОВЕРКИ кодека: показывает плагин и каждый блок (размеры, время, обратное|    декодирование плагином и его ZPAQL). Без декодера ZPAQL его блоки открываются|    только в zpaq-std с этим плагином (любой другой zpaq сочтёт их повреждёнными)"),
 	HES(9850, 0xE6FEDD45, "Lo mismo, para PROBAR un códec: muestra el plugin y cada bloque (tamaños, tiempos,|    decodificado de vuelta por el plugin y por su ZPAQL). Sin decodificador ZPAQL sus|    bloques se abren solo en zpaq-std con ese plugin (cualquier otro zpaq los da por|    dañados)"),
 	HPT(9850, 0xE6FEDD45, "O mesmo, para TESTAR um codec: mostra o plugin e cada bloco (tamanhos, tempos,|    decodificado de volta pelo plugin e pelo seu ZPAQL). Sem decodificador ZPAQL seus|    blocos só abrem no zpaq-std com esse plugin (qualquer outro zpaq os acusa|    danificados)"),
-	HRIGA(9851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):|    PJA's family (-sa or -sa:pja): pjax7 (JPEG with PJA's format v6), pja7 (JPEG),|    pjallo (lossless JPEG), pjalso (JPEG-LS) and pjalsxo (subsampled JPEG-LS),|    from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say.|    Archives made with pjax and pja (before 2.1.0) are still read"),
-	HIT(9851, 0x93DD8DD5, "Codec di zpaq-std per FORMATI SPECIFICI (SPERIMENTALI, non ancora consigliati):|    famiglia di PJA (-sa o -sa:pja): pjax7 (JPEG col formato v6 di PJA), pja7 (JPEG),|    pjallo (JPEG lossless), pjalso (JPEG-LS) e pjalsxo (JPEG-LS sottocampionato), da|    codecs/pja.dll o .so (il download extra-codecs). Ogni file va, in base al|    contenuto, al codec che lo prende; il resto come dicono -m/-ma.|    Gli archivi fatti con pjax e pja (prima della 2.1.0) si leggono ancora"),
-	HRU(9851, 0x93DD8DD5, "Кодеки zpaq-std для ОСОБЫХ ФОРМАТОВ (ЭКСПЕРИМЕНТАЛЬНО, пока не рекомендуется):|    семейство PJA (-sa или -sa:pja): pjax7 (JPEG в формате PJA v6), pja7 (JPEG),|    pjallo (JPEG без потерь), pjalso (JPEG-LS) и pjalsxo (JPEG-LS с субдискретизацией),|    из codecs/pja.dll или .so (загрузка extra-codecs).|    Каждый файл по содержимому идёт к кодеку, который его берёт; остальное по -m/-ma.|    Архивы, созданные с pjax и pja (до 2.1.0), по-прежнему читаются"),
-	HES(9851, 0x93DD8DD5, "Códecs de zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, aún no recomendado):|    familia de PJA (-sa o -sa:pja): pjax7 (JPEG con el formato v6 de PJA), pja7 (JPEG),|    pjallo (JPEG sin pérdida), pjalso (JPEG-LS) y pjalsxo (JPEG-LS submuestreado),|    de codecs/pja.dll o .so (la descarga extra-codecs).|    Cada archivo va, según su contenido, al códec que lo toma; el resto según -m/-ma.|    Los archivos hechos con pjax y pja (antes de 2.1.0) se siguen leyendo"),
-	HPT(9851, 0x93DD8DD5, "Codecs do zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, ainda não recomendado):|    família do PJA (-sa ou -sa:pja): pjax7 (JPEG com o formato v6 do PJA), pja7 (JPEG),|    pjallo (JPEG sem perdas), pjalso (JPEG-LS) e pjalsxo (JPEG-LS subamostrado),|    de codecs/pja.dll ou .so (o download extra-codecs).|    Cada arquivo vai, pelo seu conteúdo, ao codec que o aceita; o resto conforme -m/-ma.|    Arquivos feitos com pjax e pja (antes da 2.1.0) continuam sendo lidos"),
+	HRIGA(9851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):|    PJA's family (-sa or -sa:pja): pjax78 (JPEG with PJA's format v6), pja78 (JPEG),|    pjall8 (lossless JPEG), pjals8 (JPEG-LS) and pjalsx8 (subsampled JPEG-LS),|    from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say.|    Archives made with pjax and pja (before 2.1.0) are still read"),
+	HIT(9851, 0x3DF40B80, "Codec di zpaq-std per FORMATI SPECIFICI (SPERIMENTALI, non ancora consigliati):|    famiglia di PJA (-sa o -sa:pja): pjax78 (JPEG col formato v6 di PJA), pja78 (JPEG),|    pjall8 (JPEG lossless), pjals8 (JPEG-LS) e pjalsx8 (JPEG-LS sottocampionato), da|    codecs/pja.dll o .so (il download extra-codecs). Ogni file va, in base al|    contenuto, al codec che lo prende; il resto come dicono -m/-ma.|    Gli archivi fatti con pjax e pja (prima della 2.1.0) si leggono ancora"),
+	HRU(9851, 0x3DF40B80, "Кодеки zpaq-std для ОСОБЫХ ФОРМАТОВ (ЭКСПЕРИМЕНТАЛЬНО, пока не рекомендуется):|    семейство PJA (-sa или -sa:pja): pjax78 (JPEG в формате PJA v6), pja78 (JPEG),|    pjall8 (JPEG без потерь), pjals8 (JPEG-LS) и pjalsx8 (JPEG-LS с субдискретизацией),|    из codecs/pja.dll или .so (загрузка extra-codecs).|    Каждый файл по содержимому идёт к кодеку, который его берёт; остальное по -m/-ma.|    Архивы, созданные с pjax и pja (до 2.1.0), по-прежнему читаются"),
+	HES(9851, 0x3DF40B80, "Códecs de zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, aún no recomendado):|    familia de PJA (-sa o -sa:pja): pjax78 (JPEG, formato v6 de PJA), pja78 (JPEG),|    pjall8 (JPEG sin pérdida), pjals8 (JPEG-LS) y pjalsx8 (JPEG-LS submuestreado),|    de codecs/pja.dll o .so (la descarga extra-codecs).|    Cada archivo va, según su contenido, al códec que lo toma; el resto según -m/-ma.|    Los archivos hechos con pjax y pja (antes de 2.1.0) se siguen leyendo"),
+	HPT(9851, 0x3DF40B80, "Codecs do zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, ainda não recomendado):|    família do PJA (-sa ou -sa:pja): pjax78 (JPEG, formato v6 do PJA), pja78 (JPEG),|    pjall8 (JPEG sem perdas), pjals8 (JPEG-LS) e pjalsx8 (JPEG-LS subamostrado),|    de codecs/pja.dll ou .so (o download extra-codecs).|    Cada arquivo vai, pelo seu conteúdo, ao codec que o aceita; o resto conforme -m/-ma.|    Arquivos feitos com pjax e pja (antes da 2.1.0) continuam sendo lidos"),
 	HRIGA(9852, "*voodoo", 'o', "-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):|    each file goes, by its contents, to the first codec that takes it (more codecs:|    -sae:file:c1+N:c2+N), alone in its block (or, if its ZPAQL allows, with the next|    files it takes, one segment each); the rest as -m/-ma say. Like -mae, it|    needs their ZPAQL decoders. Every block is decoded back before it is written"),
 	HIT(9852, 0x42695A75, "Codec per FORMATI SPECIFICI da codecs/file.dll o .so (esterni): ogni file va, in|    base al contenuto, al primo codec che lo prende (piu' codec:|    -sae:file:c1+N:c2+N), da solo nel suo blocco (o, se il suo ZPAQL lo consente,|    con i file successivi che prende, un segmento ciascuno); il resto come -m/-ma.|    Come -mae, servono i loro decoder ZPAQL. Ogni blocco e' ridecodificato prima di|    scriverlo"),
 	HRU(9852, 0x42695A75, "Кодеки для ОСОБЫХ ФОРМАТОВ из codecs/файл.dll или .so (внешние):|    каждый файл по содержимому идёт к первому кодеку, который его берёт (несколько:|    -sae:файл:c1+N:c2+N), один в своём блоке (или, если ZPAQL позволяет, со|    следующими взятыми файлами, по сегменту на каждый); остальное по -m/-ma. Как и|    -mae, нужны их декодеры ZPAQL. Каждый блок декодируется обратно перед записью"),
@@ -161014,9 +161234,20 @@ int Jidac::loadparameters(int argc, const char** argv)
 							fam.push_back(string(ZS_SA_OFFICIAL[k].algo)+lv);
 						}
 					/// 2.1.0: pjax is now pjax7 (PJA's stream v7); -sa:pjax keeps working.
-					/// with PJA 0.7.0, pjall, pjals and pjalsx are their o codecs (the same streams)
+					/// with PJA 0.7.0, pjall, pjals and pjalsx are their o codecs (the same streams);
+					/// since 2.5.0 (PJA 0.8.0) every name of the family means its 8 codec
 					if (!isfile)
-						fam.push_back(nm=="pjax" ? "pjax7"+lv : (nm=="pjall" || nm=="pjals" || nm=="pjalsx") ? nm+"o"+lv : part[q]);
+					{
+						string a=nm;
+						if (a=="pjax")
+							a="pjax7";
+						if (a=="pjallo" || a=="pjalso" || a=="pjalsxo")
+							a=a.substr(0, a.size()-1);
+						if (a=="pjax7" || a=="pja7" || a=="pjall" || a=="pjals" || a=="pjalsx")
+							fam.push_back(a+"8"+lv);
+						else
+							fam.push_back(part[q]);
+					}
 				}
 				part.swap(fam);
 			}
@@ -162107,7 +162338,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 				sc.zcfg=sa_zcfg(sc.file, sc.algo);
 				if (!sc.zcfg.empty() && !zs_ext_compile(sc.zcfg, 24, 20, 20|(20<<8)|(20<<16), NULL, &err))
 				{
-					myprintf("00731! -sa%c:%s:%s: the ZPAQL of %sz does not compile: %s\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), sc.algo.c_str(), err.c_str());
+					myprintf("00731! -sa%c:%s:%s: the ZPAQL of %s does not compile: %s\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), sa_zname(sc.file, sc.algo).c_str(), err.c_str());
 					seppuku(2);
 				}
 				if (g_sa_mode=='t' && !sc.zcfg.empty())
@@ -249934,8 +250165,8 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 			if (g_sa_mode=='t')
 			{
 				g_ext_print().enter();
-				myprintf("00734: %s: %sz LZ77 (window 2^%d) %s -> %s bytes in %d ms, ZPAQL %s bytes (%s with %s): %s\n",
-				         fname.c_str(), sc.algo.c_str(), zwb, migliaia((int64_t)out.size()), migliaia2((int64_t)zout.size()), (int)tz,
+				myprintf("00734: %s: %s LZ77 (window 2^%d) %s -> %s bytes in %d ms, ZPAQL %s bytes (%s with %s): %s\n",
+				         fname.c_str(), sa_zname(sc.file, sc.algo).c_str(), zwb, migliaia((int64_t)out.size()), migliaia2((int64_t)zout.size()), (int)tz,
 				         migliaia3(zzbc), migliaia4(zbc), sc.algo.c_str(), z ? "taken" : "no gain");
 				g_ext_print().leave();
 			}
@@ -254570,8 +254801,8 @@ int Jidac::add2()
 					{
 						sa_force= true;
 						if (g_sa_mode == 't')
-							myprintf("00734: %s: part of it is already in the archive, but %sz takes it whole\n",
-									 vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+							myprintf("00734: %s: part of it is already in the archive, but %s takes it whole\n",
+									 vf[fi]->first.c_str(), sa_zname(g_sa[sa_file].file, g_sa[sa_file].algo).c_str());
 					}
 					else if (dup)
 					{

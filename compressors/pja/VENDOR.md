@@ -1,8 +1,43 @@
-# PJA 0.7.0: the zpaq-std plugin, vendored
+# PJA 0.8.0: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.7.0`, commit `b38e02c`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.8.0`, commit `ea9ca81`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.8.0: the 8 codecs
+
+Ten codecs, indices 20 to 29 of `zpaqstd_codecs_v1`; 0 to 19 are 0.7.0's,
+unchanged (streams, ZPAQL, what each takes). Each is the codec its name
+has without the 8, with the same library field, streams, detect,
+compress, decompress, query, H and config, and its ZPAQL compiled with
+zpaqlc's opt=3 (`pas/plugin/v8zpaql.inc`): inlining, the right operand
+and return values through B.
+
+| index | codec | is | ZPAQL (PCOMP) | before |
+|---|---|---|---|---|
+| 20 | `pja78` | pja7 | 32,954 bytes | 35,104 |
+| 21 | `pjax78` | pjax7 | 33,197 bytes | 35,211 |
+| 22 | `pja7z8` | pja7z | 33,603 bytes | 35,829 |
+| 23 | `pjax7z8` | pjax7z | 33,949 bytes | 35,987 |
+| 24 | `pjals8` | pjals (as pjalso) | 22,430 bytes | 24,076 |
+| 25 | `pjall8` | pjall (as pjallo) | 13,901 bytes | 15,058 |
+| 26 | `pjalsx8` | pjalsx (as pjalsxo) | 24,611 bytes | 25,623 |
+| 27 | `pjalsz8` | pjalsz (as pjalszo) | 23,046 bytes | 24,724 |
+| 28 | `pjallz8` | pjallz (as pjallzo) | 14,517 bytes | 15,693 |
+| 29 | `pjalsxz8` | pjalsxz (as pjalsxzo) | 25,244 bytes | 26,278 |
+
+- In `-sa`, the ten take the place of pja7, pjax7, pjall, pjals, pjalsx
+  and their z (or of the o codecs); those stay to read older archives.
+- libzpaq (zpaq 7.15's engine) extracts with them 2 to 6% faster, every
+  file back: 30 photos, 18 MPO and 12-bit JPEGs, 24 JPEG-LS, 36 lossless
+  JPEGs, 67 subsampled JPEG-LS.
+- Checked on Windows XP: zpaq 7.15 (32-bit, no plugin) extracts archives
+  written by zpaq-std 2.2.2 with pja78, pjax78, pjals8, pjall8 and pjalsx8
+  byte for byte, and the x86 plugin round-trips every file with each of
+  the ten.
+- Frozen in 0.8.0: the ten names, their streams and their ZPAQL.
+
+As in 0.6.1, either clang or gcc builds these sources; clang is the faster.
 
 ## What is new in 0.7.0: the o codecs
 
@@ -68,7 +103,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=b38e02c
+export PJA_COMMIT=ea9ca81
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

@@ -48,7 +48,7 @@ folder under compressors/.
   lz5-ex 1.5.4            Yann Collet, Przemyslaw Skibinski       BSD-2-Clause
                           (LZ5), YadeWira (lz5-ex)
   LZ4 1.11.0              Yann Collet                             BSD-2-Clause (library)
-  LZAV 5.20               Aleksey Vaneev                          MIT
+  LZAV 7.1                Aleksey Vaneev                          MIT
   lz6                     Yann Collet (LZ4), Przemyslaw           BSD-2-Clause
                           Skibinski (LZ5), YadeWira
   Snappy 1.3.1            Google Inc.                             BSD-3-Clause
@@ -69,7 +69,7 @@ folder under compressors/.
                           Nicolas De Carli (rapidhash)
   sylz and sylzec syc v0.5.4
                           Yade Bravo (YadeWira)                   MIT
-  PJA 0.7.0               Yade Bravo (YadeWira)                   MIT
+  PJA 0.8.0               Yade Bravo (YadeWira)                   MIT
 
 sylz (syc) and PJA (Yade Bravo, MIT) are in Free Pascal and, by rule, never linked
 into zpaq-std: they ship as plugins (codecs/sylz and codecs/pja, .dll or .so).

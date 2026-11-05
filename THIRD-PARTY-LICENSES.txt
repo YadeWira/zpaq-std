@@ -21,7 +21,7 @@ PART 1 - BUNDLED COMPRESSORS
   lizard-ex (Lizard)   2.3.2                        BSD-2-Clause (library)
   lz5-ex               1.5.4                        BSD-2-Clause
   LZ4                  1.11.0                       BSD-2-Clause (library)
-  LZAV                 5.20                         MIT
+  LZAV                 7.1                          MIT
   lz6                  see compressors/lz6/VERSION.txt BSD-2-Clause
   Snappy               1.3.1                        BSD-3-Clause
   lzfse-ex (LZFSE)     1.0.4                        BSD-3-Clause
@@ -34,7 +34,7 @@ PART 1 - BUNDLED COMPRESSORS
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  0.15.0                       BSD-3-Clause; rapidhash MIT
   sylz and sylzec      syc v0.5.4                   MIT
-  PJA                  0.7.0                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
+  PJA                  0.8.0                        MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -682,7 +682,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-LZAV 5.20
+LZAV 7.1
 Licence: MIT
 Copyright: Aleksey Vaneev
 zpaq-std's own again since 2.0.0 (-ma:lzav).
@@ -2353,7 +2353,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-PJA 0.7.0
+PJA 0.8.0
 Licence: MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)
 Copyright: Yade Bravo (YadeWira)
 The -sa codecs pjax and pja (JPEG), pjall (lossless JPEG), pjals and pjalsx (JPEG-LS). Free Pascal, built only as a plugin

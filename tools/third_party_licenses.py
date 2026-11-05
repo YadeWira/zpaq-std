@@ -34,7 +34,7 @@ BUNDLED = [
     ('lz5-ex', '1.5.4', 'BSD-2-Clause', 'Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)',
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('LZ4', '1.11.0', 'BSD-2-Clause (library)', 'Yann Collet', ['compressors/lz4/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lz4, lz4hc, lz4f).'),
-    ('LZAV', '5.20', 'MIT', 'Aleksey Vaneev', ['compressors/lzav/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lzav).'),
+    ('LZAV', '7.1', 'MIT', 'Aleksey Vaneev', ['compressors/lzav/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lzav).'),
     ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause', 'Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), YadeWira', ['compressors/lz6/LICENSE'], ''),
     ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
     ('lzfse-ex (LZFSE)', '1.0.4', 'BSD-3-Clause', 'Apple Inc.; maintained by YadeWira', ['compressors/lzfse/LICENSE'], ''),
@@ -62,7 +62,7 @@ BUNDLED = [
     ('sylz and sylzec', 'syc v0.5.4', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
-    ('PJA', '0.7.0', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
+    ('PJA', '0.8.0', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
      ['compressors/pja/LICENSE', 'compressors/pja/NOTICE'],
      'The -sa codecs pjax and pja (JPEG), pjall (lossless JPEG), pjals and pjalsx (JPEG-LS). Free Pascal, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'

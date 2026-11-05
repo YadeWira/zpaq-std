@@ -1,3 +1,11 @@
+### [2.5.0] - 2026-11-05
+
+**LZAV 7.1: `-ma:lzav` writes LZAV's new format 4, 1-4% smaller, with a new frozen decoder; and PJA 0.8.0.**
+
+- **LZAV 7.1** (`-ma:lzav`): LZAV 7.0 brought a new data format, 4, and no longer writes format 3, the one whose ZPAQL decoder every `-ma:lzav` block has carried since 2.0.0. So the blocks now carry a new decoder, written for format 4 (`LZAV4_PCOMP`, frozen like the others: its bytecode's SHA-1 is checked before anything is written), and zpaq-std decodes them natively; any zpaq extracts them by running it. On the test corpus `-ma:lzav:0` writes 1.4% less (19,423,994 -> 19,150,213 bytes) and `-ma:lzav:1` 0.7% less; text gains the most (2.4%). It compresses as fast or faster (`hi` 112 -> 176 MB/s on the corpus) and decompresses at the same speed.
+- Archives written with `-ma:lzav` up to 2.4.0 (format 3, and zpaqfranz 65.3-65.4's `-m7`) are read as before: natively, the stream's format has to be the one its decoder reads.
+- **PJA 0.8.0** (`-sa`): its 8 codecs take the place of all five in `-sa`: `pjax78`, `pja78`, `pjall8`, `pjals8` and `pjalsx8` (and their z). The same codecs and streams, with every decoder compiled with PJA's compiler at its new optimization level: 3 to 8% smaller (`pja7` 35,104 -> 32,954 bytes, `pjall` 15,058 -> 13,901) and a little faster in a zpaq without the plugin. Every block of `-sa` gains a few KB (PJA's photos set 6,599 bytes); with the plugin nothing changes. `-sa:pja7`, `pjax7`, `pjax`, `pjallo`... still work and mean the 8 codecs; archives written with the older codecs are read as before.
+
 ### [2.4.0] - 2026-11-05
 
 **PJA 0.7.0: `-sa`'s decoders for lossless JPEG and JPEG-LS, half the size and twice as fast in any zpaq.**

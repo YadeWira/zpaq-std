@@ -89,7 +89,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) 1.7.1 | 0–15 | 0 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.0 | 1–12 | 9 |
-| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 5.20 | 0–1 | 1 |
+| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.1 | 0–1 | 1 |
 
 #### Experimental
 
@@ -115,8 +115,8 @@ shows its card (author, repository, version, hashes).
 `-sa` stands for *specific algorithms*: zpaq-std's codecs for specific formats.
 
 ```bash
-zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax7, pja7, pjallo, pjalso, pjalsxo
-zpaq-std a photos.zpaq /photos -sa:pjalso -ma:zstd   # only JPEG-LS; the rest with zstd
+zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax78, pja78, pjall8, pjals8, pjalsx8
+zpaq-std a photos.zpaq /photos -sa:pjals8 -ma:zstd   # only JPEG-LS; the rest with zstd
 ```
 
 #### Stable
@@ -127,12 +127,12 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.7.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
-| `-sa:pjax7+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
-| (pja7) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
-| `-sa:pjallo+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
-| `-sa:pjalso+N` | the same plugin | JPEG-LS | 2 | 2 |
-| `-sa:pjalsxo+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.8.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pjax78+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
+| (pja78) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
+| `-sa:pjall8+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
+| `-sa:pjals8+N` | the same plugin | JPEG-LS | 2 | 2 |
+| `-sa:pjalsx8+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
 `-m`/`-ma` say. The files a codec takes share a block, whatever lies between them:
