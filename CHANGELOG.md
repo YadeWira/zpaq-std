@@ -1,3 +1,11 @@
+### [2.3.0] - 2026-11-04
+
+**`-sa` keeps the files a codec takes in one block, and PJA 0.6.4.**
+
+- **`-sa` groups better:** the files a codec takes share a block (one ZPAQL decoder, one LZ77 over all of them) only when they come one after the other, so any other file between two photos (zpaq adds them in name order) cut the group. Now, while a codec's block is being filled, a file it does not take (another codec takes it, or none) waits until the end: the files of each codec stay together, then the others are added, in their order. In folders where photos sit among other files `-sa` writes 1-2% less (7 folders of the test corpus, 52 MB: 33,404,771 -> 32,851,567 bytes, 21 blocks -> 2; PJA's corpus set 0.8% less); where nothing came between the photos, the archive is the same as 2.2.2's. `-sat` says how many files waited (00742). Not with `-tar`, whose order decides which of a set of hard links holds the data. Any zpaq extracts these archives, as before.
+- Without the plugin (zpaq 7.15, or zpaq-std without `codecs/`) each block runs its ZPAQL decoder in one thread, so such a folder now extracts as slowly as a folder of photos only already did (on the test folder 25 s -> 53-85 s; with the plugin 1.2 s -> 1.5 s). Smaller groups were measured and kept out: with 8 MB a set of photos saved again lost 14%, with 16 MB 8%.
+- **PJA 0.6.4** (`-sa`): the fixes of an audit, no stream, ZPAQL or codec change. `pjall` asks for enough memory for a big lossless JPEG, `pjax7` refuses in its detect a JPEG with more scans than it handles, and the detect's verdict is found by size and hash, also when data follow the JPEG's end.
+
 ### [2.2.2] - 2026-11-04
 
 **LZ4 1.11.0, and the documentation brought up to date.**

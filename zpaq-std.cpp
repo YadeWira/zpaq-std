@@ -76,7 +76,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.2.2"
+#define ZPAQSTD_VERSION "2.3.0"
 #define ZPAQSTD_DATE "(2026-11-04)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -95387,7 +95387,7 @@ struct zs_sa_codec
 	std::string file, algo;
 	int			level;
 	std::string cfg;	/// its ZPAQL configuration, "" if it gives none (-sat only)
-	bool		segs;	/// its ZPAQL handles several segments: consecutive files share a block
+	bool		segs;	/// its ZPAQL handles several segments: the files it takes share a block
 	std::string zcfg;	/// -sa, stage 5: the ZPAQL of its "z" variant (LZ77 over the group), "" if none
 	zs_sa_codec() : level(0), segs(false) {}
 };
@@ -162140,8 +162140,9 @@ int Jidac::loadparameters(int argc, const char** argv)
 					         "             and each block is decoded by it and by the plugin, and compared%s\n",
 					         (int)xe->zpaql.size(), (int)bc.size(), xe->zargs ? ";\n             $3..$5 from the codec's query() for each block" : "");
 				if (sc.segs)
-					myprintf("00733:     segments yes: consecutive files it takes share a block, one segment\n"
-					         "             each, and the ZPAQL travels once per block (ZS_QUERY_SEGMENTS)\n");
+					myprintf("00733:     segments yes: the files it takes share a block, one segment each\n"
+					         "             (other files wait until the block is full), and the ZPAQL\n"
+					         "             travels once per block (ZS_QUERY_SEGMENTS)\n");
 				else
 					myprintf("00733:     ZPAQL   NO. For safety, every block carries a decoder that writes nothing\n"
 					         "             (ZPAQEXTNONE): another zpaq reports the block as damaged instead\n"
@@ -254397,8 +254398,55 @@ int Jidac::add2()
 	bool				sa_blk_ok= false;
 	std::vector<size_t> sa_cuts;
 	std::string			sa_names;
+	/// -sa (2.3.0): while a block of codec C is being filled, a file C does not take (another codec
+	/// takes it, or none) waits until the end (sa_dopo): so the files C takes stay together and share
+	/// one block, one ZPAQL decoder and one LZ77, instead of a block each that the decoder may not
+	/// pay for. The files that waited go last, codec by codec, then those no codec takes, in their
+	/// order (sa_secondo: none waits again; those no codec takes are not looked at again)
+	std::vector<DTMap::iterator> sa_dopo;
+	std::vector<int>			 sa_dopo_cod;
+	std::set<const DT *>		 sa_nessuno;
+	bool						 sa_secondo= false;
 	for (unsigned fi= 0; fi <= vf.size(); ++fi)
 	{
+		if (fi == vf.size() && !sa_dopo.empty())
+		{
+			std::set<const DT *> attesa;
+			for (size_t k= 0; k < sa_dopo.size(); ++k)
+				attesa.insert(&sa_dopo[k]->second);
+			std::vector<DTMap::iterator> nuovo;
+			nuovo.reserve(vf.size());
+			int nuovo_blk= -1;
+			for (size_t k= 0; k < vf.size(); ++k)
+				if (!attesa.count(&vf[k]->second))
+				{
+					if ((int)k == sa_blk_fi)
+						nuovo_blk= (int)nuovo.size();
+					nuovo.push_back(vf[k]);
+				}
+			fi= (unsigned)nuovo.size();
+			std::vector<int> codici;
+			for (size_t k= 0; k < sa_dopo_cod.size(); ++k)
+				if (sa_dopo_cod[k] >= 0 && std::find(codici.begin(), codici.end(), sa_dopo_cod[k]) == codici.end())
+					codici.push_back(sa_dopo_cod[k]);
+			codici.push_back(-1);
+			for (size_t c= 0; c < codici.size(); ++c)
+				for (size_t k= 0; k < sa_dopo.size(); ++k)
+					if (sa_dopo_cod[k] == codici[c])
+					{
+						nuovo.push_back(sa_dopo[k]);
+						if (codici[c] < 0)
+							sa_nessuno.insert(&sa_dopo[k]->second);
+					}
+			assert(nuovo.size() == vf.size());
+			if (g_sa_mode == 't')
+				myprintf("00742: -sa%c: %s files waited for the block of another codec to be filled\n", g_sa_mode, migliaia((int64_t)sa_dopo.size()));
+			vf.swap(nuovo);
+			sa_blk_fi = nuovo_blk;
+			sa_secondo= true;
+			sa_dopo.clear();
+			sa_dopo_cod.clear();
+		}
 		FP				in	  = FPNULL;
 		int				bufptr= 0, buflen= 0; // read pointer and limit
 		DTMap::iterator p;
@@ -254475,7 +254523,7 @@ int Jidac::add2()
 		int	 sa_file = -1;
 		bool sa_force= false;
 		if (g_sa_mode && (fi < vf.size()) && (in != FPNULL) && (!flagstdin) && (!flagmemfile) && (!flagimage) && (!flagtarspecial)
-			&& (p->second.expectedsize > 16) && (p->second.expectedsize <= ZS_SA_MAXFILE))
+			&& (p->second.expectedsize > 16) && (p->second.expectedsize <= ZS_SA_MAXFILE) && !sa_nessuno.count(&p->second))
 		{
 			std::vector<unsigned char> safb((size_t)p->second.expectedsize);
 			if (fread(&safb[0], 1, safb.size(), in) == safb.size())
@@ -254509,6 +254557,16 @@ int Jidac::add2()
 				}
 			}
 			fseeko(in, 0, SEEK_SET);
+		}
+		/// -sa: a block of another codec is being filled: this file waits (see sa_dopo). Not with
+		/// -tar, where the order of the files decides which one of hard links holds the data
+		if (g_sa_mode && !sa_secondo && !flagtar && (fi < vf.size()) && (in != FPNULL) && (!flagstdin) && (!flagmemfile)
+			&& (!flagimage) && (!flagtarspecial) && sa_blk_fi >= 0 && sa_file != sa_blk_codec)
+		{
+			sa_dopo.push_back(vf[fi]);
+			sa_dopo_cod.push_back(sa_file);
+			myfclose(&in);
+			continue;
 		}
 
 		/// EXPERIMENTAL: just a mockup
@@ -254659,7 +254717,8 @@ int Jidac::add2()
 				/// (sa_join): then the file joins them, if the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
 				/// since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
-				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
+				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3:
+				/// 2.3.0 measured 8 and 16 MB: a set of photos saved again lost 14% and 8%)
 				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
 								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP);
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
@@ -255655,7 +255714,8 @@ int Jidac::add2()
 				/// (sa_join): then the file joins them, if the whole of it fits
 				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
 				/// since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
-				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3)
+				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3:
+				/// 2.3.0 measured 8 and 16 MB: a set of photos saved again lost 14% and 8%)
 				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
 								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP);
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)

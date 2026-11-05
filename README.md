@@ -127,7 +127,7 @@ None yet.
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.6.3, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.6.4, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
 | `-sa:pjax7+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja7) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
@@ -135,8 +135,9 @@ None yet.
 | `-sa:pjalsx+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
-`-m`/`-ma` say. Consecutive files a codec takes share a block (JPEGs from the same
-camera and settings are put next to each other first), and where it takes
+`-m`/`-ma` say. The files a codec takes share a block, whatever lies between them:
+the other files wait until it is full (JPEGs from the same camera and settings are
+put next to each other first), and where it takes
 fewer bytes the block also goes through an LZ77 that finds what repeats across
 them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
 size, against 71% without it). Since 2.1.0 JPEG goes with PJA's stream v7 (`pja7`,

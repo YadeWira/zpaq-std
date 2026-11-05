@@ -1,24 +1,34 @@
-# PJA 0.6.3: the zpaq-std plugin, vendored
+# PJA 0.6.4: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.6.3`, commit `fdcfbc9`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.6.4`, commit `c435ec8`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
 
-0.6.3 changes no stream, no ZPAQL and nothing any codec takes from a
-well-formed file: the 14 codecs are 0.6.0's. What fuzzing found, in files
-the plugin shares with the command:
+0.6.4 changes no stream and no ZPAQL: the 14 codecs and their decoders are
+0.6.0's, and every block written before decodes as before. What a code
+audit found, in files the plugin shares with the command and in the
+plugin itself:
 
-- `pjajls.pas`: a JPEG-LS that ends with its scan, no EOI, is refused when
-  parsed (it was taken, then failed the verification): pjals' and
-  pjalsx's detect refuses it now, before trying.
-- `pjacodec.pas`: repairing a damaged JPEG could take minutes (the filler
-  for a cut scan went back and forth); now well under a second, at worst
-  seconds, with the same files repaired.
-- `pjaheap.pas`: a size that would overflow its header is refused; with no
-  memory it still answers nil (raising a runtime error from the memory
-  manager was measured to end the host).
-- `build_c.sh`: `-march=i686` for 32-bit x86 (MSYS2's mingw32 gcc assumed
-  SSE2), the same bytes on any 686.
+- `pja_zpaqstd.pas`, `plugin/pjazpaqlargs.pas`: pjall's H counted one band
+  where a large lossless JPEG has several (2^21 samples or more could ask
+  for too small an H); pjax's and pjax7's detect and query refuse a part
+  with more scans than `pjadec.zl`'s MAXSCANS (pja's, pja7's and pjall's
+  queries check it too); the detect verdict is found by size and BLAKE3,
+  and compress() finds it when zpaq-std's fragment list follows the EOI.
+  A codec's compress writes the same bytes as 0.6.3 for every file it
+  took.
+- `pjacodec.pas`: a repair whose filler outgrew the file was refused
+  (now taken; positions and deletions capped by the filler's own bound,
+  the inner stream by the repaired size); a thread the system refuses no
+  longer leaves others on freed memory (the bands left run on the
+  caller's thread); verification no longer stops at 256 MiB.
+- `pjajpeg.pas`: scans grow by doubling, at most 1024 when compressing
+  (more go as bytes); MPF offsets in Int64 on 32-bit.
+- `pjajls.pas`: interleaved scans with components smaller than the frame
+  are refused (they crashed), and so, when compressing, is a component
+  coded in two scans; fill bytes before a marker are taken.
+- `pjamodel.pas`: ParkThreadModels/UnparkThreadModels, used by libpja
+  only; the plugin does not call them.
 
 As in 0.6.1, either clang or gcc builds these sources; clang is the faster.
 
@@ -57,7 +67,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=3488d96
+export PJA_COMMIT=c435ec8
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):
@@ -87,7 +97,8 @@ Windows x86: `CC=i686-w64-mingw32-gcc sh pas/build_c.sh build/win32/c`
 -Fobuild/win32/c`, as 0.5.3's with `-Fo` added.
 
 macOS arm64: `sh pas/build_c.sh build/mac/c -fPIC` with clang, then fpc with
-`-Fobuild/mac/c -Cg`.
+`-Fobuild/mac/c -Cg`, output `pja.so` (zpaq-std loads `codecs/<name>.so` off
+Windows; 0.6.3's release named it `pja.dylib`).
 
 `-dPJA_FAST` as before. On x86 the C has SSE4.1 and AVX2 copies of its
 loop, taken by cpuid at run time; every copy writes the same bits.
