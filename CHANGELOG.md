@@ -6,6 +6,14 @@
 - Archives written with `-ma:lzav` up to 2.4.0 (format 3, and zpaqfranz 65.3-65.4's `-m7`) are read as before: natively, the stream's format has to be the one its decoder reads.
 - **PJA 0.8.0** (`-sa`): its 8 codecs take the place of all five in `-sa`: `pjax78`, `pja78`, `pjall8`, `pjals8` and `pjalsx8` (and their z). The same codecs and streams, with every decoder compiled with PJA's compiler at its new optimization level: 3 to 8% smaller (`pja7` 35,104 -> 32,954 bytes, `pjall` 15,058 -> 13,901) and a little faster in a zpaq without the plugin. Every block of `-sa` gains a few KB (PJA's photos set 6,599 bytes); with the plugin nothing changes. `-sa:pja7`, `pjax7`, `pjax`, `pjallo`... still work and mean the 8 codecs; archives written with the older codecs are read as before.
 
+#### Checked
+
+- **LZAV 7.1:** the new ZPAQL decoder (`LZAV4_PCOMP`), run with zpaqd, gives back 402 streams of LZAV 7.1 byte for byte; archives written with `-ma:lzav:0` and `:1` extract identically natively, with zpaq 7.15 and with 2.4.0 (both running the decoder), and 200 damaged streams never make it hang.
+- **PJA 0.8.0:** on PJA's five sets and the mixed test folder every archive is smaller than 2.4.0's (arithmetic-coded JPEGs 2,192 bytes, corpus 5,906, generated 2,225, MPO 6,176, photos 6,599, mixed 2,225) and extracts identically; the corpus also with zpaq 7.15.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 23/23, `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.4.0: the 182 archives differ only in the version stamp of the index.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs, on 9 JPEG-LS files (`pjals8` with its z), `-ma:lzh:4` and `-ma:lzav:0`/`:1` on 387 text files extract identically both ways, and on Linux with zpaq 7.15 (and 2.4.0 for `-sa`). CI is green on all six platforms.
+
 ### [2.4.0] - 2026-11-05
 
 **PJA 0.7.0: `-sa`'s decoders for lossless JPEG and JPEG-LS, half the size and twice as fast in any zpaq.**
