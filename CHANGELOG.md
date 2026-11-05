@@ -6,6 +6,13 @@
 - `-sa:pjall`, `-sa:pjals` and `-sa:pjalsx` still work and mean the o codecs; archives written with the old ones are read as before (they stay in the plugin). `pjax7` and `pja7` are unchanged.
 - On PJA's corpus set the archive is 8,254 bytes smaller (the JPEG-LS block's decoder); sets with no lossless JPEG or JPEG-LS write the archive of 2.3.0.
 
+#### Checked
+
+- **PJA 0.7.0:** on PJA's five sets (arithmetic-coded JPEGs, corpus, generated, MPO, photos) and the mixed test folder the archives are 2.3.0's, except corpus (22,556,854 -> 22,548,600 bytes); everything extracts identically, natively and with zpaq 7.15, which extracts the JPEG-LS files of the corpus in 2.1 s instead of 3.4 s. `-sa:pjals` writes the same archive as `-sa:pjalso`, and an archive of 2.3.0 extracts as before.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 23/23, with a new case for the aliases; `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.3.0: 182 archives, 0 divergences.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs, on 9 JPEG-LS files (`pjalso` with its z, `pjalsxo`) and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.3.0. CI is green on all six platforms.
+
 ### [2.3.0] - 2026-11-04
 
 **`-sa` keeps the files a codec takes in one block, and PJA 0.6.4.**
