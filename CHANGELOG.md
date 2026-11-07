@@ -4,6 +4,15 @@
 
 - **`scanfiles <folder>...`** counts the kinds of files in one or more folders, by their contents (the signature in the first 4 KB of each; 64 KB of a JPEG, so that MPOs are told apart): a table of kinds, files, size and share, the biggest first, with the `-sa` codec that would try each kind (`pja78`, `pjax78`, `pjall8`, `pjals8`, `pjalsx8`, `pja2k`). Then it counts the files whose extension says another kind (a PNG named `.jpg`, a text named `.jpg`...); `-verbose` lists each one. `-fastsf` goes by the extension only: much faster, less exact, and with no check of the extensions. `-t` reads the files with several threads (`-t0`: one per core). About 70 kinds are known (images, JPEG 2000, archives, executables and libraries, audio, video, fonts, documents, text, and system files such as Python bytecode, gettext catalogs and zlib streams); a file it cannot read is counted, and the command then ends with code 1. While it reads, one line shows how far it is (files, bytes, files per second); `-noeta` hides it.
 
+- On Windows, `scanfiles` reads paths longer than 260 characters by itself, with no `-longpath` (it only reads).
+
+#### Checked
+
+- **`scanfiles`:** on the test corpus (40,533 files, 91 GB: 59 s cold, 0.3 s cached), `/usr` (268,635 files) and a folder of source trees and builds (144,397 files); the extension warnings were checked by hand (base64 texts named `.jpg`, password-protected `.docx` that are OLE2, a `.zip` that is an MP3). A new suite, `suite_scanfiles`, 6/6 (2.6.0, without the command, fails 5).
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 25/25, `suite_scanfiles` 6/6); golden archives: 0 unexpected failures; `difftest` against 2.6.0: only the version stamp differs.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `scanfiles` on a folder with a Unicode name (`fotos ñandú €`) and a 270-character path finds all 6 files, by contents and with `-fastsf`, the same on both; `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.6.0. CI is green on all six platforms.
+
 ### [2.6.0] - 2026-11-06
 
 **`-sa` is stable, and takes JPEG 2000 too: PJA 0.9.6 with `pja2k`.**
