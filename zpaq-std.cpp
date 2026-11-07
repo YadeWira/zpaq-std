@@ -177777,6 +177777,11 @@ int Jidac::scanfiles()
 	for (size_t i=0; i<files.size(); i++)
 	{
 		DTMap edt;
+#ifdef _WIN32
+		/// it only reads: paths past 260 characters always, with no -longpath (as stermina does).
+		/// files itself, as add does: scandir selects each name against it
+		files[i]=forcelongpath(files[i]);
+#endif
 		scandir(true, edt, files[i]);
 		for (DTMap::iterator p=edt.begin(); p!=edt.end(); ++p)
 			if (!isdirectory(p->first))
@@ -177878,7 +177883,14 @@ int Jidac::scanfiles()
 				e[i]=(char)tolower((unsigned char)e[i]);
 			diversi["."+e+"\t"+tipo[k].name]++;
 			if (flagverbose)
-				myprintf("00745: <<%Z>>: %s, by its extension %s\n", nomi[k].c_str(), tipo[k].name.c_str(), perest[k].name.c_str());
+			{
+				std::string mostra=nomi[k];
+				if (mostra.compare(0, 8, "//?/UNC/")==0)
+					mostra="//"+mostra.substr(8);
+				else if (mostra.compare(0, 4, "//?/")==0)
+					mostra=mostra.substr(4);
+				myprintf("00745: <<%Z>>: %s, by its extension %s\n", mostra.c_str(), tipo[k].name.c_str(), perest[k].name.c_str());
+			}
 		}
 	}
 	std::vector<std::pair<int64_t, std::string> > ordine;
