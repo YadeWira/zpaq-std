@@ -6,6 +6,12 @@
 - **`x` (and `w`) with `-longpath` and no `-to`, on Windows:** a file whose path was longer than 260 characters failed with "the system cannot find the path" (inherited from zpaqfranz): `-longpath` only made the `-to` folder extended, so a stored path (relative, `src/...`, or `C:/...`) was written as it was. Now it is made extended too (relative to absolute, then `//?/`), as with `-to`.
 - **PJA 0.9.7:** only PJA's command changes; the plugin's codecs and decoders are 0.9.6's, byte for byte.
 
+#### Checked
+
+- **`x -longpath` with no `-to`, Windows 7 x64 and x86:** a folder with a Unicode name and a 270-character path extracts relative to the current folder, and `w -ramdisk -test -verify -longpath` finds the 6 files the same; an archive with absolute stored paths extracts in place too. With no `-longpath` the long file still fails, as before.
+- **Full test battery:** every suite has 0 cases to review (`suite_scanfiles` 7/7, with the `-to` case; `suite_sa` 25/25); golden archives: 0 unexpected failures; `difftest` against 2.7.0: only the version stamp differs.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three; all 288 cross extractions are identical. Windows 7: `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` extract identically both ways, and on Linux with zpaq 7.15 and 2.7.0. CI is green on all six platforms.
+
 ### [2.7.0] - 2026-11-07
 
 **`scanfiles`: what kinds of files a folder holds.**
