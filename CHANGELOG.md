@@ -6,6 +6,14 @@
 - **JPEG 2000** (`-sa`, `-sa:pja`, `-sa:pja2k`): PJA 0.9.6's new codec, `pja2k`, recompresses the JPEG 2000 family losslessly: JP2, JPX, JPM, Motion JPEG 2000 and raw codestreams (HTJ2K codestreams stay as bytes, and a file that is only HTJ2K is not taken). On the 16 JPEG 2000 files of the test corpus, 18.7 MB, it writes 9% less than `-m`. Its blocks carry its ZPAQL decoder (51.5 KB), so any zpaq extracts them, but that decoder is slow: about 30 times slower than the plugin, and `-sa` decodes every block with it before writing, so writing JPEG 2000 runs at about 0.3 MB/s. It is last in the family, after the five JPEG codecs, and has no z variant.
 - **PJA 0.9.6**: the other codecs write the same bytes as with 0.8.0 (their decoders are unchanged, byte for byte); PJA's shared sources are faster, and the plugin's thread waits no longer sleep 100 ms.
 
+#### Checked
+
+- **JPEG 2000:** the 16 JPEG 2000 files of the test corpus (JP2, J2C, J2K, JPM, MJ2; 18.7 MB) go to 17.0 MB and extract identically with the plugin (10 s), without it through the ZPAQL (5 min) and with zpaq 7.15 (5 min); `-sa:pja2k` writes the same archive as `-sae:pja:pja2k+2`; on PJA's own small test files (65 KB) the 51.5 KB decoder does not pay and they go to `-m`.
+- **PJA 0.9.6, the other codecs:** on PJA's five sets and the mixed test folder every archive has 2.5.0's size to the byte (only the version stamp differs) and extracts identically; the corpus also with zpaq 7.15. The plugin compresses 20 to 27% faster.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 25/25, with two new JPEG 2000 cases; `suite_lz4lzav` 24/24); golden archives: 0 unexpected failures. `difftest` against 2.5.0: the 182 archives differ only in the version stamp.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three, JPEG 2000 too; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs and on 9 JPEG-LS and 4 JPEG 2000 files, and `-ma:lzh:4`, extract identically both ways, and on Linux with zpaq 7.15 and 2.5.0 (which runs the ZPAQL); no 00737 warning. CI is green on all six platforms.
+
 ### [2.5.0] - 2026-11-05
 
 **LZAV 7.1: `-ma:lzav` writes LZAV's new format 4, 1-4% smaller, with a new frozen decoder; and PJA 0.8.0.**
