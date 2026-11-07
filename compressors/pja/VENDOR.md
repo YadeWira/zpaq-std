@@ -1,14 +1,20 @@
-# PJA 0.9.6: the zpaq-std plugin, vendored
+# PJA 0.9.7: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.6`, commit `f207fe3`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.7`, commit `0f01f28`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
 
-The thirty codecs, 0 to 29, are 0.9.0's: their names, indices, streams and
-ZPAQL decoders are unchanged, byte for byte (every `pas/plugin/*.inc` but
-the new `j2kzpaql.inc` is identical to 0.9.5's and 0.9.0's), and they are
-fixed (`doc/STABILITY.md`). No codec 0 to 29 takes a file it did not take,
-and none writes other bytes.
+## What is new in 0.9.7
+
+Nothing for the plugin: its 31 codecs (0 to 29, and `pja2k` at 30) are
+0.9.6's, byte for byte (streams, ZPAQL, what each takes). The only change
+in these sources is `PJA_VERSION` in `pas/pjacodec.pas`. 0.9.7's change is
+in the `pja` command (each output's flush beside the next file's work),
+which the plugin does not use. Rebuilding is optional.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k` and
+`tests/jpg`.
 
 ## What is new in 0.9.6: pja2k, JPEG 2000
 
@@ -168,7 +174,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=f207fe3
+export PJA_COMMIT=0f01f28
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

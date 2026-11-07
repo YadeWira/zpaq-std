@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.7.0"
+#define ZPAQSTD_VERSION "2.7.1"
 #define ZPAQSTD_DATE "(2026-11-07)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -158542,6 +158542,15 @@ string Jidac::rename(string name)
 	}
 	myreplaceall(name, "/./", "/_/");
 	myreplaceall(name, "/../", "/__/");
+#ifdef _WIN32
+	/// zpaq-std 2.7.1: -longpath with no -to wrote the stored path as it is, relative
+	/// (src/...) or C:/..., so a name past 260 characters failed (cannot find the path).
+	/// Made extended as with -to: relative => absolute, then //?/
+	if (flaglongpath)
+		if ((command == 'x') || (command == 'w'))
+			if (tofiles.empty())
+				name= forcelongpath(name);
+#endif // corresponds to #ifdef (#ifdef _WIN32)
 
 	return name;
 }
@@ -177769,6 +177778,12 @@ int Jidac::scanfiles()
 	if (files.empty())
 	{
 		myprintf("00744! scanfiles: which folder? (scanfiles <folder>... [-fastsf] [-t])\n");
+		return 2;
+	}
+	/// -to is for extracting: here it is nearly always -t0 mistyped (zpaq-std 2.7.1)
+	if (!tofiles.empty())
+	{
+		myprintf("00783! scanfiles does not use -to (it writes nothing). All the threads: -t0\n");
 		return 2;
 	}
 	const int64_t inizio=mtime();

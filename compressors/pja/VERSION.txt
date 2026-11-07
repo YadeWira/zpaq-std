@@ -1,6 +1,6 @@
-PJA 0.9.6 (tag v0.9.6, commit f207fe3), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.9.6-zpaqstd.tar.gz (sha256
-c242d10e822d8cd05b069b3e2b7d7c0ecb564bcfafa9e3bd17abf8429717ef64), copied unmodified.
+PJA 0.9.7 (tag v0.9.7, commit 0f01f28), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.7-zpaqstd.tar.gz (sha256
+5e531f728e1845fe2932e426158c8b32ac3d22c7fb6ca15cf9bbf43158940a37), copied unmodified.
 For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
 (they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
 (pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's
@@ -40,7 +40,8 @@ PATCH's sizes; 0.9.5 is faster with the same bytes and brings PJA's JPEG 2000 so
 (pjaj2k*.pas and .c, pjathread.pas, pjastage.pas); 0.9.6 adds codec 30, pja2k: the
 JPEG 2000 family (JP2, JPX, JPM, MJ2, codestreams) as stream version 8, codestream
 modes 0 and 1, with a ZPAQL decoder (pas/plugin/j2kzpaql.inc, 51,521 bytes, comp 0 0
-$3 $4 0, both from the query); HTJ2K stays as bytes. It is frozen too. Files:
+$3 $4 0, both from the query); HTJ2K stays as bytes. It is frozen too. 0.9.7 changes
+only PJA's command (and the version in pjacodec.pas): the plugin is 0.9.6's. Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
 JPEG, CharLS's BSD 3-Clause for JPEG-LS, OpenJPH's BSD 2-Clause for HTJ2K) and VENDOR.md (what it is and how it builds).
 

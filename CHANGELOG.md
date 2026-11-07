@@ -1,3 +1,11 @@
+### [2.7.1] - 2026-11-07
+
+**`scanfiles` refuses `-to`, `x -longpath` with no `-to` on Windows, and PJA 0.9.7.**
+
+- **`scanfiles ... -to`** is refused (00783), with a hint: it writes nothing, and `-to` is nearly always `-t0` mistyped. Before, it was taken in silence.
+- **`x` (and `w`) with `-longpath` and no `-to`, on Windows:** a file whose path was longer than 260 characters failed with "the system cannot find the path" (inherited from zpaqfranz): `-longpath` only made the `-to` folder extended, so a stored path (relative, `src/...`, or `C:/...`) was written as it was. Now it is made extended too (relative to absolute, then `//?/`), as with `-to`.
+- **PJA 0.9.7:** only PJA's command changes; the plugin's codecs and decoders are 0.9.6's, byte for byte.
+
 ### [2.7.0] - 2026-11-07
 
 **`scanfiles`: what kinds of files a folder holds.**
