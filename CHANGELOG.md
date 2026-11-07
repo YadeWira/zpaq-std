@@ -1,3 +1,9 @@
+### [2.7.0] - 2026-11-07
+
+**`scanfiles`: what kinds of files a folder holds.**
+
+- **`scanfiles <folder>...`** counts the kinds of files in one or more folders, by their contents (the signature in the first 4 KB of each; 64 KB of a JPEG, so that MPOs are told apart): a table of kinds, files, size and share, the biggest first, with the `-sa` codec that would try each kind (`pja78`, `pjax78`, `pjall8`, `pjals8`, `pjalsx8`, `pja2k`). Then it counts the files whose extension says another kind (a PNG named `.jpg`, a text named `.jpg`...); `-verbose` lists each one. `-fastsf` goes by the extension only: much faster, less exact, and with no check of the extensions. `-t` reads the files with several threads (`-t0`: one per core). About 70 kinds are known (images, JPEG 2000, archives, executables and libraries, audio, video, fonts, documents, text, and system files such as Python bytecode, gettext catalogs and zlib streams); a file it cannot read is counted, and the command then ends with code 1. While it reads, one line shows how far it is (files, bytes, files per second); `-noeta` hides it.
+
 ### [2.6.0] - 2026-11-06
 
 **`-sa` is stable, and takes JPEG 2000 too: PJA 0.9.6 with `pja2k`.**

@@ -77,8 +77,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.6.0"
-#define ZPAQSTD_DATE "(2026-11-06)"
+#define ZPAQSTD_VERSION "2.7.0"
+#define ZPAQSTD_DATE "(2026-11-07)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.17o"
@@ -88094,6 +88094,7 @@ bool flagnodir;
 bool flagnodedup;
 bool flagnoeta;
 bool flagfranztime;	/// -franztime: report of time, CPU, memory and I/O at the end
+bool flagfastsf;	/// scanfiles -fastsf: by the extension only
 bool flagnopath;
 bool flagnoqnap;
 bool flagnomac;
@@ -140072,6 +140073,7 @@ class Jidac
 	int autotest();
 	int pause();
 	int codecinfo();
+	int scanfiles();	/// zpaq-std 2.7.0
 	int versum();
 	int last2();
 #ifdef ZPAQMOUNT ///NOSFTPSTART
@@ -156634,6 +156636,11 @@ losetup -d /dev/loop0
 	HRU(9874, 0x5BBAAAF8, "Старое имя -popgui (ещё работает)"),
 	HES(9874, 0x5BBAAAF8, "Nombre anterior de -popgui (sigue funcionando)"),
 	HPT(9874, 0x5BBAAAF8, "Nome antigo de -popgui (ainda funciona)"),
+	HTESTO(9883, "@flag", 'a', 0, "scanfiles: by the extension only (faster, less exact)"),
+	HIT(9883, 0x0FA0B61E, "scanfiles: solo per estensione (piu' veloce, meno esatto)"),
+	HRU(9883, 0x0FA0B61E, "scanfiles: только по расширению (быстрее, менее точно)"),
+	HES(9883, 0x0FA0B61E, "scanfiles: solo por extensión (más rápido, menos exacto)"),
+	HPT(9883, 0x0FA0B61E, "scanfiles: só por extensão (mais rápido, menos exato)"),
 	HTESTO(9875, "@flag", 'a', 0, "Show a native GUI progress window (Windows); elsewhere it is ignored"),
 	HIT(9875, 0x249630AC, "Finestra grafica di avanzamento (Windows); altrove ignorato"),
 	HRU(9875, 0x249630AC, "Окно хода выполнения (Windows); в других системах игнорируется"),
@@ -156696,6 +156703,43 @@ losetup -d /dev/loop0
 	HRU(9872, 0x91CF218C, "Кодеки -ma и плагины: таблица или карточка одного кодека"),
 	HES(9872, 0x91CF218C, "Los códecs -ma y los plugins: una tabla, o la ficha de un códec"),
 	HPT(9872, 0x91CF218C, "Os codecs -ma e os plugins: uma tabela, ou a ficha de um codec"),
+	/// scanfiles (zpaq-std 2.7.0)
+	HU(9876, "scanfiles", "CMD scanfiles", "What kinds of files a folder holds: how many and how big, by their|    contents (the first 4 KB of each), the biggest first, with the -sa codec that|    would try each kind; then the files whose extension says another kind"),
+	HIT(9876, 0x36E58C87, "Che tipi di file contiene una cartella: quanti e quanto grandi, in base al|    contenuto (i primi 4 KB di ciascuno), dal piu' grande, col codec -sa che|    proverebbe ciascun tipo; poi i file la cui estensione dice un altro tipo"),
+	HRU(9876, 0x36E58C87, "Какие файлы в папке: сколько и какого размера, по содержимому (первые|    4 КБ каждого), от самых больших, с кодеком -sa, который попробовал бы|    каждый тип; затем файлы, расширение которых говорит о другом типе"),
+	HES(9876, 0x36E58C87, "Qué tipos de archivo hay en una carpeta: cuántos y cuánto ocupan, según su|    contenido (los primeros 4 KB de cada uno), de mayor a menor, con el códec -sa|    que probaría cada tipo; luego los archivos cuya extensión dice otro tipo"),
+	HPT(9876, 0x36E58C87, "Que tipos de arquivo há numa pasta: quantos e quanto ocupam, pelo conteúdo|    (os primeiros 4 KB de cada um), do maior ao menor, com o codec -sa que|    tentaria cada tipo; depois os arquivos cuja extensão diz outro tipo"),
+	HU(9877, "scanfiles", "-fastsf", "By the extension only: much faster, less exact (a PNG named .jpg|    counts as a JPEG), and no check of the extensions"),
+	HIT(9877, 0x7BBCEB72, "Solo per estensione: molto piu' veloce, meno esatto (un PNG|    chiamato .jpg conta come JPEG), senza controllo estensioni"),
+	HRU(9877, 0x7BBCEB72, "Только по расширению: намного быстрее, менее точно|    (PNG с именем .jpg считается JPEG), без проверки расширений"),
+	HES(9877, 0x7BBCEB72, "Solo por la extensión: mucho más rápido, menos exacto|    (un PNG llamado .jpg cuenta como JPEG), sin revisar|    las extensiones"),
+	HPT(9877, 0x7BBCEB72, "Só pela extensão: muito mais rápido, menos exato|    (um PNG chamado .jpg conta como JPEG), sem verificar|    as extensões"),
+	HU(9878, "scanfiles", "-t", "Threads that read the files (-t0: one per core); on a hard disk, few"),
+	HIT(9878, 0x845EEFE2, "Thread che leggono i file (-t0: uno per core);|    su un disco meccanico, pochi"),
+	HRU(9878, 0x845EEFE2, "Потоки, читающие файлы (-t0: по одному на ядро);|    на жёстком диске — мало"),
+	HES(9878, 0x845EEFE2, "Hilos que leen los archivos (-t0: uno por núcleo);|    en un disco mecánico, pocos"),
+	HPT(9878, 0x845EEFE2, "Threads que leem os arquivos (-t0: um por núcleo);|    num disco mecânico, poucos"),
+	HU(9879, "scanfiles", "-verbose", "Also each file whose extension says another kind"),
+	HIT(9879, 0x51EEAC91, "Anche ogni file la cui estensione dice un altro tipo"),
+	HRU(9879, 0x51EEAC91, "Также каждый файл, чьё расширение говорит о другом типе"),
+	HES(9879, 0x51EEAC91, "También cada archivo cuya extensión dice otro tipo"),
+	HPT(9879, 0x51EEAC91, "Também cada arquivo cuja extensão diz outro tipo"),
+	HESEMPI("scanfiles", 'b'),
+	HE(9880, "scanfiles", "What a folder holds, with every core", "scanfiles c:\\photos -t0"),
+	HIT(9880, 0x2F8FFF0C, "Cosa contiene una cartella, con tutti i core"),
+	HRU(9880, 0x2F8FFF0C, "Что содержит папка, на всех ядрах"),
+	HES(9880, 0x2F8FFF0C, "Qué hay en una carpeta, con todos los núcleos"),
+	HPT(9880, 0x2F8FFF0C, "O que há numa pasta, com todos os núcleos"),
+	HE(9881, "scanfiles", "The same, by extension only (faster)", "scanfiles /home/me -t0 -fastsf"),
+	HIT(9881, 0xAE2E7940, "Lo stesso, solo per estensione (piu' veloce)"),
+	HRU(9881, 0xAE2E7940, "То же, только по расширению (быстрее)"),
+	HES(9881, 0xAE2E7940, "Lo mismo, solo por extensión (más rápido)"),
+	HPT(9881, 0xAE2E7940, "O mesmo, só por extensão (mais rápido)"),
+	HBREVE(9882, "scanfiles", "What kinds of files a folder holds, how many and how big"),
+	HIT(9882, 0x24AF9C9D, "Che tipi di file contiene una cartella, quanti e quanto grandi"),
+	HRU(9882, 0x24AF9C9D, "Какие файлы в папке, сколько и какого размера"),
+	HES(9882, 0x24AF9C9D, "Qué tipos de archivo hay en una carpeta, cuántos y cuánto ocupan"),
+	HPT(9882, 0x24AF9C9D, "Que tipos de arquivo há numa pasta, quantos e quanto ocupam"),
 };
 /// zpaq-std: built from zpaqfranz's open build, which has no Franzen (ChaCha20, .franzen): the help left
 /// it in. Out: the switches -franzen and -franzen2 (also "-key -franzen" of commands the open build has not),
@@ -157023,6 +157067,7 @@ static const franz_helpcomando g_helpcomandi[]=
 	{"checkpassword", "checkpassword", "Utils    ", 8},
 	{"codecinfo", "codecinfo", "Utils    ", 8}, /// zpaq-std
 	{"codecinfoex", "codecinfo", "Utils    ", 8},
+	{"scanfiles", "scanfiles", "Utils    ", 8}, /// zpaq-std 2.7.0
 	{"comparehex", "comparehex", "Utils    ", 8},
 	{"count", "count", "Utils    ", 8},
 	{"f", "f", "Utils    ", 8},
@@ -159721,6 +159766,7 @@ void programflags_riempi(bool *i_flagtest)
 	g_programflags.add(&flagnodedup,		"-nodedup",				"Turn off deduplicator",							"");
 	g_programflags.add(&flagnoeta,			"-noeta",				"Do not show ETA",									"");
 	g_programflags.add(&flagfranztime,		"-franztime",			"At the end: time, CPU, memory, I/O (as franztime)",	"");
+	g_programflags.add(&flagfastsf,			"-fastsf",				"scanfiles: by the extension only (faster, less exact)",	"");
 	g_programflags.add(&flagnopath,			"-nopath",				"Do not store path",								"");
 	g_programflags.add(&flagnoqnap,			"-noqnap",				"Exclude QNAP snap & trash",						"a;");
 	g_programflags.add(&flagnomac,			"-nomac",				"Exclude Mac hidden files",						"a;");
@@ -160648,6 +160694,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			if (i+1<argc && argv[i+1][0]!='-')
 				g_codecinfo_name=argv[++i];
 		}
+		else if (cli_filesandcommand(opt,"scanfiles",	'{',argc,argv,&i)); /// zpaq-std 2.7.0
 		else if (cli_filesandcommand(opt,"d",			'd',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"dir",			'2',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"tree",		2,argc,argv,&i));
@@ -166694,6 +166741,7 @@ int Jidac::doCommand()
 
 	else if (command=='0') return pause();
 	else if (command=='h' || command=='J') return codecinfo();
+	else if (command=='{') return scanfiles();
 	else if (command=='1') return summa();
 	else if (command=='2') return dir();
 	else if (command==2)   return tree();
@@ -177423,6 +177471,451 @@ int zs_codecinfo(bool i_ex, const std::string& i_only);
 int Jidac::codecinfo()
 {
 	return zs_codecinfo(command=='J', g_codecinfo_name);
+}
+/// ---- scanfiles (zpaq-std 2.7.0) ------------------------------------------------
+/// scanfiles <folder>...: what kinds of files a folder holds, how many and how big.
+/// By their contents (the signature in their first 4 KB), or with -fastsf by their
+/// extension only (much faster, but a PNG named .jpg counts as a JPEG); -t reads
+/// the heads with several threads. The -sa column says which of zpaq-std's codecs
+/// for specific formats would try the files (an estimate: the codec decides).
+/// By contents, the files whose extension says another kind are counted (00747).
+struct sf_tipo
+{
+	std::string name;	/// what is shown: "JPEG", "PNG", "ZIP"...
+	std::string family;	/// to compare a file's contents with its extension
+	std::string sa;		/// the -sa codec that would try it, or ""
+};
+/// the extensions -fastsf knows, and that the contents are compared with; an
+/// extension that is not here never makes a warning
+static const struct { const char* exts; const char* name; const char* family; const char* sa; } SF_EXT[]=
+{
+	{"jpg jpeg jpe jfif jif", "JPEG", "JPEG", "pja78"},
+	{"mpo", "JPEG (MPO)", "JPEG", "pjax78"},
+	{"jls", "JPEG-LS", "JPEG", "pjals8"},
+	{"jp2 jpx jpf jpm mj2 mjp2 j2k j2c jpc", "JPEG 2000", "JPEG 2000", "pja2k"},
+	{"jph jhc", "JPEG 2000 (HTJ2K)", "JPEG 2000", ""},
+	{"jxl", "JPEG XL", "JPEG XL", ""},
+	{"png apng", "PNG", "PNG", ""},
+	{"gif", "GIF", "GIF", ""},
+	{"bmp dib", "BMP", "BMP", ""},
+	{"tif tiff dng nef cr2 arw orf pef srw nrw erf 3fr", "TIFF (and camera raw)", "TIFF", ""},
+	{"webp", "WebP", "RIFF", ""},
+	{"heic heif avif", "HEIF / AVIF", "ISO media", ""},
+	{"psd psb", "Photoshop", "Photoshop", ""},
+	{"ico cur", "Windows icon", "icon", ""},
+	{"dds", "DDS", "DDS", ""},
+	{"exr", "OpenEXR", "OpenEXR", ""},
+	{"svg", "SVG", "text", ""},
+	{"pdf", "PDF", "PDF", ""},
+	{"zip docx xlsx pptx odt ods odp epub jar apk xpi kmz cbz", "ZIP (and Office, ODF, JAR...)", "ZIP", ""},
+	{"doc xls ppt msi", "OLE2 (old Office, MSI)", "OLE2", ""},
+	{"rtf", "RTF", "text", ""},
+	{"7z", "7-Zip", "7-Zip", ""},
+	{"rar", "RAR", "RAR", ""},
+	{"gz tgz", "gzip", "gzip", ""},
+	{"bz2 tbz2", "bzip2", "bzip2", ""},
+	{"xz txz", "xz", "xz", ""},
+	{"zst", "zstd", "zstd", ""},
+	{"lz4", "LZ4", "LZ4", ""},
+	{"zpaq", "ZPAQ", "ZPAQ", ""},
+	{"tar", "tar", "tar", ""},
+	{"cab", "CAB", "CAB", ""},
+	{"iso", "ISO image", "ISO image", ""},
+	{"exe dll sys ocx cpl", "Windows executable (PE)", "PE", ""},
+	{"so elf", "ELF", "ELF", ""},
+	{"class", "Java class", "Java class", ""},
+	{"mp3", "MP3", "MP3", ""},
+	{"flac", "FLAC", "FLAC", ""},
+	{"ogg oga ogv opus", "Ogg", "Ogg", ""},
+	{"wav", "WAV", "RIFF", ""},
+	{"avi", "AVI", "RIFF", ""},
+	{"aif aiff", "AIFF", "AIFF", ""},
+	{"mid midi", "MIDI", "MIDI", ""},
+	{"mp4 m4v m4a mov 3gp 3g2 qt", "MP4 / QuickTime", "ISO media", ""},
+	{"mkv webm mka", "Matroska / WebM", "Matroska", ""},
+	{"flv", "FLV", "FLV", ""},
+	{"ttf", "TrueType font", "font", ""},
+	{"otf", "OpenType font", "font", ""},
+	{"woff woff2", "WOFF font", "font", ""},
+	{"sqlite sqlite3 db3", "SQLite", "SQLite", ""},
+	{"deb", "ar (.a, .deb)", "ar", ""},
+	{"mo", "gettext catalog (.mo)", "gettext", ""},
+	{"wasm", "WebAssembly", "WebAssembly", ""},
+	{"bc", "LLVM bitcode", "LLVM bitcode", ""},
+	{"pyc pyo", "Python bytecode (.pyc)", "pyc", ""},
+	{"txt text log md csv tsv ini cfg conf c h cpp hpp cc cs java py pl rb sh bat cmd ps1 js css json yml yaml tex pas", "text", "text", ""},
+	{"xml xsd xsl xslt plist", "XML", "text", ""},
+	{"htm html xhtml", "HTML", "text", ""},
+};
+static bool sf_ext(const std::string& i_ext, sf_tipo* o_t)
+{
+	std::string e=i_ext;
+	for (size_t i=0; i<e.size(); i++)
+		e[i]=(char)tolower((unsigned char)e[i]);
+	if (e.empty())
+		return false;
+	for (size_t k=0; k<sizeof(SF_EXT)/sizeof(SF_EXT[0]); k++)
+	{
+		const std::string l=std::string(" ")+SF_EXT[k].exts+" ";
+		if (l.find(" "+e+" ")!=std::string::npos)
+		{
+			o_t->name=SF_EXT[k].name;
+			o_t->family=SF_EXT[k].family;
+			o_t->sa=SF_EXT[k].sa;
+			return true;
+		}
+	}
+	return false;
+}
+static sf_tipo sf_t(const char* i_name, const char* i_family, const char* i_sa="")
+{
+	sf_tipo t;
+	t.name=i_name;
+	t.family=i_family;
+	t.sa=i_sa;
+	return t;
+}
+/// a JPEG's frame header (its SOF) says which -sa codec would try it
+static sf_tipo sf_jpeg(const unsigned char* b, size_t n)
+{
+	bool mpo=false;
+	size_t i=2;
+	while (i+4<=n)
+	{
+		if (b[i]!=0xFF)
+			break;
+		const unsigned char m=b[i+1];
+		if (m==0xFF)
+		{
+			i++;
+			continue;
+		}
+		if (m==0x01 || (m>=0xD0 && m<=0xD9))
+		{
+			i+=2;
+			continue;
+		}
+		const size_t len=(size_t)b[i+2]<<8|b[i+3];
+		if (m==0xE2 && i+8<=n && memcmp(b+i+4, "MPF", 4)==0)
+			mpo=true;
+		const bool sof=(m>=0xC0 && m<=0xCF && m!=0xC4 && m!=0xC8 && m!=0xCC) || m==0xF7;
+		if (sof)
+		{
+			const int precision=i+4<n ? b[i+4] : 8;
+			if (m==0xF7)
+			{
+				/// JPEG-LS: subsampled when the components do not share their factors
+				bool sub=false;
+				const size_t nc=i+9<n ? b[i+9] : 0;
+				for (size_t c=1; c<nc && i+11+3*c<n; c++)
+					if (b[i+11+3*c]!=b[i+11])
+						sub=true;
+				return sub ? sf_t("JPEG-LS (subsampled)", "JPEG", "pjalsx8") : sf_t("JPEG-LS", "JPEG", "pjals8");
+			}
+			if (m==0xC3 || m==0xC7 || m==0xCB || m==0xCF)
+				return sf_t("lossless JPEG", "JPEG", "pjall8");
+			if (mpo)
+				return sf_t("JPEG (MPO)", "JPEG", "pjax78");
+			if (precision==12)
+				return sf_t("JPEG (12 bits)", "JPEG", "pjax78");
+			if (m>=0xC9)
+				return sf_t("JPEG (arithmetic)", "JPEG", "pja78");
+			return sf_t("JPEG", "JPEG", "pja78");
+		}
+		if (len<2)
+			break;
+		i+=2+len;
+	}
+	/// the frame header is after the first 4 KB (a big Exif, a thumbnail...)
+	return mpo ? sf_t("JPEG (MPO)", "JPEG", "pjax78") : sf_t("JPEG", "JPEG", "pja78");
+}
+/// the length from the literal itself: a signature may hold NULs (strlen would stop there)
+template<size_t N> static bool sf_starts(const unsigned char* b, size_t n, const char (&s)[N], size_t at=0)
+{
+	const size_t l=N-1;
+	return at+l<=n && memcmp(b+at, s, l)==0;
+}
+/// the kind of a file by its first bytes
+static sf_tipo sf_contents(const unsigned char* b, size_t n)
+{
+	if (n==0)
+		return sf_t("(empty)", "");
+	if (n>=3 && b[0]==0xFF && b[1]==0xD8 && b[2]==0xFF)
+		return sf_jpeg(b, n);
+	if (n>=12 && memcmp(b, "\x00\x00\x00\x0CjP  \r\n\x87\n", 12)==0)
+	{
+		if (sf_starts(b, n, "jpx ", 20))	return sf_t("JPEG 2000 (JPX)", "JPEG 2000", "pja2k");
+		if (sf_starts(b, n, "jpm ", 20))	return sf_t("JPEG 2000 (JPM)", "JPEG 2000", "pja2k");
+		if (sf_starts(b, n, "mjp2", 20))	return sf_t("Motion JPEG 2000", "JPEG 2000", "pja2k");
+		if (sf_starts(b, n, "jph ", 20))	return sf_t("JPEG 2000 (HTJ2K)", "JPEG 2000", "");
+		return sf_t("JPEG 2000 (JP2)", "JPEG 2000", "pja2k");
+	}
+	if (n>=4 && b[0]==0xFF && b[1]==0x4F && b[2]==0xFF && b[3]==0x51)
+		return sf_t("JPEG 2000 (codestream)", "JPEG 2000", "pja2k");
+	if ((n>=2 && b[0]==0xFF && b[1]==0x0A) || sf_starts(b, n, "\x00\x00\x00\x0CJXL \r\n\x87\n"))
+		return sf_t("JPEG XL", "JPEG XL");
+	if (sf_starts(b, n, "\x89PNG\r\n\x1a\n"))	return sf_t("PNG", "PNG");
+	if (sf_starts(b, n, "GIF87a") || sf_starts(b, n, "GIF89a"))	return sf_t("GIF", "GIF");
+	if (sf_starts(b, n, "II*") || sf_starts(b, n, "MM\x00*"))	return sf_t("TIFF (and camera raw)", "TIFF");
+	if (sf_starts(b, n, "8BPS"))	return sf_t("Photoshop", "Photoshop");
+	if (sf_starts(b, n, "DDS "))	return sf_t("DDS", "DDS");
+	if (sf_starts(b, n, "v/1\x01"))	return sf_t("OpenEXR", "OpenEXR");
+	if (sf_starts(b, n, "RIFF") && n>=12)
+	{
+		if (sf_starts(b, n, "WEBP", 8))	return sf_t("WebP", "RIFF");
+		if (sf_starts(b, n, "WAVE", 8))	return sf_t("WAV", "RIFF");
+		if (sf_starts(b, n, "AVI ", 8))	return sf_t("AVI", "RIFF");
+		if (sf_starts(b, n, "ACON", 8))	return sf_t("Windows icon", "icon");
+		if (sf_starts(b, n, "RMID", 8))	return sf_t("MIDI", "MIDI");
+		if (sf_starts(b, n, "RDIB", 8))	return sf_t("BMP", "BMP");
+		return sf_t("RIFF (other)", "RIFF");
+	}
+	if (sf_starts(b, n, "ftyp", 4) && n>=12)
+	{
+		if (sf_starts(b, n, "heic", 8) || sf_starts(b, n, "heix", 8) || sf_starts(b, n, "mif1", 8) || sf_starts(b, n, "msf1", 8) || sf_starts(b, n, "avif", 8))
+			return sf_t("HEIF / AVIF", "ISO media");
+		if (sf_starts(b, n, "crx ", 8))	return sf_t("Canon CR3", "ISO media");
+		return sf_t("MP4 / QuickTime", "ISO media");
+	}
+	if (sf_starts(b, n, "%PDF"))	return sf_t("PDF", "PDF");
+	if (sf_starts(b, n, "PK\x03\x04") || sf_starts(b, n, "PK\x05\x06"))	return sf_t("ZIP (and Office, ODF, JAR...)", "ZIP");
+	if (sf_starts(b, n, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"))	return sf_t("OLE2 (old Office, MSI)", "OLE2");
+	if (sf_starts(b, n, "{\\rtf"))	return sf_t("RTF", "text");
+	if (sf_starts(b, n, "7z\xBC\xAF\x27\x1C"))	return sf_t("7-Zip", "7-Zip");
+	if (sf_starts(b, n, "Rar!\x1A\x07"))	return sf_t("RAR", "RAR");
+	if (n>=2 && b[0]==0x1F && b[1]==0x8B)	return sf_t("gzip", "gzip");
+	if (sf_starts(b, n, "BZh"))	return sf_t("bzip2", "bzip2");
+	if (sf_starts(b, n, "\xFD" "7zXZ"))	return sf_t("xz", "xz");
+	if (sf_starts(b, n, "\x28\xB5\x2F\xFD"))	return sf_t("zstd", "zstd");
+	if (sf_starts(b, n, "\x04\x22\x4D\x18"))	return sf_t("LZ4", "LZ4");
+	if (sf_starts(b, n, "7kSt") || sf_starts(b, n, "zPQ"))	return sf_t("ZPAQ", "ZPAQ");
+	if (sf_starts(b, n, "ustar", 257))	return sf_t("tar", "tar");
+	if (sf_starts(b, n, "MSCF"))	return sf_t("CAB", "CAB");
+	if (sf_starts(b, n, "SQLite format 3"))	return sf_t("SQLite", "SQLite");
+	if (sf_starts(b, n, "MZ"))	return sf_t("Windows executable (PE)", "PE");
+	if (sf_starts(b, n, "\x7F" "ELF"))	return sf_t("ELF", "ELF");
+	if (sf_starts(b, n, "\xCF\xFA\xED\xFE") || sf_starts(b, n, "\xCE\xFA\xED\xFE") || sf_starts(b, n, "\xFE\xED\xFA\xCF") || sf_starts(b, n, "\xFE\xED\xFA\xCE"))
+		return sf_t("Mach-O", "Mach-O");
+	if (sf_starts(b, n, "\xCA\xFE\xBA\xBE"))	return sf_t("Java class / Mach-O fat", "Java class");
+	if (sf_starts(b, n, "fLaC"))	return sf_t("FLAC", "FLAC");
+	if (sf_starts(b, n, "OggS"))	return sf_t("Ogg", "Ogg");
+	if (sf_starts(b, n, "ID3") || (n>=2 && b[0]==0xFF && (b[1]&0xE6)==0xE2))	return sf_t("MP3", "MP3");
+	if (sf_starts(b, n, "FORM") && (sf_starts(b, n, "AIFF", 8) || sf_starts(b, n, "AIFC", 8)))	return sf_t("AIFF", "AIFF");
+	if (sf_starts(b, n, "MThd"))	return sf_t("MIDI", "MIDI");
+	if (sf_starts(b, n, "\x1A\x45\xDF\xA3"))	return sf_t("Matroska / WebM", "Matroska");
+	if (sf_starts(b, n, "FLV\x01"))	return sf_t("FLV", "FLV");
+	if (sf_starts(b, n, "\x00\x01\x00\x00\x00"))	return sf_t("TrueType font", "font");
+	if (sf_starts(b, n, "OTTO"))	return sf_t("OpenType font", "font");
+	if (sf_starts(b, n, "wOFF") || sf_starts(b, n, "wOF2"))	return sf_t("WOFF font", "font");
+	if (sf_starts(b, n, "BM") && n>=26 && b[14]>=12 && b[15]==0 && b[16]==0 && b[17]==0)	return sf_t("BMP", "BMP");
+	if (sf_starts(b, n, "\x00\x00\x01\x00") || sf_starts(b, n, "\x00\x00\x02\x00"))
+		if (n>=6 && b[4]>0 && b[5]==0)
+			return sf_t("Windows icon", "icon");
+	if (sf_starts(b, n, "%!PS"))	return sf_t("PostScript", "text");
+	if (sf_starts(b, n, "!<arch>\n"))	return sf_t("ar (.a, .deb)", "ar");
+	if (sf_starts(b, n, "\xDE\x12\x04\x95") || sf_starts(b, n, "\x95\x04\x12\xDE"))	return sf_t("gettext catalog (.mo)", "gettext");
+	if (sf_starts(b, n, "TZif"))	return sf_t("time zone (TZif)", "TZif");
+	if (sf_starts(b, n, "\x00" "asm"))	return sf_t("WebAssembly", "WebAssembly");
+	if (sf_starts(b, n, "BC\xC0\xDE"))	return sf_t("LLVM bitcode", "LLVM bitcode");
+	/// .pyc: its magic ends in \r\n (Python 3: xx 0D 0D 0A and a flags word 0 to 3; 2.7: 03 F3 0D 0A)
+	if (n>=16 && b[2]==0x0D && b[3]==0x0A && ((b[1]==0x0D && b[0]>=0x20 && b[4]<=3 && b[5]==0 && b[6]==0 && b[7]==0) || (b[0]==0x03 && b[1]==0xF3)))
+		return sf_t("Python bytecode (.pyc)", "pyc");
+	if (n>=2 && b[0]==0x78 && (b[1]==0x01 || b[1]==0x5E || b[1]==0x9C || b[1]==0xDA))	return sf_t("zlib (git objects...)", "zlib");
+	/// text: UTF-16 by its BOM; else no NUL and almost no control bytes
+	if (n>=2 && ((b[0]==0xFF && b[1]==0xFE) || (b[0]==0xFE && b[1]==0xFF)))
+		return sf_t("text (UTF-16)", "text");
+	size_t ctrl=0;
+	for (size_t i=0; i<n; i++)
+	{
+		if (b[i]==0)
+			return sf_t("binary (unknown)", "");
+		if (b[i]<32 && b[i]!='\t' && b[i]!='\n' && b[i]!='\r' && b[i]!='\f' && b[i]!=27)
+			ctrl++;
+	}
+	if (ctrl*100>n)
+		return sf_t("binary (unknown)", "");
+	std::string h((const char*)b, n<512 ? n : 512);
+	for (size_t i=0; i<h.size(); i++)
+		h[i]=(char)tolower((unsigned char)h[i]);
+	size_t s=h.find_first_not_of(" \t\r\n\xEF\xBB\xBF");
+	if (s==std::string::npos)
+		s=0;
+	if (h.compare(s, 5, "<?xml")==0)
+		return h.find("<svg")!=std::string::npos ? sf_t("SVG", "text") : sf_t("XML", "text");
+	if (h.compare(s, 4, "<svg")==0)
+		return sf_t("SVG", "text");
+	if (h.compare(s, 14, "<!doctype html")==0 || h.compare(s, 5, "<html")==0)
+		return sf_t("HTML", "text");
+	if (h.compare(s, 2, "#!")==0)
+		return sf_t("text (script)", "text");
+	return sf_t("text", "text");
+}
+static std::string sf_size(int64_t i_n)
+{
+	char buf[64];
+	const double v=(double)i_n;
+	if (i_n<1024)
+		snprintf(buf, sizeof(buf), "%d B", (int)i_n);
+	else if (i_n<1024*1024)
+		snprintf(buf, sizeof(buf), "%.1f KB", v/1024);
+	else if (i_n<1024LL*1024*1024)
+		snprintf(buf, sizeof(buf), "%.1f MB", v/(1024.0*1024));
+	else
+		snprintf(buf, sizeof(buf), "%.2f GB", v/(1024.0*1024*1024));
+	return buf;
+}
+int Jidac::scanfiles()
+{
+	if (files.empty())
+	{
+		myprintf("00744! scanfiles: which folder? (scanfiles <folder>... [-fastsf] [-t])\n");
+		return 2;
+	}
+	const int64_t inizio=mtime();
+	std::vector<std::string> nomi;
+	std::vector<int64_t> dim;
+	for (size_t i=0; i<files.size(); i++)
+	{
+		DTMap edt;
+		scandir(true, edt, files[i]);
+		for (DTMap::iterator p=edt.begin(); p!=edt.end(); ++p)
+			if (!isdirectory(p->first))
+			{
+				nomi.push_back(p->first);
+				dim.push_back(p->second.size);
+			}
+	}
+	eol();
+	if (nomi.empty())
+	{
+		myprintf("00744! scanfiles: no file found in %s\n", files[0].c_str());
+		return 2;
+	}
+	const bool contenuto=!flagfastsf;
+	int64_t tuttibytes=0;
+	for (size_t k=0; k<dim.size(); k++)
+		tuttibytes+=dim[k];
+	myprintf("00743: scanfiles: %s files, %s, by %s\n", migliaia(nomi.size()), sf_size(tuttibytes).c_str(),
+	         contenuto ? "their contents (the first 4 KB of each, 64 KB of a JPEG)" : "their extension only (-fastsf)");
+	/// the reading, live: one line, at most twice a second (not with -noeta or -terse)
+	std::atomic<int64_t> fatti(0), fattibytes(0), ultimo(mtime());
+	std::mutex mostra;
+	const bool vivo=contenuto && !flagnoeta && !flagterse;
+	std::vector<sf_tipo> tipo(nomi.size());
+	std::vector<char> letto(nomi.size(), 1);
+	std::vector<sf_tipo> perest(nomi.size());
+	std::vector<char> haest(nomi.size(), 0);
+	sa_parallel(nomi.size(), [&](size_t k)
+	{
+		haest[k]=sf_ext(prendiestensione(nomi[k]), &perest[k]);
+		if (contenuto)
+		{
+			/// 4 KB; a JPEG up to 64 KB, since its frame header and the MPO's index
+			/// often come after a big Exif
+			std::vector<unsigned char> b(4096);
+			size_t n=0;
+			FILE* f=fopen(nomi[k].c_str(), "rb");
+			if (f==NULL)
+				letto[k]=0;
+			else
+			{
+				n=fread(&b[0], 1, b.size(), f);
+				if (n==b.size() && b[0]==0xFF && b[1]==0xD8 && b[2]==0xFF)
+				{
+					b.resize(65536);
+					n+=fread(&b[n], 1, b.size()-n, f);
+				}
+				tipo[k]=sf_contents(&b[0], n);
+				/// an ISO 9660 image says so at 32 KB
+				char iso[5];
+				if (tipo[k].name=="binary (unknown)" && dim[k]>=32774 && fseek(f, 32769, SEEK_SET)==0 && fread(iso, 1, 5, f)==5 && memcmp(iso, "CD001", 5)==0)
+					tipo[k]=sf_t("ISO image", "ISO image");
+				fclose(f);
+			}
+		}
+		else if (haest[k])
+			tipo[k]=perest[k];
+		else
+			tipo[k]=sf_t("(other extension)", "");
+		const int64_t f=++fatti;
+		const int64_t by=(fattibytes+=dim[k]);
+		if (vivo)
+		{
+			int64_t u=ultimo.load();
+			const int64_t ora=mtime();
+			if (ora-u>=500 && ultimo.compare_exchange_strong(u, ora))
+			{
+				std::lock_guard<std::mutex> g(mostra);
+				const double sec=(ora-inizio)/1000.0;
+				myprintf("\r%s of %s files (%5.1f%%), %s, %s files/s     ", migliaia(f), migliaia2(nomi.size()), 100.0*f/nomi.size(),
+				         sf_size(by).c_str(), migliaia3(sec>0 ? (int64_t)(f/sec) : f));
+			}
+		}
+	});
+	if (vivo)
+		eol();
+	/// the table, the biggest kind first
+	struct riga { int64_t files; int64_t bytes; std::string sa; };
+	std::map<std::string, riga> tab;
+	std::map<std::string, int64_t> diversi;	/// ".jpg -> PNG": how many
+	int64_t totale=0, nonletti=0;
+	for (size_t k=0; k<nomi.size(); k++)
+	{
+		if (!letto[k])
+		{
+			nonletti++;
+			continue;
+		}
+		riga& r=tab[tipo[k].name];
+		r.files++;
+		r.bytes+=dim[k];
+		r.sa=tipo[k].sa;
+		totale+=dim[k];
+		if (contenuto && haest[k] && !tipo[k].family.empty() && tipo[k].family!=perest[k].family)
+		{
+			std::string e=prendiestensione(nomi[k]);
+			for (size_t i=0; i<e.size(); i++)
+				e[i]=(char)tolower((unsigned char)e[i]);
+			diversi["."+e+"\t"+tipo[k].name]++;
+			if (flagverbose)
+				myprintf("00745: <<%Z>>: %s, by its extension %s\n", nomi[k].c_str(), tipo[k].name.c_str(), perest[k].name.c_str());
+		}
+	}
+	std::vector<std::pair<int64_t, std::string> > ordine;
+	for (std::map<std::string, riga>::iterator p=tab.begin(); p!=tab.end(); ++p)
+		ordine.push_back(std::make_pair(-p->second.bytes, p->first));
+	std::sort(ordine.begin(), ordine.end());
+	myprintf("\n  %-32s %12s %12s %7s  %s\n", "kind", "files", "size", "%", "-sa");
+	int64_t safiles=0, sabytes=0;
+	for (size_t i=0; i<ordine.size(); i++)
+	{
+		const riga& r=tab[ordine[i].second];
+		const double perc=totale ? 100.0*r.bytes/totale : 0;
+		myprintf("  %-32s %12s %12s %6.1f%%  %s\n", ordine[i].second.c_str(), migliaia(r.files), sf_size(r.bytes).c_str(), perc, r.sa.empty() ? "-" : r.sa.c_str());
+		if (!r.sa.empty())
+		{
+			safiles+=r.files;
+			sabytes+=r.bytes;
+		}
+	}
+	myprintf("\n00746: %s kinds; %s files (%s) are of a kind -sa tries\n", migliaia(tab.size()), migliaia2(safiles), sf_size(sabytes).c_str());
+	if (nonletti)
+		myprintf("00749$ %s %s could not be read\n", migliaia(nonletti), nonletti==1 ? "file" : "files");
+	if (!diversi.empty())
+	{
+		int64_t tutti=0;
+		for (std::map<std::string, int64_t>::iterator p=diversi.begin(); p!=diversi.end(); ++p)
+			tutti+=p->second;
+		myprintf("00747$ %s %s whose extension says another kind (-verbose lists them):\n", migliaia(tutti), tutti==1 ? "file" : "files");
+		for (std::map<std::string, int64_t>::iterator p=diversi.begin(); p!=diversi.end(); ++p)
+		{
+			const size_t tab=p->first.find('\t');
+			myprintf("       %s %s %s %s\n", migliaia(p->second), p->first.substr(0, tab).c_str(), p->second==1 ? "file that is" : "files that are", p->first.substr(tab+1).c_str());
+		}
+	}
+	if (!flagterse)
+		myprintf("00782: %.3f s, %d threads\n", (mtime()-inizio)/1000.0, contenuto ? g_sa_threads : 1);
+	return nonletti ? 1 : 0;
 }
 int Jidac::pause()
 {

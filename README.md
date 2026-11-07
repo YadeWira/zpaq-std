@@ -177,8 +177,11 @@ cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Buil
 - `i` show all versions and their stats
 - `t` test the archive
 - `codecinfo` the codecs at a glance; `codecinfo <codec>` its card
+- `scanfiles <folder>` what kinds of files a folder holds, how many and how big, by their
+  contents (`-fastsf`: by extension only, faster; `-t0`: every core), with the `-sa` codec
+  that would try each kind and the files whose extension says another kind
 
-The built-in help documents **59** commands (`zpaq-std h <command>`), and
+The built-in help documents **60** commands (`zpaq-std h <command>`), and
 `zpaq-std h voodoo` lists every switch. `-popgui` shows a native progress window on
 Windows (for installers); `pakka` and `-catpaqmode` are for GUIs. More:
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage).
