@@ -1,6 +1,6 @@
-PJA 0.8.0 (tag v0.8.0, commit ea9ca81), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.8.0-zpaqstd.tar.gz (sha256
-99d7279bf08e13d33d1455ce149ed778a55a15e9c19cd579ca203925c40b2663), copied unmodified.
+PJA 0.9.6 (tag v0.9.6, commit f207fe3), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.6-zpaqstd.tar.gz (sha256
+c242d10e822d8cd05b069b3e2b7d7c0ecb564bcfafa9e3bd17abf8429717ef64), copied unmodified.
 For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
 (they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
 (pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's
@@ -34,19 +34,26 @@ pjalsx in -sa, which stay in the plugin, to read. 0.8.0 adds the 8 codecs (pja78
 pjall8, pjals8, pjalsx8 and their z, pja7z8, pjax7z8, pjallz8, pjalsz8, pjalsxz8): the
 same codecs and streams once more, every decoder -sa uses compiled with zpaqlc's opt=3
 (pas/plugin/v8zpaql.inc), 3 to 8% smaller and a little faster; they take the place of
-pja7, pjax7 and the o codecs in -sa, which all stay in the plugin, to read. Files:
+pja7, pjax7 and the o codecs in -sa, which all stay in the plugin, to read. 0.9.0
+freezes codecs 0 to 29 (names, streams, ZPAQL; PJA's doc/STABILITY.md) and only caps
+PATCH's sizes; 0.9.5 is faster with the same bytes and brings PJA's JPEG 2000 sources
+(pjaj2k*.pas and .c, pjathread.pas, pjastage.pas); 0.9.6 adds codec 30, pja2k: the
+JPEG 2000 family (JP2, JPX, JPM, MJ2, codestreams) as stream version 8, codestream
+modes 0 and 1, with a ZPAQL decoder (pas/plugin/j2kzpaql.inc, 51,521 bytes, comp 0 0
+$3 $4 0, both from the query); HTJ2K stays as bytes. It is frozen too. Files:
 the sources of its zpaq-std plugin, LICENSE (MIT), NOTICE (IJG for the arithmetic-coded
-JPEG, CharLS's BSD 3-Clause for JPEG-LS) and VENDOR.md (what it is and how it builds).
+JPEG, CharLS's BSD 3-Clause for JPEG-LS, OpenJPH's BSD 2-Clause for HTJ2K) and VENDOR.md (what it is and how it builds).
 
-EXPERIMENTAL in zpaq-std, not recommended yet (-sa warns, 00737).
-zpaq-std's codecs for specific formats, -sa: PJA's family, one plugin with five
-codecs: pjax7 (JPEG that needs PJA's stream version 6: MPO and Ultra HDR, 12 bits, DNL,
-DRI without RST), pja7 (JPEG), pjall (lossless JPEG), pjals (JPEG-LS) and pjalsx
-(JPEG-LS with subsampled components). -sa and -sa:pja use the five, in that order. Free Pascal: by the project's rule, a codec in
+Stable in zpaq-std since 2.6.0.
+zpaq-std's codecs for specific formats, -sa: PJA's family, one plugin with six
+codecs: pjax78 (JPEG that needs PJA's stream version 6: MPO and Ultra HDR, 12 bits, DNL,
+DRI without RST), pja78 (JPEG), pjall8 (lossless JPEG), pjals8 (JPEG-LS), pjalsx8
+(JPEG-LS with subsampled components) and pja2k (JPEG 2000). -sa and -sa:pja use the
+six, in that order. Free Pascal: by the project's rule, a codec in
 Rust or Free Pascal is built only as a plugin (codecs/pja.dll or pja.so, in the extra-codecs
 download), never linked into zpaq-std itself. Every block carries the codec's ZPAQL
 decoder (pas/plugin/pjazpaql.inc, pjaxzpaql.inc, pjallzpaql.inc, pjalszpaql.inc,
-pjalsxzpaql.inc, lzzpaql.inc for the z codecs, and v7zpaql.inc for pja7, pjax7, pja7z
-and pjax7z), so any zpaq extracts it without the plugin; those fourteen programs are
-frozen under these codec names.
+pjalsxzpaql.inc, lzzpaql.inc for the z codecs, v7zpaql.inc for pja7, pjax7, pja7z
+and pjax7z, ozpaql.inc, v8zpaql.inc and j2kzpaql.inc), so any zpaq extracts it without
+the plugin; those programs are frozen under these codec names.
 Do not patch these files here: send changes to the PJA repository.

@@ -2,7 +2,7 @@
 
 **A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.17.**
 
-A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG and JPEG-LS** recompression with `-sa` (experimental), and **zero system dependencies**.
+A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG, JPEG-LS and JPEG 2000** recompression with `-sa`, and **zero system dependencies**.
 
 Think of it as a single-file "Time Machine": every run only adds the deltas, so 5 daily backups of the same data cost roughly **the same space as 1**. The archive is **append-only**, so `rsync --append` over a slow link only transfers what was added.
 
@@ -108,31 +108,28 @@ shows its card (author, repository, version, hashes).
 
 ---
 
-## Specific Algorithms: `-sa` (experimental)
-
-> **Experimental: not recommended yet.** PJA is new. Its archives open in any zpaq, but keep another copy of what you archive with `-sa`.
+## Specific Algorithms: `-sa`
 
 `-sa` stands for *specific algorithms*: zpaq-std's codecs for specific formats.
 
 ```bash
-zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax78, pja78, pjall8, pjals8, pjalsx8
+zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax78, pja78, pjall8, pjals8, pjalsx8, pja2k
 zpaq-std a photos.zpaq /photos -sa:pjals8 -ma:zstd   # only JPEG-LS; the rest with zstd
 ```
 
 #### Stable
 
-None yet.
-
-#### Experimental
+Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decoders).
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.8.0, plugin only (`pja.dll` or `.so`): the family, its five codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.9.6, plugin only (`pja.dll` or `.so`): the family, its six codecs in this order | | 2 | 2 |
 | `-sa:pjax78+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja78) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall8+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
 | `-sa:pjals8+N` | the same plugin | JPEG-LS | 2 | 2 |
 | `-sa:pjalsx8+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
+| `-sa:pja2k+N` | the same plugin | JPEG 2000: JP2, JPX, JPM, Motion JPEG 2000 and codestreams (HTJ2K stays as bytes) | 2 | 2 |
 
 Files are chosen by their contents, never by name; the rest is compressed as
 `-m`/`-ma` say. The files a codec takes share a block, whatever lies between them:
@@ -142,7 +139,9 @@ fewer bytes the block also goes through an LZ77 that finds what repeats across
 them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
 size, against 71% without it). Since 2.1.0 JPEG goes with PJA's stream v7 (`pja7`,
 `pjax7`): 1–3% smaller and faster both ways; archives made with `pja` and `pjax`
-are still read. The plugin comes in the `extra-codecs` download. More:
+are still read. JPEG 2000's decoder is slow without the plugin (any zpaq runs its
+ZPAQL several times slower than the plugin), and writing it costs that too, since
+`-sa` checks every block with its ZPAQL. The plugin comes in the `extra-codecs` download. More:
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#specific-algorithms--sa).
 
 ---

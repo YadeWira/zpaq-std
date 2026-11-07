@@ -1,8 +1,73 @@
-# PJA 0.8.0: the zpaq-std plugin, vendored
+# PJA 0.9.6: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.8.0`, commit `ea9ca81`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.6`, commit `f207fe3`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+The thirty codecs, 0 to 29, are 0.9.0's: their names, indices, streams and
+ZPAQL decoders are unchanged, byte for byte (every `pas/plugin/*.inc` but
+the new `j2kzpaql.inc` is identical to 0.9.5's and 0.9.0's), and they are
+fixed (`doc/STABILITY.md`). No codec 0 to 29 takes a file it did not take,
+and none writes other bytes.
+
+## What is new in 0.9.6: pja2k, JPEG 2000
+
+One codec, index 30 of `zpaqstd_codecs_v1`: **`pja2k`**, for files of the
+JPEG 2000 family (JP2, JPX, JPM, Motion JPEG 2000, raw codestreams), with
+a ZPAQL decoder, so any zpaq extracts its blocks without the plugin.
+
+- **Stream**: version 8 as the command writes it, with codestream modes 0
+  (raw) and 1 (the code-blocks' decisions through a model) only. HTJ2K
+  codestreams (the command's modes 3 and 4) and the command's mode 2 (the
+  pixels) have no ZPAQL: the plugin keeps those codestreams as bytes, and
+  detect does not take a file whose codestreams are all HTJ2K. A file
+  whose codestreams all stay raw is refused (compress returns an error).
+- **ZPAQL**: `pas/plugin/j2kzpaql.inc`, **51,521 bytes of PCOMP** (zpaqlc
+  opt=3), config `comp 0 0 $3 $4 0`. `query(ZS_QUERY_ZPAQL_ARGS)` gives
+  `$3` (log2 of H's words) in bits 0-7 and `$4` (log2 of M's bytes) in
+  bits 8-15; `ZS_QUERY_SEGMENTS` 1 (several files a block). The decoder
+  measures both when it starts and stops with an error rather than go past
+  either; the plugin takes a codestream in mode 1 only within H 2^26 words
+  and M 2^28 bytes.
+- **Ratio**: on 113 real codestreams (150 MB: Internet Archive, Library of
+  Congress, OSGeo, Helioviewer, Sentinel-2, DICOM) about 7.7% saved (the
+  command, with its pixel modes, 8.4%).
+- **Speed**: the plugin decodes about 0.3 MB/s on one thread; the ZPAQL
+  (libzpaq's JIT) is 4.7 to 7.9 times slower. zpaq-std decodes every
+  `-sat` block with the ZPAQL before writing it, so writing costs that too.
+- **Name**: it does not end in `z`, `o` or `8` (`zpaqstd_detect_v1`'s
+  suffixes of other families). Frozen from 0.9.6: the name, its stream,
+  what it takes and its ZPAQL.
+- zpaq-std 2.3.0 does not have `pja2k` in `-sa`'s list; it is used with
+  `-sae:pja:pja2k` or `-sat:pja:pja2k`.
+- **Checked**: libzpaq (zpaq 7.15's engine) gives back byte for byte the
+  15 files of PJA's `tests/j2k` and the 113 real codestreams, each with
+  its query's H and M; zpaq-std 2.3.0 on Windows 10 x64 (`-sae:pja:pja2k
+  -t4`, 8 JPEG 2000 files) and then zpaq 7.15 (`zpaq64.exe`, no plugin)
+  extracting them all byte for byte; 300 damaged segments through libzpaq,
+  no hang or crash.
+
+New files: `pas/pjaj2kcs.pas`, `pas/pjaj2km.pas` (the analysis, rebuild
+and mode 1), `pas/pjaj2kht.c`, `pas/pjaj2khm.c`, `pas/pjaj2kht_tab.h`
+(HTJ2K, linked through pjaj2kcs.pas; the plugin does not use it),
+`pas/plugin/pjazsj2k.pas` (the codec) and `pas/plugin/j2kzpaql.inc`.
+`pas/build_c.sh` compiles the new C files.
+
+Also in the shared sources since 0.9.5 (the same streams for codecs 0 to
+29): `pja`'s command shares its threads by file size; JPEG 2000 has SIMD
+copies of its models (taken by cpuid; every copy writes the same bits).
+
+As in 0.6.1, either clang or gcc builds these sources; clang is the faster.
+Checked: built from this directory alone (build_c.sh, then fpc as below),
+the plugin lists the thirty-one codecs, pja2k at 30, and PJA's plugin
+probe passes on `tests/j2k` and `tests/jpg`.
+
+## What is new in 0.9.5
+
+The JPEG 2000 sources (`pjaj2k.pas`, `pjaj2kt1.c`, `pjaj2kmc.c`,
+`pjaj2kpm.c`), `pjathread.pas` (a thread wait without FreePascal's 100 ms
+poll), `pjastage.pas` (the command's `--stats`, inert in the plugin), and
+the raw-byte model's loop in C; no codec changed.
 
 ## What is new in 0.8.0: the 8 codecs
 
@@ -103,7 +168,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=ea9ca81
+export PJA_COMMIT=f207fe3
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

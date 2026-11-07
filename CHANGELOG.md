@@ -1,3 +1,11 @@
+### [2.6.0] - 2026-11-06
+
+**`-sa` is stable, and takes JPEG 2000 too: PJA 0.9.6 with `pja2k`.**
+
+- **`-sa` is no longer experimental.** PJA 0.9.0 froze its codecs (their names, streams and ZPAQL decoders do not change any more), so `-sa` no longer warns (00737) and its codecs are zpaq-std's stable ones. Archives written by earlier versions are read as before.
+- **JPEG 2000** (`-sa`, `-sa:pja`, `-sa:pja2k`): PJA 0.9.6's new codec, `pja2k`, recompresses the JPEG 2000 family losslessly: JP2, JPX, JPM, Motion JPEG 2000 and raw codestreams (HTJ2K codestreams stay as bytes, and a file that is only HTJ2K is not taken). On the 16 JPEG 2000 files of the test corpus, 18.7 MB, it writes 9% less than `-m`. Its blocks carry its ZPAQL decoder (51.5 KB), so any zpaq extracts them, but that decoder is slow: about 30 times slower than the plugin, and `-sa` decodes every block with it before writing, so writing JPEG 2000 runs at about 0.3 MB/s. It is last in the family, after the five JPEG codecs, and has no z variant.
+- **PJA 0.9.6**: the other codecs write the same bytes as with 0.8.0 (their decoders are unchanged, byte for byte); PJA's shared sources are faster, and the plugin's thread waits no longer sleep 100 ms.
+
 ### [2.5.0] - 2026-11-05
 
 **LZAV 7.1: `-ma:lzav` writes LZAV's new format 4, 1-4% smaller, with a new frozen decoder; and PJA 0.8.0.**

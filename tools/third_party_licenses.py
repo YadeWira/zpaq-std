@@ -62,11 +62,12 @@ BUNDLED = [
     ('sylz and sylzec', 'syc v0.5.4', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
-    ('PJA', '0.8.0', 'MIT; parts after libjpeg (IJG) and CharLS (BSD-3-Clause)', 'Yade Bravo (YadeWira)',
+    ('PJA', '0.9.6', 'MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)', 'Yade Bravo (YadeWira)',
      ['compressors/pja/LICENSE', 'compressors/pja/NOTICE'],
-     'The -sa codecs pjax and pja (JPEG), pjall (lossless JPEG), pjals and pjalsx (JPEG-LS). Free Pascal, built only as a plugin\n'
+     'The -sa codecs: pjax78 and pja78 (JPEG), pjall8 (lossless JPEG), pjals8 and pjalsx8 (JPEG-LS),\n'
+     'pja2k (JPEG 2000). Free Pascal and C, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'
-     'the full program. NOTICE has the third-party notes (IJG, CharLS).'),
+     'the full program. NOTICE has the third-party notes (IJG, CharLS, OpenJPH).'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],
      'The ZPAQL program that decodes -ma:lzma blocks in any zpaq.'),
 ]

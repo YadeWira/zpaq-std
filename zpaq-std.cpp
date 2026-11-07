@@ -77,8 +77,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.5.0"
-#define ZPAQSTD_DATE "(2026-11-05)"
+#define ZPAQSTD_VERSION "2.6.0"
+#define ZPAQSTD_DATE "(2026-11-06)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 #define ZPAQ_VERSION "65.17o"
@@ -95409,13 +95409,16 @@ struct zs_sa_official { const char* file; const char* algo; int level; const cha
 /// pjals and pjalsx (up to 2.3.0; PJA 0.7.0's o codecs, the same with a ZPAQL compiled
 /// with zpaqlc's opt=2, in 2.4.0), and pja7 and pjax7 (2.1.0 to 2.4.0). Since 2.5.0 the
 /// 8 codecs of PJA 0.8.0: the same codecs and streams again, every decoder compiled with
-/// opt=3, 3 to 8% smaller and a little faster in any zpaq
+/// opt=3, 3 to 8% smaller and a little faster in any zpaq. 2.6.0 (PJA 0.9.6): pja2k, the
+/// JPEG 2000 family (JP2, JPX, JPM, MJ2, codestreams), last; and -sa is no longer
+/// experimental (the codecs 0 to 30 of PJA's plugin are frozen, doc/STABILITY.md)
 static const zs_sa_official ZS_SA_OFFICIAL[]={
-	{"pja", "pjax78", 2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST), with stream v7's model", true},
-	{"pja", "pja78",  2, "JPEG (baseline, progressive, arithmetic), stream v7", true},
-	{"pja", "pjall8", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", true},
-	{"pja", "pjals8", 2, "JPEG-LS", true},
-	{"pja", "pjalsx8", 2, "JPEG-LS with subsampled components", true},
+	{"pja", "pjax78", 2, "JPEG that needs PJA's format v6 (embedded JPEGs of MPO and Ultra HDR, 12 bits, DNL, DRI without RST), with stream v7's model", false},
+	{"pja", "pja78",  2, "JPEG (baseline, progressive, arithmetic), stream v7", false},
+	{"pja", "pjall8", 2, "lossless JPEG (SOF3: 2 to 16 bits, predictors 1-7)", false},
+	{"pja", "pjals8", 2, "JPEG-LS", false},
+	{"pja", "pjalsx8", 2, "JPEG-LS with subsampled components", false},
+	{"pja", "pja2k", 2, "JPEG 2000 (JP2, JPX, JPM, MJ2, codestreams; not HTJ2K)", false},
 };
 std::string				 g_codecinfo_name;	/// codecinfoex <name>
 std::vector<zs_sa_codec> g_sa;
@@ -149737,11 +149740,11 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(9855, 0xAEF8F79C, "Сжатие встроенной библиотекой: zstd, brotli, lzma, bzip2, kanzi...|  любой zpaq извлечёт архив; все кодеки и уровни: codecinfo"),
 	HES(9855, 0xAEF8F79C, "Comprime con biblioteca interna: zstd, brotli, lzma, bzip2, kanzi...|  cualquier zpaq extrae el archivo; cada códec y nivel: codecinfo"),
 	HPT(9855, 0xAEF8F79C, "Compacta com biblioteca inclusa: zstd, brotli, lzma, bzip2, kanzi...|  qualquer zpaq extrai o arquivo; cada codec e nível: codecinfo"),
-	HU(9856, "a", "-sa", "JPEG, lossless JPEG and JPEG-LS by their contents, with PJA|  (EXPERIMENTAL; codecs/pja of the extra-codecs download), the rest as -m/-ma say"),
-	HIT(9856, 0xA6703CB3, "JPEG, JPEG lossless e JPEG-LS in base al contenuto, con PJA|  (SPERIMENTALE; codecs/pja del download extra-codecs), il resto come -m/-ma"),
-	HRU(9856, 0xA6703CB3, "JPEG, JPEG без потерь и JPEG-LS по содержимому, через PJA|  (ЭКСПЕРИМЕНТАЛЬНО; codecs/pja из загрузки extra-codecs), остальное по -m/-ma"),
-	HES(9856, 0xA6703CB3, "JPEG, JPEG sin pérdida y JPEG-LS según su contenido, con PJA|  (EXPERIMENTAL; codecs/pja de la descarga extra-codecs), el resto según -m/-ma"),
-	HPT(9856, 0xA6703CB3, "JPEG, JPEG sem perdas e JPEG-LS pelo conteúdo, com PJA|  (EXPERIMENTAL; codecs/pja do download extra-codecs), o resto conforme -m/-ma"),
+	HU(9856, "a", "-sa", "JPEG, lossless JPEG, JPEG-LS and JPEG 2000 by their contents, with PJA|  (codecs/pja of the extra-codecs download), the rest as -m/-ma say"),
+	HIT(9856, 0x8717BE4C, "JPEG, JPEG lossless, JPEG-LS e JPEG 2000 in base al contenuto, con PJA|  (codecs/pja del download extra-codecs), il resto come -m/-ma"),
+	HRU(9856, 0x8717BE4C, "JPEG, JPEG без потерь, JPEG-LS и JPEG 2000 по содержимому, через PJA|  (codecs/pja из загрузки extra-codecs), остальное по -m/-ma"),
+	HES(9856, 0x8717BE4C, "JPEG, JPEG sin pérdida, JPEG-LS y JPEG 2000 según su contenido, con PJA|  (codecs/pja de la descarga extra-codecs), el resto según -m/-ma"),
+	HPT(9856, 0x8717BE4C, "JPEG, JPEG sem perdas, JPEG-LS e JPEG 2000 pelo conteúdo, com PJA|  (codecs/pja do download extra-codecs), o resto conforme -m/-ma"),
 	HU(9857, "a", "-popgui", "Show a native progress window (-innosetup: same, legacy name)"),
 	HIT(9857, 0x176B7426, "Mostra una finestra di avanzamento nativa|  (-innosetup: uguale, nome vecchio)"),
 	HRU(9857, 0x176B7426, "Показывает собственное окно прогресса|  (-innosetup: то же, старое имя)"),
@@ -155498,11 +155501,11 @@ losetup -d /dev/loop0
 	HRU(9850, 0xE6FEDD45, "То же, для ПРОВЕРКИ кодека: показывает плагин и каждый блок (размеры, время, обратное|    декодирование плагином и его ZPAQL). Без декодера ZPAQL его блоки открываются|    только в zpaq-std с этим плагином (любой другой zpaq сочтёт их повреждёнными)"),
 	HES(9850, 0xE6FEDD45, "Lo mismo, para PROBAR un códec: muestra el plugin y cada bloque (tamaños, tiempos,|    decodificado de vuelta por el plugin y por su ZPAQL). Sin decodificador ZPAQL sus|    bloques se abren solo en zpaq-std con ese plugin (cualquier otro zpaq los da por|    dañados)"),
 	HPT(9850, 0xE6FEDD45, "O mesmo, para TESTAR um codec: mostra o plugin e cada bloco (tamanhos, tempos,|    decodificado de volta pelo plugin e pelo seu ZPAQL). Sem decodificador ZPAQL seus|    blocos só abrem no zpaq-std com esse plugin (qualquer outro zpaq os acusa|    danificados)"),
-	HRIGA(9851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS (EXPERIMENTAL, not recommended yet):|    PJA's family (-sa or -sa:pja): pjax78 (JPEG with PJA's format v6), pja78 (JPEG),|    pjall8 (lossless JPEG), pjals8 (JPEG-LS) and pjalsx8 (subsampled JPEG-LS),|    from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say.|    Archives made with pjax and pja (before 2.1.0) are still read"),
-	HIT(9851, 0x3DF40B80, "Codec di zpaq-std per FORMATI SPECIFICI (SPERIMENTALI, non ancora consigliati):|    famiglia di PJA (-sa o -sa:pja): pjax78 (JPEG col formato v6 di PJA), pja78 (JPEG),|    pjall8 (JPEG lossless), pjals8 (JPEG-LS) e pjalsx8 (JPEG-LS sottocampionato), da|    codecs/pja.dll o .so (il download extra-codecs). Ogni file va, in base al|    contenuto, al codec che lo prende; il resto come dicono -m/-ma.|    Gli archivi fatti con pjax e pja (prima della 2.1.0) si leggono ancora"),
-	HRU(9851, 0x3DF40B80, "Кодеки zpaq-std для ОСОБЫХ ФОРМАТОВ (ЭКСПЕРИМЕНТАЛЬНО, пока не рекомендуется):|    семейство PJA (-sa или -sa:pja): pjax78 (JPEG в формате PJA v6), pja78 (JPEG),|    pjall8 (JPEG без потерь), pjals8 (JPEG-LS) и pjalsx8 (JPEG-LS с субдискретизацией),|    из codecs/pja.dll или .so (загрузка extra-codecs).|    Каждый файл по содержимому идёт к кодеку, который его берёт; остальное по -m/-ma.|    Архивы, созданные с pjax и pja (до 2.1.0), по-прежнему читаются"),
-	HES(9851, 0x3DF40B80, "Códecs de zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, aún no recomendado):|    familia de PJA (-sa o -sa:pja): pjax78 (JPEG, formato v6 de PJA), pja78 (JPEG),|    pjall8 (JPEG sin pérdida), pjals8 (JPEG-LS) y pjalsx8 (JPEG-LS submuestreado),|    de codecs/pja.dll o .so (la descarga extra-codecs).|    Cada archivo va, según su contenido, al códec que lo toma; el resto según -m/-ma.|    Los archivos hechos con pjax y pja (antes de 2.1.0) se siguen leyendo"),
-	HPT(9851, 0x3DF40B80, "Codecs do zpaq-std para FORMATOS ESPECÍFICOS (EXPERIMENTAL, ainda não recomendado):|    família do PJA (-sa ou -sa:pja): pjax78 (JPEG, formato v6 do PJA), pja78 (JPEG),|    pjall8 (JPEG sem perdas), pjals8 (JPEG-LS) e pjalsx8 (JPEG-LS subamostrado),|    de codecs/pja.dll ou .so (o download extra-codecs).|    Cada arquivo vai, pelo seu conteúdo, ao codec que o aceita; o resto conforme -m/-ma.|    Arquivos feitos com pjax e pja (antes da 2.1.0) continuam sendo lidos"),
+	HRIGA(9851, "*voodoo", 'o', "-sa[:codec+N...]", "zpaq-std's codecs for SPECIFIC FORMATS:|    PJA's family (-sa or -sa:pja): pjax78 (JPEG with PJA's format v6), pja78 (JPEG),|    pjall8 (lossless JPEG), pjals8 (JPEG-LS), pjalsx8 (subsampled JPEG-LS) and|    pja2k (JPEG 2000), from codecs/pja.dll or .so (the extra-codecs download).|    Each file goes, by its contents, to the codec that takes it; the rest as -m/-ma say.|    Archives made with pjax and pja (before 2.1.0) are still read"),
+	HIT(9851, 0xDB57D1B2, "Codec di zpaq-std per FORMATI SPECIFICI:|    famiglia di PJA (-sa o -sa:pja): pjax78 (JPEG col formato v6 di PJA), pja78 (JPEG),|    pjall8 (JPEG lossless), pjals8 (JPEG-LS), pjalsx8 (JPEG-LS sottocampionato) e|    pja2k (JPEG 2000), da codecs/pja.dll o .so (il download extra-codecs).|    Ogni file va, in base al contenuto, al codec che lo prende; il resto come -m/-ma.|    Gli archivi fatti con pjax e pja (prima della 2.1.0) si leggono ancora"),
+	HRU(9851, 0xDB57D1B2, "Кодеки zpaq-std для ОСОБЫХ ФОРМАТОВ:|    семейство PJA (-sa или -sa:pja): pjax78 (JPEG в формате PJA v6), pja78 (JPEG),|    pjall8 (JPEG без потерь), pjals8 (JPEG-LS), pjalsx8 (JPEG-LS с субдискретизацией)|    и pja2k (JPEG 2000), из codecs/pja.dll или .so (загрузка extra-codecs).|    Каждый файл по содержимому идёт к кодеку, который его берёт; остальное по -m/-ma.|    Архивы, созданные с pjax и pja (до 2.1.0), по-прежнему читаются"),
+	HES(9851, 0xDB57D1B2, "Códecs de zpaq-std para FORMATOS ESPECÍFICOS:|    familia de PJA (-sa o -sa:pja): pjax78 (JPEG, formato v6 de PJA), pja78 (JPEG),|    pjall8 (JPEG sin pérdida), pjals8 (JPEG-LS), pjalsx8 (JPEG-LS submuestreado) y|    pja2k (JPEG 2000), de codecs/pja.dll o .so (la descarga extra-codecs).|    Cada archivo va, según su contenido, al códec que lo toma; el resto según -m/-ma.|    Los archivos hechos con pjax y pja (antes de 2.1.0) se siguen leyendo"),
+	HPT(9851, 0xDB57D1B2, "Codecs do zpaq-std para FORMATOS ESPECÍFICOS:|    família do PJA (-sa ou -sa:pja): pjax78 (JPEG, formato v6 do PJA), pja78 (JPEG),|    pjall8 (JPEG sem perdas), pjals8 (JPEG-LS), pjalsx8 (JPEG-LS subamostrado) e|    pja2k (JPEG 2000), de codecs/pja.dll ou .so (o download extra-codecs).|    Cada arquivo vai, pelo seu conteúdo, ao codec que o aceita; o resto conforme -m/-ma.|    Arquivos feitos com pjax e pja (antes da 2.1.0) continuam sendo lidos"),
 	HRIGA(9852, "*voodoo", 'o', "-sae:file:codec+N", "Codecs for SPECIFIC FORMATS from codecs/file.dll or .so (external):|    each file goes, by its contents, to the first codec that takes it (more codecs:|    -sae:file:c1+N:c2+N), alone in its block (or, if its ZPAQL allows, with the next|    files it takes, one segment each); the rest as -m/-ma say. Like -mae, it|    needs their ZPAQL decoders. Every block is decoded back before it is written"),
 	HIT(9852, 0x42695A75, "Codec per FORMATI SPECIFICI da codecs/file.dll o .so (esterni): ogni file va, in|    base al contenuto, al primo codec che lo prende (piu' codec:|    -sae:file:c1+N:c2+N), da solo nel suo blocco (o, se il suo ZPAQL lo consente,|    con i file successivi che prende, un segmento ciascuno); il resto come -m/-ma.|    Come -mae, servono i loro decoder ZPAQL. Ogni blocco e' ridecodificato prima di|    scriverlo"),
 	HRU(9852, 0x42695A75, "Кодеки для ОСОБЫХ ФОРМАТОВ из codecs/файл.dll или .so (внешние):|    каждый файл по содержимому идёт к первому кодеку, который его берёт (несколько:|    -sae:файл:c1+N:c2+N), один в своём блоке (или, если ZPAQL позволяет, со|    следующими взятыми файлами, по сегменту на каждый); остальное по -m/-ma. Как и|    -mae, нужны их декодеры ZPAQL. Каждый блок декодируется обратно перед записью"),
@@ -162381,7 +162384,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 				if (q==0)
 				{
 					if (g_sa_official)
-						myprintf("00733: -sa: zpaq-std's codecs for specific formats (experimental)\n");
+						myprintf("00733: -sa: zpaq-std's codecs for specific formats\n");
 					else
 					myprintf("00733: -sat: a TEST archive with codecs for specific formats, not part of zpaq-std\n");
 					myprintf("00733:   plugin    %s%s%s\n", zs_plugin_dir().c_str(), sc.file.c_str(), ZS_PLUGIN_EXT);
