@@ -139,9 +139,10 @@ fewer bytes the block also goes through an LZ77 that finds what repeats across
 them (the same picture saved again: 244 arithmetic-coded JPEGs to 18.6% of their
 size, against 71% without it). Since 2.1.0 JPEG goes with PJA's stream v7 (`pja7`,
 `pjax7`): 1–3% smaller and faster both ways; archives made with `pja` and `pjax`
-are still read. JPEG 2000's decoder is slow without the plugin (any zpaq runs its
-ZPAQL several times slower than the plugin), and writing it costs that too, since
-`-sa` checks every block with its ZPAQL. The plugin comes in the `extra-codecs` download. More:
+are still read. JPEG 2000 is slow: the plugin writes and reads about 0.3 MB/s, and
+without the plugin any zpaq runs its ZPAQL decoder several times slower still. Every
+block is decoded back by the plugin before it is written (`-sat` also runs the ZPAQL).
+The plugin comes in the `extra-codecs` download. More:
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#specific-algorithms--sa).
 
 ---

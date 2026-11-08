@@ -3,6 +3,12 @@
 **PJA 0.9.8: the Windows plugin leaves room after each memory block.**
 
 - **PJA 0.9.8** (`-sa`, `codecs/pja.dll`): FreePascal's 32-bit code may read 2 bytes past the end of an array, and the plugin's Windows heap could end a block exactly where the committed memory ended: an access violation. It was seen on Windows XP (about 60% of extractions with the 32-bit library, found by PPA); on Windows 7 x86 it never failed in our tests, but nothing ruled it out. Each block now has 16 bytes after it. No codec, stream or ZPAQL decoder changes: archives are byte for byte 2.7.1's.
+- **Documentation:** the README and the wiki said, since 2.6.0, that `-sa` checks every block with its ZPAQL decoder before writing it. It checks it with the plugin (each segment decoded back and compared; a group that does not come back goes to `-m`); only `-sat` also runs the ZPAQL. JPEG 2000 writes slowly because the plugin itself runs at about 0.3 MB/s. Found by PPA.
+
+#### Checked
+
+- **PJA 0.9.8:** `-sa` on the 244 arithmetic-coded JPEGs and the 16 JPEG 2000 files of the test corpus writes 2.7.1's archive to the byte (only the version stamp differs). On Windows 7 x64 and x86, with the new 32-bit and 64-bit DLLs, `-sa` on the 244 JPEGs and on 9 JPEG-LS and 4 JPEG 2000 files extracts identically both ways, and on Linux with zpaq 7.15 and 2.7.1.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures. Linux x86 and AArch64: the same suites, `-sa` the same bytes on the three, all 288 cross extractions identical. Windows 7: `x -longpath` with no `-to` as in 2.7.1. CI is green on all six platforms.
 
 ### [2.7.1] - 2026-11-07
 
