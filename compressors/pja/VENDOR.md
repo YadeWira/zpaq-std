@@ -1,8 +1,23 @@
-# PJA 0.9.7: the zpaq-std plugin, vendored
+# PJA 0.9.8: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.7`, commit `0f01f28`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.8`, commit `e89a500`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.9.8
+
+The 31 codecs are 0.9.6's, byte for byte (streams, ZPAQL, what each
+takes). One fix for the Windows build: `pas/pjaheap.pas`, the heap the
+Windows DLL uses, keeps 16 bytes after each block (`TAIL_BYTES`).
+FreePascal's i386 code can load 4 bytes where it reads a 2-byte array
+element, 2 bytes past the end; FreePascal's own heap always leaves room
+there, the process heap may not, and on Windows XP a 32-bit DLL built the
+same way failed now and then (found by PPA). Rebuilding the Windows DLLs,
+the 32-bit one above all, is recommended; nothing else changes.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k` and
+`tests/jpg`.
 
 ## What is new in 0.9.7
 
@@ -174,7 +189,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=0f01f28
+export PJA_COMMIT=e89a500
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

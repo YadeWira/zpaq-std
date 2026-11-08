@@ -1,3 +1,9 @@
+### [2.7.2] - 2026-11-08
+
+**PJA 0.9.8: the Windows plugin leaves room after each memory block.**
+
+- **PJA 0.9.8** (`-sa`, `codecs/pja.dll`): FreePascal's 32-bit code may read 2 bytes past the end of an array, and the plugin's Windows heap could end a block exactly where the committed memory ended: an access violation. It was seen on Windows XP (about 60% of extractions with the 32-bit library, found by PPA); on Windows 7 x86 it never failed in our tests, but nothing ruled it out. Each block now has 16 bytes after it. No codec, stream or ZPAQL decoder changes: archives are byte for byte 2.7.1's.
+
 ### [2.7.1] - 2026-11-07
 
 **`scanfiles` refuses `-to`, `x -longpath` with no `-to` on Windows, and PJA 0.9.7.**
