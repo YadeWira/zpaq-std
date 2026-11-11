@@ -77,8 +77,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.7.2"
-#define ZPAQSTD_DATE "(2026-11-08)"
+#define ZPAQSTD_VERSION "2.8.0"
+#define ZPAQSTD_DATE "(2026-11-11)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 /// 65.18e: Franzen encrypts with franzsodium (built in, every platform: see LICENSE 31). libsodium, the

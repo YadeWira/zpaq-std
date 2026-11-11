@@ -1,6 +1,6 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.17.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.18.**
 
 A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (29 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG, JPEG-LS and JPEG 2000** recompression with `-sa`, and **zero system dependencies**.
 
@@ -38,6 +38,17 @@ x86-64 (on Windows the archive also stores each file's creation and access dates
 - **Without `-m`, `a` writes `-m8`** (since 2.0.0, as zpaqfranz): zstd blocks with their
   ZPAQL decoder, so any zpaq extracts them, very fast to extract. `-m1`..`-m5` are as
   ever; `-m7` and `-m9` are two zstd levels by name. Before 2.0.0 the default was `-m1`.
+- **The levels have names** (since 2.8.0, as zpaqfranz 65.18): `-lean` (`-m80`, two
+  threads: weak hardware), `-fast` (`-m80`), `-normal` (`-m8`, the default), `-good`
+  (`-m9`), `-better` (`-m7`), `-ultra` (`-m6`) and `-max` (`-m5`). One level only, and
+  not with `-m`. **`-fast` changed its meaning in 2.8.0**: it was the switch that stores
+  the history for a fast `l` (the default, so it was rarely written); that one is now
+  `-lfast`, and `-nofast` still works as the old name of `-nolfast`.
+- **Franzen** (since 2.8.0): `-franzen <password>` (or the `FRANZFRANZEN` variable)
+  encrypts the archive with ChaCha20-Poly1305, as `archive.zpaq.franzen`, and the
+  `franzen` command encrypts and decrypts single files; zpaqfranz 65.18 reads and
+  writes the same files. Its cryptography, franzsodium, is built in: nothing to
+  install. `-key` (AES) is as before, and the two can be used together.
 - **The help in five languages**: English, Italian, Russian, Spanish (neutral Latin
   American) and Portuguese (Brazil), with `-eng`, `-it`, `-ru`, `-es`, `-pt`, the
   `ZPAQFRANZ_LANG` variable (`en it ru es pt`), or the system's language.

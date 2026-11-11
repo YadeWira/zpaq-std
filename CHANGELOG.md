@@ -1,3 +1,18 @@
+### [2.8.0] - 2026-11-11
+
+**zpaqfranz 65.18: Franzen encryption and the levels by name; nine codecs up to date.**
+
+- **Base: zpaqfranz 65.18** (65.18r). Everything of its open build since 65.17 is in.
+- **Franzen** (`-franzen <password>`, `-franzen2`, the `FRANZFRANZEN` variable, the `franzen` command): ChaCha20-Poly1305 encryption of the whole archive, written as `archive.zpaq.franzen`, with zpaqfranz's own cryptography (franzsodium) built in. zpaqfranz 65.18 moved it into its open build, which zpaq-std is based on, so it now works here: from 2.2.0 to 2.7.2 these switches stopped with an error (00739, 00740, 00741), since the open build had no Franzen and wrote the archive in clear. Archives are the same as zpaqfranz's: each program reads the other's. `-franzen` with no password after it is an error (00599), a wrong password ends with exit code 2.
+- **The levels by name**: `-lean`, `-fast`, `-normal`, `-good`, `-better`, `-ultra`, `-max` (`-m80` with two threads, `-m80`, `-m8`, `-m9`, `-m7`, `-m6`, `-m5`). One level only, and not together with `-m` (03995).
+- **`-fast` changed its meaning.** It was "store the history for a fast `l`", which is the default; it is now a level (`-m80`: a bit faster and bigger than the default). The history switch is `-lfast`, and `-nolfast` turns it off; `-nofast` keeps working as the old name of `-nolfast`. A script that wrote `-fast` now compresses with another method; the archives are read as ever.
+- **Codecs**, each writing the same bytes as the version before (checked level by level):
+  - **lzham-ex 1.1.1** (`-ma:lzh`): its decoder refuses invalid match distances (it could copy uninitialized memory to the output, or overlap a copy, on a damaged stream), and the data races of its match finder are fixed.
+  - **fast-lzma2 1.2.0** and **ultra-fast-lzma2 1.6.5** (`-ma:flzma2`, `-ma:uflzma2`): the decoder fixes zpaq-std had reported are upstream now.
+  - **LZMA SDK 26.06** (`-ma:lzma`, `-ma:ppmd`), **LZ4 1.11.1**, **lz5-ex 1.5.5**, **LZAV 7.2**.
+  - **zxc 1.0.0** (`-ma:zxc`): its format, 9, is frozen. Its C API changed and zpaq-std's code follows it.
+- The help of the new switches is in the five languages.
+
 ### [2.7.2] - 2026-11-08
 
 **PJA 0.9.8: the Windows plugin leaves room after each memory block.**
