@@ -1,3 +1,9 @@
+fast-lzma2 1.2.0 (tag fast-lzma2-v1.2.0, commit 756d1c9, 2026-11-08), from the same
+repository, copied unmodified: the decoder fixes zpaq-std reported against 1.1.0, a
+crash in FL2_cancelDStream() on a single-thread stream (not used here) and fewer
+exported symbols. Levels 1-10 write the bytes of 1.1.2 (checked: 1, 5 and 10).
+What follows is the note of 1.1.2:
+
 fast-lzma2 1.1.2 (tag fast-lzma2-v1.1.2, commit 29fe0d0, 2026-10-23), from the
 fast-lzma2/ directory of https://github.com/YadeWira/ultra-fast-lzma2: Conor
 McCarthy's fast-lzma2 1.0.1, maintained there with the robustness and correctness

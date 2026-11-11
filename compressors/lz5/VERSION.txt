@@ -1,3 +1,6 @@
+lz5-ex v1.5.5 (tag v1.5.5, commit 21a18bf, 2026-11-10), copied unmodified; levels 1, 9,
+15 and lz5f write the bytes of 1.5.4. What follows is the note of 1.5.4:
+
 lz5-ex v1.5.4 (tag v1.5.4, commit dd5abf7, 2026-10-30), from
 https://github.com/YadeWira/lz5-ex (a fork of LZ5 1.5 by Yann Collet and Przemyslaw
 Skibinski). BSD 2-Clause, see LICENSE. Files copied unmodified from lib/: lz5.c,

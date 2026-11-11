@@ -1,3 +1,9 @@
+zxc 1.0.0 (tag v1.0.0, commit d237221, 2026-11-11, format version 9, now frozen), copied
+unmodified. Its C API changed (the level is a parameter of zxc_compress(), settings go
+on a context; zxc_decompress() no longer verifies checksums, and zpaq-std never wrote
+them): compressors/plug/zs_zxc.cpp follows it. Levels 1 to 7 write the bytes of 0.15.0.
+What follows is the note of 0.15.0:
+
 zxc 0.15.0 (tag v0.15.0, commit 2d29ab6, format version 9), from
 https://github.com/hellobertrand/zxc. BSD 3-Clause, see LICENSE; lib/vendors/rapidhash.h
 is rapidhash V3 by Nicolas De Carli, MIT (LICENSE-rapidhash). Files copied unmodified:

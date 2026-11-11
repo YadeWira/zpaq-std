@@ -70,14 +70,14 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 |---|---|---|---|
 | `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 |
 | `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.1 | 0–11 | 11 |
-| `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.05 | 0–9 | 6 |
-| `-ma:flzma2:N` | [fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2/tree/master/fast-lzma2) 1.1.2 | 1–10 | 5 |
-| `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.4 | 1–11 | 5 |
+| `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.06 | 0–9 | 6 |
+| `-ma:flzma2:N` | [fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2/tree/master/fast-lzma2) 1.2.0 | 1–10 | 5 |
+| `-ma:uflzma2:N` | [ultra-fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2) 1.6.5 | 1–11 | 5 |
 | `-ma:lz:N` | [lzlib](https://www.nongnu.org/lzip/lzlib.html) 1.16 | 0–9 | 6 |
 | `-ma:bzip2:N` | [bzip2](https://sourceware.org/bzip2/) 1.0.8 | 1–9 | 9 |
 | `-ma:deflate:N` | [libdeflate](https://github.com/ebiggers/libdeflate) 1.26 | 0–12 | 6 |
 | `-ma:lizard:N` | [lizard-ex](https://github.com/YadeWira/lizard-ex) 2.3.2 (Lizard 2.1's format) | 10–49 | 17 |
-| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.4 | 1–15 | 9 |
+| `-ma:lz5:N` / `lz5hc` / `lz5f` | [lz5-ex](https://github.com/YadeWira/lz5-ex) 1.5.5 | 1–15 | 9 |
 | `-ma:snappy:N` | [Snappy](https://github.com/google/snappy) 1.3.1 | 1–2 | 2 |
 | `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.4 | 0–1 | 1 |
 | `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.2 | 0–2 | 1 |
@@ -86,10 +86,10 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.1.1 (LZHAM 1.0) | 1–4 | 4 |
 | `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 | 6 |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
-| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |
+| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 1.0.0 | 1–7 | 3 |
 | `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) 1.7.1 | 0–15 | 0 |
-| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.0 | 1–12 | 9 |
-| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.1 | 0–1 | 1 |
+| `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.1 | 1–12 | 9 |
+| `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.2 | 0–1 | 1 |
 
 #### Experimental
 

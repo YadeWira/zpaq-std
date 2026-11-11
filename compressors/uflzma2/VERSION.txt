@@ -1,3 +1,8 @@
+ultra-fast-lzma2 v1.6.5 (tag v1.6.5, commit 01dd658, 2026-11-08), copied unmodified:
+the fixes of fast-lzma2 1.2.0, the x86-64 assembly decoder on LZMA SDK 26.06's body,
+and its .xz part (not used here). Levels 1, 5 and 11 write the bytes of 1.6.4.
+What follows is the note of 1.6.4:
+
 ultra-fast-lzma2 v1.6.4 (tag v1.6.4, commit ab2456a, 2026-10-23). 1.6.4 makes a level
 above UF2_maxCLevel() clamp to it instead of silently giving the default (zpaq-std
 clamps -ma:uflzma2 levels itself, so its blocks do not change); 1.6.3 only added a

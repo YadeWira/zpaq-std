@@ -31,9 +31,9 @@ folder under compressors/.
 
   zstd 1.5.7              Meta Platforms, Inc. and affiliates     BSD-3-Clause
   brotli 1.2.1            Google Inc.                             MIT
-  LZMA SDK 26.05          Igor Pavlov                             Public domain
-  fast-lzma2 1.1.2        Conor McCarthy; maintained by YadeWira  BSD-3-Clause
-  ultra-fast-lzma2 1.6.4  Conor McCarthy (fast-lzma2), fork by    BSD-3-Clause
+  LZMA SDK 26.06          Igor Pavlov                             Public domain
+  fast-lzma2 1.2.0        Conor McCarthy; maintained by YadeWira  BSD-3-Clause
+  ultra-fast-lzma2 1.6.5  Conor McCarthy (fast-lzma2), fork by    BSD-3-Clause
                           YadeWira
   lzlib 1.16              Antonio Diaz Diaz                       BSD-2-Clause
   bzip2 / libbzip2 1.0.8  Julian R Seward                         bzip2 licence (BSD-style)
@@ -45,10 +45,10 @@ folder under compressors/.
   lizard-ex (Lizard) 2.3.2
                           Yann Collet, Przemyslaw Skibinski       BSD-2-Clause (library)
                           (Lizard); YadeWira (lizard-ex)
-  lz5-ex 1.5.4            Yann Collet, Przemyslaw Skibinski       BSD-2-Clause
+  lz5-ex 1.5.5            Yann Collet, Przemyslaw Skibinski       BSD-2-Clause
                           (LZ5), YadeWira (lz5-ex)
-  LZ4 1.11.0              Yann Collet                             BSD-2-Clause (library)
-  LZAV 7.1                Aleksey Vaneev                          MIT
+  LZ4 1.11.1              Yann Collet                             BSD-2-Clause (library)
+  LZAV 7.2                Aleksey Vaneev                          MIT
   lz6                     Yann Collet (LZ4), Przemyslaw           BSD-2-Clause
                           Skibinski (LZ5), YadeWira
   Snappy 1.3.1            Google Inc.                             BSD-3-Clause
@@ -65,7 +65,7 @@ folder under compressors/.
   kanzi 2.6.0             Frederic Langlet                        Apache-2.0
   libdivsufsort 2.0 (stripped)
                           Yuta Mori                               MIT
-  zxc 0.15.0              Bertrand Lebonnois and contributors;    BSD-3-Clause
+  zxc 1.0.0               Bertrand Lebonnois and contributors;    BSD-3-Clause
                           Nicolas De Carli (rapidhash)
   sylz and sylzec syc v0.5.4
                           Yade Bravo (YadeWira)                   MIT

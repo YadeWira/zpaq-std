@@ -11,28 +11,28 @@ PART 1 - BUNDLED COMPRESSORS
 ===============================================================================
   zstd                 1.5.7                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
   brotli               1.2.1                        MIT
-  LZMA SDK             26.05                        Public domain
-  fast-lzma2           1.1.2                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
-  ultra-fast-lzma2     1.6.4                        BSD-3-Clause
+  LZMA SDK             26.06                        Public domain
+  fast-lzma2           1.2.0                        BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
+  ultra-fast-lzma2     1.6.5                        BSD-3-Clause
   lzlib                1.16                         BSD-2-Clause
   bzip2 / libbzip2     1.0.8                        bzip2 licence (BSD-style)
   bz2-ng               commit 517948e (no release yet) MIT; parts BSD-style (bzip2), MIT (libdeflate), MIT (sais-lite), Apache-2.0 WITH LLVM-exception (libsais)
   libdeflate           1.26                         MIT
   lizard-ex (Lizard)   2.3.2                        BSD-2-Clause (library)
-  lz5-ex               1.5.4                        BSD-2-Clause
-  LZ4                  1.11.0                       BSD-2-Clause (library)
-  LZAV                 7.1                          MIT
+  lz5-ex               1.5.5                        BSD-2-Clause
+  LZ4                  1.11.1                       BSD-2-Clause (library)
+  LZAV                 7.2                          MIT
   lz6                  see compressors/lz6/VERSION.txt BSD-2-Clause
   Snappy               1.3.1                        BSD-3-Clause
   lzfse-ex (LZFSE)     1.0.4                        BSD-3-Clause
   heatshrink-ex        0.7.2                        ISC
   bzip3                1.5.5                        LGPL-3.0-or-later
   libbsc               3.4.0, patched               Apache-2.0
-  lzham-ex (LZHAM 1.0) 1.1.0                        Public domain
+  lzham-ex (LZHAM 1.0) 1.1.1                        Public domain
   PPMd var.H (Ppmd7)   7-Zip / LZMA SDK             Public domain
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
-  zxc                  0.15.0                       BSD-3-Clause; rapidhash MIT
+  zxc                  1.0.0                        BSD-3-Clause; rapidhash MIT
   sylz and sylzec      syc v0.5.4                   MIT
   PJA                  0.9.8                        MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
   ZPAQLZMA decoder     -                            see text
@@ -99,7 +99,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ===============================================================================
-LZMA SDK 26.05
+LZMA SDK 26.06
 Licence: Public domain
 Copyright: Igor Pavlov
 
@@ -109,10 +109,10 @@ The LZMA SDK is placed in the public domain. Every source file used here
 carries the notice "Igor Pavlov : Public domain".
 
 ===============================================================================
-fast-lzma2 1.1.2
+fast-lzma2 1.2.0
 Licence: BSD-3-Clause (dual BSD / GPLv2: BSD chosen)
 Copyright: Conor McCarthy; maintained by YadeWira
-Parts based on zstd, copyright Yann Collet. Version 1.1.2 is maintained in
+Parts based on zstd, copyright Yann Collet. Version 1.2.0 is maintained in
 ultra-fast-lzma2 (fast-lzma2/), with its fixes: see compressors/fl2/VERSION.txt.
 
 Copyright 2018-present Conor McCarthy
@@ -128,7 +128,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-ultra-fast-lzma2 1.6.4
+ultra-fast-lzma2 1.6.5
 Licence: BSD-3-Clause
 Copyright: Conor McCarthy (fast-lzma2), fork by YadeWira
 
@@ -620,7 +620,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-lz5-ex 1.5.4
+lz5-ex 1.5.5
 Licence: BSD-2-Clause
 Copyright: Yann Collet, Przemyslaw Skibinski (LZ5), YadeWira (lz5-ex)
 A fork of LZ5 1.5 with the same block format.
@@ -651,7 +651,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-LZ4 1.11.0
+LZ4 1.11.1
 Licence: BSD-2-Clause (library)
 Copyright: Yann Collet
 zpaq-std's own again since 2.0.0 (-ma:lz4, lz4hc, lz4f).
@@ -682,7 +682,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ===============================================================================
-LZAV 7.1
+LZAV 7.2
 Licence: MIT
 Copyright: Aleksey Vaneev
 zpaq-std's own again since 2.0.0 (-ma:lzav).
@@ -1918,7 +1918,7 @@ is marked ZPAQSTD-PATCH in the sources, listed in compressors/bsc/PATCHES.
    limitations under the License.
 
 ===============================================================================
-lzham-ex (LZHAM 1.0) 1.1.0
+lzham-ex (LZHAM 1.0) 1.1.1
 Licence: Public domain
 Copyright: Richard Geldreich, Jr.; maintained by YadeWira
 
@@ -2222,75 +2222,39 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-zxc 0.15.0
+zxc 1.0.0
 Licence: BSD-3-Clause; rapidhash MIT
 Copyright: Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)
 
 --- LICENSE ---
-==============================================================================
-ZXC
-Copyright (c) 2025, Bertrand Lebonnois and contributors
-License: BSD 3-Clause
-==============================================================================
-
 BSD 3-Clause License
-====================
 
 Copyright (c) 2025, Bertrand Lebonnois and contributors
-All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
 
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in the
-   documentation and/or other materials provided with the distribution.
-3. Neither the name of ZXC nor the names of its contributors may be
-   used to endorse or promote products derived from this software
-   without specific prior written permission.
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS” AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL BERTRAND LEBONNOIS OR CONTRIBUTORS BE LIABLE FOR
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
 
-==============================================================================
-This project includes code from rapidhash
-Copyright (C) 2025 Nicolas De Carli
-License: MIT (Expat)
-==============================================================================
+3. Neither the name of ZXC nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
 
-rapidhash - Very fast, high quality, platform-independent hashing algorithm.
-Copyright (C) 2025 Nicolas De Carli
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-You can contact the author at:
-  - rapidhash source repository: https://github.com/Nicoshev/rapidhash
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 --- LICENSE-rapidhash ---
 /* SPDX-License-Identifier: MIT */
@@ -3311,6 +3275,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     configuration and unused functions, types and macros removed; static names made
     unique; C99 constructs turned into C++98 (casts, positional initializers).
     Otherwise unmodified. Left out of the build by -DNOEMAIL (-DOPEN sets it).
+
+31 [BSD 2-Clause OR CC0 1.0]   Monocypher 4.0.2 Copyright (c) 2017-2019 Loup Vaillant https://monocypher.org
+    franzsodium: the functions of libsodium that Franzen uses (ChaCha20-Poly1305 IETF, Argon2id),
+    built in, from FRANZSODIUM BEGIN to FRANZSODIUM END (made by tortura/sodio/fai_franzsodium.py).
+    Taken from Monocypher, unmodified but for a namespace, the prefix of its macros and ULL on its
+    64 bit constants; its notice is inside the block. Since 65.18e what Franzen uses by default,
+    on every platform (ESX and NAS too); libsodium only with -libsodium, where built with ZPAQLIBSODIUM.
+    Where Franzen is: everywhere but the open build.
 
 ===============================================================================
 PART 3 - WINDOWS BUILDS: THE MINGW-W64 RUNTIME (linked statically)
