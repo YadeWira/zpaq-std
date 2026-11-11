@@ -130597,6 +130597,21 @@ unsigned char g_franzen_sale[SIZEOF_SALT];
 int64_t		  g_franzen_lettirotti= 0;
 
 string g_franzen_filename = "";     // Franzen file path
+/// zpaq-std 2.8.0: every InputArchive wrote g_franzen_filename, and x, t and the like open one in
+/// each thread: two threads assigning the same global string at once. With the reference counted
+/// strings zpaq-std is built with (_GLIBCXX_USE_CXX11_ABI=0) that corrupted the count: now and then a
+/// "double free or corruption" in ~InputArchive (about 1 run in 10 with 16 threads; found by ZF).
+/// Written under a mutex, and only when it changes: once set, the threads only read it
+pthread_mutex_t g_franzen_filename_mutex= PTHREAD_MUTEX_INITIALIZER;
+static bool franzen_filename_metti(const string &i_nome, bool i_solosevuoto)
+{
+	pthread_mutex_lock(&g_franzen_filename_mutex);
+	const bool messo= i_solosevuoto ? (g_franzen_filename == "") : (g_franzen_filename != i_nome);
+	if (messo)
+		g_franzen_filename= string(i_nome.c_str()); /// its own copy, not one more reference to the caller's
+	pthread_mutex_unlock(&g_franzen_filename_mutex);
+	return messo;
+}
 
 bool g_franzen_zpaq_nowrite= false; // -franzen without -debug (with or without -key): do not write the .zpaq at all
 
@@ -134039,7 +134054,7 @@ ArchiveType InputArchive::detect_archive_type(const string& base_file)
 	// Determine which physical file to use
 	if (franzen_exists && is_file_franzen(franzen_file))
 	{
-		g_franzen_filename=franzen_file;
+		franzen_filename_metti(franzen_file, false);
 		if (flagdebug)
 			myprintf("Franzen exist & isfranzen %s\n",franzen_file.c_str());
 		// Franzen file exists and is valid
@@ -134321,11 +134336,8 @@ InputArchive::InputArchive(const char *filename) : fn(filename), uses_franzen(fa
 		}
 		
 		// Initialize global Franzen parameters (once)
-		if (g_franzen_filename == "")
-		{
-			g_franzen_filename = physical_file;
-			myprintf("Franzen mode enabled: %s\n", g_franzen_filename.c_str());
-		}
+		if (franzen_filename_metti(physical_file, true)) /// 2.8.0: under its mutex (it was a race between threads)
+			myprintf("Franzen mode enabled: %s\n", physical_file.c_str());
 		
 		// FIX: sz[] currently contains PHYSICAL file sizes (encrypted + header/footer/overhead).
 		// But zpaq uses totalsize()/sz[] to compute logical seek offsets, and read_at_to()
