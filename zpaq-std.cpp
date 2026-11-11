@@ -81,8 +81,22 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define ZPAQSTD_DATE "(2026-11-08)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
-#define ZPAQ_VERSION "65.17o"
-#define ZPAQ_DATE "(2026-10-31)"
+/// 65.18e: Franzen encrypts with franzsodium (built in, every platform: see LICENSE 31). libsodium, the
+/// external library loaded at run time, only with -libsodium (and -sodiumcheck, which wants both):
+/// all of its code is under ZPAQLIBSODIUM. Comment out the next line to build without it
+/// (every ANCIENT build, NAS and ESX among them, is built without: see below; 32 bit Windows too, there was
+/// never a libsodium for it)
+#define ZPAQLIBSODIUM
+#if defined(_WIN32) && !defined(_WIN64)
+#undef ZPAQLIBSODIUM
+#endif
+/// 65.18k: the open build has Franzen too, with franzsodium only: no library loaded, nothing downloaded or extracted
+#ifndef ZPAQFULL
+#undef ZPAQLIBSODIUM
+#endif
+
+#define ZPAQ_VERSION "65.18r"
+#define ZPAQ_DATE "(2026-11-07)"
 
 
 /*
@@ -219,6 +233,7 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 	#undef  TEXT_IPV
 	#define TEXT_IPV "4,"
 	#undef  IPV6
+	#undef  ZPAQLIBSODIUM /// 65.18e: Franzen with franzsodium only
 #endif // corresponds to #ifdef (#ifdef ESX)
 
 #ifdef NAS
@@ -231,6 +246,10 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 	#undef DEBUG
 	#undef ESX
 	#undef ALIGNMALLOC
+	#undef ZPAQLIBSODIUM /// 65.18e: Franzen with franzsodium only
+#ifdef ZPAQFULL ///NOSFTPSTART
+	#undef SFTP
+#endif ///NOSFTPEND
 	#undef unix
 	#define unix 1
 #endif // corresponds to #ifdef (#ifdef NAS)
@@ -250,13 +269,16 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
     #define INT64_MIN (-9223372036854775807LL - 1)
     #define INT64_MAX 9223372036854775807LL
     #define errno 0
-	#define NOFRANZEN
+	/// 65.18e: no more NOFRANZEN here: Franzen with franzsodium (built in) on ANCIENT too (ESX, NAS)
+#ifdef ZPAQFULL ///NOSFTPSTART
+    #undef SFTP
+#endif ///NOSFTPEND
 #endif
 
 /// 65.15z11: without ANCIENT zpaqfranz is C++11. gcc 4.8 and 5 (Oracle Linux, CentOS, RHEL 7: 4.8.5) build C++98 by
 /// default: 67 errors, and the way out taken was -DANCIENT (an issue: there -tar did nothing, up to 65.16g). Say what to do
 #if !defined(ANCIENT) && defined(__cplusplus) && (__cplusplus < 201103L) && !defined(_MSC_VER)
-#error "zpaqfranz needs C++11: add -std=c++11 (gcc 4.8 and 5: Oracle Linux, CentOS, RHEL 7). -DANCIENT is for compilers with no C++11, and has less (-m8, franzen, ...)"
+#error "zpaqfranz needs C++11: add -std=c++11 (gcc 4.8 and 5: Oracle Linux, CentOS, RHEL 7). -DANCIENT is for compilers with no C++11, and has less (-m8, ...)"
 #endif
 
 /// no -m8 on the old compilers (gcc 3.4 of ESXi): no push_macro, no
@@ -268,6 +290,13 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 #if (defined(ANCIENT) && !defined(NAS)) || defined(ESX)
 #undef ZPAQZSTD
 #endif // corresponds to #if (#if (defined(ANCIENT) && !defined(NAS)) || defined(ESX))
+
+/// 65.18q: every ANCIENT build (old compilers, old systems) has Franzen with franzsodium only, as NAS and ESX
+/// already had: no libsodium, so no dlopen. Before glibc 2.34 dlopen is in libdl, and the old line of the notes
+/// (g++ -O3 -DANCIENT -Dunix zpaqfranz.cpp -o zpaqfranz -pthread, no -ldl) did not link any more since 65.18e
+#ifdef ANCIENT
+#undef ZPAQLIBSODIUM
+#endif
 
 
 #define DATE_1980 1980*10000000000LL+1*100000000LL+1*1000000
@@ -287,7 +316,7 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 #define UINT64_MAX 18446744073709551615ULL
 #endif
 #ifndef UINT32_MAX
-#define UINT32_MAX 4294967295
+#define UINT32_MAX 4294967295U /// 65.18e: U, as in stdint.h (without: an error for gcc 3.4 at 32 bit, Franzen)
 #endif
 #endif
 
@@ -1278,6 +1307,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     unique; C99 constructs turned into C++98 (casts, positional initializers).
     Otherwise unmodified. Left out of the build by -DNOEMAIL (-DOPEN sets it).
 
+31 [BSD 2-Clause OR CC0 1.0]   Monocypher 4.0.2 Copyright (c) 2017-2019 Loup Vaillant https://monocypher.org
+ /// LICENSE_START.31
+ /// LICENSE_END.31
+    franzsodium: the functions of libsodium that Franzen uses (ChaCha20-Poly1305 IETF, Argon2id),
+    built in, from FRANZSODIUM BEGIN to FRANZSODIUM END (made by tortura/sodio/fai_franzsodium.py).
+    Taken from Monocypher, unmodified but for a namespace, the prefix of its macros and ULL on its
+    64 bit constants; its notice is inside the block. Since 65.18e what Franzen uses by default,
+    on every platform (ESX and NAS too); libsodium only with -libsodium, where built with ZPAQLIBSODIUM.
+    Where Franzen is: everywhere but the open build.
 
    _____ _____  ______ ______ _______ _____ _   _  _____  _____ 
   / ____|  __ \|  ____|  ____|__   __|_   _| \ | |/ ____|/ ____|
@@ -2047,7 +2085,8 @@ Two things are needed: -std=c++11 (gcc 4.8.5 is C++98 by default) and -ldl
 g++ -O3 -Dunix -std=c++11 zpaqfranz.cpp -pthread -ldl -o zpaqfranz
 Or with the Makefile (it adds both by itself, and SFTP): make
 Do NOT use -DANCIENT: it builds, but slower and without some functions
-(-m8 and the other zstd methods, franzen, the multithread add). -tar is there
+(-m8 and the other zstd methods, the multithread add, -libsodium; the
+levels by name are the zpaq models there: -normal is -m1). -tar is there
 (65.16h), with the times to the second if the system has no utimensat
 
 Solaris 11.4 gcc 7.3.0
@@ -37339,6 +37378,7 @@ int zpaqfranz_sendmail(const std::string &i_configfile, const std::string &i_to,
 	#include <sys/ioctl.h>
 	#include <sys/mman.h>
 	#include <sys/wait.h>
+	#include <sys/resource.h> /// 65.18n: getrusage(), the peak of the RAM (OS REPORT)
 	#include <errno.h>
 	#include <stdlib.h>
 
@@ -87741,6 +87781,15 @@ int64_t		g_write_on_seek = 0;
 
 int64_t g_allocatedram= 0;
 int64_t g_arrayram	  = 0;
+/// 65.18n: the highest g_allocatedram + g_arrayram + g_dt_ram seen, for the last line (the counters are not
+/// atomic, and some memory they do not see at all: zstd, the C++ library. An estimate: OS REPORT is the system)
+int64_t g_rampicco	  = 0;
+static void ram_aggiornapicco()
+{
+	const int64_t ora= g_allocatedram + g_arrayram + g_dt_ram;
+	if (ora > g_rampicco)
+		g_rampicco= ora;
+}
 
 bool g_control_c		 = false;
 /// Set the moment a write fails because the target volume is full. Extraction
@@ -87794,6 +87843,9 @@ bool		flagdebug;
 bool		flagdebug2;
 bool		flagdebug3;
 bool		flagdebug4;
+bool		flagfranzsodium; /// 65.18c: Franzen with franzsodium (built in), not libsodium. 65.18e: the default (it wins on -libsodium)
+bool		flagsodiumcheck; /// 65.18d: Franzen, every call by libsodium and by franzsodium, compared (ZPAQLIBSODIUM only)
+bool		flaglibsodium;	 /// 65.18e: Franzen with libsodium (the external library), not franzsodium (ZPAQLIBSODIUM only)
 bool		flagdebug5;
 bool		flagdebug6;
 std::string g_processorname= "";
@@ -88040,13 +88092,13 @@ bool flagnofilelist;
 bool flagfastadd;	  /// 65.12f: add from the state stored by the add before
 bool flagfastaddtest; /// ...then the archive read again, the states compared (autotest)
 bool g_dtlight= false; /// l: the DT do not need the hash objects (a new for every file, never freed)
-bool g_dtnoblock= false; /// l by -fast: no franz_block in DT(), fl_record() makes it as big as needed
-/// -fast: the method of its d blocks (0 store, 1..5, 6/7 if compiled...),
+bool g_dtnoblock= false; /// l by -lfast: no franz_block in DT(), fl_record() makes it as big as needed
+/// -lfast: the method of its d blocks (0 store, 1..5, 6/7 if compiled...),
 /// NEVER the one of the archive (with -m5 it would take forever)
 #define ZPAQFILELIST_METHOD	  "1"
 #define ZPAQFILELIST_FRAGMENT 6 /// like -fragment: 6 = 64 KB on average
 #define ZPAQFILELIST_TAG	  "VFILE-filelist:"
-/// -fast, the other fake file (a deletion too: zpaq 7.15 does not care), one in each version that
+/// -lfast, the other fake file (a deletion too: zpaq 7.15 does not care), one in each version that
 /// stores the history: what the version is, and did
 ///   VFILE-info:1|key=value|key=value...
 /// 1 is the generation. Who reads takes the keys it knows and nothing else: an unknown key is
@@ -88191,6 +88243,37 @@ volatile bool g_usbtest_attivo= false; /// f -test running: the first Ctrl+C sto
 volatile bool g_usbtest_stop  = false;
 int			  g_fermatafatale= 0; /// not 0: my_handler called by an error (a -image whose reader cannot go on), not by Ctrl+C: its exit code
 int	 g_turbothreads= 0; /// -turbo N: threads of the parallel fragmenter of add2(); 0 = as many as -t (up to 32)
+uint64_t g_turbochunk= 0; /// 65.18l: -turbochunk X, not in the help (for the tests): the batch of -turbo; 0 = automatic
+bool g_turbodetto= false; /// 65.18o: -turbo written (on the command line or in a -ini): -lean does not turn it off
+/// 65.18o: the levels by name, from the lightest to the strongest. One only, and not with -m (03995, rc 2).
+/// -lean is -m80 -t2 -noturbo, but a -t or a -turbo written wins (the command line always wins)
+/// 65.18q: a build without zstd (ESX, ANCIENT but NAS) has no -m7 -m8 -m9: there -m80 -m8 -m9 -m7 were "method >5"
+/// = -m5 (-lean was -m5 -t2, -normal -m5). There the zpaq models, in the same order (decided by the author)
+struct livellonome
+{
+	const char *nome;
+	const char *metodo;
+	const char *senzazstd; /// 65.18q: the method in a build without ZPAQZSTD
+	const char *aiuto; /// as in h a (HU 1923...) and in the flags (@flag 1930...): the same words. The words of the
+					   /// author (65.18o): hints for who does not know what -m80 or -m7 are, not a contract
+};
+static const livellonome g_livelli[]= {
+	{"-lean", "80", "1", "Minimal resources, slower (e.g. NAS)"},		/// -m80 -t2 -noturbo (the -t2 -noturbo in loadparameters)
+	{"-fast", "80", "1", "A bit faster and bigger than -normal"},		/// -m80
+	{"-normal", "8", "1", "Balanced speed and size (recommended)"},	/// -m8 (no zstd: -m1, the default there)
+	{"-good", "9", "2", "A bit smaller and slower than -normal"},		/// -m9 = -m8h9
+	{"-better", "7", "3", "High compression, fast extraction"},		/// -m7 = -m86h19
+	{"-ultra", "6", "6", "Very slow compression and extraction"},		/// -m6, the "m4.5"
+	{"-max", "5", "5", "Extreme compression, extremely slow"}};		/// -m5
+#define NLIVELLI ((int)(sizeof(g_livelli) / sizeof(g_livelli[0])))
+static bool g_livellousato[NLIVELLI]; /// set by g_programflags: -lean ... -max written
+static bool livellonome_e(const std::string &i_switch) /// (std::: we are before using std::string)
+{
+	for (int k= 0; k < NLIVELLI; k++)
+		if (i_switch == g_livelli[k].nome)
+			return true;
+	return false;
+}
 bool flagimage;
 bool flagdashboard; /// a -image -dashboard: a live map of the source (65.6f: the default)
 bool flagnodashboard; /// 65.6f: -dashboard is the default, -nodashboard turns it off (the classic line)
@@ -93493,7 +93576,10 @@ void *franz_malloc(size_t i_size)
 	ptr= malloc(i_size);
 #endif
 	if (ptr)
+	{
 		g_allocatedram+= i_size; // Increment only if the allocation was successful
+		ram_aggiornapicco();
+	}
 	return ptr;
 }
 
@@ -93538,10 +93624,10 @@ static void *franz_extend(void *i_mem, size_t i_size, size_t i_oldsize)
 	printf("01219: realloc smaller, do nothing\n");
 	return i_mem;
 #else
-	if (i_oldsize > 0)
-		i_oldsize++; /// compiler be quiet!
+	/// 65.18n: there was an i_oldsize++ ("compiler be quiet"): one byte too many taken back, at every realloc
 	g_allocatedram+= i_size;
 	g_allocatedram-= i_oldsize;
+	ram_aggiornapicco();
 	return realloc(i_mem, i_size);
 #endif // corresponds to #ifdef (#ifdef MALLOC_ALIGN)
 }
@@ -95498,8 +95584,8 @@ void Array<T>::resize(size_t sz, int ex) {
     assert(offset>0 && offset<=64);
     assert((char*)data-offset);
     ::free((char*)data-offset);
-	 g_arrayram-=n;
- 
+	 g_arrayram-=(int64_t)(128+n*sizeof(T)); /// 65.18n: the bytes of nb, below. It was n, the elements: 3/4 of a table of U32 stayed counted
+
   }
   n=0;
   offset=0;
@@ -95509,6 +95595,7 @@ void Array<T>::resize(size_t sz, int ex) {
   if (nb<=128 || (nb-128)/sizeof(T)!=n) n=0, error("Array too big");
   data=(T*)::calloc(nb, 1);
   g_arrayram+=nb;
+  ram_aggiornapicco();
   if (!data) n=0, error("Out of memory");
   offset=64-(((char*)data-(char*)0)&63);
   assert(offset>0 && offset<=64);
@@ -96161,7 +96248,7 @@ public:
 class Decompresser {
 public:
   Decompresser(): contapassi(false), coda(0), saltati(0), corto(0), z(), dec(z), pp(), state(BLOCK), decode_state(FIRSTSEG), lungnome(0) {}
-  /// 65.15x: as a block of the index (65.15b), its PCOMP not the known one runs counted: the -fast history (d
+  /// 65.15x: as a block of the index (65.15b), its PCOMP not the known one runs counted: the -lfast history (d
   /// blocks made by compressBlock as the index). Its damaged program looped for ever: t, tw, pp HANG (work probe)
   bool contapassi;
   /// 65.15y: findBlock false: the bytes it read up to the end of the input, with no block in them (0: none). After
@@ -98427,7 +98514,7 @@ void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm, int i_fmt);
 #endif
 bool pcomp_indice_noto(const U8* i_code, int i_len); /// 65.15b: after compressBlock
 /// 65.15b: the name of the first segment of a block of the index of jidac: jDC, the date (14 digits), c h or i,
-/// the number (10 digits). The d (data, the -fast history too) are not
+/// the number (10 digits). The d (data, the -lfast history too) are not
 static bool nomeindice(const char* i_nome, int i_lung) {
   if ((i_lung!=28) || (i_nome[0]!='j') || (i_nome[1]!='D') || (i_nome[2]!='C'))
     return false;
@@ -121130,6 +121217,9482 @@ bool headcompare(std::string i_file1, std::string i_file2) {
 
 
 #ifndef NOFRANZEN
+/// 65.18c: franzsodium (LICENSE 31), the nine functions of libsodium that Franzen uses, built in.
+/// Generated: do not edit here, see tortura/sodio (fai_franzsodium.py, franzsodium_colla.inc, sodiotest)
+/// LICENSE_START.31
+/// ======== FRANZSODIUM BEGIN ========
+/*
+	franzsodium: what zpaqfranz needs of libsodium (ChaCha20-Poly1305 IETF,
+	Argon2i/Argon2id, random bytes, memzero), with no external library.
+	Generated by tortura/sodio/fai_franzsodium.py: do not edit this block by
+	hand, edit franzsodium_colla.inc (or the script) and generate it again.
+
+	From Monocypher 4.0.2 (https://monocypher.org), Loup Vaillant,
+	BSD-2-Clause OR CC0-1.0 (its notice below), taken unmodified but for:
+	the namespace franzsodium::mc, the FSM_ prefix on its macros, ULL on its 64 bit constants,
+	the sections not needed left out (X25519, EdDSA, Elligator, AEAD).
+	  monocypher.c SHA-256 afe2b098c8569577a84488e0b98d276d1fba6506adea68bb9241a52111734c59
+	  monocypher.h SHA-256 f78bb31255cfb7beba66afd2137f5194c8a025cf40488b6cc1e295234d43f374
+	  franzsodium_colla.inc SHA-256 095d4787c6cbf8e5f42f69bc3db579896736b0bd37c901a045bba6a421e805eb
+*/
+// Monocypher version 4.0.2
+//
+// This file is dual-licensed.  Choose whichever licence you want from
+// the two licences listed below.
+//
+// The first licence is a regular 2-clause BSD licence.  The second licence
+// is the CC-0 from Creative Commons. It is intended to release Monocypher
+// to the public domain.  The BSD licence serves as a fallback option.
+//
+// SPDX-License-Identifier: BSD-2-Clause OR CC0-1.0
+//
+// ------------------------------------------------------------------------
+//
+// Copyright (c) 2017-2019, Loup Vaillant
+// All rights reserved.
+//
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+// 1. Redistributions of source code must retain the above copyright
+//    notice, this list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright
+//    notice, this list of conditions and the following disclaimer in the
+//    documentation and/or other materials provided with the
+//    distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
+// ------------------------------------------------------------------------
+//
+// Written in 2017-2019 by Loup Vaillant
+//
+// To the extent possible under law, the author(s) have dedicated all copyright
+// and related neighboring rights to this software to the public domain
+// worldwide.  This software is distributed without any warranty.
+//
+// You should have received a copy of the CC0 Public Domain Dedication along
+// with this software.  If not, see
+// <https://creativecommons.org/publicdomain/zero/1.0/>
+#ifndef FRANZSODIUM_H
+#define FRANZSODIUM_H
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <fcntl.h>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
+#endif
+/// ChaCha20 4 blocks at a time on every x86-64 (SSE2 is always there), unless -DFRANZSODIUM_NO_SIMD
+#if !defined(FRANZSODIUM_NO_SIMD) && (defined(__SSE2__) || defined(_M_X64) || defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2))
+#define FRANZSODIUM_SSE2 1
+#include <emmintrin.h>
+/// AVX2 (8 blocks): chosen at run time; the target attribute needs gcc 4.9+ or clang
+#if defined(__x86_64__) && !defined(FRANZSODIUM_NO_AVX2) && \
+	(defined(__clang__) || (defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9))))
+#define FRANZSODIUM_AVX2 1
+#include <immintrin.h>
+#endif
+#endif
+/// Poly1305 with 64 bit limbs where the compiler has unsigned __int128
+#if defined(__SIZEOF_INT128__) && !defined(FRANZSODIUM_NO_INT128)
+#define FRANZSODIUM_POLY64 1
+#endif
+namespace franzsodium
+{
+namespace mc
+{
+/// ---- monocypher.h (the sections used) ----
+// Constant time comparisons
+// -------------------------
+
+// Return 0 if a and b are equal, -1 otherwise
+int crypto_verify16(const uint8_t a[16], const uint8_t b[16]);
+int crypto_verify32(const uint8_t a[32], const uint8_t b[32]);
+int crypto_verify64(const uint8_t a[64], const uint8_t b[64]);
+
+
+// Erase sensitive data
+// --------------------
+void crypto_wipe(void *secret, size_t size);
+
+
+// General purpose hash (BLAKE2b)
+// ------------------------------
+
+// Direct interface
+void crypto_blake2b(uint8_t *hash,          size_t hash_size,
+                    const uint8_t *message, size_t message_size);
+
+void crypto_blake2b_keyed(uint8_t *hash,          size_t hash_size,
+                          const uint8_t *key,     size_t key_size,
+                          const uint8_t *message, size_t message_size);
+
+// Incremental interface
+typedef struct {
+	// Do not rely on the size or contents of this type,
+	// for they may change without notice.
+	uint64_t hash[8];
+	uint64_t input_offset[2];
+	uint64_t input[16];
+	size_t   input_idx;
+	size_t   hash_size;
+} crypto_blake2b_ctx;
+
+void crypto_blake2b_init(crypto_blake2b_ctx *ctx, size_t hash_size);
+void crypto_blake2b_keyed_init(crypto_blake2b_ctx *ctx, size_t hash_size,
+                               const uint8_t *key, size_t key_size);
+void crypto_blake2b_update(crypto_blake2b_ctx *ctx,
+                           const uint8_t *message, size_t message_size);
+void crypto_blake2b_final(crypto_blake2b_ctx *ctx, uint8_t *hash);
+
+
+// Password key derivation (Argon2)
+// --------------------------------
+#define FSM_CRYPTO_ARGON2_D  0
+#define FSM_CRYPTO_ARGON2_I  1
+#define FSM_CRYPTO_ARGON2_ID 2
+
+typedef struct {
+	uint32_t algorithm;  // Argon2d, Argon2i, Argon2id
+	uint32_t nb_blocks;  // memory hardness, >= 8 * nb_lanes
+	uint32_t nb_passes;  // CPU hardness, >= 1 (>= 3 recommended for Argon2i)
+	uint32_t nb_lanes;   // parallelism level (single threaded anyway)
+} crypto_argon2_config;
+
+typedef struct {
+	const uint8_t *pass;
+	const uint8_t *salt;
+	uint32_t pass_size;
+	uint32_t salt_size;  // 16 bytes recommended
+} crypto_argon2_inputs;
+
+typedef struct {
+	const uint8_t *key; // may be NULL if no key
+	const uint8_t *ad;  // may be NULL if no additional data
+	uint32_t key_size;  // 0 if no key (32 bytes recommended otherwise)
+	uint32_t ad_size;   // 0 if no additional data
+} crypto_argon2_extras;
+
+extern const crypto_argon2_extras crypto_argon2_no_extras;
+
+void crypto_argon2(uint8_t *hash, uint32_t hash_size, void *work_area,
+                   crypto_argon2_config config,
+                   crypto_argon2_inputs inputs,
+                   crypto_argon2_extras extras);
+
+
+// Chacha20
+// --------
+
+// Specialised hash.
+// Used to hash X25519 shared secrets.
+void crypto_chacha20_h(uint8_t       out[32],
+                       const uint8_t key[32],
+                       const uint8_t in [16]);
+
+// Unauthenticated stream cipher.
+// Don't forget to add authentication.
+uint64_t crypto_chacha20_djb(uint8_t       *cipher_text,
+                             const uint8_t *plain_text,
+                             size_t         text_size,
+                             const uint8_t  key[32],
+                             const uint8_t  nonce[8],
+                             uint64_t       ctr);
+uint32_t crypto_chacha20_ietf(uint8_t       *cipher_text,
+                              const uint8_t *plain_text,
+                              size_t         text_size,
+                              const uint8_t  key[32],
+                              const uint8_t  nonce[12],
+                              uint32_t       ctr);
+uint64_t crypto_chacha20_x(uint8_t       *cipher_text,
+                           const uint8_t *plain_text,
+                           size_t         text_size,
+                           const uint8_t  key[32],
+                           const uint8_t  nonce[24],
+                           uint64_t       ctr);
+
+
+// Poly 1305
+// ---------
+
+// This is a *one time* authenticator.
+// Disclosing the mac reveals the key.
+// See crypto_lock() on how to use it properly.
+
+// Direct interface
+void crypto_poly1305(uint8_t        mac[16],
+                     const uint8_t *message, size_t message_size,
+                     const uint8_t  key[32]);
+
+// Incremental interface
+typedef struct {
+	// Do not rely on the size or contents of this type,
+	// for they may change without notice.
+	uint8_t  c[16];  // chunk of the message
+	size_t   c_idx;  // How many bytes are there in the chunk.
+	uint32_t r  [4]; // constant multiplier (from the secret key)
+	uint32_t pad[4]; // random number added at the end (from the secret key)
+	uint32_t h  [5]; // accumulated hash
+} crypto_poly1305_ctx;
+
+void crypto_poly1305_init  (crypto_poly1305_ctx *ctx, const uint8_t key[32]);
+void crypto_poly1305_update(crypto_poly1305_ctx *ctx,
+                            const uint8_t *message, size_t message_size);
+void crypto_poly1305_final (crypto_poly1305_ctx *ctx, uint8_t mac[16]);
+
+
+/// ---- monocypher.c (Utilities, Chacha 20, Poly 1305, BLAKE2 b, Argon2) ----
+/////////////////
+/// Utilities ///
+/////////////////
+#define FSM_FOR_T(type, i, start, end) for (type i = (start); i < (end); i++)
+#define FSM_FOR(i, start, end)         FSM_FOR_T(size_t, i, start, end)
+#define FSM_COPY(dst, src, size)       FSM_FOR(_i_, 0, size) (dst)[_i_] = (src)[_i_]
+#define FSM_ZERO(buf, size)            FSM_FOR(_i_, 0, size) (buf)[_i_] = 0
+#define FSM_WIPE_CTX(ctx)              crypto_wipe(ctx   , sizeof(*(ctx)))
+#define FSM_WIPE_BUFFER(buffer)        crypto_wipe(buffer, sizeof(buffer))
+#define FSM_MIN(a, b)                  ((a) <= (b) ? (a) : (b))
+#define FSM_MAX(a, b)                  ((a) >= (b) ? (a) : (b))
+
+typedef int8_t   i8;
+typedef uint8_t  u8;
+typedef int16_t  i16;
+typedef uint32_t u32;
+typedef int32_t  i32;
+typedef int64_t  i64;
+typedef uint64_t u64;
+
+static const u8 zero[128] = {0};
+
+// returns the smallest positive integer y such that
+// (x + y) % pow_2  == 0
+// Basically, y is the "gap" missing to align x.
+// Only works when pow_2 is a power of 2.
+// Note: we use ~x+1 instead of -x to avoid compiler warnings
+static size_t gap(size_t x, size_t pow_2)
+{
+	return (~x + 1) & (pow_2 - 1);
+}
+
+static u32 load32_le(const u8 s[4])
+{
+	return
+		((u32)s[0] <<  0) |
+		((u32)s[1] <<  8) |
+		((u32)s[2] << 16) |
+		((u32)s[3] << 24);
+}
+
+static u64 load64_le(const u8 s[8])
+{
+	return load32_le(s) | ((u64)load32_le(s+4) << 32);
+}
+
+static void store32_le(u8 out[4], u32 in)
+{
+	out[0] =  in        & 0xff;
+	out[1] = (in >>  8) & 0xff;
+	out[2] = (in >> 16) & 0xff;
+	out[3] = (in >> 24) & 0xff;
+}
+
+static void store64_le(u8 out[8], u64 in)
+{
+	store32_le(out    , (u32)in );
+	store32_le(out + 4, in >> 32);
+}
+
+static void load32_le_buf (u32 *dst, const u8 *src, size_t size) {
+	FSM_FOR(i, 0, size) { dst[i] = load32_le(src + i*4); }
+}
+static void load64_le_buf (u64 *dst, const u8 *src, size_t size) {
+	FSM_FOR(i, 0, size) { dst[i] = load64_le(src + i*8); }
+}
+static void store32_le_buf(u8 *dst, const u32 *src, size_t size) {
+	FSM_FOR(i, 0, size) { store32_le(dst + i*4, src[i]); }
+}
+static void store64_le_buf(u8 *dst, const u64 *src, size_t size) {
+	FSM_FOR(i, 0, size) { store64_le(dst + i*8, src[i]); }
+}
+
+static u64 rotr64(u64 x, u64 n) { return (x >> n) ^ (x << (64 - n)); }
+static u32 rotl32(u32 x, u32 n) { return (x << n) ^ (x >> (32 - n)); }
+
+static int neq0(u64 diff)
+{
+	// constant time comparison to zero
+	// return diff != 0 ? -1 : 0
+	u64 half = (diff >> 32) | ((u32)diff);
+	return (1 & ((half - 1) >> 32)) - 1;
+}
+
+static u64 x16(const u8 a[16], const u8 b[16])
+{
+	return (load64_le(a + 0) ^ load64_le(b + 0))
+		|  (load64_le(a + 8) ^ load64_le(b + 8));
+}
+static u64 x32(const u8 a[32],const u8 b[32]){return x16(a,b)| x16(a+16, b+16);}
+static u64 x64(const u8 a[64],const u8 b[64]){return x32(a,b)| x32(a+32, b+32);}
+int crypto_verify16(const u8 a[16], const u8 b[16]){ return neq0(x16(a, b)); }
+int crypto_verify32(const u8 a[32], const u8 b[32]){ return neq0(x32(a, b)); }
+int crypto_verify64(const u8 a[64], const u8 b[64]){ return neq0(x64(a, b)); }
+
+void crypto_wipe(void *secret, size_t size)
+{
+	volatile u8 *v_secret = (u8*)secret;
+	FSM_ZERO(v_secret, size);
+}
+
+/////////////////
+/// Chacha 20 ///
+/////////////////
+#define FSM_QUARTERROUND(a, b, c, d)	\
+	a += b;  d = rotl32(d ^ a, 16); \
+	c += d;  b = rotl32(b ^ c, 12); \
+	a += b;  d = rotl32(d ^ a,  8); \
+	c += d;  b = rotl32(b ^ c,  7)
+
+static void chacha20_rounds(u32 out[16], const u32 in[16])
+{
+	// The temporary variables make Chacha20 10% faster.
+	u32 t0  = in[ 0];  u32 t1  = in[ 1];  u32 t2  = in[ 2];  u32 t3  = in[ 3];
+	u32 t4  = in[ 4];  u32 t5  = in[ 5];  u32 t6  = in[ 6];  u32 t7  = in[ 7];
+	u32 t8  = in[ 8];  u32 t9  = in[ 9];  u32 t10 = in[10];  u32 t11 = in[11];
+	u32 t12 = in[12];  u32 t13 = in[13];  u32 t14 = in[14];  u32 t15 = in[15];
+
+	FSM_FOR (i, 0, 10) { // 20 rounds, 2 rounds per loop.
+		FSM_QUARTERROUND(t0, t4, t8 , t12); // column 0
+		FSM_QUARTERROUND(t1, t5, t9 , t13); // column 1
+		FSM_QUARTERROUND(t2, t6, t10, t14); // column 2
+		FSM_QUARTERROUND(t3, t7, t11, t15); // column 3
+		FSM_QUARTERROUND(t0, t5, t10, t15); // diagonal 0
+		FSM_QUARTERROUND(t1, t6, t11, t12); // diagonal 1
+		FSM_QUARTERROUND(t2, t7, t8 , t13); // diagonal 2
+		FSM_QUARTERROUND(t3, t4, t9 , t14); // diagonal 3
+	}
+	out[ 0] = t0;   out[ 1] = t1;   out[ 2] = t2;   out[ 3] = t3;
+	out[ 4] = t4;   out[ 5] = t5;   out[ 6] = t6;   out[ 7] = t7;
+	out[ 8] = t8;   out[ 9] = t9;   out[10] = t10;  out[11] = t11;
+	out[12] = t12;  out[13] = t13;  out[14] = t14;  out[15] = t15;
+}
+
+static const u8 *chacha20_constant = (const u8*)"expand 32-byte k"; // 16 bytes
+
+void crypto_chacha20_h(u8 out[32], const u8 key[32], const u8 in [16])
+{
+	u32 block[16];
+	load32_le_buf(block     , chacha20_constant, 4);
+	load32_le_buf(block +  4, key              , 8);
+	load32_le_buf(block + 12, in               , 4);
+
+	chacha20_rounds(block, block);
+
+	// prevent reversal of the rounds by revealing only half of the buffer.
+	store32_le_buf(out   , block   , 4); // constant
+	store32_le_buf(out+16, block+12, 4); // counter and nonce
+	FSM_WIPE_BUFFER(block);
+}
+
+u64 crypto_chacha20_djb(u8 *cipher_text, const u8 *plain_text,
+                        size_t text_size, const u8 key[32], const u8 nonce[8],
+                        u64 ctr)
+{
+	u32 input[16];
+	load32_le_buf(input     , chacha20_constant, 4);
+	load32_le_buf(input +  4, key              , 8);
+	load32_le_buf(input + 14, nonce            , 2);
+	input[12] = (u32) ctr;
+	input[13] = (u32)(ctr >> 32);
+
+	// Whole blocks
+	u32    pool[16];
+	size_t nb_blocks = text_size >> 6;
+	FSM_FOR (i, 0, nb_blocks) {
+		chacha20_rounds(pool, input);
+		if (plain_text != 0) {
+			FSM_FOR (j, 0, 16) {
+				u32 p = pool[j] + input[j];
+				store32_le(cipher_text, p ^ load32_le(plain_text));
+				cipher_text += 4;
+				plain_text  += 4;
+			}
+		} else {
+			FSM_FOR (j, 0, 16) {
+				u32 p = pool[j] + input[j];
+				store32_le(cipher_text, p);
+				cipher_text += 4;
+			}
+		}
+		input[12]++;
+		if (input[12] == 0) {
+			input[13]++;
+		}
+	}
+	text_size &= 63;
+
+	// Last (incomplete) block
+	if (text_size > 0) {
+		if (plain_text == 0) {
+			plain_text = zero;
+		}
+		chacha20_rounds(pool, input);
+		u8 tmp[64];
+		FSM_FOR (i, 0, 16) {
+			store32_le(tmp + i*4, pool[i] + input[i]);
+		}
+		FSM_FOR (i, 0, text_size) {
+			cipher_text[i] = tmp[i] ^ plain_text[i];
+		}
+		FSM_WIPE_BUFFER(tmp);
+	}
+	ctr = input[12] + ((u64)input[13] << 32) + (text_size > 0);
+
+	FSM_WIPE_BUFFER(pool);
+	FSM_WIPE_BUFFER(input);
+	return ctr;
+}
+
+u32 crypto_chacha20_ietf(u8 *cipher_text, const u8 *plain_text,
+                         size_t text_size,
+                         const u8 key[32], const u8 nonce[12], u32 ctr)
+{
+	u64 big_ctr = ctr + ((u64)load32_le(nonce) << 32);
+	return (u32)crypto_chacha20_djb(cipher_text, plain_text, text_size,
+	                                key, nonce + 4, big_ctr);
+}
+
+u64 crypto_chacha20_x(u8 *cipher_text, const u8 *plain_text,
+                      size_t text_size,
+                      const u8 key[32], const u8 nonce[24], u64 ctr)
+{
+	u8 sub_key[32];
+	crypto_chacha20_h(sub_key, key, nonce);
+	ctr = crypto_chacha20_djb(cipher_text, plain_text, text_size,
+	                          sub_key, nonce + 16, ctr);
+	FSM_WIPE_BUFFER(sub_key);
+	return ctr;
+}
+
+/////////////////
+/// Poly 1305 ///
+/////////////////
+
+// h = (h + c) * r
+// preconditions:
+//   ctx->h <= 4_ffffffff_ffffffff_ffffffff_ffffffff
+//   ctx->r <=   0ffffffc_0ffffffc_0ffffffc_0fffffff
+//   end    <= 1
+// Postcondition:
+//   ctx->h <= 4_ffffffff_ffffffff_ffffffff_ffffffff
+static void poly_blocks(crypto_poly1305_ctx *ctx, const u8 *in,
+                        size_t nb_blocks, unsigned end)
+{
+	// Local all the things!
+	const u32 r0 = ctx->r[0];
+	const u32 r1 = ctx->r[1];
+	const u32 r2 = ctx->r[2];
+	const u32 r3 = ctx->r[3];
+	const u32 rr0 = (r0 >> 2) * 5;  // lose 2 bits...
+	const u32 rr1 = (r1 >> 2) + r1; // rr1 == (r1 >> 2) * 5
+	const u32 rr2 = (r2 >> 2) + r2; // rr1 == (r2 >> 2) * 5
+	const u32 rr3 = (r3 >> 2) + r3; // rr1 == (r3 >> 2) * 5
+	const u32 rr4 = r0 & 3;         // ...recover 2 bits
+	u32 h0 = ctx->h[0];
+	u32 h1 = ctx->h[1];
+	u32 h2 = ctx->h[2];
+	u32 h3 = ctx->h[3];
+	u32 h4 = ctx->h[4];
+
+	FSM_FOR (i, 0, nb_blocks) {
+		// h + c, without carry propagation
+		const u64 s0 = (u64)h0 + load32_le(in);  in += 4;
+		const u64 s1 = (u64)h1 + load32_le(in);  in += 4;
+		const u64 s2 = (u64)h2 + load32_le(in);  in += 4;
+		const u64 s3 = (u64)h3 + load32_le(in);  in += 4;
+		const u32 s4 =      h4 + end;
+
+		// (h + c) * r, without carry propagation
+		const u64 x0 = s0*r0+ s1*rr3+ s2*rr2+ s3*rr1+ s4*rr0;
+		const u64 x1 = s0*r1+ s1*r0 + s2*rr3+ s3*rr2+ s4*rr1;
+		const u64 x2 = s0*r2+ s1*r1 + s2*r0 + s3*rr3+ s4*rr2;
+		const u64 x3 = s0*r3+ s1*r2 + s2*r1 + s3*r0 + s4*rr3;
+		const u32 x4 =                                s4*rr4;
+
+		// partial reduction modulo 2^130 - 5
+		const u32 u5 = x4 + (x3 >> 32); // u5 <= 7ffffff5
+		const u64 u0 = (u5 >>  2) * 5 + (x0 & 0xffffffff);
+		const u64 u1 = (u0 >> 32)     + (x1 & 0xffffffff) + (x0 >> 32);
+		const u64 u2 = (u1 >> 32)     + (x2 & 0xffffffff) + (x1 >> 32);
+		const u64 u3 = (u2 >> 32)     + (x3 & 0xffffffff) + (x2 >> 32);
+		const u32 u4 = (u3 >> 32)     + (u5 & 3); // u4 <= 4
+
+		// Update the hash
+		h0 = u0 & 0xffffffff;
+		h1 = u1 & 0xffffffff;
+		h2 = u2 & 0xffffffff;
+		h3 = u3 & 0xffffffff;
+		h4 = u4;
+	}
+	ctx->h[0] = h0;
+	ctx->h[1] = h1;
+	ctx->h[2] = h2;
+	ctx->h[3] = h3;
+	ctx->h[4] = h4;
+}
+
+void crypto_poly1305_init(crypto_poly1305_ctx *ctx, const u8 key[32])
+{
+	FSM_ZERO(ctx->h, 5); // Initial hash is zero
+	ctx->c_idx = 0;
+	// load r and pad (r has some of its bits cleared)
+	load32_le_buf(ctx->r  , key   , 4);
+	load32_le_buf(ctx->pad, key+16, 4);
+	FSM_FOR (i, 0, 1) { ctx->r[i] &= 0x0fffffff; }
+	FSM_FOR (i, 1, 4) { ctx->r[i] &= 0x0ffffffc; }
+}
+
+void crypto_poly1305_update(crypto_poly1305_ctx *ctx,
+                            const u8 *message, size_t message_size)
+{
+	// Avoid undefined NULL pointer increments with empty messages
+	if (message_size == 0) {
+		return;
+	}
+
+	// Align ourselves with block boundaries
+	size_t aligned = FSM_MIN(gap(ctx->c_idx, 16), message_size);
+	FSM_FOR (i, 0, aligned) {
+		ctx->c[ctx->c_idx] = *message;
+		ctx->c_idx++;
+		message++;
+		message_size--;
+	}
+
+	// If block is complete, process it
+	if (ctx->c_idx == 16) {
+		poly_blocks(ctx, ctx->c, 1, 1);
+		ctx->c_idx = 0;
+	}
+
+	// Process the message block by block
+	size_t nb_blocks = message_size >> 4;
+	poly_blocks(ctx, message, nb_blocks, 1);
+	message      += nb_blocks << 4;
+	message_size &= 15;
+
+	// remaining bytes (we never complete a block here)
+	FSM_FOR (i, 0, message_size) {
+		ctx->c[ctx->c_idx] = message[i];
+		ctx->c_idx++;
+	}
+}
+
+void crypto_poly1305_final(crypto_poly1305_ctx *ctx, u8 mac[16])
+{
+	// Process the last block (if any)
+	// We move the final 1 according to remaining input length
+	// (this will add less than 2^130 to the last input block)
+	if (ctx->c_idx != 0) {
+		FSM_ZERO(ctx->c + ctx->c_idx, 16 - ctx->c_idx);
+		ctx->c[ctx->c_idx] = 1;
+		poly_blocks(ctx, ctx->c, 1, 0);
+	}
+
+	// check if we should subtract 2^130-5 by performing the
+	// corresponding carry propagation.
+	u64 c = 5;
+	FSM_FOR (i, 0, 4) {
+		c  += ctx->h[i];
+		c >>= 32;
+	}
+	c += ctx->h[4];
+	c  = (c >> 2) * 5; // shift the carry back to the beginning
+	// c now indicates how many times we should subtract 2^130-5 (0 or 1)
+	FSM_FOR (i, 0, 4) {
+		c += (u64)ctx->h[i] + ctx->pad[i];
+		store32_le(mac + i*4, (u32)c);
+		c = c >> 32;
+	}
+	FSM_WIPE_CTX(ctx);
+}
+
+void crypto_poly1305(u8     mac[16],  const u8 *message,
+                     size_t message_size, const u8  key[32])
+{
+	crypto_poly1305_ctx ctx;
+	crypto_poly1305_init  (&ctx, key);
+	crypto_poly1305_update(&ctx, message, message_size);
+	crypto_poly1305_final (&ctx, mac);
+}
+
+////////////////
+/// BLAKE2 b ///
+////////////////
+static const u64 iv[8] = {
+	0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL,
+	0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
+	0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL,
+	0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL,
+};
+
+static void blake2b_compress(crypto_blake2b_ctx *ctx, int is_last_block)
+{
+	static const u8 sigma[12][16] = {
+		{  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15 },
+		{ 14, 10,  4,  8,  9, 15, 13,  6,  1, 12,  0,  2, 11,  7,  5,  3 },
+		{ 11,  8, 12,  0,  5,  2, 15, 13, 10, 14,  3,  6,  7,  1,  9,  4 },
+		{  7,  9,  3,  1, 13, 12, 11, 14,  2,  6,  5, 10,  4,  0, 15,  8 },
+		{  9,  0,  5,  7,  2,  4, 10, 15, 14,  1, 11, 12,  6,  8,  3, 13 },
+		{  2, 12,  6, 10,  0, 11,  8,  3,  4, 13,  7,  5, 15, 14,  1,  9 },
+		{ 12,  5,  1, 15, 14, 13,  4, 10,  0,  7,  6,  3,  9,  2,  8, 11 },
+		{ 13, 11,  7, 14, 12,  1,  3,  9,  5,  0, 15,  4,  8,  6,  2, 10 },
+		{  6, 15, 14,  9, 11,  3,  0,  8, 12,  2, 13,  7,  1,  4, 10,  5 },
+		{ 10,  2,  8,  4,  7,  6,  1,  5, 15, 11,  9, 14,  3, 12, 13,  0 },
+		{  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15 },
+		{ 14, 10,  4,  8,  9, 15, 13,  6,  1, 12,  0,  2, 11,  7,  5,  3 },
+	};
+
+	// increment input offset
+	u64   *x = ctx->input_offset;
+	size_t y = ctx->input_idx;
+	x[0] += y;
+	if (x[0] < y) {
+		x[1]++;
+	}
+
+	// init work vector
+	u64 v0 = ctx->hash[0];  u64 v8  = iv[0];
+	u64 v1 = ctx->hash[1];  u64 v9  = iv[1];
+	u64 v2 = ctx->hash[2];  u64 v10 = iv[2];
+	u64 v3 = ctx->hash[3];  u64 v11 = iv[3];
+	u64 v4 = ctx->hash[4];  u64 v12 = iv[4] ^ ctx->input_offset[0];
+	u64 v5 = ctx->hash[5];  u64 v13 = iv[5] ^ ctx->input_offset[1];
+	u64 v6 = ctx->hash[6];  u64 v14 = iv[6] ^ (u64)~(is_last_block - 1);
+	u64 v7 = ctx->hash[7];  u64 v15 = iv[7];
+
+	// mangle work vector
+	u64 *input = ctx->input;
+#define FSM_BLAKE2_G(a, b, c, d, x, y)	\
+	a += b + x;  d = rotr64(d ^ a, 32); \
+	c += d;      b = rotr64(b ^ c, 24); \
+	a += b + y;  d = rotr64(d ^ a, 16); \
+	c += d;      b = rotr64(b ^ c, 63)
+#define FSM_BLAKE2_ROUND(i)	\
+	FSM_BLAKE2_G(v0, v4, v8 , v12, input[sigma[i][ 0]], input[sigma[i][ 1]]); \
+	FSM_BLAKE2_G(v1, v5, v9 , v13, input[sigma[i][ 2]], input[sigma[i][ 3]]); \
+	FSM_BLAKE2_G(v2, v6, v10, v14, input[sigma[i][ 4]], input[sigma[i][ 5]]); \
+	FSM_BLAKE2_G(v3, v7, v11, v15, input[sigma[i][ 6]], input[sigma[i][ 7]]); \
+	FSM_BLAKE2_G(v0, v5, v10, v15, input[sigma[i][ 8]], input[sigma[i][ 9]]); \
+	FSM_BLAKE2_G(v1, v6, v11, v12, input[sigma[i][10]], input[sigma[i][11]]); \
+	FSM_BLAKE2_G(v2, v7, v8 , v13, input[sigma[i][12]], input[sigma[i][13]]); \
+	FSM_BLAKE2_G(v3, v4, v9 , v14, input[sigma[i][14]], input[sigma[i][15]])
+
+#ifdef FSM_BLAKE2_NO_UNROLLING
+	FSM_FOR (i, 0, 12) {
+		FSM_BLAKE2_ROUND(i);
+	}
+#else
+	FSM_BLAKE2_ROUND(0);  FSM_BLAKE2_ROUND(1);  FSM_BLAKE2_ROUND(2);  FSM_BLAKE2_ROUND(3);
+	FSM_BLAKE2_ROUND(4);  FSM_BLAKE2_ROUND(5);  FSM_BLAKE2_ROUND(6);  FSM_BLAKE2_ROUND(7);
+	FSM_BLAKE2_ROUND(8);  FSM_BLAKE2_ROUND(9);  FSM_BLAKE2_ROUND(10); FSM_BLAKE2_ROUND(11);
+#endif
+
+	// update hash
+	ctx->hash[0] ^= v0 ^ v8;   ctx->hash[1] ^= v1 ^ v9;
+	ctx->hash[2] ^= v2 ^ v10;  ctx->hash[3] ^= v3 ^ v11;
+	ctx->hash[4] ^= v4 ^ v12;  ctx->hash[5] ^= v5 ^ v13;
+	ctx->hash[6] ^= v6 ^ v14;  ctx->hash[7] ^= v7 ^ v15;
+}
+
+void crypto_blake2b_keyed_init(crypto_blake2b_ctx *ctx, size_t hash_size,
+                               const u8 *key, size_t key_size)
+{
+	// initial hash
+	FSM_COPY(ctx->hash, iv, 8);
+	ctx->hash[0] ^= 0x01010000 ^ (key_size << 8) ^ hash_size;
+
+	ctx->input_offset[0] = 0;  // beginning of the input, no offset
+	ctx->input_offset[1] = 0;  // beginning of the input, no offset
+	ctx->hash_size       = hash_size;
+	ctx->input_idx       = 0;
+	FSM_ZERO(ctx->input, 16);
+
+	// if there is a key, the first block is that key (padded with zeroes)
+	if (key_size > 0) {
+		u8 key_block[128] = {0};
+		FSM_COPY(key_block, key, key_size);
+		// same as calling crypto_blake2b_update(ctx, key_block , 128)
+		load64_le_buf(ctx->input, key_block, 16);
+		ctx->input_idx = 128;
+	}
+}
+
+void crypto_blake2b_init(crypto_blake2b_ctx *ctx, size_t hash_size)
+{
+	crypto_blake2b_keyed_init(ctx, hash_size, 0, 0);
+}
+
+void crypto_blake2b_update(crypto_blake2b_ctx *ctx,
+                           const u8 *message, size_t message_size)
+{
+	// Avoid undefined NULL pointer increments with empty messages
+	if (message_size == 0) {
+		return;
+	}
+
+	// Align with word boundaries
+	if ((ctx->input_idx & 7) != 0) {
+		size_t nb_bytes = FSM_MIN(gap(ctx->input_idx, 8), message_size);
+		size_t word     = ctx->input_idx >> 3;
+		size_t byte     = ctx->input_idx & 7;
+		FSM_FOR (i, 0, nb_bytes) {
+			ctx->input[word] |= (u64)message[i] << ((byte + i) << 3);
+		}
+		ctx->input_idx += nb_bytes;
+		message        += nb_bytes;
+		message_size   -= nb_bytes;
+	}
+
+	// Align with block boundaries (faster than byte by byte)
+	if ((ctx->input_idx & 127) != 0) {
+		size_t nb_words = FSM_MIN(gap(ctx->input_idx, 128), message_size) >> 3;
+		load64_le_buf(ctx->input + (ctx->input_idx >> 3), message, nb_words);
+		ctx->input_idx += nb_words << 3;
+		message        += nb_words << 3;
+		message_size   -= nb_words << 3;
+	}
+
+	// Process block by block
+	size_t nb_blocks = message_size >> 7;
+	FSM_FOR (i, 0, nb_blocks) {
+		if (ctx->input_idx == 128) {
+			blake2b_compress(ctx, 0);
+		}
+		load64_le_buf(ctx->input, message, 16);
+		message += 128;
+		ctx->input_idx = 128;
+	}
+	message_size &= 127;
+
+	if (message_size != 0) {
+		// Compress block & flush input buffer as needed
+		if (ctx->input_idx == 128) {
+			blake2b_compress(ctx, 0);
+			ctx->input_idx = 0;
+		}
+		if (ctx->input_idx == 0) {
+			FSM_ZERO(ctx->input, 16);
+		}
+		// Fill remaining words (faster than byte by byte)
+		size_t nb_words = message_size >> 3;
+		load64_le_buf(ctx->input, message, nb_words);
+		ctx->input_idx += nb_words << 3;
+		message        += nb_words << 3;
+		message_size   -= nb_words << 3;
+
+		// Fill remaining bytes
+		FSM_FOR (i, 0, message_size) {
+			size_t word = ctx->input_idx >> 3;
+			size_t byte = ctx->input_idx & 7;
+			ctx->input[word] |= (u64)message[i] << (byte << 3);
+			ctx->input_idx++;
+		}
+	}
+}
+
+void crypto_blake2b_final(crypto_blake2b_ctx *ctx, u8 *hash)
+{
+	blake2b_compress(ctx, 1); // compress the last block
+	size_t hash_size = FSM_MIN(ctx->hash_size, 64);
+	size_t nb_words  = hash_size >> 3;
+	store64_le_buf(hash, ctx->hash, nb_words);
+	FSM_FOR (i, nb_words << 3, hash_size) {
+		hash[i] = (ctx->hash[i >> 3] >> (8 * (i & 7))) & 0xff;
+	}
+	FSM_WIPE_CTX(ctx);
+}
+
+void crypto_blake2b_keyed(u8 *hash,          size_t hash_size,
+                          const u8 *key,     size_t key_size,
+                          const u8 *message, size_t message_size)
+{
+	crypto_blake2b_ctx ctx;
+	crypto_blake2b_keyed_init(&ctx, hash_size, key, key_size);
+	crypto_blake2b_update    (&ctx, message, message_size);
+	crypto_blake2b_final     (&ctx, hash);
+}
+
+void crypto_blake2b(u8 *hash, size_t hash_size, const u8 *msg, size_t msg_size)
+{
+	crypto_blake2b_keyed(hash, hash_size, 0, 0, msg, msg_size);
+}
+
+//////////////
+/// Argon2 ///
+//////////////
+// references to R, Z, Q etc. come from the spec
+
+// Argon2 operates on 1024 byte blocks.
+typedef struct { u64 a[128]; } blk;
+
+// updates a BLAKE2 hash with a 32 bit word, little endian.
+static void blake_update_32(crypto_blake2b_ctx *ctx, u32 input)
+{
+	u8 buf[4];
+	store32_le(buf, input);
+	crypto_blake2b_update(ctx, buf, 4);
+	FSM_WIPE_BUFFER(buf);
+}
+
+static void blake_update_32_buf(crypto_blake2b_ctx *ctx,
+                                const u8 *buf, u32 size)
+{
+	blake_update_32(ctx, size);
+	crypto_blake2b_update(ctx, buf, size);
+}
+
+
+static void copy_block(blk *o,const blk*in){FSM_FOR(i, 0, 128) o->a[i]  = in->a[i];}
+static void  xor_block(blk *o,const blk*in){FSM_FOR(i, 0, 128) o->a[i] ^= in->a[i];}
+
+// Hash with a virtually unlimited digest size.
+// Doesn't extract more entropy than the base hash function.
+// Mainly used for filling a whole kilobyte block with pseudo-random bytes.
+// (One could use a stream cipher with a seed hash as the key, but
+//  this would introduce another dependency —and point of failure.)
+static void extended_hash(u8       *digest, u32 digest_size,
+                          const u8 *input , u32 input_size)
+{
+	crypto_blake2b_ctx ctx;
+	crypto_blake2b_init  (&ctx, FSM_MIN(digest_size, 64));
+	blake_update_32      (&ctx, digest_size);
+	crypto_blake2b_update(&ctx, input, input_size);
+	crypto_blake2b_final (&ctx, digest);
+
+	if (digest_size > 64) {
+		// the conversion to u64 avoids integer overflow on
+		// ludicrously big hash sizes.
+		u32 r   = (u32)(((u64)digest_size + 31) >> 5) - 2;
+		u32 i   =  1;
+		u32 in  =  0;
+		u32 out = 32;
+		while (i < r) {
+			// Input and output overlap. This is intentional
+			crypto_blake2b(digest + out, 64, digest + in, 64);
+			i   +=  1;
+			in  += 32;
+			out += 32;
+		}
+		crypto_blake2b(digest + out, digest_size - (32 * r), digest + in , 64);
+	}
+}
+
+#define FSM_LSB(x) ((u64)(u32)x)
+#define FSM_G(a, b, c, d)	\
+	a += b + ((FSM_LSB(a) * FSM_LSB(b)) << 1);  d ^= a;  d = rotr64(d, 32); \
+	c += d + ((FSM_LSB(c) * FSM_LSB(d)) << 1);  b ^= c;  b = rotr64(b, 24); \
+	a += b + ((FSM_LSB(a) * FSM_LSB(b)) << 1);  d ^= a;  d = rotr64(d, 16); \
+	c += d + ((FSM_LSB(c) * FSM_LSB(d)) << 1);  b ^= c;  b = rotr64(b, 63)
+#define FSM_ROUND(v0,  v1,  v2,  v3,  v4,  v5,  v6,  v7,	\
+              v8,  v9, v10, v11, v12, v13, v14, v15)	\
+	FSM_G(v0, v4,  v8, v12);  FSM_G(v1, v5,  v9, v13); \
+	FSM_G(v2, v6, v10, v14);  FSM_G(v3, v7, v11, v15); \
+	FSM_G(v0, v5, v10, v15);  FSM_G(v1, v6, v11, v12); \
+	FSM_G(v2, v7,  v8, v13);  FSM_G(v3, v4,  v9, v14)
+
+// Core of the compression function G.  Computes Z from R in place.
+static void g_rounds(blk *b)
+{
+	// column rounds (work_block = Q)
+	for (int i = 0; i < 128; i += 16) {
+		FSM_ROUND(b->a[i   ], b->a[i+ 1], b->a[i+ 2], b->a[i+ 3],
+		      b->a[i+ 4], b->a[i+ 5], b->a[i+ 6], b->a[i+ 7],
+		      b->a[i+ 8], b->a[i+ 9], b->a[i+10], b->a[i+11],
+		      b->a[i+12], b->a[i+13], b->a[i+14], b->a[i+15]);
+	}
+	// row rounds (b = Z)
+	for (int i = 0; i < 16; i += 2) {
+		FSM_ROUND(b->a[i   ], b->a[i+ 1], b->a[i+ 16], b->a[i+ 17],
+		      b->a[i+32], b->a[i+33], b->a[i+ 48], b->a[i+ 49],
+		      b->a[i+64], b->a[i+65], b->a[i+ 80], b->a[i+ 81],
+		      b->a[i+96], b->a[i+97], b->a[i+112], b->a[i+113]);
+	}
+}
+
+const crypto_argon2_extras crypto_argon2_no_extras = { 0, 0, 0, 0 };
+
+void crypto_argon2(u8 *hash, u32 hash_size, void *work_area,
+                   crypto_argon2_config config,
+                   crypto_argon2_inputs inputs,
+                   crypto_argon2_extras extras)
+{
+	const u32 segment_size = config.nb_blocks / config.nb_lanes / 4;
+	const u32 lane_size    = segment_size * 4;
+	const u32 nb_blocks    = lane_size * config.nb_lanes; // rounding down
+
+	// work area seen as blocks (must be suitably aligned)
+	blk *blocks = (blk*)work_area;
+	{
+		u8 initial_hash[72]; // 64 bytes plus 2 words for future hashes
+		crypto_blake2b_ctx ctx;
+		crypto_blake2b_init (&ctx, 64);
+		blake_update_32     (&ctx, config.nb_lanes ); // p: number of "threads"
+		blake_update_32     (&ctx, hash_size);
+		blake_update_32     (&ctx, config.nb_blocks);
+		blake_update_32     (&ctx, config.nb_passes);
+		blake_update_32     (&ctx, 0x13);             // v: version number
+		blake_update_32     (&ctx, config.algorithm); // y: Argon2i, Argon2d...
+		blake_update_32_buf (&ctx, inputs.pass, inputs.pass_size);
+		blake_update_32_buf (&ctx, inputs.salt, inputs.salt_size);
+		blake_update_32_buf (&ctx, extras.key,  extras.key_size);
+		blake_update_32_buf (&ctx, extras.ad,   extras.ad_size);
+		crypto_blake2b_final(&ctx, initial_hash); // fill 64 first bytes only
+
+		// fill first 2 blocks of each lane
+		u8 hash_area[1024];
+		FSM_FOR_T(u32, l, 0, config.nb_lanes) {
+			FSM_FOR_T(u32, i, 0, 2) {
+				store32_le(initial_hash + 64, i); // first  additional word
+				store32_le(initial_hash + 68, l); // second additional word
+				extended_hash(hash_area, 1024, initial_hash, 72);
+				load64_le_buf(blocks[l * lane_size + i].a, hash_area, 128);
+			}
+		}
+
+		FSM_WIPE_BUFFER(initial_hash);
+		FSM_WIPE_BUFFER(hash_area);
+	}
+
+	// Argon2i and Argon2id start with constant time indexing
+	int constant_time = config.algorithm != FSM_CRYPTO_ARGON2_D;
+
+	// Fill (and re-fill) the rest of the blocks
+	//
+	// Note: even though each segment within the same slice can be
+	// computed in parallel, (one thread per lane), we are computing
+	// them sequentially, because Monocypher doesn't support threads.
+	//
+	// Yet optimal performance (and therefore security) requires one
+	// thread per lane. The only reason Monocypher supports multiple
+	// lanes is compatibility.
+	blk tmp;
+	FSM_FOR_T(u32, pass, 0, config.nb_passes) {
+		FSM_FOR_T(u32, slice, 0, 4) {
+			// On the first slice of the first pass,
+			// blocks 0 and 1 are already filled, hence pass_offset.
+			u32 pass_offset  = pass == 0 && slice == 0 ? 2 : 0;
+			u32 slice_offset = slice * segment_size;
+
+			// Argon2id switches back to non-constant time indexing
+			// after the first two slices of the first pass
+			if (slice == 2 && config.algorithm == FSM_CRYPTO_ARGON2_ID) {
+				constant_time = 0;
+			}
+
+			// Each iteration of the following loop may be performed in
+			// a separate thread.  All segments must be fully completed
+			// before we start filling the next slice.
+			FSM_FOR_T(u32, segment, 0, config.nb_lanes) {
+				blk index_block;
+				u32 index_ctr = 1;
+				FSM_FOR_T (u32, block, pass_offset, segment_size) {
+					// Current and previous blocks
+					u32  lane_offset   = segment * lane_size;
+					blk *segment_start = blocks + lane_offset + slice_offset;
+					blk *current       = segment_start + block;
+					blk *previous      =
+						block == 0 && slice_offset == 0
+						? segment_start + lane_size - 1
+						: segment_start + block - 1;
+
+					u64 index_seed;
+					if (constant_time) {
+						if (block == pass_offset || (block % 128) == 0) {
+							// Fill or refresh deterministic indices block
+
+							// seed the beginning of the block...
+							FSM_ZERO(index_block.a, 128);
+							index_block.a[0] = pass;
+							index_block.a[1] = segment;
+							index_block.a[2] = slice;
+							index_block.a[3] = nb_blocks;
+							index_block.a[4] = config.nb_passes;
+							index_block.a[5] = config.algorithm;
+							index_block.a[6] = index_ctr;
+							index_ctr++;
+
+							// ... then shuffle it
+							copy_block(&tmp, &index_block);
+							g_rounds  (&index_block);
+							xor_block (&index_block, &tmp);
+							copy_block(&tmp, &index_block);
+							g_rounds  (&index_block);
+							xor_block (&index_block, &tmp);
+						}
+						index_seed = index_block.a[block % 128];
+					} else {
+						index_seed = previous->a[0];
+					}
+
+					// Establish the reference set.  *Approximately* comprises:
+					// - The last 3 slices (if they exist yet)
+					// - The already constructed blocks in the current segment
+					u32 next_slice   = ((slice + 1) % 4) * segment_size;
+					u32 window_start = pass == 0 ? 0     : next_slice;
+					u32 nb_segments  = pass == 0 ? slice : 3;
+					u64 lane         =
+						pass == 0 && slice == 0
+						? segment
+						: (index_seed >> 32) % config.nb_lanes;
+					u32 window_size  =
+						nb_segments * segment_size +
+						(lane  == segment ? block-1 :
+						 block == 0       ? (u32)-1 : 0);
+
+					// Find reference block
+					u64  j1        = index_seed & 0xffffffff; // block selector
+					u64  x         = (j1 * j1)         >> 32;
+					u64  y         = (window_size * x) >> 32;
+					u64  z         = (window_size - 1) - y;
+					u64  ref       = (window_start + z) % lane_size;
+					u32  index     = lane * lane_size + (u32)ref;
+					blk *reference = blocks + index;
+
+					// Shuffle the previous & reference block
+					// into the current block
+					copy_block(&tmp, previous);
+					xor_block (&tmp, reference);
+					if (pass == 0) { copy_block(current, &tmp); }
+					else           { xor_block (current, &tmp); }
+					g_rounds  (&tmp);
+					xor_block (current, &tmp);
+				}
+			}
+		}
+	}
+
+	// Wipe temporary block
+	volatile u64* p = tmp.a;
+	FSM_ZERO(p, 128);
+
+	// XOR last blocks of each lane
+	blk *last_block = blocks + lane_size - 1;
+	FSM_FOR_T (u32, lane, 1, config.nb_lanes) {
+		blk *next_block = last_block + lane_size;
+		xor_block(next_block, last_block);
+		last_block = next_block;
+	}
+
+	// Serialize last block
+	u8 final_block[1024];
+	store64_le_buf(final_block, last_block->a, 128);
+
+	// Wipe work area
+	p = (u64*)work_area;
+	FSM_ZERO(p, 128 * nb_blocks);
+
+	// Hash the very last block with H' into the output hash
+	extended_hash(hash, hash_size, final_block, 1024);
+	FSM_WIPE_BUFFER(final_block);
+}
+
+} // namespace mc
+/// ---- franzsodium_colla.inc ----
+/*
+	franzsodium: the nine functions of libsodium that zpaqfranz (Franzen) uses,
+	same names, same signatures, same behaviour, built on the Monocypher code
+	above (namespace franzsodium::mc).
+
+	Same behaviour means also: the same checks in the same order, the same
+	return values, the same errno, and the same bytes left in the output
+	buffers when something fails (libsodium zeroes them: so do we).
+	What libsodium does, function by function, is written next to each one.
+
+	Known differences, on purpose:
+	- crypto_aead_..._encrypt with a message over MESSAGEBYTES_MAX (256 GB):
+	  libsodium calls sodium_misuse() (abort), here FRANZSODIUM_FATAL (abort too)
+	- a NULL message with a length > 0 (a misuse): libsodium reads NULL,
+	  Monocypher treats NULL as zeros
+	- randombytes_buf: random, nothing to compare; it uses the system generator
+	  as libsodium does (RtlGenRandom on Windows, arc4random_buf on the BSDs and
+	  macOS, getrandom or /dev/urandom on Linux, /dev/urandom elsewhere)
+*/
+
+#ifndef FRANZSODIUM_FATAL
+#define FRANZSODIUM_FATAL(i_msg)                                     \
+	do                                                               \
+	{                                                                \
+		fprintf(stderr, "\nfranzsodium FATAL: %s\n", (i_msg));       \
+		fflush(stderr);                                              \
+		abort();                                                     \
+	} while (0)
+#endif
+
+/// --- constants, as in libsodium ---------------------------------------------
+static const int crypto_pwhash_ALG_ARGON2I13  = 1;
+static const int crypto_pwhash_ALG_ARGON2ID13 = 2;
+
+static const unsigned long long fs_aead_ietf_abytes	 = 16U;
+static const unsigned long long fs_aead_ietf_messagebytes_max =
+	((((size_t)-1) - 16U) < (64ULL * ((1ULL << 32) - 1ULL))) ? (((size_t)-1) - 16U) : (64ULL * ((1ULL << 32) - 1ULL));
+
+/// the same for Argon2i and Argon2id in libsodium
+static const unsigned long long fs_pwhash_bytes_min	   = 16U;
+static const unsigned long long fs_pwhash_bytes_max	   = (((size_t)-1) < 4294967295ULL) ? ((size_t)-1) : 4294967295ULL;
+static const unsigned long long fs_pwhash_passwd_max   = 4294967295ULL;
+static const unsigned long long fs_pwhash_opslimit_max = 4294967295ULL;
+static const size_t				fs_pwhash_memlimit_min = 8192U;
+static const size_t				fs_pwhash_memlimit_max =
+	(((size_t)-1) >= 4398046510080ULL) ? (size_t)4398046510080ULL : ((((size_t)-1) >= 2147483648ULL) ? (size_t)2147483648ULL : (size_t)32768U);
+static const unsigned long long fs_pwhash_argon2i_opslimit_min	= 3U;
+static const unsigned long long fs_pwhash_argon2id_opslimit_min = 1U;
+static const size_t				fs_pwhash_saltbytes				= 16U;
+
+/// --- sodium_init --------------------------------------------------------------
+/// libsodium: 0 the first time, 1 when already done, -1 on failure
+int sodium_init(void)
+{
+	static int fatto= 0;
+	if (fatto)
+		return 1;
+	fatto= 1;
+	return 0;
+}
+
+/// --- sodium_memzero -----------------------------------------------------------
+void sodium_memzero(void *const pnt, const size_t len)
+{
+#ifdef _WIN32
+	SecureZeroMemory(pnt, len);
+#else
+	volatile unsigned char *p= (volatile unsigned char *)pnt;
+	for (size_t i= 0; i < len; i++)
+		p[i]= 0;
+#if defined(__GNUC__) || defined(__clang__)
+	__asm__ __volatile__("" : : "r"(pnt) : "memory");
+#endif
+#endif
+}
+
+/// --- randombytes_buf ----------------------------------------------------------
+#ifdef _WIN32
+typedef BOOLEAN(WINAPI *fs_rtlgenrandom_t)(PVOID, ULONG);
+void randombytes_buf(void *const buf, const size_t size)
+{
+	static fs_rtlgenrandom_t generatore= NULL; /// a race here is harmless: same value
+	if (generatore == NULL)
+	{
+		HMODULE advapi= LoadLibraryA("advapi32.dll");
+		if (advapi != NULL)
+			generatore= (fs_rtlgenrandom_t)(void (*)(void))GetProcAddress(advapi, "SystemFunction036");
+		if (generatore == NULL)
+			FRANZSODIUM_FATAL("randombytes_buf: RtlGenRandom (SystemFunction036) not found");
+	}
+	unsigned char *p   = (unsigned char *)buf;
+	size_t		   resto= size;
+	while (resto > 0)
+	{
+		ULONG pezzo= (resto > 0x10000000U) ? 0x10000000U : (ULONG)resto;
+		if (!generatore(p, pezzo))
+			FRANZSODIUM_FATAL("randombytes_buf: RtlGenRandom failed");
+		p+= pezzo;
+		resto-= pezzo;
+	}
+}
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
+void randombytes_buf(void *const buf, const size_t size)
+{
+	if (size > 0)
+		arc4random_buf(buf, size);
+}
+#else
+/// Linux: getrandom when the kernel has it, else /dev/urandom; the others: /dev/urandom
+static int fs_urandom(unsigned char *p, size_t resto)
+{
+	int fd;
+	do
+	{
+#ifdef O_CLOEXEC
+		fd= open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+#else
+		fd= open("/dev/urandom", O_RDONLY);
+#endif
+	} while ((fd < 0) && (errno == EINTR));
+	if (fd < 0)
+		return -1;
+	while (resto > 0)
+	{
+		ssize_t letti= read(fd, p, resto);
+		if (letti < 0)
+		{
+			if (errno == EINTR)
+				continue;
+			close(fd);
+			return -1;
+		}
+		if (letti == 0)
+		{
+			close(fd);
+			return -1;
+		}
+		p+= letti;
+		resto-= (size_t)letti;
+	}
+	close(fd);
+	return 0;
+}
+void randombytes_buf(void *const buf, const size_t size)
+{
+	unsigned char *p   = (unsigned char *)buf;
+	size_t		   resto= size;
+#if defined(__linux__) && defined(SYS_getrandom)
+	while (resto > 0)
+	{
+		size_t pezzo= (resto > 33554431U) ? 33554431U : resto;
+		long   letti= syscall(SYS_getrandom, p, pezzo, 0);
+		if (letti < 0)
+		{
+			if (errno == EINTR)
+				continue;
+			if (errno == ENOSYS) /// an old kernel (or ESXi): /dev/urandom
+				break;
+			FRANZSODIUM_FATAL("randombytes_buf: getrandom failed");
+		}
+		p+= letti;
+		resto-= (size_t)letti;
+	}
+#endif
+	if (resto > 0)
+		if (fs_urandom(p, resto) != 0)
+			FRANZSODIUM_FATAL("randombytes_buf: cannot read /dev/urandom");
+}
+#endif
+
+/// --- ChaCha20-Poly1305 IETF (RFC 8439) ----------------------------------------
+size_t crypto_aead_chacha20poly1305_ietf_keybytes(void)
+{
+	return 32U;
+}
+size_t crypto_aead_chacha20poly1305_ietf_npubbytes(void)
+{
+	return 12U;
+}
+size_t crypto_aead_chacha20poly1305_ietf_abytes(void)
+{
+	return 16U;
+}
+
+static void fs_store64_le(unsigned char o_out[8], unsigned long long i_valore)
+{
+	for (int i= 0; i < 8; i++)
+		o_out[i]= (unsigned char)(i_valore >> (8 * i));
+}
+
+/// --- ChaCha20 IETF, 8 blocks at a time with AVX2, 4 with SSE2 ---------------------
+/// The same keystream as mc::crypto_chacha20_ietf (Monocypher, scalar): what is under
+/// 256 bytes, the keystream alone (m NULL) and the machines without SSE2 go there.
+/// A difference: past 2^32 blocks (256 GB in one message) the counter here wraps in its
+/// 32 bits, as in libsodium, where Monocypher carries into the next word; a message
+/// cannot be that long (MESSAGEBYTES_MAX), so it never happens.
+/// To test one against the other, and to measure:
+///   g_franzsodium_scalare  true = everything as Monocypher (scalar ChaCha20, 32 bit Poly1305)
+///   g_franzsodium_noavx2   true = no AVX2 (SSE2 only)
+///   g_franzsodium_poly32   true = the 32 bit Poly1305 of Monocypher, not the 64 bit one
+bool g_franzsodium_scalare= false;
+bool g_franzsodium_noavx2 = false;
+bool g_franzsodium_poly32 = false;
+
+#ifdef FRANZSODIUM_SSE2
+/// AVX2 of this CPU (and of its OS): asked once
+static bool fs_ha_avx2(void)
+{
+#ifdef FRANZSODIUM_AVX2
+	static int risposta= -1; /// a race here is harmless: same value
+	if (risposta < 0)
+	{
+		__builtin_cpu_init();
+		risposta= __builtin_cpu_supports("avx2") ? 1 : 0;
+	}
+	return risposta == 1;
+#else
+	return false;
+#endif
+}
+
+static bool fs_usa_avx2(void)
+{
+	return !g_franzsodium_scalare && !g_franzsodium_noavx2 && fs_ha_avx2();
+}
+#endif
+static bool fs_usa_poly64(void)
+{
+#ifdef FRANZSODIUM_POLY64
+	return !g_franzsodium_scalare && !g_franzsodium_poly32;
+#else
+	return false;
+#endif
+}
+
+/// what is used now, e.g. "ChaCha20 AVX2+SSE2, Poly1305 64 bit"
+const char *simd(void)
+{
+	static char risposta[80];
+	const char *chacha= "scalar";
+#ifdef FRANZSODIUM_SSE2
+	if (!g_franzsodium_scalare)
+		chacha= fs_usa_avx2() ? "AVX2+SSE2" : "SSE2";
+#endif
+	snprintf(risposta, sizeof(risposta), "ChaCha20 %s, Poly1305 %s", chacha, fs_usa_poly64() ? "64 bit" : "32 bit");
+	return risposta;
+}
+
+/// --- Poly1305 with 64 bit limbs (44+44+42 bits, products in unsigned __int128) ------
+/// The scheme of poly1305-donna-64 (Andrew Moon, public domain), written again here.
+/// Same tag as mc::crypto_poly1305_* (the tests compare them)
+#ifdef FRANZSODIUM_POLY64
+__extension__ typedef unsigned __int128 fs_u128;
+struct fs_poly64
+{
+	uint64_t	  r[3], h[3], pad[2];
+	size_t		  resto;
+	unsigned char blocco[16];
+};
+static uint64_t fs_load64_le(const unsigned char *p)
+{
+	return (uint64_t)p[0] | ((uint64_t)p[1] << 8) | ((uint64_t)p[2] << 16) | ((uint64_t)p[3] << 24) |
+		   ((uint64_t)p[4] << 32) | ((uint64_t)p[5] << 40) | ((uint64_t)p[6] << 48) | ((uint64_t)p[7] << 56);
+}
+static void fs_poly64_init(fs_poly64 *st, const unsigned char key[32])
+{
+	const uint64_t t0= fs_load64_le(key), t1= fs_load64_le(key + 8);
+	st->r[0]		 = t0 & 0xffc0fffffffULL; /// r clamped, in 44+44+42 bits
+	st->r[1]		 = ((t0 >> 44) | (t1 << 20)) & 0xfffffc0ffffULL;
+	st->r[2]		 = (t1 >> 24) & 0x00ffffffc0fULL;
+	st->h[0]= st->h[1]= st->h[2]= 0;
+	st->pad[0]					= fs_load64_le(key + 16);
+	st->pad[1]					= fs_load64_le(key + 24);
+	st->resto					= 0;
+}
+/// i_alto: 1 << 128 added to every block (0 for the last one, already padded with a 1)
+static void fs_poly64_blocchi(fs_poly64 *st, const unsigned char *m, size_t n, uint64_t i_alto)
+{
+	const uint64_t r0= st->r[0], r1= st->r[1], r2= st->r[2];
+	const uint64_t s1= r1 * (5 << 2), s2= r2 * (5 << 2);
+	uint64_t	   h0= st->h[0], h1= st->h[1], h2= st->h[2];
+	while (n >= 16)
+	{
+		const uint64_t t0= fs_load64_le(m), t1= fs_load64_le(m + 8);
+		h0+= t0 & 0xfffffffffffULL;
+		h1+= ((t0 >> 44) | (t1 << 20)) & 0xfffffffffffULL;
+		h2+= ((t1 >> 24) & 0x3ffffffffffULL) | i_alto;
+
+		fs_u128 d0= (fs_u128)h0 * r0 + (fs_u128)h1 * s2 + (fs_u128)h2 * s1;
+		fs_u128 d1= (fs_u128)h0 * r1 + (fs_u128)h1 * r0 + (fs_u128)h2 * s2;
+		fs_u128 d2= (fs_u128)h0 * r2 + (fs_u128)h1 * r1 + (fs_u128)h2 * r0;
+
+		uint64_t c= (uint64_t)(d0 >> 44);
+		h0		  = (uint64_t)d0 & 0xfffffffffffULL;
+		d1+= c;
+		c = (uint64_t)(d1 >> 44);
+		h1= (uint64_t)d1 & 0xfffffffffffULL;
+		d2+= c;
+		c = (uint64_t)(d2 >> 42);
+		h2= (uint64_t)d2 & 0x3ffffffffffULL;
+		h0+= c * 5;
+		c = h0 >> 44;
+		h0= h0 & 0xfffffffffffULL;
+		h1+= c;
+
+		m+= 16;
+		n-= 16;
+	}
+	st->h[0]= h0;
+	st->h[1]= h1;
+	st->h[2]= h2;
+}
+static void fs_poly64_update(fs_poly64 *st, const unsigned char *m, size_t n)
+{
+	if (n == 0)
+		return;
+	if (st->resto)
+	{
+		size_t voglio= 16 - st->resto;
+		if (voglio > n)
+			voglio= n;
+		memcpy(st->blocco + st->resto, m, voglio);
+		st->resto+= voglio;
+		m+= voglio;
+		n-= voglio;
+		if (st->resto < 16)
+			return;
+		fs_poly64_blocchi(st, st->blocco, 16, 1ULL << 40);
+		st->resto= 0;
+	}
+	if (n >= 16)
+	{
+		const size_t interi= n & ~(size_t)15;
+		fs_poly64_blocchi(st, m, interi, 1ULL << 40);
+		m+= interi;
+		n-= interi;
+	}
+	if (n)
+	{
+		memcpy(st->blocco, m, n);
+		st->resto= n;
+	}
+}
+static void fs_poly64_final(fs_poly64 *st, unsigned char mac[16])
+{
+	if (st->resto)
+	{
+		st->blocco[st->resto]= 1;
+		for (size_t i= st->resto + 1; i < 16; i++)
+			st->blocco[i]= 0;
+		fs_poly64_blocchi(st, st->blocco, 16, 0);
+	}
+	uint64_t h0= st->h[0], h1= st->h[1], h2= st->h[2], c;
+	/// full carry
+	c= h1 >> 44;
+	h1&= 0xfffffffffffULL;
+	h2+= c;
+	c= h2 >> 42;
+	h2&= 0x3ffffffffffULL;
+	h0+= c * 5;
+	c= h0 >> 44;
+	h0&= 0xfffffffffffULL;
+	h1+= c;
+	c= h1 >> 44;
+	h1&= 0xfffffffffffULL;
+	h2+= c;
+	c= h2 >> 42;
+	h2&= 0x3ffffffffffULL;
+	h0+= c * 5;
+	c= h0 >> 44;
+	h0&= 0xfffffffffffULL;
+	h1+= c;
+	/// g = h - p; h if h < p, else g (constant time)
+	uint64_t g0= h0 + 5;
+	c		   = g0 >> 44;
+	g0&= 0xfffffffffffULL;
+	uint64_t g1= h1 + c;
+	c		   = g1 >> 44;
+	g1&= 0xfffffffffffULL;
+	uint64_t g2= h2 + c - (1ULL << 42);
+	c		   = (g2 >> 63) - 1;
+	g0&= c;
+	g1&= c;
+	g2&= c;
+	c = ~c;
+	h0= (h0 & c) | g0;
+	h1= (h1 & c) | g1;
+	h2= (h2 & c) | g2;
+	/// + pad
+	const uint64_t t0= st->pad[0], t1= st->pad[1];
+	h0+= t0 & 0xfffffffffffULL;
+	c= h0 >> 44;
+	h0&= 0xfffffffffffULL;
+	h1+= (((t0 >> 44) | (t1 << 20)) & 0xfffffffffffULL) + c;
+	c= h1 >> 44;
+	h1&= 0xfffffffffffULL;
+	h2+= ((t1 >> 24) & 0x3ffffffffffULL) + c;
+	h2&= 0x3ffffffffffULL;
+	h0= h0 | (h1 << 44);
+	h1= (h1 >> 20) | (h2 << 24);
+	fs_store64_le(mac, h0);
+	fs_store64_le(mac + 8, h1);
+	sodium_memzero(st, sizeof(*st));
+}
+#endif
+
+/// Poly1305: the 64 bit one, or the one of Monocypher
+struct fs_poly
+{
+	bool					usa64;
+	mc::crypto_poly1305_ctx p32;
+#ifdef FRANZSODIUM_POLY64
+	fs_poly64 p64;
+#endif
+};
+static void fs_poly_init(fs_poly *p, const unsigned char key[32])
+{
+	p->usa64= fs_usa_poly64();
+#ifdef FRANZSODIUM_POLY64
+	if (p->usa64)
+	{
+		fs_poly64_init(&p->p64, key);
+		return;
+	}
+#endif
+	mc::crypto_poly1305_init(&p->p32, key);
+}
+static void fs_poly_update(fs_poly *p, const unsigned char *m, size_t n)
+{
+#ifdef FRANZSODIUM_POLY64
+	if (p->usa64)
+	{
+		fs_poly64_update(&p->p64, m, n);
+		return;
+	}
+#endif
+	mc::crypto_poly1305_update(&p->p32, m, n);
+}
+static void fs_poly_final(fs_poly *p, unsigned char mac[16])
+{
+#ifdef FRANZSODIUM_POLY64
+	if (p->usa64)
+	{
+		fs_poly64_final(&p->p64, mac);
+		return;
+	}
+#endif
+	mc::crypto_poly1305_final(&p->p32, mac); /// it wipes p32
+}
+
+#ifdef FRANZSODIUM_SSE2
+#define FS_ROTL(x, n) _mm_or_si128(_mm_slli_epi32((x), (n)), _mm_srli_epi32((x), 32 - (n)))
+#define FS_ROTL16(x) _mm_shufflehi_epi16(_mm_shufflelo_epi16((x), 0xB1), 0xB1)
+#define FS_QR(a, b, c, d)                                    \
+	a= _mm_add_epi32(a, b);                                  \
+	d= _mm_xor_si128(d, a);                                  \
+	d= FS_ROTL16(d);                                         \
+	c= _mm_add_epi32(c, d);                                  \
+	b= _mm_xor_si128(b, c);                                  \
+	b= FS_ROTL(b, 12);                                       \
+	a= _mm_add_epi32(a, b);                                  \
+	d= _mm_xor_si128(d, a);                                  \
+	d= FS_ROTL(d, 8);                                        \
+	c= _mm_add_epi32(c, d);                                  \
+	b= _mm_xor_si128(b, c);                                  \
+	b= FS_ROTL(b, 7)
+
+/// 256 bytes: the blocks ctr, ctr+1, ctr+2, ctr+3. Lane j of x[i] = word i of block j.
+/// Every 16 bytes of m are read before the same 16 bytes of c are written: c == m is fine
+static void fs_chacha20_4blocchi(unsigned char *c, const unsigned char *m, const uint32_t i_stato[16], uint32_t i_ctr)
+{
+	__m128i o[16], x[16];
+	for (int i= 0; i < 16; i++)
+		o[i]= _mm_set1_epi32((int)i_stato[i]);
+	o[12]= _mm_add_epi32(_mm_set1_epi32((int)i_ctr), _mm_set_epi32(3, 2, 1, 0));
+	for (int i= 0; i < 16; i++)
+		x[i]= o[i];
+	for (int giro= 0; giro < 10; giro++)
+	{
+		FS_QR(x[0], x[4], x[8], x[12]);
+		FS_QR(x[1], x[5], x[9], x[13]);
+		FS_QR(x[2], x[6], x[10], x[14]);
+		FS_QR(x[3], x[7], x[11], x[15]);
+		FS_QR(x[0], x[5], x[10], x[15]);
+		FS_QR(x[1], x[6], x[11], x[12]);
+		FS_QR(x[2], x[7], x[8], x[13]);
+		FS_QR(x[3], x[4], x[9], x[14]);
+	}
+	for (int i= 0; i < 16; i++)
+		x[i]= _mm_add_epi32(x[i], o[i]);
+	/// words 4g..4g+3 of the four blocks: a 4x4 transpose
+	for (int g= 0; g < 4; g++)
+	{
+		__m128i t0	   = _mm_unpacklo_epi32(x[4 * g], x[4 * g + 1]);
+		__m128i t1	   = _mm_unpacklo_epi32(x[4 * g + 2], x[4 * g + 3]);
+		__m128i t2	   = _mm_unpackhi_epi32(x[4 * g], x[4 * g + 1]);
+		__m128i t3	   = _mm_unpackhi_epi32(x[4 * g + 2], x[4 * g + 3]);
+		__m128i blocco[4]= {_mm_unpacklo_epi64(t0, t1), _mm_unpackhi_epi64(t0, t1), _mm_unpacklo_epi64(t2, t3), _mm_unpackhi_epi64(t2, t3)};
+		for (int b= 0; b < 4; b++)
+		{
+			const size_t dove= (size_t)b * 64 + (size_t)g * 16;
+			__m128i		 in	 = _mm_loadu_si128((const __m128i *)(m + dove));
+			_mm_storeu_si128((__m128i *)(c + dove), _mm_xor_si128(in, blocco[b]));
+		}
+	}
+}
+#endif
+
+#ifdef FRANZSODIUM_AVX2
+#define FS_ROTL8_256(x, n) _mm256_or_si256(_mm256_slli_epi32((x), (n)), _mm256_srli_epi32((x), 32 - (n)))
+#define FS_QR8(a, b, c, d)                                   \
+	a= _mm256_add_epi32(a, b);                               \
+	d= _mm256_xor_si256(d, a);                               \
+	d= _mm256_shuffle_epi8(d, ruota16);                      \
+	c= _mm256_add_epi32(c, d);                               \
+	b= _mm256_xor_si256(b, c);                               \
+	b= FS_ROTL8_256(b, 12);                                  \
+	a= _mm256_add_epi32(a, b);                               \
+	d= _mm256_xor_si256(d, a);                               \
+	d= _mm256_shuffle_epi8(d, ruota8);                       \
+	c= _mm256_add_epi32(c, d);                               \
+	b= _mm256_xor_si256(b, c);                               \
+	b= FS_ROTL8_256(b, 7)
+
+/// 512 bytes: the blocks ctr..ctr+7. Lane j of x[i] = word i of block j (blocks 0-3 in the
+/// low 128 bits, 4-7 in the high ones). Every 32 bytes of m read before the same 32 of c written
+__attribute__((target("avx2"))) static void fs_chacha20_8blocchi(unsigned char *c, const unsigned char *m, const uint32_t i_stato[16], uint32_t i_ctr)
+{
+	const __m256i ruota16= _mm256_setr_epi8(2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13,
+											 2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13);
+	const __m256i ruota8 = _mm256_setr_epi8(3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14,
+											3, 0, 1, 2, 7, 4, 5, 6, 11, 8, 9, 10, 15, 12, 13, 14);
+	__m256i		  o[16], x[16];
+	for (int i= 0; i < 16; i++)
+		o[i]= _mm256_set1_epi32((int)i_stato[i]);
+	o[12]= _mm256_add_epi32(_mm256_set1_epi32((int)i_ctr), _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7));
+	for (int i= 0; i < 16; i++)
+		x[i]= o[i];
+	for (int giro= 0; giro < 10; giro++)
+	{
+		FS_QR8(x[0], x[4], x[8], x[12]);
+		FS_QR8(x[1], x[5], x[9], x[13]);
+		FS_QR8(x[2], x[6], x[10], x[14]);
+		FS_QR8(x[3], x[7], x[11], x[15]);
+		FS_QR8(x[0], x[5], x[10], x[15]);
+		FS_QR8(x[1], x[6], x[11], x[12]);
+		FS_QR8(x[2], x[7], x[8], x[13]);
+		FS_QR8(x[3], x[4], x[9], x[14]);
+	}
+	for (int i= 0; i < 16; i++)
+		x[i]= _mm256_add_epi32(x[i], o[i]);
+	/// k[g][b]: words 4g..4g+3 of the block b (low 128) and of the block b+4 (high 128)
+	__m256i k[4][4];
+	for (int g= 0; g < 4; g++)
+	{
+		__m256i t0= _mm256_unpacklo_epi32(x[4 * g], x[4 * g + 1]);
+		__m256i t1= _mm256_unpacklo_epi32(x[4 * g + 2], x[4 * g + 3]);
+		__m256i t2= _mm256_unpackhi_epi32(x[4 * g], x[4 * g + 1]);
+		__m256i t3= _mm256_unpackhi_epi32(x[4 * g + 2], x[4 * g + 3]);
+		k[g][0]	  = _mm256_unpacklo_epi64(t0, t1);
+		k[g][1]	  = _mm256_unpackhi_epi64(t0, t1);
+		k[g][2]	  = _mm256_unpacklo_epi64(t2, t3);
+		k[g][3]	  = _mm256_unpackhi_epi64(t2, t3);
+	}
+	for (int b= 0; b < 4; b++)
+	{
+		/// block b: bytes 0..31 = words 0..7 (groups 0 and 1, low halves), 32..63 = groups 2 and 3
+		/// block b+4: the same with the high halves
+		const __m256i pezzi[4]= {_mm256_permute2x128_si256(k[0][b], k[1][b], 0x20), _mm256_permute2x128_si256(k[2][b], k[3][b], 0x20),
+								 _mm256_permute2x128_si256(k[0][b], k[1][b], 0x31), _mm256_permute2x128_si256(k[2][b], k[3][b], 0x31)};
+		const size_t  dove[4] = {(size_t)b * 64, (size_t)b * 64 + 32, (size_t)(b + 4) * 64, (size_t)(b + 4) * 64 + 32};
+		for (int p= 0; p < 4; p++)
+		{
+			__m256i in= _mm256_loadu_si256((const __m256i *)(m + dove[p]));
+			_mm256_storeu_si256((__m256i *)(c + dove[p]), _mm256_xor_si256(in, pezzi[p]));
+		}
+	}
+}
+#endif
+
+/// c = m xor ChaCha20 IETF (key k, nonce npub, from block ctr):
+/// AVX2 by 512 bytes, then SSE2 by 256, the rest scalar (Monocypher)
+static void fs_chacha20_ietf_xor(unsigned char *c, const unsigned char *m, size_t len,
+								 const unsigned char *npub, const unsigned char *k, uint32_t ctr)
+{
+#ifdef FRANZSODIUM_SSE2
+	if (!g_franzsodium_scalare && m != NULL && len >= 256)
+	{
+		uint32_t stato[16];
+		stato[0]= 0x61707865U; /// "expand 32-byte k"
+		stato[1]= 0x3320646eU;
+		stato[2]= 0x79622d32U;
+		stato[3]= 0x6b206574U;
+		for (int i= 0; i < 8; i++)
+			stato[4 + i]= (uint32_t)k[4 * i] | ((uint32_t)k[4 * i + 1] << 8) | ((uint32_t)k[4 * i + 2] << 16) | ((uint32_t)k[4 * i + 3] << 24);
+		stato[12]= 0; /// the counter: set block by block
+		for (int i= 0; i < 3; i++)
+			stato[13 + i]= (uint32_t)npub[4 * i] | ((uint32_t)npub[4 * i + 1] << 8) | ((uint32_t)npub[4 * i + 2] << 16) | ((uint32_t)npub[4 * i + 3] << 24);
+#ifdef FRANZSODIUM_AVX2
+		if (fs_usa_avx2())
+			while (len >= 512)
+			{
+				fs_chacha20_8blocchi(c, m, stato, ctr);
+				c+= 512;
+				m+= 512;
+				ctr+= 8;
+				len-= 512;
+			}
+#endif
+		while (len >= 256)
+		{
+			fs_chacha20_4blocchi(c, m, stato, ctr);
+			c+= 256;
+			m+= 256;
+			ctr+= 4;
+			len-= 256;
+		}
+		sodium_memzero(stato, sizeof(stato));
+	}
+#endif
+	if (len > 0)
+		mc::crypto_chacha20_ietf(c, m, len, k, npub, ctr);
+}
+
+/// the tag, as libsodium: Poly1305 keyed by the first 32 bytes of the block 0 of
+/// ChaCha20, over ad, pad16, ciphertext, pad16, le64(adlen), le64(clen)
+static void fs_aead_mac(unsigned char o_mac[16], const unsigned char *i_npub, const unsigned char *i_k,
+						const unsigned char *i_ad, unsigned long long i_adlen,
+						const unsigned char *i_c, unsigned long long i_clen)
+{
+	static const unsigned char zeri[16]= {0};
+	unsigned char			   blocco0[64];
+	unsigned char			   lunghezze[8];
+	fs_poly					   stato;
+
+	mc::crypto_chacha20_ietf(blocco0, NULL, sizeof(blocco0), i_k, i_npub, 0);
+	fs_poly_init(&stato, blocco0);
+	sodium_memzero(blocco0, sizeof(blocco0));
+
+	fs_poly_update(&stato, i_ad, (size_t)i_adlen);
+	fs_poly_update(&stato, zeri, (size_t)((0x10 - i_adlen) & 0xf));
+	fs_poly_update(&stato, i_c, (size_t)i_clen);
+	fs_poly_update(&stato, zeri, (size_t)((0x10 - i_clen) & 0xf));
+	fs_store64_le(lunghezze, i_adlen);
+	fs_poly_update(&stato, lunghezze, sizeof(lunghezze));
+	fs_store64_le(lunghezze, i_clen);
+	fs_poly_update(&stato, lunghezze, sizeof(lunghezze));
+	fs_poly_final(&stato, o_mac); /// it wipes stato
+}
+
+/// libsodium: misuse (abort) over MESSAGEBYTES_MAX; c = ChaCha20 from counter 1,
+/// the tag after it; *clen_p = mlen + 16 (0 if it failed, and it never fails)
+int crypto_aead_chacha20poly1305_ietf_encrypt(unsigned char *c, unsigned long long *clen_p,
+											  const unsigned char *m, unsigned long long mlen,
+											  const unsigned char *ad, unsigned long long adlen,
+											  const unsigned char *nsec, const unsigned char *npub,
+											  const unsigned char *k)
+{
+	(void)nsec;
+	if (mlen > fs_aead_ietf_messagebytes_max)
+		FRANZSODIUM_FATAL("crypto_aead_chacha20poly1305_ietf_encrypt: message too long (misuse)");
+
+	if (mlen > 0)
+		fs_chacha20_ietf_xor(c, m, (size_t)mlen, npub, k, 1);
+	unsigned char mac[16];
+	fs_aead_mac(mac, npub, k, ad, adlen, c, mlen);
+	memcpy(c + mlen, mac, sizeof(mac));
+	sodium_memzero(mac, sizeof(mac));
+	if (clen_p != NULL)
+		*clen_p= mlen + fs_aead_ietf_abytes;
+	return 0;
+}
+
+/// libsodium (decrypt_detached): the tag is checked first, in constant time;
+/// m == NULL: only the check (0 or -1); a wrong tag: m zeroed (mlen bytes), -1
+static int fs_aead_decrypt_detached(unsigned char *m, const unsigned char *c, unsigned long long clen,
+									const unsigned char *mac, const unsigned char *ad, unsigned long long adlen,
+									const unsigned char *npub, const unsigned char *k)
+{
+	unsigned char calcolato[16];
+	fs_aead_mac(calcolato, npub, k, ad, adlen, c, clen);
+	int risultato= mc::crypto_verify16(calcolato, mac);
+	sodium_memzero(calcolato, sizeof(calcolato));
+	if (m == NULL)
+		return risultato;
+	if (risultato != 0)
+	{
+		memset(m, 0, (size_t)clen);
+		return -1;
+	}
+	if (clen > 0)
+		fs_chacha20_ietf_xor(m, c, (size_t)clen, npub, k, 1);
+	return 0;
+}
+
+/// libsodium: clen < 16 is -1 without touching m; *mlen_p = clen - 16 if OK, else 0
+int crypto_aead_chacha20poly1305_ietf_decrypt(unsigned char *m, unsigned long long *mlen_p,
+											  unsigned char *nsec,
+											  const unsigned char *c, unsigned long long clen,
+											  const unsigned char *ad, unsigned long long adlen,
+											  const unsigned char *npub, const unsigned char *k)
+{
+	unsigned long long mlen		= 0ULL;
+	int				   risultato= -1;
+	(void)nsec;
+	if (clen >= fs_aead_ietf_abytes)
+		risultato= fs_aead_decrypt_detached(m, c, clen - fs_aead_ietf_abytes, c + clen - fs_aead_ietf_abytes,
+											ad, adlen, npub, k);
+	if (mlen_p != NULL)
+	{
+		if (risultato == 0)
+			mlen= clen - fs_aead_ietf_abytes;
+		*mlen_p= mlen;
+	}
+	return risultato;
+}
+
+/// --- crypto_pwhash: Argon2i / Argon2id v1.3 -------------------------------------
+/// libsodium (crypto_pwhash_argon2i / _argon2id), in this order:
+///   out zeroed (outlen bytes)
+///   outlen > BYTES_MAX: EFBIG    outlen < 16: EINVAL
+///   passwdlen, opslimit or memlimit over the max: EFBIG
+///   opslimit or memlimit under the min: EINVAL (opslimit min: 3 Argon2i, 1 Argon2id)
+///   out == passwd: EINVAL
+///   then argon2: lanes 1, m_cost = memlimit / 1024 KiB, t_cost = opslimit,
+///   salt of 16 bytes, no secret, no ad; any error of argon2 (no memory,
+///   a NULL salt, a NULL password with a length): -1
+static int fs_pwhash_argon2(uint32_t i_variante, unsigned long long i_opslimit_min,
+							unsigned char *const out, unsigned long long outlen,
+							const char *const passwd, unsigned long long passwdlen,
+							const unsigned char *const salt,
+							unsigned long long opslimit, size_t memlimit)
+{
+	memset(out, 0, (size_t)outlen);
+	if (outlen > fs_pwhash_bytes_max)
+	{
+		errno= EFBIG;
+		return -1;
+	}
+	if (outlen < fs_pwhash_bytes_min)
+	{
+		errno= EINVAL;
+		return -1;
+	}
+	if ((passwdlen > fs_pwhash_passwd_max) || (opslimit > fs_pwhash_opslimit_max) || (memlimit > fs_pwhash_memlimit_max))
+	{
+		errno= EFBIG;
+		return -1;
+	}
+	if ((opslimit < i_opslimit_min) || (memlimit < fs_pwhash_memlimit_min))
+	{
+		errno= EINVAL;
+		return -1;
+	}
+	if ((const void *)out == (const void *)passwd)
+	{
+		errno= EINVAL;
+		return -1;
+	}
+	if (salt == NULL)
+		return -1;
+	if ((passwd == NULL) && (passwdlen != 0))
+		return -1;
+
+	const uint32_t blocchi= (uint32_t)(memlimit / 1024U);
+	void		  *lavoro = malloc((size_t)blocchi * 1024U);
+	if (lavoro == NULL)
+		return -1;
+
+	mc::crypto_argon2_config config;
+	config.algorithm= i_variante;
+	config.nb_blocks= blocchi;
+	config.nb_passes= (uint32_t)opslimit;
+	config.nb_lanes = 1;
+
+	mc::crypto_argon2_inputs ingressi;
+	ingressi.pass	  = (const uint8_t *)passwd;
+	ingressi.salt	  = salt;
+	ingressi.pass_size= (uint32_t)passwdlen;
+	ingressi.salt_size= (uint32_t)fs_pwhash_saltbytes;
+
+	mc::crypto_argon2(out, (uint32_t)outlen, lavoro, config, ingressi, mc::crypto_argon2_no_extras);
+	free(lavoro); /// already wiped by crypto_argon2
+	return 0;
+}
+
+/// libsodium: alg 1 Argon2i, alg 2 Argon2id, anything else EINVAL (out untouched)
+int crypto_pwhash(unsigned char *const out, unsigned long long outlen,
+				  const char *const passwd, unsigned long long passwdlen,
+				  const unsigned char *const salt,
+				  unsigned long long opslimit, size_t memlimit, int alg)
+{
+	if (alg == crypto_pwhash_ALG_ARGON2I13)
+		return fs_pwhash_argon2(FSM_CRYPTO_ARGON2_I, fs_pwhash_argon2i_opslimit_min, out, outlen, passwd, passwdlen, salt, opslimit, memlimit);
+	if (alg == crypto_pwhash_ALG_ARGON2ID13)
+		return fs_pwhash_argon2(FSM_CRYPTO_ARGON2_ID, fs_pwhash_argon2id_opslimit_min, out, outlen, passwd, passwdlen, salt, opslimit, memlimit);
+	errno= EINVAL;
+	return -1;
+}
+} // namespace franzsodium
+#undef FSM_FOR_T
+#undef FSM_FOR
+#undef FSM_COPY
+#undef FSM_ZERO
+#undef FSM_WIPE_CTX
+#undef FSM_WIPE_BUFFER
+#undef FSM_MIN
+#undef FSM_MAX
+#undef FSM_QUARTERROUND
+#undef FSM_BLAKE2_G
+#undef FSM_BLAKE2_ROUND
+#undef FSM_BLAKE2_NO_UNROLLING
+#undef FSM_LSB
+#undef FSM_G
+#undef FSM_ROUND
+#undef FSM_CRYPTO_ARGON2_D
+#undef FSM_CRYPTO_ARGON2_ID
+#undef FSM_CRYPTO_ARGON2_I
+#undef FS_ROTL
+#undef FS_ROTL16
+#undef FS_QR
+#undef FS_QR8
+#undef FS_ROTL8_256
+#undef FRANZSODIUM_SSE2
+#undef FRANZSODIUM_AVX2
+#undef FRANZSODIUM_POLY64
+#endif // FRANZSODIUM_H
+/// ======== FRANZSODIUM END ========
+/// LICENSE_END.31
+
+
+
+
+#define MAGIC_BYTES         "FRANZEN\x1a"  // Franzen encryption only
+#define MAGIC_BYTES_AES     "FRENZEN\x1a"  // AES + Franzen encryption (dual password)
+#define MAGIC_BYTES_LEN     8              // Both magics have the same length
+
+// Costanti basate su libsodium
+const int				 CRYPTO_PWHASH_ALG_DEFAULT		   = 2; // Argon2id
+const unsigned long long CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE= 2;
+const size_t			 CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE= 67108864; // 64MB
+const unsigned long long CRYPTO_PWHASH_OPSLIMIT_MODERATE   = 3;
+const size_t			 CRYPTO_PWHASH_MEMLIMIT_MODERATE   = 268435456; // 256MB
+const unsigned long long CRYPTO_PWHASH_OPSLIMIT_SENSITIVE  = 4;
+/// const size_t CRYPTO_PWHASH_MEMLIMIT_SENSITIVE 				= 1073741824; // 1GB
+
+#define G_FRANZEN_SIZE 65536
+
+// Parametric global variables
+uint64_t		   g_sodio_block_size	  = G_FRANZEN_SIZE;
+unsigned long long g_sodio_pwhash_opslimit= CRYPTO_PWHASH_OPSLIMIT_MODERATE;
+size_t			   g_sodio_pwhash_memlimit= CRYPTO_PWHASH_MEMLIMIT_MODERATE;
+
+/*
+	65.11l: the key of a franzen file comes from Argon2id (about a second, and 256 MB): it is derived once
+	per run for the same password, salt and limits, then taken from here. Before, every thread asked for
+	it again (a t on a franzen archive: all the threads at once, 256 MB each). And so would every part of
+	a multipart archive: its parts (and the index of a backup) are made with the salt of the first one
+*/
+pthread_mutex_t					   g_franzen_chiavi_mutex= PTHREAD_MUTEX_INITIALIZER;
+std::map<std::string, std::string> g_franzen_chiavi;
+/*
+	65.13e: -debug4 = the deterministic encryption, for the tests: the same input gives the same bytes, so
+	that archives can be compared to the byte (see tortura\backup). The salt of a franzen file is fixed,
+	every nonce comes from a counter (in the order of the writes: one thread writes), the nonce of a block
+	encrypted by the threads of encode_parallela from its number. NOT secure at all: the same password gives
+	the same key, and another run uses the same nonces again
+*/
+uint64_t		g_debug4_contatore= 0;
+pthread_mutex_t g_debug4_mutex	  = PTHREAD_MUTEX_INITIALIZER;
+void debug4_byte(unsigned char *o_buf, size_t i_len, uint64_t i_numero)
+{
+	static const char fisso[]= "zpaqfranz-debug4";
+	for (size_t i= 0; i < i_len; i++)
+		o_buf[i]= (i < 8) ? (unsigned char)(i_numero >> (8 * i)) : (unsigned char)fisso[i % 16];
+}
+uint64_t debug4_prossimo()
+{
+	pthread_mutex_lock(&g_debug4_mutex);
+	const uint64_t numero= ++g_debug4_contatore;
+	pthread_mutex_unlock(&g_debug4_mutex);
+	return numero;
+}
+/// 65.11r //FIX-FRANZEN: writes on a franzen file that did not make it (media full, I/O error): the run cannot end
+/// "all OK". With -franzen alone there is no .zpaq behind, and nobody else would notice (see myfwrite)
+int64_t g_franzen_scrittirotti= 0;
+/*
+	//FIX-FRANZEN 65.11s: an update that does not get to its end (the process killed, the power gone,
+	the media full) leaves, after the last good footer, the blocks it had written, and no footer at the
+	end of the file. Such a file could not be opened any more ("Footer is corrupted"), not even for the
+	versions of before, all there in its first bytes. A plain zpaq archive in the same state just ignores
+	its incomplete transaction. Now the last valid footer is looked for (franzcri::cerca_ultimo_footer):
+	the file is read up to there, with a warning, and the first add cuts the rest away
+	(franzcri::taglia_resti). Nothing changes in the format, nothing changes for a file that ends well.
+	Here: where the good part of a file ends (looked for once per run: every thread opens the file on
+	its own), and what the run says at its end
+*/
+struct franzen_fine_nota
+{
+	int64_t fisica; // the size of the file when it was looked at
+	int64_t valida; // where its last complete update ends
+};
+std::map<std::string, franzen_fine_nota> g_franzen_fini;
+int64_t g_franzen_recuperati= 0; // files read up to their last complete update
+int64_t g_franzen_tagliati	= 0; // of which: put right by an add (the rest cut away)
+
+/// 65.18e: the engine of Franzen in this run. libsodium with -libsodium (-franzsodium wins on it) and with
+/// -sodiumcheck (both, but what goes on is what libsodium gave); else franzsodium, built in: the default,
+/// and the only one in a build without ZPAQLIBSODIUM (there the two switches are refused before: 00595)
+bool franzen_conlibsodium()
+{
+#ifdef ZPAQLIBSODIUM
+	return flagsodiumcheck || (flaglibsodium && !flagfranzsodium);
+#else
+	return false;
+#endif
+}
+/// 65.18f: the color of the "Creating/Appending Franzen" lines, the engine at a glance: cyan franzsodium,
+/// magenta libsodium
+void franzen_colore()
+{
+	if (franzen_conlibsodium())
+		color_magenta();
+	else
+		color_cyan();
+}
+
+/// 65.18e: the nine functions Franzen calls. From franzsodium (built in, the default), or from
+/// libsodium (-libsodium, loaded at run time: handle), or the -sodiumcheck pair
+struct sodium_functions
+{
+#if defined(_WIN32) && defined(ZPAQLIBSODIUM)
+	HINSTANCE handle;
+#else
+	void *handle; /// without ZPAQLIBSODIUM always NULL
+#endif
+	int (*sodium_init)(void);
+	void (*sodium_memzero)(void *const, const size_t);
+	void (*randombytes_buf)(void *const buf, const size_t size);
+	int (*crypto_pwhash)(unsigned char *const out, unsigned long long outlen,
+						 const char *const passwd, unsigned long long passwdlen,
+						 const unsigned char *const salt,
+						 unsigned long long opslimit, size_t memlimit, int alg);
+	size_t (*crypto_aead_chacha20poly1305_ietf_keybytes)(void);
+	size_t (*crypto_aead_chacha20poly1305_ietf_npubbytes)(void);
+	size_t (*crypto_aead_chacha20poly1305_ietf_abytes)(void);
+	int (*crypto_aead_chacha20poly1305_ietf_encrypt)(
+		unsigned char *c, unsigned long long *clen_p,
+		const unsigned char *m, unsigned long long mlen,
+		const unsigned char *ad, unsigned long long adlen,
+		const unsigned char *nsec, const unsigned char *npub,
+		const unsigned char *k);
+	int (*crypto_aead_chacha20poly1305_ietf_decrypt)(
+		unsigned char *m, unsigned long long *mlen_p,
+		unsigned char		*nsec,
+		const unsigned char *c, unsigned long long clen,
+		const unsigned char *ad, unsigned long long adlen,
+		const unsigned char *npub, const unsigned char *k);
+};
+
+#ifdef ZPAQLIBSODIUM
+/// 65.18d: -sodiumcheck. Every call of Franzen made by libsodium AND by franzsodium (on copies), the return
+/// code, the lengths and the bytes compared. What goes on is what libsodium gave: the check cannot spoil anything.
+/// A difference: said (38284, the first 20), counted, an ERROR at the end (43816, exit code 2)
+static sodium_functions g_sodiumcheck_lib; /// the functions of libsodium (the same for every franzen file)
+static pthread_mutex_t	g_sodiumcheck_mutex= PTHREAD_MUTEX_INITIALIZER;
+int64_t					g_sodiumcheck_chiamate= 0;
+int64_t					g_sodiumcheck_diversi = 0;
+static void sodiumcheck_conta(bool i_diverso, const char *i_cosa, int64_t i_quanti)
+{
+	pthread_mutex_lock(&g_sodiumcheck_mutex);
+	g_sodiumcheck_chiamate++;
+	const int64_t diversi= i_diverso ? ++g_sodiumcheck_diversi : g_sodiumcheck_diversi;
+	pthread_mutex_unlock(&g_sodiumcheck_mutex);
+	if (i_diverso && (diversi <= 20))
+	{
+		color_red();
+		myprintf("38284! -sodiumcheck: %s (%s bytes): franzsodium != libsodium\n", i_cosa, migliaia(i_quanti));
+		color_restore();
+	}
+}
+static int sodiumcheck_encrypt(unsigned char *c, unsigned long long *clen_p, const unsigned char *m, unsigned long long mlen,
+							   const unsigned char *ad, unsigned long long adlen, const unsigned char *nsec, const unsigned char *npub,
+							   const unsigned char *k)
+{
+	std::vector<unsigned char> copia; /// m can be c (in place): franzsodium first, on a copy
+	const unsigned char		  *mf= m;
+	if ((m != NULL) && (mlen > 0))
+	{
+		copia.assign(m, m + mlen);
+		mf= &copia[0];
+	}
+	std::vector<unsigned char> cf((size_t)mlen + 17);
+	unsigned long long		   lf= 0, ll= 0;
+	const int				   rf= franzsodium::crypto_aead_chacha20poly1305_ietf_encrypt(&cf[0], &lf, mf, mlen, ad, adlen, nsec, npub, k);
+	const int				   rl= g_sodiumcheck_lib.crypto_aead_chacha20poly1305_ietf_encrypt(c, &ll, m, mlen, ad, adlen, nsec, npub, k);
+	const bool				   diverso= (rf != rl) || (lf != ll) || ((rl == 0) && (memcmp(&cf[0], c, (size_t)ll) != 0));
+	sodiumcheck_conta(diverso, "encrypt", (int64_t)mlen);
+	if (clen_p != NULL)
+		*clen_p= ll;
+	return rl;
+}
+static int sodiumcheck_decrypt(unsigned char *m, unsigned long long *mlen_p, unsigned char *nsec, const unsigned char *c,
+							   unsigned long long clen, const unsigned char *ad, unsigned long long adlen, const unsigned char *npub,
+							   const unsigned char *k)
+{
+	std::vector<unsigned char> copia; /// m can be c (in place): franzsodium first, on a copy
+	const unsigned char		  *cf= c;
+	if ((c != NULL) && (clen > 0))
+	{
+		copia.assign(c, c + clen);
+		cf= &copia[0];
+	}
+	std::vector<unsigned char> mf((size_t)clen + 1);
+	unsigned long long		   lf= 0, ll= 0;
+	const int				   rf= franzsodium::crypto_aead_chacha20poly1305_ietf_decrypt(m != NULL ? &mf[0] : NULL, &lf, nsec, cf, clen, ad, adlen, npub, k);
+	const int				   rl= g_sodiumcheck_lib.crypto_aead_chacha20poly1305_ietf_decrypt(m, &ll, nsec, c, clen, ad, adlen, npub, k);
+	bool					   diverso= (rf != rl) || (lf != ll);
+	if ((!diverso) && (m != NULL) && (clen >= 16)) /// also when refused: both zero m
+		diverso= memcmp(&mf[0], m, (size_t)(clen - 16)) != 0;
+	sodiumcheck_conta(diverso, "decrypt", (int64_t)clen);
+	if (mlen_p != NULL)
+		*mlen_p= ll;
+	return rl;
+}
+static int sodiumcheck_pwhash(unsigned char *const out, unsigned long long outlen, const char *const passwd, unsigned long long passwdlen,
+							  const unsigned char *const salt, unsigned long long opslimit, size_t memlimit, int alg)
+{
+	std::vector<unsigned char> of((size_t)outlen + 1);
+	const int				   rf= franzsodium::crypto_pwhash(&of[0], outlen, passwd, passwdlen, salt, opslimit, memlimit, alg);
+	const int				   rl= g_sodiumcheck_lib.crypto_pwhash(out, outlen, passwd, passwdlen, salt, opslimit, memlimit, alg);
+	/// a failed one: only the code (libsodium 1.0.22 leaves random bytes there, 1.0.18 zeros)
+	const bool diverso= (rf != rl) || ((rl == 0) && (memcmp(&of[0], out, (size_t)outlen) != 0));
+	sodiumcheck_conta(diverso, "pwhash (Argon2)", (int64_t)memlimit);
+	return rl;
+}
+#endif // ZPAQLIBSODIUM
+
+#define SIZEOF_AUTH_TAG 16
+#define SIZEOF_SALT 16
+#define SIZEOF_KEY_CHECK_TAG 16
+#define SIZEOF_ONCE 12
+
+#pragma pack(push, 1)
+struct file_header
+{
+	// Identification & Authentication (56 bytes) - FIXED, never changes after creation
+	char		  magic[MAGIC_BYTES_LEN];			   // Offset  0  (0x00) | Size:  8 | Range: [0x00..0x07]
+	unsigned char auth_tag[SIZEOF_AUTH_TAG];		   // Offset  8  (0x08) | Size: 16 | Range: [0x08..0x17] (Main header tag)
+	unsigned char salt[SIZEOF_SALT];				   // Offset 24  (0x18) | Size: 16 | Range: [0x18..0x27] (Salt for key derivation)
+	unsigned char key_check_tag[SIZEOF_KEY_CHECK_TAG]; // Offset 40  (0x28) | Size: 16 | Range: [0x28..0x37] (Password check tag)
+
+	//  Main Metadata - FIXED after creation (variable data moved to footer for rsync --append)
+	uint64_t block_size; // Offset 56  (0x38) | Size:  8 | Range: [0x38..0x3F] (Data block size)
+	uint64_t reserved1;	 // Offset 64  (0x40) | Size:  8 | Reserved (was file_data_size, now in footer)
+	uint64_t reserved2;	 // Offset 72  (0x48) | Size:  8 | Reserved (was crc32, now in footer)
+	uint64_t quickhash;	 // Offset 80  (0x50) | Size:  8 | Range: [0x50..0x57] (Fast non-crypto hash)
+	uint64_t version;	 // Offset 88  (0x58) | Size:  8 | Range: [0x58..0x5F] (File format version)
+
+	//  Key Derivation Parameters (16 bytes) - FIXED
+	uint64_t pwhash_opslimit; // Offset 96  (0x60) | Size:  8 | Range: [0x60..0x67] (Argon2id parameter)
+	uint64_t pwhash_memlimit; // Offset 104 (0x68) | Size:  8 | Range: [0x68..0x6F] (Argon2id parameter)
+
+	//  Reserved (was Fast Append Metadata, now in footer)
+	uint64_t reserved3; // Offset 112 (0x70) | Size:  8 | Reserved (was prefix_crc32, now in footer)
+	uint64_t reserved4; // Offset 120 (0x78) | Size:  8 | Reserved (was prefix_size, now in footer)
+
+	//  Final Padding (4 bytes)
+	uint8_t pad[4]; // Offset 128 (0x80) | Size:  4 | Range: [0x80..0x83] (Padding to align struct to 132 bytes)
+};
+
+// Footer structure - contains all variable data that changes on append
+// This allows rsync --append to work efficiently: header stays fixed, footer at end
+// Located at: end_of_file - SIZEOF_FOOTER
+//
+// VERSION 3: Added segment tracking for rsync-friendly append
+// Each append creates a new "segment". The footer tracks:
+// - Total cumulative data size (file_data_size)
+// - This segment's data size (segment_data_size)
+// - Number of segments (segment_count)
+// - Offset where this segment's data starts (segment_start_offset)
+//
+// Total: 92 bytes (was 60 in v2)
+struct file_footer
+{
+	// Cumulative totals (for quick access)
+	uint64_t file_data_size; // Size:  8 | Total logical data size (all segments)
+	uint64_t crc32;			 // Size:  8 | Full non-crypto CRC32 (all data)
+	uint64_t prefix_crc32;	 // Size:  8 | CRC32 of all blocks except the last one
+	uint64_t prefix_size;	 // Size:  8 | Size in bytes of the prefix (encrypted, all segments)
+
+	// Segment tracking (new in v3)
+	uint64_t segment_count;		   // Size:  8 | Number of segments (1 = original, 2+ = appended)
+	uint64_t segment_data_size;	   // Size:  8 | This segment's plaintext data size
+	uint64_t segment_start_offset; // Size:  8 | File offset where this segment's encrypted data starts
+
+	// Authentication
+	unsigned char footer_nonce[SIZEOF_ONCE];		// Size: 12 | Nonce for footer authentication
+	unsigned char footer_auth_tag[SIZEOF_AUTH_TAG]; // Size: 16 | Authentication tag for footer
+};
+#pragma pack(pop)
+
+#define SIZEOF_FOOTER sizeof(file_footer)
+
+/// 65.13e: -chunk -franzen: how many bytes of data fit in a new franzen file of i_limite bytes (its header,
+/// the blocks each one with its nonce and its tag, the last one not full, its footer)
+uint64_t franzen_capienza(uint64_t i_limite)
+{
+	const uint64_t fisso	= sizeof(file_header) + SIZEOF_ONCE + sizeof(file_footer);
+	const uint64_t perblocco= SIZEOF_ONCE + SIZEOF_AUTH_TAG;
+	if (i_limite <= fisso + perblocco)
+		return 0;
+	const uint64_t posto= i_limite - fisso;
+	const uint64_t pieni= posto / (g_sodio_block_size + perblocco);
+	const uint64_t resto= posto % (g_sodio_block_size + perblocco);
+	return pieni * g_sodio_block_size + ((resto > perblocco) ? (resto - perblocco) : 0);
+}
+
+/// 65.18e: v.data() of a std::vector is C++11, not there for gcc 3.4 (ESX, Franzen there now): the first
+/// element, NULL for an empty vector (what .data() gives with libstdc++)
+template <class T>
+static T *franzen_dati(std::vector<T> &v)
+{
+	return v.empty() ? NULL : &v[0];
+}
+
+// Total header size: 132 bytes + 12 byte nonce = 144 bytes
+// File structure: [HEADER 144 bytes][ENCRYPTED BLOCKS...][FOOTER 84 bytes]
+// Multi-segment: [HEADER][seg1_blocks][FOOTER1][seg2_blocks][FOOTER2]...
+class franzcri
+{
+  private:
+	size_t		  password_len;
+	unsigned char password_buf[256];
+	/// 65.11r //FIX-FRANZEN: the password given is over 255 bytes (see the constructor, and open)
+	bool		  password_lunga;
+	//FIX-FRANZEN 65.11s: -1, or where the last complete update of this file ends, when it is not at
+	// the end of the file (see cerca_ultimo_footer); and the name the file was opened with
+	int64_t		  fine_valida;
+	std::string	  nome_file;
+
+	// Cache for segment lookup - maps logical offsets to physical locations
+	struct segment_cache_item
+	{
+		uint64_t logical_start;	 // Logical byte offset where this segment starts
+		uint64_t logical_size;	 // Size of data in this segment
+		int64_t	 physical_start; // File offset where encrypted blocks start
+		uint64_t block_count;	 // Number of blocks in this segment
+	};
+	std::vector<segment_cache_item> _segments_cache;
+	bool							_segments_cache_valid;
+
+	// IMPORTANT: Track where the current segment's physical data starts
+	// This is needed for writeat() to find the correct block in the current session
+	int64_t	 current_segment_physical_start;
+	uint64_t current_segment_logical_start; // Logical offset where current segment begins
+
+	FILE				   *file_handle;
+	std::string				password;
+	size_t					io_buffer_size;
+	uint64_t				block_size;
+	bool					is_file_open;
+	bool					is_file_new;
+	bool					is_libsodium_loaded;
+	bool					is_libsodium_initialized;
+	bool					file_was_modified;
+	bool					is_aes_too;          // true = FRENZEN magic (AES + Franzen)
+	struct file_header		header;
+	struct file_footer		footer;
+	unsigned char			header_nonce[SIZEOF_ONCE];
+	struct sodium_functions sodium;
+	unsigned char			key[32];
+	unsigned long long		pwhash_opslimit;
+	size_t					pwhash_memlimit;
+	int						pwhash_alg;
+
+	uint64_t host_to_le64(uint64_t val)
+	{
+		// Endianness
+		uint16_t test= 1;
+		if (*((uint8_t *)&test) == 1)
+		{ // Little-endian
+			return val;
+		}
+		// Big-endian
+#if defined(ANCIENT) || defined(ESX)
+		return (((val >> 56) & 0x00000000000000FFULL) | ((val >> 40) & 0x000000000000FF00ULL) |
+				((val >> 24) & 0x0000000000FF0000ULL) | ((val >> 8) & 0x00000000FF000000ULL) |
+				((val << 8) & 0x000000FF00000000ULL) | ((val << 24) & 0x0000FF0000000000ULL) |
+				((val << 40) & 0x00FF000000000000ULL) | ((val << 56) & 0xFF00000000000000ULL));
+#else
+		return (((val >> 56) & 0x00000000000000FF) | ((val >> 40) & 0x000000000000FF00) |
+				((val >> 24) & 0x0000000000FF0000) | ((val >> 8) & 0x00000000FF000000) |
+				((val << 8) & 0x000000FF00000000) | ((val << 24) & 0x0000FF0000000000) |
+				((val << 40) & 0x00FF000000000000) | ((val << 56) & 0xFF00000000000000));
+#endif
+	}
+
+	uint64_t le64_to_host(uint64_t val)
+	{
+		return host_to_le64(val);
+	}
+
+	/*
+		void print_nonce(const unsigned char *nonce, size_t len, const char *context)
+		{
+			if (!flagdebug)
+				return;
+
+			myprintf(" %s Nonce: ", context);
+			for (size_t i = 0; i < len; ++i)
+				myprintf("%02x", nonce[i]);
+			myprintf("\n");
+		}
+
+		void print_key()
+		{
+			if (!flagdebug)
+				return;
+			myprintf("Key: ");
+			for (size_t i = 0; i < sizeof(key); ++i)
+				myprintf("%02x", key[i]);
+			myprintf("\n");
+		}
+	*/
+
+#ifndef RTLD_LAZY
+#define RTLD_LAZY 1
+#endif
+
+	bool load_library()
+	{
+		// No multiple
+		if (is_libsodium_loaded)
+		{
+			if (flagdebug)
+				myprintf("libsodium already loaded, skipping\n");
+			return true;
+		}
+
+		// Ensure clean state
+		memset(&sodium, 0, sizeof(sodium));
+		sodium.handle= NULL;
+
+		//FRANZSODIUM 65.18e: the functions of franzsodium (built in, LICENSE 31), no library at all: the default,
+		// on every platform. libsodium only with -libsodium (-franzsodium wins on it) or with -sodiumcheck (both,
+		// compared), and only in a build with ZPAQLIBSODIUM (without, the two were refused before: 00595)
+		const bool conlibsodium= franzen_conlibsodium();
+		if (!conlibsodium)
+		{
+			sodium.sodium_init								 = franzsodium::sodium_init;
+			sodium.sodium_memzero							 = franzsodium::sodium_memzero;
+			sodium.randombytes_buf							 = franzsodium::randombytes_buf;
+			sodium.crypto_pwhash							 = franzsodium::crypto_pwhash;
+			sodium.crypto_aead_chacha20poly1305_ietf_keybytes = franzsodium::crypto_aead_chacha20poly1305_ietf_keybytes;
+			sodium.crypto_aead_chacha20poly1305_ietf_npubbytes= franzsodium::crypto_aead_chacha20poly1305_ietf_npubbytes;
+			sodium.crypto_aead_chacha20poly1305_ietf_abytes	 = franzsodium::crypto_aead_chacha20poly1305_ietf_abytes;
+			sodium.crypto_aead_chacha20poly1305_ietf_encrypt = franzsodium::crypto_aead_chacha20poly1305_ietf_encrypt;
+			sodium.crypto_aead_chacha20poly1305_ietf_decrypt = franzsodium::crypto_aead_chacha20poly1305_ietf_decrypt;
+			if (sodium.sodium_init() < 0)
+			{
+				myprintf("38282! franzsodium initialization failed\n");
+				return false;
+			}
+			is_libsodium_loaded		= true;
+			is_libsodium_initialized= true;
+			static bool detto= false; /// once a run, not once a file (a race here costs one more line)
+			if ((flagverbose || flagdebug) && !detto)
+			{
+				detto= true;
+				myprintf("38283: Franzen with franzsodium (%s), not libsodium\n", franzsodium::simd());
+			}
+			return true;
+		}
+
+#ifndef ZPAQLIBSODIUM
+		return false; /// never here (conlibsodium is false)
+#else
+		int init_result= -1;
+
+#ifdef _WIN32
+#ifdef _WIN64
+		bool		tried_local		= false;
+		const char *local_lib_name	= "./libsodium.dll";
+		const char *generic_lib_name= "libsodium.dll";
+
+		// Try local resource first
+		if (kickstart_resources("LIBSODIUM") == 0)
+		{
+			sodium.handle= LoadLibraryA(local_lib_name);
+			tried_local	 = true;
+
+			if (sodium.handle)
+			{
+				if (flagdebug)
+				{
+					color_green();
+					myprintf("38280: libsodium loaded from local\n");
+					color_restore();
+				}
+			}
+		}
+
+		// Fallback to system library
+		if (!sodium.handle)
+		{
+			if (tried_local && flagdebug)
+			{
+				color_yellow();
+				myprintf("38281: Cannot load local libsodium, trying system library\n");
+				color_restore();
+			}
+			sodium.handle= LoadLibraryA(generic_lib_name);
+		}
+
+		if (!sodium.handle)
+		{
+			myprintf("38087! Cannot load libsodium.dll from any location\n");
+			return false;
+		}
+
+#else // 32-bit Windows
+		myprintf("41604: libsodium not supported on 32-bit Windows\n");
+		return false;
+#endif
+
+#else // Unix/Linux
+		//FIX-FRANZEN 65.11s: on macOS the library is a .dylib (Homebrew: /usr/local/lib on Intel, /opt/homebrew/lib
+		// on Apple silicon, where dlopen does not look by itself). It was never looked for: no Franzen on a Mac
+#ifdef __APPLE__
+		const char *lib_names[]= {"libsodium.dylib", "/usr/local/lib/libsodium.dylib", "/opt/homebrew/lib/libsodium.dylib", "/opt/local/lib/libsodium.dylib", "libsodium.so", NULL};
+#else
+		const char *lib_names[]= {"libsodium.so", "libsodium.so.26", "libsodium.so.23", "libsodium.so.4", NULL};
+#endif
+
+		for (unsigned int i= 0; lib_names[i] != NULL; ++i)
+		{
+			sodium.handle= dlopen(lib_names[i], RTLD_LAZY | RTLD_LOCAL);
+			if (sodium.handle)
+			{
+				if (flagdebug)
+					myprintf("Linux loaded %s\n", lib_names[i]);
+				break;
+			}
+		}
+
+		if (!sodium.handle)
+		{
+			myprintf("38104! Unable to load libsodium: %s\n", dlerror());
+			return false;
+		}
+
+		// Clear any existing error
+		dlerror();
+#endif
+
+		// Platform-specific symbol loading macros
+#ifdef _WIN32
+#define LOAD_SYM(handle, name, type) (type) GetProcAddress(handle, #name)
+#define CHECK_SYM(sym, name)                                            \
+	if (!sym)                                                           \
+	{                                                                   \
+		myprintf("38121! Function " #name " not found in libsodium\n"); \
+		goto cleanup_and_fail;                                          \
+	}
+#else
+#define LOAD_SYM(handle, name, type) (type) dlsym(handle, #name)
+#define CHECK_SYM(sym, name)                                            \
+	{                                                                   \
+		const char *err= dlerror();                                     \
+		if (err != NULL)                                                \
+		{                                                               \
+			myprintf("38121! Function " #name " not found: %s\n", err); \
+			goto cleanup_and_fail;                                      \
+		}                                                               \
+	}
+#endif
+
+		// Load all functions with proper error checking (uniform across platforms)
+		sodium.sodium_init= LOAD_SYM(sodium.handle, sodium_init, int (*)(void));
+		CHECK_SYM(sodium.sodium_init, sodium_init);
+
+		sodium.sodium_memzero= LOAD_SYM(sodium.handle, sodium_memzero, void (*)(void *const, const size_t));
+		CHECK_SYM(sodium.sodium_memzero, sodium_memzero);
+
+		sodium.randombytes_buf= LOAD_SYM(sodium.handle, randombytes_buf, void (*)(void *const, const size_t));
+		CHECK_SYM(sodium.randombytes_buf, randombytes_buf);
+
+		sodium.crypto_pwhash= LOAD_SYM(sodium.handle, crypto_pwhash, int (*)(unsigned char *const, unsigned long long, const char *const, unsigned long long, const unsigned char *const, unsigned long long, size_t, int));
+		CHECK_SYM(sodium.crypto_pwhash, crypto_pwhash);
+
+		sodium.crypto_aead_chacha20poly1305_ietf_keybytes= LOAD_SYM(sodium.handle, crypto_aead_chacha20poly1305_ietf_keybytes, size_t (*)(void));
+		CHECK_SYM(sodium.crypto_aead_chacha20poly1305_ietf_keybytes, crypto_aead_chacha20poly1305_ietf_keybytes);
+
+		sodium.crypto_aead_chacha20poly1305_ietf_npubbytes= LOAD_SYM(sodium.handle, crypto_aead_chacha20poly1305_ietf_npubbytes, size_t (*)(void));
+		CHECK_SYM(sodium.crypto_aead_chacha20poly1305_ietf_npubbytes, crypto_aead_chacha20poly1305_ietf_npubbytes);
+
+		sodium.crypto_aead_chacha20poly1305_ietf_abytes= LOAD_SYM(sodium.handle, crypto_aead_chacha20poly1305_ietf_abytes, size_t (*)(void));
+		CHECK_SYM(sodium.crypto_aead_chacha20poly1305_ietf_abytes, crypto_aead_chacha20poly1305_ietf_abytes);
+
+		sodium.crypto_aead_chacha20poly1305_ietf_encrypt= LOAD_SYM(sodium.handle, crypto_aead_chacha20poly1305_ietf_encrypt,
+																   int (*)(unsigned char *, unsigned long long *,
+																		   const unsigned char *, unsigned long long,
+																		   const unsigned char *, unsigned long long,
+																		   const unsigned char *, const unsigned char *,
+																		   const unsigned char *));
+		CHECK_SYM(sodium.crypto_aead_chacha20poly1305_ietf_encrypt, crypto_aead_chacha20poly1305_ietf_encrypt);
+
+		sodium.crypto_aead_chacha20poly1305_ietf_decrypt= LOAD_SYM(sodium.handle, crypto_aead_chacha20poly1305_ietf_decrypt,
+																   int (*)(unsigned char *, unsigned long long *, unsigned char *,
+																		   const unsigned char *, unsigned long long,
+																		   const unsigned char *, unsigned long long,
+																		   const unsigned char *, const unsigned char *));
+		CHECK_SYM(sodium.crypto_aead_chacha20poly1305_ietf_decrypt, crypto_aead_chacha20poly1305_ietf_decrypt);
+
+#undef LOAD_SYM
+#undef CHECK_SYM
+
+		// Verify all critical functions loaded
+		if (!sodium.sodium_init || !sodium.sodium_memzero ||
+			!sodium.randombytes_buf || !sodium.crypto_pwhash ||
+			!sodium.crypto_aead_chacha20poly1305_ietf_encrypt ||
+			!sodium.crypto_aead_chacha20poly1305_ietf_decrypt ||
+			!sodium.crypto_aead_chacha20poly1305_ietf_keybytes ||
+			!sodium.crypto_aead_chacha20poly1305_ietf_npubbytes ||
+			!sodium.crypto_aead_chacha20poly1305_ietf_abytes)
+		{
+			myprintf("38121! Critical libsodium functions missing\n");
+			goto cleanup_and_fail;
+		}
+
+		init_result= sodium.sodium_init();
+		if (init_result < 0)
+		{
+			myprintf("38127! libsodium initialization failed (error code: %d)\n", init_result);
+			goto cleanup_and_fail;
+		}
+
+		// Success - mark as loaded ONLY after full initialization
+		is_libsodium_loaded		= true;
+		is_libsodium_initialized= true;
+		/// 65.18d: -sodiumcheck: encrypt, decrypt and Argon2 by libsodium and by franzsodium, compared
+		if (flagsodiumcheck)
+		{
+			pthread_mutex_lock(&g_sodiumcheck_mutex);
+			g_sodiumcheck_lib= sodium;
+			pthread_mutex_unlock(&g_sodiumcheck_mutex);
+			franzsodium::sodium_init();
+			sodiumcheck_conta((sodium.crypto_aead_chacha20poly1305_ietf_keybytes() != franzsodium::crypto_aead_chacha20poly1305_ietf_keybytes()) ||
+								  (sodium.crypto_aead_chacha20poly1305_ietf_npubbytes() != franzsodium::crypto_aead_chacha20poly1305_ietf_npubbytes()) ||
+								  (sodium.crypto_aead_chacha20poly1305_ietf_abytes() != franzsodium::crypto_aead_chacha20poly1305_ietf_abytes()),
+							  "sizes", 0);
+			sodium.crypto_aead_chacha20poly1305_ietf_encrypt= sodiumcheck_encrypt;
+			sodium.crypto_aead_chacha20poly1305_ietf_decrypt= sodiumcheck_decrypt;
+			sodium.crypto_pwhash							 = sodiumcheck_pwhash;
+			static bool detto= false; /// once a run (a race here costs one more line)
+			if (!detto)
+			{
+				detto= true;
+				myprintf("38285: -sodiumcheck: every call by libsodium and by franzsodium (%s), compared\n", franzsodium::simd());
+			}
+		}
+		else
+		{
+			static bool detto= false; /// once a run (a race here costs one more line)
+			if ((flagverbose || flagdebug) && !detto)
+			{
+				detto= true;
+				myprintf("38286: Franzen with libsodium (-libsodium), not franzsodium\n");
+			}
+		}
+
+		if (flagdebug)
+		{
+			color_green();
+			myprintf("libsodium successfully loaded and initialized\n");
+			color_restore();
+		}
+
+		return true;
+
+	cleanup_and_fail:
+		// Yep, the mighty goto!
+		unload_library();
+
+		// Reset all state
+		memset(&sodium, 0, sizeof(sodium));
+		is_libsodium_loaded		= false;
+		is_libsodium_initialized= false;
+		return false;
+#endif // ZPAQLIBSODIUM
+	}
+
+	void unload_library()
+	{
+		if (!sodium.handle)
+			return;
+#ifdef ZPAQLIBSODIUM
+#ifdef _WIN32
+		FreeLibrary(sodium.handle);
+#else
+		dlclose(sodium.handle);
+#endif
+#endif // ZPAQLIBSODIUM
+		sodium.handle= NULL;
+	}
+
+	/// 65.11l: the key of this password, salt and limits: from g_franzen_chiavi, or made now and put there.
+	/// The lock is kept while Argon2id runs: the other threads wait for it, they do not run their own
+	bool derive_key(const unsigned char *salt)
+	{
+		std::string quale((const char *)password_buf, password_len);
+		quale.append((const char *)salt, SIZEOF_SALT);
+		char limiti[80];
+		snprintf(limiti, sizeof(limiti), "|%llu|%llu|%d", (unsigned long long)pwhash_opslimit, (unsigned long long)pwhash_memlimit, pwhash_alg);
+		quale+= limiti;
+		bool fatto= false;
+		pthread_mutex_lock(&g_franzen_chiavi_mutex);
+		std::map<std::string, std::string>::iterator nota= g_franzen_chiavi.find(quale);
+		if ((nota != g_franzen_chiavi.end()) && (nota->second.size() == sizeof(key)))
+		{
+			memcpy(key, nota->second.data(), sizeof(key));
+			fatto= true;
+		}
+		else if (derive_key_argon(salt))
+		{
+			g_franzen_chiavi[quale]= std::string((const char *)key, sizeof(key));
+			fatto= true;
+		}
+		pthread_mutex_unlock(&g_franzen_chiavi_mutex);
+		return fatto;
+	}
+
+	bool derive_key_argon(const unsigned char *salt)
+	{
+		if (sodium.crypto_pwhash(key, sizeof(key), (const char *)password_buf, password_len,
+								 salt, pwhash_opslimit, pwhash_memlimit, pwhash_alg) != 0)
+		{
+			myprintf("38150! CRITIC: derive_key KO - crypto_pwhash failed\n");
+			if (flagmemzero)
+				sodium.sodium_memzero(key, sizeof(key));
+			return false;
+		}
+
+		// Additional check: Assicurati che la key non sia vuota/zero (paranoia per edge cases)
+		bool key_valid= false;
+		for (size_t i= 0; i < sizeof(key); ++i)
+			if (key[i] != 0)
+			{
+				key_valid= true;
+				break;
+			}
+		if (!key_valid)
+		{
+			myprintf("38155! CRITIC: derive_key KO - Generated key is all zeros (possible param error)\n");
+			if (flagmemzero)
+				sodium.sodium_memzero(key, sizeof(key));
+			return false;
+		}
+
+		///		print_key();
+		return true;
+	}
+
+	int fseek64(FILE *f, int64_t offset, int origin)
+	{
+#ifdef _WIN32
+		return _fseeki64(f, offset, origin);
+#else
+		return fseeko(f, offset, origin);
+#endif
+	}
+
+	//  VARIABLE LAST BLOCK SUPPORT (RSYNC-FRIENDLY)
+	//
+	// With rsync-friendly append:
+	// - Existing blocks are NEVER modified
+	// - New data goes into NEW blocks appended after existing ones
+	// - Each block can have variable size (not just the last one)
+	//
+	// Structure: [HEADER][blocks...][FOOTER]
+
+	// Calcola il numero totale di blocchi
+	uint64_t get_num_blocks()
+	{
+		if (footer.file_data_size == 0)
+			return 0;
+		return (footer.file_data_size + block_size - 1) / block_size;
+	}
+
+	// Get actual file size on disk
+	int64_t get_actual_file_size()
+	{
+		if (!file_handle)
+			return -1;
+
+		//FIX-FRANZEN 65.11s: a file with what an unfinished update left ends, for everybody here, where
+		// its last complete update ends (see cerca_ultimo_footer)
+		if (fine_valida >= 0)
+			return fine_valida;
+
+		// Save current position
+		int64_t current_pos;
+#ifdef _WIN32
+		current_pos= _ftelli64(file_handle);
+#else
+		current_pos= ftello(file_handle);
+#endif
+		if (current_pos < 0)
+			return -1;
+
+		// Seek to end
+		if (fseek64(file_handle, 0, SEEK_END) != 0)
+			return -1;
+
+		int64_t file_size;
+#ifdef _WIN32
+		file_size= _ftelli64(file_handle);
+#else
+		file_size= ftello(file_handle);
+#endif
+
+		// Restore position
+		fseek64(file_handle, current_pos, SEEK_SET);
+
+		return file_size;
+	}
+
+	// Quanti blocchi PIENI ci sono (nel prefix)
+	uint64_t get_num_full_blocks()
+	{
+		uint64_t total= get_num_blocks();
+		if (total == 0)
+			return 0;
+		return total - 1; // All except the last
+	}
+
+	// Calcola la dimensione del plaintext nell'ultimo blocco
+	uint64_t get_last_block_plaintext_size()
+	{
+		if (footer.file_data_size == 0)
+			return 0;
+
+		// Calculate from file_data_size - the remainder when dividing by block_size
+		uint64_t remainder= footer.file_data_size % block_size;
+
+		// If remainder is 0, the last block is full
+		if (remainder == 0)
+			return block_size;
+
+		return remainder;
+	}
+
+	// Calcola la dimensione del plaintext in un blocco specifico
+	uint64_t get_block_plaintext_size(uint64_t block_idx)
+	{
+		uint64_t total_blocks= get_num_blocks();
+		if (block_idx >= total_blocks)
+			return 0;
+
+		// Se non è l'ultimo blocco, è pieno (è nel prefix)
+		if (block_idx < total_blocks - 1)
+			return block_size;
+
+		// È l'ultimo blocco
+		return get_last_block_plaintext_size();
+	}
+
+	// Calcola la dimensione su disco dell'ultimo blocco (variabile)
+	uint64_t get_last_block_encrypted_size()
+	{
+		if (footer.file_data_size == 0)
+			return 0;
+
+		size_t nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		size_t tag_len	= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+
+		uint64_t last_plain= get_last_block_plaintext_size();
+		return nonce_len + last_plain + tag_len;
+	}
+
+	// Calcola la dimensione su disco di un blocco specifico
+	uint64_t get_block_disk_size(uint64_t block_idx)
+	{
+		size_t nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		size_t tag_len	= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+
+		uint64_t total_blocks= get_num_blocks();
+		if (block_idx >= total_blocks)
+			return 0;
+
+		// Se non è l'ultimo blocco, è pieno
+		if (block_idx < total_blocks - 1)
+			return nonce_len + block_size + tag_len;
+
+		// È l'ultimo blocco
+		return get_last_block_encrypted_size();
+	}
+
+	//  MODIFIED: get_block_file_offset
+	// Calculate the file offset for a given block index
+	//
+	// With V3 multi-segment files:
+	// [HEADER][seg1_blocks][FOOTER1][seg2_blocks][FOOTER2]...
+	//
+	// Each segment has its own blocks. We need to figure out which segment
+	// contains the requested block and calculate the offset accordingly.
+
+	/// 65.18e: here, not inside get_block_file_offset: C++98 (gcc 3.4 of ESX) wants no local types in a std::vector
+	struct seg_info
+	{
+		int64_t	 start_offset;
+		uint64_t data_size;
+		uint64_t num_blocks;
+		uint64_t first_block_idx;
+	};
+
+	int64_t get_block_file_offset(uint64_t block_idx)
+	{
+		size_t	 tag_len			 = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t	 nonce_len			 = sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		uint64_t full_block_disk_size= nonce_len + block_size + tag_len;
+
+		if (full_block_disk_size > 0 && block_idx > UINT64_MAX / full_block_disk_size)
+			return -1;
+
+		int64_t header_size= sizeof(file_header) + (int64_t)sizeof(header_nonce);
+
+		uint64_t total_blocks= get_num_blocks();
+
+		// For empty file, first block starts after header
+		if (total_blocks == 0)
+			return header_size;
+
+		// For single segment files, use simple calculation
+		if (footer.segment_count <= 1)
+		{
+			// Simple case: all blocks are contiguous after header
+			uint64_t num_full= get_num_full_blocks();
+			if (block_idx < num_full)
+			{
+				// Full block
+				return header_size + block_idx * full_block_disk_size;
+			}
+			else
+			{
+				// Last block (or beyond)
+				return header_size + num_full * full_block_disk_size;
+			}
+		}
+
+		// Multi-segment file: need to scan segments to find the right one
+		int64_t actual_size= get_actual_file_size();
+
+		// Build segment info by reading footers backwards (seg_info: just before this function)
+		std::vector<seg_info> segments_info;
+
+		int64_t	 footer_pos	  = actual_size - sizeof(file_footer);
+		uint64_t segments_read= 0;
+
+		// Read all segment footers backwards
+		while (segments_read < footer.segment_count && footer_pos >= header_size)
+		{
+			// Read this footer
+			if (fseek64(file_handle, footer_pos, SEEK_SET) != 0)
+				break;
+
+			file_footer seg_footer;
+			if (fread(&seg_footer, 1, sizeof(file_footer), file_handle) != sizeof(file_footer))
+				break;
+
+			// Convert from little-endian
+			seg_footer.segment_data_size   = le64_to_host(seg_footer.segment_data_size);
+			seg_footer.segment_start_offset= le64_to_host(seg_footer.segment_start_offset);
+
+			seg_info si;
+			si.start_offset	  = seg_footer.segment_start_offset;
+			si.data_size	  = seg_footer.segment_data_size;
+			si.num_blocks	  = si.data_size > 0 ? ((si.data_size + block_size - 1) / block_size) : 0;
+			si.first_block_idx= 0; // Will be calculated after
+
+			segments_info.push_back(si);
+			segments_read++;
+
+			// Move to previous footer
+			// The previous footer is just before this segment's data starts
+			if (si.start_offset <= header_size)
+				break; // This is the first segment, no more footers
+
+			footer_pos= si.start_offset - sizeof(file_footer);
+		}
+
+		// Reverse to get chronological order (oldest first)
+		std::reverse(segments_info.begin(), segments_info.end());
+
+		// Calculate first_block_idx for each segment
+		uint64_t cumulative_blocks= 0;
+		for (size_t i= 0; i < segments_info.size(); i++)
+		{
+			segments_info[i].first_block_idx= cumulative_blocks;
+			cumulative_blocks+= segments_info[i].num_blocks;
+		}
+
+		// Find which segment contains this block
+		for (size_t i= 0; i < segments_info.size(); i++)
+		{
+			seg_info &si= segments_info[i];
+
+			if (si.num_blocks == 0)
+				continue;
+
+			uint64_t seg_last_block= si.first_block_idx + si.num_blocks - 1;
+
+			if (block_idx >= si.first_block_idx && block_idx <= seg_last_block)
+			{
+				// Block is in this segment
+				uint64_t block_in_seg= block_idx - si.first_block_idx;
+
+				// Calculate offset within segment
+				int64_t offset= si.start_offset + block_in_seg * full_block_disk_size;
+
+				return offset;
+			}
+		}
+
+		// Block not found in any segment - fallback to simple calculation
+		return header_size + block_idx * full_block_disk_size;
+	}
+
+	/// 65.13e: a nonce: random, or from the counter of -debug4 (the deterministic encryption, see g_debug4_contatore)
+	void casuali(unsigned char *o_buf, size_t i_len)
+	{
+		if (flagdebug4)
+			debug4_byte(o_buf, i_len, debug4_prossimo());
+		else
+			sodium.randombytes_buf(o_buf, i_len);
+	}
+	bool write_header()
+	{
+		// NOTA: Questa funzione ora scrive SOLO l'header iniziale alla creazione del file.
+		// I dati variabili (file_data_size, crc32, prefix_*) sono nel FOOTER.
+		// L'header NON VIENE MAI RISCRITTO dopo la creazione (per supportare rsync --append).
+
+		header.version= 4; // Version 4: dual magic (FRANZEN/FRENZEN) for AES detection
+		if (flagdebug3)
+			myprintf("32660: *************** WRITE HEADER (initial creation only)\n");
+		if (!file_handle)
+		{
+			myprintf("41741! file_handle KO in write_header\n");
+			return false;
+		}
+
+		// I campi reserved nell'header sono azzerati
+		header.reserved1= 0;
+		header.reserved2= 0;
+		header.reserved3= 0;
+		header.reserved4= 0;
+
+		// Generate header nonce (usata sia per il key check che per l'auth tag)
+		casuali(header_nonce, sizeof(header_nonce)); /// 65.13e: -debug4 = from a counter
+
+		// Creation of Key Check Value
+		// We encrypt a null message per generare un tag. Questo permette una verifica
+		// very fast check of key correctness (e quindi della password).
+		unsigned long long dummy_len;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_encrypt(header.key_check_tag, &dummy_len,
+															 NULL, 0, // Null message
+															 NULL, 0, // Null additional data
+															 NULL, header_nonce, key) != 0)
+		{
+			myprintf("42501! CRITICAL: Key Check Tag generation failed\n");
+			return false;
+		}
+
+		//  MAIN AUTHENTICATION LOGIC
+		// Prepare additional data (AD) for authentication tag principale.
+		// L'integrità di questi dati sarà protetta da 'header.auth_tag'.
+		// NOTA: Ora autentichiamo solo i campi FISSI dell'header
+		std::vector<unsigned char> header_data;
+		header_data.insert(header_data.end(), header.key_check_tag, header.key_check_tag + sizeof(header.key_check_tag));
+		header_data.insert(header_data.end(), header.salt, header.salt + sizeof(header.salt));
+		uint64_t block_size_le= host_to_le64(header.block_size);
+		header_data.insert(header_data.end(), (unsigned char *)&block_size_le, (unsigned char *)&block_size_le + sizeof(block_size_le));
+		uint64_t quickhash_le= host_to_le64(header.quickhash);
+		header_data.insert(header_data.end(), (unsigned char *)&quickhash_le, (unsigned char *)&quickhash_le + sizeof(quickhash_le));
+		uint64_t version_le= host_to_le64(header.version);
+		header_data.insert(header_data.end(), (unsigned char *)&version_le, (unsigned char *)&version_le + sizeof(version_le));
+		header_data.insert(header_data.end(), header.pad, header.pad + sizeof(header.pad));
+
+		// Generate main authentication tag
+		unsigned long long ciphertext_len;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_encrypt(header.auth_tag, &ciphertext_len, NULL, 0,
+															 &header_data[0], header_data.size(), NULL, header_nonce, key) != 0)
+		{
+			myprintf("38201! Header auth KO\n");
+			return false;
+		}
+
+		//  DISK WRITE
+		// Prepare header copy with fields in little-endian format per la scrittura.
+		file_header writable_header	   = header;
+		writable_header.block_size	   = host_to_le64(header.block_size);
+		writable_header.reserved1	   = 0;
+		writable_header.reserved2	   = 0;
+		writable_header.quickhash	   = host_to_le64(header.quickhash);
+		writable_header.version		   = host_to_le64(header.version);
+		writable_header.pwhash_opslimit= host_to_le64(header.pwhash_opslimit);
+		writable_header.pwhash_memlimit= host_to_le64(header.pwhash_memlimit);
+		writable_header.reserved3	   = 0;
+		writable_header.reserved4	   = 0;
+		unsigned char tempbuf[sizeof(file_header) + sizeof(header_nonce)];
+		memcpy(tempbuf, &writable_header, sizeof(file_header));
+		memcpy(tempbuf + sizeof(file_header), header_nonce, sizeof(header_nonce));
+
+		if (fseek64(file_handle, 0, SEEK_SET) != 0)
+			return false;
+		if (fwrite(tempbuf, 1, sizeof(tempbuf), file_handle) != sizeof(tempbuf))
+		{
+			perror("CRITICAL HEADER WRITING ERROR");
+			return false;
+		}
+
+		fflush(file_handle);
+		return true;
+	}
+
+	// Write footer at end of file
+	// The footer position is calculated from file_data_size and segment tracking
+	bool write_footer()
+	{
+		if (!file_handle)
+		{
+			myprintf("41742! file_handle KO in write_footer\n");
+			return false;
+		}
+
+		// Calculate footer offset based on current segment info
+		// Footer goes right after the last encrypted block
+		size_t	 nonce_len		= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		size_t	 tag_len		= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		uint64_t full_disk_block= nonce_len + block_size + tag_len;
+
+		int64_t footer_offset;
+
+		if (footer.file_data_size == 0)
+		{
+			// Empty file - footer goes right after header
+			footer_offset= sizeof(file_header) + sizeof(header_nonce);
+		}
+		else
+		{
+			// Calculate based on current segment
+			uint64_t seg_full_blocks= footer.segment_data_size / block_size;
+			uint64_t seg_last_plain = footer.segment_data_size % block_size;
+
+			footer_offset= current_segment_physical_start + seg_full_blocks * full_disk_block;
+			if (seg_last_plain > 0)
+				footer_offset+= nonce_len + seg_last_plain + tag_len;
+		}
+
+		if (flagdebug)
+		{
+			myprintf("DEBUG write_footer: file_data_size=%s, segment_data_size=%s\n",
+					 migliaia(footer.file_data_size), migliaia2(footer.segment_data_size));
+			myprintf("DEBUG write_footer: current_segment_physical_start=%s, footer_offset=%s\n",
+					 migliaia(current_segment_physical_start), migliaia2(footer_offset));
+		}
+
+		// Clear CRC fields (not used in this version)
+		footer.crc32	   = 0;
+		footer.prefix_crc32= 0;
+		footer.prefix_size = 0;
+
+		// Generate footer nonce
+		casuali(footer.footer_nonce, sizeof(footer.footer_nonce)); /// 65.13e: -debug4 = from a counter
+
+		// Prepare footer data for authentication (all fields except nonce and auth_tag)
+		std::vector<unsigned char> footer_data;
+		uint64_t				   file_data_size_le= host_to_le64(footer.file_data_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&file_data_size_le, (unsigned char *)&file_data_size_le + sizeof(file_data_size_le));
+		uint64_t crc32_le= host_to_le64(footer.crc32);
+		footer_data.insert(footer_data.end(), (unsigned char *)&crc32_le, (unsigned char *)&crc32_le + sizeof(crc32_le));
+		uint64_t prefix_crc32_le= host_to_le64(footer.prefix_crc32);
+		footer_data.insert(footer_data.end(), (unsigned char *)&prefix_crc32_le, (unsigned char *)&prefix_crc32_le + sizeof(prefix_crc32_le));
+		uint64_t prefix_size_le= host_to_le64(footer.prefix_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&prefix_size_le, (unsigned char *)&prefix_size_le + sizeof(prefix_size_le));
+		// V3: Add segment tracking fields to authentication
+		uint64_t segment_count_le= host_to_le64(footer.segment_count);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_count_le, (unsigned char *)&segment_count_le + sizeof(segment_count_le));
+		uint64_t segment_data_size_le= host_to_le64(footer.segment_data_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_data_size_le, (unsigned char *)&segment_data_size_le + sizeof(segment_data_size_le));
+		uint64_t segment_start_offset_le= host_to_le64(footer.segment_start_offset);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_start_offset_le, (unsigned char *)&segment_start_offset_le + sizeof(segment_start_offset_le));
+
+		// Generate footer authentication tag
+		unsigned long long ciphertext_len;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_encrypt(footer.footer_auth_tag, &ciphertext_len, NULL, 0,
+															 &footer_data[0], footer_data.size(), NULL, footer.footer_nonce, key) != 0)
+		{
+			myprintf("38202! Footer auth KO\n");
+			return false;
+		}
+
+		// footer_offset was calculated above inside the mutex
+
+		// Prepare footer for disk write (little-endian)
+		file_footer writable_footer;
+		writable_footer.file_data_size= host_to_le64(footer.file_data_size);
+		writable_footer.crc32		  = host_to_le64(footer.crc32);
+		writable_footer.prefix_crc32  = host_to_le64(footer.prefix_crc32);
+		writable_footer.prefix_size	  = host_to_le64(footer.prefix_size);
+		// V3: segment tracking fields
+		writable_footer.segment_count		= host_to_le64(footer.segment_count);
+		writable_footer.segment_data_size	= host_to_le64(footer.segment_data_size);
+		writable_footer.segment_start_offset= host_to_le64(footer.segment_start_offset);
+		memcpy(writable_footer.footer_nonce, footer.footer_nonce, sizeof(footer.footer_nonce));
+		memcpy(writable_footer.footer_auth_tag, footer.footer_auth_tag, sizeof(footer.footer_auth_tag));
+
+		if (fseek64(file_handle, footer_offset, SEEK_SET) != 0)
+		{
+			myprintf("41743! Cannot seek to footer position\n");
+			return false;
+		}
+		if (fwrite(&writable_footer, 1, sizeof(file_footer), file_handle) != sizeof(file_footer))
+		{
+			perror("CRITICAL FOOTER WRITING ERROR");
+			return false;
+		}
+
+		/// 65.11r //FIX-FRANZEN: fwrite fills the buffer of stdio, the media is touched here: full, or gone, is known now
+		if (fflush(file_handle) != 0)
+		{
+			perror("CRITICAL FOOTER WRITING ERROR (flush)");
+			return false;
+		}
+		if (flagdebug)
+		{
+			myprintf("Footer written at offset %s\n", migliaia(footer_offset));
+			myprintf("Footer contents: file_data_size=%s, segment_count=%s, segment_data_size=%s\n",
+					 migliaia(footer.file_data_size), migliaia2(footer.segment_count), migliaia3(footer.segment_data_size));
+		}
+		_segments_cache_valid= false; // Invalidate cache after write
+		return true;
+	}
+
+	// Rebuild the segment cache by reading all footers
+	// This maps logical byte offsets to physical file locations
+	void refresh_segment_cache()
+	{
+		_segments_cache.clear();
+		_segments_cache_valid= false;
+
+		if (footer.segment_count == 0 || footer.file_data_size == 0)
+		{
+			_segments_cache_valid= true;
+			return;
+		}
+
+		int64_t header_size= sizeof(file_header) + sizeof(header_nonce);
+		int64_t actual_size= get_actual_file_size();
+		int64_t scan_pos   = actual_size - sizeof(file_footer);
+
+		std::vector<segment_cache_item> temp_list;
+
+		for (uint64_t i= 0; i < footer.segment_count && scan_pos >= header_size; i++)
+		{
+			file_footer f;
+			if (fseek64(file_handle, scan_pos, SEEK_SET) != 0)
+				break;
+			if (fread(&f, 1, sizeof(f), file_handle) != sizeof(f))
+				break;
+
+			segment_cache_item item;
+			item.logical_size  = le64_to_host(f.segment_data_size);
+			item.physical_start= le64_to_host(f.segment_start_offset);
+
+			// Calculate block count for this segment
+			if (item.logical_size == 0)
+				item.block_count= 0;
+			else
+				item.block_count= (item.logical_size + block_size - 1) / block_size;
+
+			temp_list.push_back(item);
+
+			// Move to previous footer
+			if (item.physical_start <= header_size)
+				break; // This is the first segment
+			scan_pos= item.physical_start - sizeof(file_footer);
+		}
+
+		// Reverse to get chronological order (Seg 1, Seg 2...)
+		std::reverse(temp_list.begin(), temp_list.end());
+
+		// Calculate logical start offsets
+		uint64_t current_logical= 0;
+		for (size_t i= 0; i < temp_list.size(); i++)
+		{
+			temp_list[i].logical_start= current_logical;
+			current_logical+= temp_list[i].logical_size;
+			_segments_cache.push_back(temp_list[i]);
+		}
+
+		_segments_cache_valid= true;
+
+		if (flagdebug)
+		{
+			myprintf("Segment cache built with %zu segments:\n", _segments_cache.size());
+			for (size_t i= 0; i < _segments_cache.size(); i++)
+			{
+				myprintf("   Seg %zu: logical[%s..%s], physical_start=%s, blocks=%s\n",
+						 i + 1,
+						 migliaia(_segments_cache[i].logical_start),
+						 migliaia2(_segments_cache[i].logical_start + _segments_cache[i].logical_size - 1),
+						 migliaia3(_segments_cache[i].physical_start),
+						 migliaia4(_segments_cache[i].block_count));
+			}
+		}
+	}
+
+	// Helper to validate a footer's auth tag (used for scanning orphaned footers)
+	bool validate_footer_auth_tag(const file_footer &f)
+	{
+		std::vector<unsigned char> footer_data;
+		uint64_t				   file_data_size_le= host_to_le64(f.file_data_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&file_data_size_le, (unsigned char *)&file_data_size_le + sizeof(file_data_size_le));
+		uint64_t crc32_le= host_to_le64(f.crc32);
+		footer_data.insert(footer_data.end(), (unsigned char *)&crc32_le, (unsigned char *)&crc32_le + sizeof(crc32_le));
+		uint64_t prefix_crc32_le= host_to_le64(f.prefix_crc32);
+		footer_data.insert(footer_data.end(), (unsigned char *)&prefix_crc32_le, (unsigned char *)&prefix_crc32_le + sizeof(prefix_crc32_le));
+		uint64_t prefix_size_le= host_to_le64(f.prefix_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&prefix_size_le, (unsigned char *)&prefix_size_le + sizeof(prefix_size_le));
+		// V3: segment tracking fields
+		uint64_t segment_count_le= host_to_le64(f.segment_count);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_count_le, (unsigned char *)&segment_count_le + sizeof(segment_count_le));
+		uint64_t segment_data_size_le= host_to_le64(f.segment_data_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_data_size_le, (unsigned char *)&segment_data_size_le + sizeof(segment_data_size_le));
+		uint64_t segment_start_offset_le= host_to_le64(f.segment_start_offset);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_start_offset_le, (unsigned char *)&segment_start_offset_le + sizeof(segment_start_offset_le));
+
+		unsigned char	   dummy_output[1];
+		unsigned long long dummy_len;
+		return (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(dummy_output, &dummy_len, NULL,
+																 f.footer_auth_tag, sizeof(f.footer_auth_tag),
+																 &footer_data[0], footer_data.size(),
+																 f.footer_nonce, key) == 0);
+	}
+
+	//FIX-FRANZEN 65.11s: from here to read_footer, the file that ends with what an unfinished update
+	// left (see the note at g_franzen_fini)
+	static uint64_t le64_da(const unsigned char *i_p)
+	{
+		uint64_t v= 0;
+		for (int i= 7; i >= 0; i--)
+			v= (v << 8) | i_p[i];
+		return v;
+	}
+	/// the size of the file on the disk, whatever fine_valida says (the position is left at the end)
+	int64_t dimensione_fisica()
+	{
+		if (!file_handle)
+			return -1;
+		if (fseek64(file_handle, 0, SEEK_END) != 0)
+			return -1;
+#ifdef _WIN32
+		return _ftelli64(file_handle);
+#else
+		return ftello(file_handle);
+#endif
+	}
+	/// the 84 bytes of a footer as they are on the disk => o_f (host endian). True if its tag is good
+	bool footer_da_disco(const unsigned char *i_p, file_footer &o_f)
+	{
+		memcpy(&o_f, i_p, sizeof(file_footer));
+		o_f.file_data_size		= le64_to_host(o_f.file_data_size);
+		o_f.crc32				= le64_to_host(o_f.crc32);
+		o_f.prefix_crc32		= le64_to_host(o_f.prefix_crc32);
+		o_f.prefix_size			= le64_to_host(o_f.prefix_size);
+		o_f.segment_count		= le64_to_host(o_f.segment_count);
+		o_f.segment_data_size	= le64_to_host(o_f.segment_data_size);
+		o_f.segment_start_offset= le64_to_host(o_f.segment_start_offset);
+		return validate_footer_auth_tag(o_f);
+	}
+	/// is there a good footer that ends at i_fine?
+	bool footer_valido_a(int64_t i_fine, file_footer &o_f)
+	{
+		unsigned char crudo[sizeof(file_footer)];
+		const int64_t inizio= i_fine - (int64_t)sizeof(file_footer);
+		if (inizio < (int64_t)(sizeof(file_header) + sizeof(header_nonce)))
+			return false;
+		if (fseek64(file_handle, inizio, SEEK_SET) != 0)
+			return false;
+		if (fread(crudo, 1, sizeof(crudo), file_handle) != sizeof(crudo))
+			return false;
+		return footer_da_disco(crudo, o_f);
+	}
+	/*
+		The last valid footer before i_fine (the size of the file): where it ENDS, or -1. The file is read
+		backward, a piece at a time. Every place is first asked what costs nothing (a footer says where its
+		segment starts, and how many bytes of data it holds: the start must be after the header and before
+		the footer itself, the data must fit in between; the bytes of an encrypted block pass this once in
+		billions of billions), then its tag is checked with the key: only a footer written with this key
+		passes. The time is the time to read what the unfinished update had written
+	*/
+	int64_t cerca_ultimo_footer(int64_t i_fine)
+	{
+		const int64_t testa= (int64_t)(sizeof(file_header) + sizeof(header_nonce));
+		const int64_t lungo= (int64_t)sizeof(file_footer);
+		if (i_fine < testa + lungo)
+			return -1;
+		const int64_t			   PEZZO= 4 * 1024 * 1024;
+		std::vector<unsigned char> buf((size_t)(PEZZO + lungo));
+		int64_t					   alto= i_fine - lungo + 1; // one past the last place where a footer can start
+		while (alto > testa)
+		{
+			int64_t basso= alto - PEZZO;
+			if (basso < testa)
+				basso= testa;
+			/// the footers that start in [basso, alto): their bytes
+			const size_t quanti= (size_t)(alto - basso + lungo - 1);
+			if (fseek64(file_handle, basso, SEEK_SET) != 0)
+				return -1;
+			if (fread(&buf[0], 1, quanti, file_handle) != quanti)
+				return -1;
+			for (int64_t p= alto - 1; p >= basso; p--)
+			{
+				const unsigned char *q	   = &buf[(size_t)(p - basso)];
+				const uint64_t		 inizio= le64_da(q + 48); // segment_start_offset
+				if ((inizio < (uint64_t)testa) || (inizio > (uint64_t)p))
+					continue;
+				const uint64_t dati= le64_da(q + 40); // segment_data_size
+				if (dati > (uint64_t)p - inizio)
+					continue;
+				if (dati > le64_da(q)) // file_data_size
+					continue;
+				file_footer f;
+				if (footer_da_disco(q, f))
+					return p + lungo;
+			}
+			alto= basso;
+		}
+		return -1;
+	}
+	/// the footer at the end of the file is not good: the last good one goes in footer, and fine_valida
+	/// says where it ends. False if there is none (a file never finished, or damaged)
+	bool recupera_footer(int64_t i_fisica)
+	{
+		int64_t buona= -1;
+		pthread_mutex_lock(&g_franzen_chiavi_mutex);
+		std::map<std::string, franzen_fine_nota>::iterator nota= g_franzen_fini.find(nome_file);
+		if ((nota != g_franzen_fini.end()) && (nota->second.fisica == i_fisica) && footer_valido_a(nota->second.valida, footer))
+			buona= nota->second.valida; /// already looked for in this run (by another thread, by who read the archive)
+		else
+		{
+			color_yellow();
+			myprintf("41750$ <<%Z>>: no valid footer at its end (an update that did not finish?)\n", nome_file.c_str());
+			myprintf("41751$ Looking for the last complete update...\n");
+			color_restore();
+			buona= cerca_ultimo_footer(i_fisica);
+			if ((buona >= 0) && footer_valido_a(buona, footer))
+			{
+				franzen_fine_nota n;
+				n.fisica= i_fisica;
+				n.valida= buona;
+				g_franzen_fini[nome_file]= n;
+				g_franzen_recuperati++;
+				color_yellow();
+				myprintf("41752$ Found: it ends at %s. The %s bytes after it are ignored (the next add removes them)\n", migliaia(buona), migliaia2(i_fisica - buona));
+				color_restore();
+			}
+			else
+				buona= -1;
+		}
+		pthread_mutex_unlock(&g_franzen_chiavi_mutex);
+		if (buona < 0)
+			return false;
+		fine_valida= buona;
+		return true;
+	}
+
+	// NEW: Read footer from end of file
+	bool read_footer()
+	{
+		if (!file_handle)
+			return false;
+		fine_valida= -1; //FIX-FRANZEN 65.11s
+
+		// Get file size to find footer
+		if (fseek64(file_handle, 0, SEEK_END) != 0)
+			return false;
+
+		int64_t file_size= -1;
+#ifdef _WIN32
+		file_size= _ftelli64(file_handle);
+#else
+		file_size= ftello(file_handle);
+#endif
+		if (file_size < 0)
+		{
+			myprintf("41744! Cannot determine file size for footer read\n");
+			return false;
+		}
+
+		// Footer is at end - SIZEOF_FOOTER bytes
+		int64_t footer_offset= file_size - (int64_t)sizeof(file_footer);
+		if (footer_offset < (int64_t)(sizeof(file_header) + sizeof(header_nonce)))
+		{
+			myprintf("41745! File too small to contain a footer\n");
+			return false;
+		}
+
+		if (fseek64(file_handle, footer_offset, SEEK_SET) != 0)
+		{
+			myprintf("41746! Cannot seek to footer position\n");
+			return false;
+		}
+
+		if (fread(&footer, 1, sizeof(file_footer), file_handle) != sizeof(file_footer))
+		{
+			myprintf("41747! Error reading footer\n");
+			return false;
+		}
+
+		// Convert from little-endian
+		footer.file_data_size= le64_to_host(footer.file_data_size);
+		footer.crc32		 = le64_to_host(footer.crc32);
+		footer.prefix_crc32	 = le64_to_host(footer.prefix_crc32);
+		footer.prefix_size	 = le64_to_host(footer.prefix_size);
+		// V3: segment tracking fields
+		footer.segment_count	   = le64_to_host(footer.segment_count);
+		footer.segment_data_size   = le64_to_host(footer.segment_data_size);
+		footer.segment_start_offset= le64_to_host(footer.segment_start_offset);
+
+		if (flagdebug)
+		{
+			myprintf("DEBUG read_footer: file_size=%s, footer_offset=%s\n",
+					 migliaia(file_size), migliaia2(footer_offset));
+			myprintf("DEBUG read_footer: file_data_size=%s, segment_count=%s\n",
+					 migliaia(footer.file_data_size), migliaia2(footer.segment_count));
+		}
+
+		// Verify footer authentication tag
+		std::vector<unsigned char> footer_data;
+		uint64_t				   file_data_size_le= host_to_le64(footer.file_data_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&file_data_size_le, (unsigned char *)&file_data_size_le + sizeof(file_data_size_le));
+		uint64_t crc32_le= host_to_le64(footer.crc32);
+		footer_data.insert(footer_data.end(), (unsigned char *)&crc32_le, (unsigned char *)&crc32_le + sizeof(crc32_le));
+		uint64_t prefix_crc32_le= host_to_le64(footer.prefix_crc32);
+		footer_data.insert(footer_data.end(), (unsigned char *)&prefix_crc32_le, (unsigned char *)&prefix_crc32_le + sizeof(prefix_crc32_le));
+		uint64_t prefix_size_le= host_to_le64(footer.prefix_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&prefix_size_le, (unsigned char *)&prefix_size_le + sizeof(prefix_size_le));
+		// V3: segment tracking fields in auth
+		uint64_t segment_count_le= host_to_le64(footer.segment_count);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_count_le, (unsigned char *)&segment_count_le + sizeof(segment_count_le));
+		uint64_t segment_data_size_le= host_to_le64(footer.segment_data_size);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_data_size_le, (unsigned char *)&segment_data_size_le + sizeof(segment_data_size_le));
+		uint64_t segment_start_offset_le= host_to_le64(footer.segment_start_offset);
+		footer_data.insert(footer_data.end(), (unsigned char *)&segment_start_offset_le, (unsigned char *)&segment_start_offset_le + sizeof(segment_start_offset_le));
+
+		unsigned char	   dummy_output[1];
+		unsigned long long dummy_len;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(dummy_output, &dummy_len, NULL,
+															 footer.footer_auth_tag, sizeof(footer.footer_auth_tag),
+															 &footer_data[0], footer_data.size(),
+															 footer.footer_nonce, key) != 0)
+		{
+			//FIX-FRANZEN 65.11s: it was the end of the story. Now: is there a complete update before?
+			if (!recupera_footer(file_size))
+			{
+				myprintf("41748! Footer is corrupted (auth tag failed)\n");
+				myprintf("41755! No complete update in this file: never finished (delete it, and make it again), or damaged\n");
+				return false;
+			}
+		}
+
+		// Validate footer data
+		if (!validate_footer_integrity())
+		{
+			myprintf("41749! Footer integrity validation failed\n");
+			return false;
+		}
+
+		if (flagdebug)
+		{
+			myprintf(" Footer read OK, file_data_size=%s, segment_count=%s\n",
+					 migliaia(footer.file_data_size), migliaia2(footer.segment_count));
+			if (footer.segment_count > 1)
+				myprintf(" This segment: data_size=%s, start_offset=%s\n",
+						 migliaia(footer.segment_data_size), migliaia2(footer.segment_start_offset));
+		}
+
+		// Build segment cache for efficient block lookup
+		refresh_segment_cache();
+
+		return true;
+	}
+
+	bool read_header()
+	{
+		if (!file_handle)
+			return false;
+
+		// Save current position per ripristinarla alla fine
+		long long original_pos= -1;
+#ifdef _WIN32
+		original_pos= _ftelli64(file_handle);
+#else
+		original_pos= ftello(file_handle);
+#endif
+
+		if (fseek64(file_handle, 0, SEEK_SET) != 0)
+			return false;
+		if (fread(&header, 1, sizeof(file_header), file_handle) != sizeof(file_header))
+		{
+			myprintf("38233! Error: Header read fail or file too short\n");
+			return false;
+		}
+		if (fread(header_nonce, 1, sizeof(header_nonce), file_handle) != sizeof(header_nonce))
+		{
+			myprintf("38239! Error: auth nonce KO\n");
+			return false;
+		}
+
+		// Convert FIXED fields from little-endian (on disk) to host-endian (in memory)
+		header.block_size	  = le64_to_host(header.block_size);
+		header.quickhash	  = le64_to_host(header.quickhash);
+		header.version		  = le64_to_host(header.version);
+		header.pwhash_opslimit= le64_to_host(header.pwhash_opslimit);
+		header.pwhash_memlimit= le64_to_host(header.pwhash_memlimit);
+		// reserved fields are ignored
+
+		// V4: Early version check - versions 3 and 4 supported
+		if (header.version != 3 && header.version != 4)
+		{
+			myprintf("39570! Incompatible file version: %s (only versions 3 and 4 supported)\n", migliaia(header.version));
+			myprintf("       This file was created with an older format. Please delete and recreate it.\n");
+			return false;
+		}
+
+		// V4: Detect AES mode from magic bytes after header is read
+		if (memcmp(header.magic, MAGIC_BYTES_AES, MAGIC_BYTES_LEN) == 0)
+			is_aes_too = true;
+		else
+			is_aes_too = false;
+
+		// Esegui controlli di sanità di base (magic bytes, versione, etc.)
+		if (!validate_header_integrity())
+		{
+			myprintf("38253! Error: header is not good!\n");
+			return false;
+		}
+
+		// Set parameters for key derivation
+		this->pwhash_opslimit= header.pwhash_opslimit;
+		this->pwhash_memlimit= header.pwhash_memlimit;
+
+		// Derive key from provided password and header salt
+		if (!derive_key(header.salt))
+			return false;
+
+		// Immediate password verification via Key Check Value
+		unsigned char	   dummy_output[1];
+		unsigned long long dummy_len;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(dummy_output, &dummy_len, NULL,
+															 header.key_check_tag, sizeof(header.key_check_tag),
+															 NULL, 0, // No additional data for this check
+															 header_nonce, key) != 0)
+		{
+			myprintf("42550! Corrupted file or wrong password (key check failed)\n");
+			return false;
+		}
+
+		//  MAIN AUTHENTICATION TAG VERIFICATION
+		// Ricostruisci il buffer dei dati addizionali esattamente come è stato creato in write_header
+		// NOTA: Ora autentichiamo solo i campi FISSI
+		std::vector<unsigned char> header_data;
+		header_data.insert(header_data.end(), header.key_check_tag, header.key_check_tag + sizeof(header.key_check_tag));
+		header_data.insert(header_data.end(), header.salt, header.salt + sizeof(header.salt));
+		uint64_t block_size_le= host_to_le64(header.block_size);
+		header_data.insert(header_data.end(), (unsigned char *)&block_size_le, (unsigned char *)&block_size_le + sizeof(block_size_le));
+		uint64_t quickhash_le= host_to_le64(header.quickhash);
+		header_data.insert(header_data.end(), (unsigned char *)&quickhash_le, (unsigned char *)&quickhash_le + sizeof(quickhash_le));
+		uint64_t version_le= host_to_le64(header.version);
+		header_data.insert(header_data.end(), (unsigned char *)&version_le, (unsigned char *)&version_le + sizeof(version_le));
+		header_data.insert(header_data.end(), header.pad, header.pad + sizeof(header.pad));
+
+		// Ora verifica il tag principale; se fallisce, l'header è stato manomesso.
+		if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+				dummy_output, &dummy_len, NULL,
+				header.auth_tag, sizeof(header.auth_tag),
+				&header_data[0], header_data.size(),
+				header_nonce, key) != 0)
+		{
+			myprintf("38293! Header is corrupted (main auth tag failed)\n");
+			return false;
+		}
+
+		// Read footer (contains variable data)
+		if (!read_footer())
+		{
+			myprintf("38294! Error reading footer\n");
+			return false;
+		}
+
+		// Initialize segment tracking for existing files
+		if (!is_file_new)
+		{
+			// Initialize current segment tracking for writeat()
+			// When opening an existing file, the "current segment" is the last one
+			current_segment_physical_start= footer.segment_start_offset;
+			current_segment_logical_start = footer.file_data_size - footer.segment_data_size;
+
+			if (flagdebug)
+				myprintf("DEBUG open: current_segment_physical=%s, logical=%s\n",
+						 migliaia(current_segment_physical_start), migliaia2(current_segment_logical_start));
+		}
+
+		// Restore original pointer position in file
+		if (original_pos != -1)
+			if (fseek64(file_handle, original_pos, SEEK_SET) != 0)
+				return false;
+
+		return true;
+	}
+
+  public:
+	uint64_t worked_so_far;
+	/// 65.11l: a new file made with this salt, not a random one (see usa_sale)
+	bool		  sale_imposto;
+	unsigned char sale_voluto[SIZEOF_SALT];
+
+  public:
+	// Funzione rapida per verificare se la password è corretta per un dato file,
+	// without fully opening the file o modificare lo stato dell'istanza.
+
+	bool is_password_ok(const char *filename)
+	{
+		if (!is_libsodium_loaded)
+		{
+			myprintf("42600! Libsodium not loaded, cannot check password\n");
+			return false;
+		}
+		if (!filename || *filename == '\0')
+			return false;
+
+		FILE *f= cri_fopen(filename, "rb");
+		if (!f)
+			return false;
+
+		//  Verify magic bytes first (accept both FRANZEN and FRENZEN)
+		char magic[MAGIC_BYTES_LEN];
+		if (fread(magic, 1, MAGIC_BYTES_LEN, f) != MAGIC_BYTES_LEN)
+		{
+			fclose(f); // File too short
+			return false;
+		}
+		if (memcmp(magic, MAGIC_BYTES, MAGIC_BYTES_LEN) == 0)
+		{
+			is_aes_too = false;
+		}
+		else if (memcmp(magic, MAGIC_BYTES_AES, MAGIC_BYTES_LEN) == 0)
+		{
+			is_aes_too = true;
+		}
+		else
+		{
+			myprintf("Error: Not a valid franzen file (magic bytes mismatch).\n");
+			fclose(f);
+			return false;
+		}
+		//  END MAGIC BYTES CHECK
+
+		unsigned char salt[SIZEOF_SALT];
+		unsigned char key_check_tag[SIZEOF_KEY_CHECK_TAG];
+		unsigned char nonce[SIZEOF_ONCE];
+		uint64_t	  file_opslimit= 0, file_memlimit= 0;
+
+		const size_t offset_opslimit= MAGIC_BYTES_LEN + SIZEOF_AUTH_TAG + SIZEOF_SALT + SIZEOF_KEY_CHECK_TAG + sizeof(uint64_t) // block_size
+									  + sizeof(uint64_t)																		// file_data_size
+									  + sizeof(uint64_t)																		// crc32
+									  + sizeof(uint64_t)																		// quickhash
+									  + sizeof(uint64_t);																		// version
+																																/// printf("opslimit %d  %d\n",offset_opslimit,sizeof(file_header));
+		// Now we can read other fields con più sicurezza
+		// Posizionati al salt (offset 24)
+		if (fseek(f, MAGIC_BYTES_LEN + SIZEOF_AUTH_TAG, SEEK_SET) != 0 ||
+			fread(salt, 1, sizeof(salt), f) != sizeof(salt) ||
+			fread(key_check_tag, 1, sizeof(key_check_tag), f) != sizeof(key_check_tag))
+		{
+			fclose(f);
+			return false;
+		}
+
+		// Read derivation parameters (offset 96 per opslimit, poi +8 per memlimit)
+		if (fseek(f, offset_opslimit, SEEK_SET) != 0 ||
+			fread(&file_opslimit, 1, sizeof(file_opslimit), f) != sizeof(file_opslimit) ||
+			fread(&file_memlimit, 1, sizeof(file_memlimit), f) != sizeof(file_memlimit))
+		{
+			fclose(f);
+			return false;
+		}
+
+		file_opslimit= le64_to_host(file_opslimit);
+		file_memlimit= le64_to_host(file_memlimit);
+
+		// Leggi la nonce (offset sizeof(file_header) = 144)
+		if (fseek(f, sizeof(file_header), SEEK_SET) != 0 ||
+			fread(nonce, 1, sizeof(nonce), f) != sizeof(nonce))
+		{
+			fclose(f);
+			return false;
+		}
+		fclose(f);
+
+		// Validate read parameters (gestisce la corruzione)
+		if (!validate_argon2_params(file_opslimit, file_memlimit))
+		{
+			myprintf("Error: Invalid Argon2 parameters found in file header.\n");
+			return false;
+		}
+
+		// Ora procedi con la derivazione della chiave
+		unsigned char temp_key[32];
+		if (sodium.crypto_pwhash(temp_key, sizeof(temp_key), (const char *)password_buf, password_len,
+								 salt, file_opslimit, file_memlimit, CRYPTO_PWHASH_ALG_DEFAULT) != 0)
+		{
+			if (flagmemzero)
+				sodium.sodium_memzero(temp_key, sizeof(temp_key));
+			return false;
+		}
+
+		unsigned char	   dummy_output[1];
+		unsigned long long dummy_len;
+		bool			   ok= sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+					   dummy_output, &dummy_len, NULL,
+					   key_check_tag, sizeof(key_check_tag),
+					   NULL, 0, nonce, temp_key) == 0;
+
+		if (flagmemzero)
+			sodium.sodium_memzero(temp_key, sizeof(temp_key));
+		return ok;
+	}
+
+	uint32_t get_crc32(const char *input_filename)
+	{
+		// Is input OK?
+		if (input_filename == NULL || strlen(input_filename) == 0)
+		{
+			myprintf("41870! Error: input filename is NULL or empty\n");
+			return 0;
+		}
+
+		// Open file
+		file_handle= cri_fopen(input_filename, "rb");
+		if (!file_handle)
+		{
+			myprintf("41871! Error: cannot open file '%s' (%s)\n", input_filename, strerror(errno));
+			return 0;
+		}
+
+		// Seek start
+		if (fseek(file_handle, 0, SEEK_SET) != 0)
+		{
+			myprintf("41872! Error: cannot seek to beginning of file '%s'\n", input_filename);
+			fclose(file_handle);
+			file_handle= NULL;
+			return 0;
+		}
+
+		// Take the header
+		size_t read_size= fread(&header, 1, sizeof(header), file_handle);
+		if (read_size != sizeof(header))
+		{
+			myprintf("41879! Error: header read failed or file too short (read %zu / expected %zu)\n",
+					 read_size, sizeof(header));
+			fclose(file_handle);
+			file_handle= NULL;
+			return 0;
+		}
+
+		// The nonce
+		read_size= fread(header_nonce, 1, sizeof(header_nonce), file_handle);
+		if (read_size != sizeof(header_nonce))
+		{
+			myprintf("41885! Error: nonce read failed (read %zu / expected %zu)\n",
+					 read_size, sizeof(header_nonce));
+			fclose(file_handle);
+			file_handle= NULL;
+			return 0;
+		}
+
+		/// print_nonce(header_nonce, sizeof(header_nonce), "header_auth");
+
+		if (flagdebug3)
+			myprintf("32943: Ready to decode CRC32\n");
+
+		// The CRC32 is now in footer
+		uint64_t raw_crc= le64_to_host(footer.crc32);
+		if (flagdebug3)
+			myprintf("32970: raw_crc %s\n", migliaia(raw_crc));
+		if (raw_crc > UINT32_MAX)
+		{
+			myprintf("41890! Warning: CRC32 value (0x%llx) exceeds 32-bit range\n", (unsigned long long)raw_crc);
+		}
+
+		// Cleanup
+		fclose(file_handle);
+		file_handle= NULL;
+
+		return (uint32_t)(raw_crc & 0xFFFFFFFFu);
+	}
+
+	franzcri(const char *p, size_t p_len,
+			 size_t				blk_sz	   = 0,
+			 unsigned long long opslimit   = 0,
+			 size_t				memlimit   = 0,
+			 int				alg		   = CRYPTO_PWHASH_ALG_DEFAULT,
+			 bool				aes_too    = false)
+		: file_handle(NULL),
+		  block_size(blk_sz == 0 ? g_sodio_block_size : blk_sz),
+		  is_file_open(false), is_file_new(false), is_libsodium_loaded(false), is_libsodium_initialized(false),
+		  file_was_modified(false),
+		  is_aes_too(aes_too),
+		  pwhash_opslimit(opslimit == 0 ? g_sodio_pwhash_opslimit : opslimit),
+		  pwhash_memlimit(memlimit == 0 ? g_sodio_pwhash_memlimit : memlimit),
+		  pwhash_alg(alg),
+		  /// crc32(0),
+		  worked_so_far(0)
+	{
+		// Password management
+		// Validation of password and its length
+		/*
+			65.11r //FIX-FRANZEN: a password over 255 bytes was said "not good" here, and then not used at all: the
+			file was made with an EMPTY one (and it is read with an empty one), with an "all OK" at the
+			end. Nothing new is made that way any more (see open). What is already there can still be
+			read, as before: with a warning
+		*/
+		password_lunga= (p != NULL) && (p_len > 255);
+		if (p == NULL || p_len == 0 || p_len > 255)
+		{
+			// Handle error appropriately, ad es. lanciando un'eccezione
+			// o impostando uno stato di errore interno. Per ora, azzeriamo.
+			if (!password_lunga)
+				myprintf("42100! Error: password not good or too long\n");
+			memset(password_buf, 0, sizeof(password_buf));
+			password_len= 0;
+		}
+		else
+		{
+			// Copy password to internal buffer
+			memcpy(password_buf, p, p_len);
+			password_len= p_len;
+			// Clear the rest of the buffer for safety
+			if (p_len < sizeof(password_buf))
+			{
+				memset(password_buf + p_len, 0, sizeof(password_buf) - p_len);
+			}
+		}
+
+		memset(&sodium, 0, sizeof(sodium));
+		memset(&header, 0, sizeof(header));
+		memset(&footer, 0, sizeof(footer));
+		memset(header_nonce, 0, sizeof(header_nonce));
+		memset(key, 0, sizeof(key));
+		_segments_cache.clear();
+		_segments_cache_valid		  = false;
+		current_segment_physical_start= 0;
+		current_segment_logical_start = 0;
+		sale_imposto				  = false;
+		memset(sale_voluto, 0, sizeof(sale_voluto));
+		fine_valida					  = -1; //FIX-FRANZEN 65.11s
+		is_libsodium_loaded			  = load_library();
+	}
+
+	void wipesecrets()
+	{
+		// Fallback se libsodium non loaded
+		password_len= 0;
+		memset(password_buf, 0, sizeof(password_buf));
+		memset(key, 0, sizeof(key));
+		memset(&header, 0, sizeof(header));
+		memset(&footer, 0, sizeof(footer));
+		memset(header_nonce, 0, sizeof(header_nonce));
+		if (flagmemzero && is_libsodium_loaded)
+		{
+			sodium.sodium_memzero(password_buf, sizeof(password_buf));
+			sodium.sodium_memzero(key, sizeof(key));
+			sodium.sodium_memzero(&header, sizeof(header));
+			sodium.sodium_memzero(&footer, sizeof(footer));
+			sodium.sodium_memzero(header_nonce, sizeof(header_nonce));
+		}
+		password_len= 0; // Also clear the length
+	}
+
+	~franzcri()
+	{
+		if (flagdebug3)
+			myprintf("32984: franzen distruttore!\n");
+		close();
+		if (is_libsodium_loaded)
+		{
+			wipesecrets();
+			unload_library();
+			is_libsodium_loaded		= false;
+			is_libsodium_initialized= false;
+		}
+	}
+
+	// V4: Query encryption type after open()
+	bool get_is_aes_too() const { return is_aes_too; }
+	
+	// V4: Static helper - detect encryption type from file without opening/decrypting
+	// Returns: 0=not franzen, 1=FRANZEN only, 2=FRENZEN (AES+Franzen)
+	static int detect_franzen_type(const char* filename)
+	{
+		FILE* f = cri_fopen(filename, "rb");
+		if (!f) return 0;
+		char magic[MAGIC_BYTES_LEN];
+		if (fread(magic, 1, MAGIC_BYTES_LEN, f) != MAGIC_BYTES_LEN)
+		{
+			fclose(f);
+			return 0;
+		}
+		fclose(f);
+		if (memcmp(magic, MAGIC_BYTES, MAGIC_BYTES_LEN) == 0) return 1;
+		if (memcmp(magic, MAGIC_BYTES_AES, MAGIC_BYTES_LEN) == 0) return 2;
+		return 0;
+	}
+
+	/*
+		65.11l: the parts of a multipart archive (and the index of a backup) are franzen files of their own,
+		all made with the salt of the first one: one key for all (see g_franzen_chiavi), the nonces are
+		random. Without the password: the salt of a file, and how many bytes of data it holds. The size
+		comes from the footer as it is: it is checked for real (auth tag) when the part is opened
+	*/
+	static bool leggi_sale(const char *i_filename, unsigned char *o_salt)
+	{
+		if (detect_franzen_type(i_filename) == 0)
+			return false;
+		FILE *f= cri_fopen(i_filename, "rb");
+		if (!f)
+			return false;
+		file_header testa;
+		const bool	letto= (fread(&testa, 1, sizeof(testa), f) == sizeof(testa));
+		fclose(f);
+		if (letto)
+			memcpy(o_salt, testa.salt, SIZEOF_SALT);
+		return letto;
+	}
+	static int64_t leggi_dimensione(const char *i_filename)
+	{
+		if (detect_franzen_type(i_filename) == 0)
+			return -1;
+		const int64_t tutto= prendidimensionefile(i_filename);
+		if (tutto < (int64_t)(sizeof(file_header) + SIZEOF_ONCE + sizeof(file_footer)))
+			return -1;
+		FILE *f= cri_fopen(i_filename, "rb");
+		if (!f)
+			return -1;
+		unsigned char coda[8];
+		bool		  letto= false;
+#ifdef _WIN32
+		if (_fseeki64(f, tutto - (int64_t)sizeof(file_footer), SEEK_SET) == 0)
+#else
+		if (fseeko(f, tutto - (int64_t)sizeof(file_footer), SEEK_SET) == 0)
+#endif
+			letto= (fread(coda, 1, 8, f) == 8);
+		fclose(f);
+		if (!letto)
+			return -1;
+		uint64_t dati= 0; /// file_data_size, little endian on disk
+		for (int i= 7; i >= 0; i--)
+			dati= (dati << 8) | coda[i];
+		if (dati > (uint64_t)tutto)
+			return -1;
+		return (int64_t)dati;
+	}
+	/// a new file (open with create_new) with the salt of another franzen file
+	void usa_sale(const unsigned char *i_salt)
+	{
+		memcpy(sale_voluto, i_salt, sizeof(sale_voluto));
+		sale_imposto= true;
+	}
+	/*
+		//FIX-FRANZEN 65.11s: the bytes that an unfinished update left after the last valid footer (see
+		cerca_ultimo_footer) are cut away. For who is going to write: the new blocks go there. A read
+		never does it. True if there was nothing to cut, or if it is done
+	*/
+	bool taglia_resti()
+	{
+		if (fine_valida < 0)
+			return true;
+		if (!file_handle)
+			return false;
+		const int64_t fisica= dimensione_fisica();
+		fflush(file_handle);
+#ifdef _WIN32
+		const bool fatto= (_chsize_s(_fileno(file_handle), fine_valida) == 0);
+#else
+		const bool fatto= (ftruncate(fileno(file_handle), fine_valida) == 0);
+#endif
+		if (!fatto)
+		{
+			color_red();
+			myprintf("41753! <<%Z>>: cannot remove the %s bytes left by an unfinished update (read only?)\n", nome_file.c_str(), migliaia(fisica - fine_valida));
+			color_restore();
+			return false;
+		}
+		color_yellow();
+		myprintf("41754: <<%Z>>: the %s bytes left by an unfinished update are removed, the file ends at %s again\n", nome_file.c_str(), migliaia(fisica - fine_valida), migliaia2(fine_valida));
+		color_restore();
+		pthread_mutex_lock(&g_franzen_chiavi_mutex);
+		g_franzen_fini.erase(nome_file);
+		g_franzen_tagliati++;
+		pthread_mutex_unlock(&g_franzen_chiavi_mutex);
+		fine_valida= -1;
+		return true;
+	}
+
+	bool open(const char *filename, bool create_new)
+	{
+		if (is_file_open)
+		{
+			myprintf("38340! File already open!\n");
+			return false;
+		}
+		if (!is_libsodium_loaded)
+		{
+			myprintf("38345! Error: libsodium not loaded\n");
+			return false;
+		}
+		file_was_modified= false;
+		fine_valida		 = -1; //FIX-FRANZEN 65.11s
+		nome_file		 = filename;
+		if (flagdebug)
+			myprintf(" Attempting to open '%s' (create_new=%s)\n", filename, create_new ? "true" : "false");
+
+		if (create_new && password_lunga) /// 65.11r //FIX-FRANZEN: before the file is made (or emptied)
+		{
+			color_red();
+			myprintf("42101! The -franzen password is longer than 255 bytes: not supported. Nothing is written\n");
+			color_restore();
+			return false;
+		}
+
+		file_handle= cri_fopen(filename, create_new ? "w+b" : "r+b");
+		if (!file_handle)
+		{
+			// If unable to open in r+b, prova in rb (read-only)
+			if (!create_new)
+			{
+				file_handle= cri_fopen(filename, "rb");
+				if (file_handle && flagdebug)
+					myprintf(" Opened in read-only mode\n");
+			}
+			if (!file_handle)
+			{
+				perror("fopen error");
+				return false;
+			}
+		}
+
+		if (create_new)
+		{
+			if (flagdebug)
+				myprintf("Creating new file\n");
+			memset(&header, 0, sizeof(header));
+			memset(&footer, 0, sizeof(footer));
+			memcpy(header.magic, is_aes_too ? MAGIC_BYTES_AES : MAGIC_BYTES, MAGIC_BYTES_LEN);
+			header.block_size	  = block_size;
+			header.pwhash_opslimit= this->pwhash_opslimit;
+			header.pwhash_memlimit= this->pwhash_memlimit;
+			// footer starts with segment_count = 1 (even for empty files)
+			footer.file_data_size	   = 0;
+			footer.crc32			   = 0;
+			footer.prefix_crc32		   = 0;
+			footer.prefix_size		   = 0;
+			footer.segment_count	   = 1; // V3: Always at least 1 segment
+			footer.segment_data_size   = 0;
+			footer.segment_start_offset= sizeof(file_header) + sizeof(header_nonce);
+
+			// Initialize current segment tracking for writeat()
+			current_segment_physical_start= footer.segment_start_offset;
+			current_segment_logical_start = 0;
+
+			if (sale_imposto)
+				memcpy(header.salt, sale_voluto, sizeof(header.salt));
+			else if (flagdebug4) /// 65.13e: the deterministic encryption, a fixed salt
+				debug4_byte(header.salt, sizeof(header.salt), 0);
+			else
+				sodium.randombytes_buf(header.salt, sizeof(header.salt));
+			if (!derive_key(header.salt))
+			{
+				fclose(file_handle);
+				file_handle= NULL;
+				return false;
+			}
+			if (!write_header())
+			{
+				myprintf("38381! Initial header writing failed\n");
+				fclose(file_handle);
+				file_handle= NULL;
+				return false;
+			}
+			// Write initial footer (empty file)
+			if (!write_footer())
+			{
+				myprintf("38382! Initial footer writing failed\n");
+				fclose(file_handle);
+				file_handle= NULL;
+				return false;
+			}
+			file_was_modified= true;
+			is_file_new		 = true;
+		}
+		else
+		{
+			if (!read_header())
+			{
+				fclose(file_handle);
+				file_handle= NULL;
+				return false;
+			}
+			is_file_new= false;
+
+			// Controllo allineamento: se esiste il file originale (.zpaq),
+			// its size must match a footer.file_data_size
+			std::string franzen_filename= filename;
+			std::string original_filename;
+
+			// Se il file franzen termina con .franzen, il file originale è senza .franzen
+			if (isfranzen(franzen_filename))
+			{
+				original_filename= franzen_filename.substr(0, franzen_filename.length() - 8);
+			}
+			// Se il file franzen termina con .zpaq.franzen, il file originale è .zpaq
+			// (già gestito sopra, ma per chiarezza)
+
+			if (original_filename != "" && fileexists(original_filename))
+			{
+				int64_t original_size= prendidimensionefile(original_filename.c_str());
+
+				if (flagdebug)
+				{
+					myprintf("Original file found: %s\n", original_filename.c_str());
+					myprintf("Original file size:  %s\n", migliaia(original_size));
+					myprintf("Franzen data size:   %s\n", migliaia2(footer.file_data_size));
+				}
+
+				if (original_size >= 0 && (uint64_t)original_size != footer.file_data_size)
+				{
+					int64_t diff= (int64_t)footer.file_data_size - original_size;
+
+					if (diff == 104) 
+					{
+						// Franzen is AHEAD of the .zpaq file.
+						// This happens when a jidac header (104 bytes) was appended
+						// to franzen but zpaq decided not to add data (0 files added),
+						// so .zpaq was not extended but franzen was.
+						// FIX: Just correct the logical size in memory.
+						// close() will rewrite the footer with the corrected size,
+						// and the orphaned encrypted bytes on disk are harmless
+						// (they sit between old data and the new footer).
+						color_yellow();
+						myprintf("38390: Franzen is %s bytes AHEAD of .zpaq, adjusting\n", migliaia(diff));
+						myprintf("       .zpaq size: %s, franzen was: %s\n",
+								 migliaia(original_size), migliaia2(footer.file_data_size));
+						color_restore();
+
+						// Correct logical size to match .zpaq
+						footer.file_data_size= (uint64_t)original_size;
+						if (footer.segment_data_size >= (uint64_t)diff)
+							footer.segment_data_size-= (uint64_t)diff;
+						else
+							footer.segment_data_size= 0;
+
+						// Write corrected footer IMMEDIATELY so other threads
+						// opening the same file will see the corrected size
+						if (!write_footer())
+						{
+							myprintf("38391! WARNING: Could not rewrite corrected footer\n");
+						}
+						else
+						{
+							// Truncate file to remove orphaned data after the new footer.
+							// write_footer() writes at the calculated position (after valid data).
+							// Everything after it (orphaned blocks + old footer) must be removed,
+							// otherwise read_footer() reads from end-of-file and finds the OLD footer.
+							size_t	 nonce_len_t= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+							size_t	 tag_len_t	= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+							uint64_t full_disk_t= nonce_len_t + block_size + tag_len_t;
+
+							uint64_t seg_full= footer.segment_data_size / block_size;
+							uint64_t seg_last= footer.segment_data_size % block_size;
+
+							int64_t correct_footer_pos= current_segment_physical_start + seg_full * full_disk_t;
+							if (seg_last > 0)
+								correct_footer_pos+= nonce_len_t + seg_last + tag_len_t;
+							int64_t correct_file_end= correct_footer_pos + (int64_t)sizeof(file_footer);
+
+							fflush(file_handle);
+#ifdef _WIN32
+							if (_chsize_s(_fileno(file_handle), correct_file_end) == 0)
+#else
+							if (ftruncate(fileno(file_handle), correct_file_end) == 0)
+#endif
+							{
+								myprintf("       File truncated to %s bytes (removed %s orphaned bytes)\n",
+										 migliaia(correct_file_end), migliaia2(diff));
+							}
+						}
+						file_was_modified= false; // Already written
+					}
+					else
+					{
+						// Franzen is BEHIND - real error
+						color_red();
+						myprintf("38390! SIZE MISMATCH: Franzen is %s bytes BEHIND .zpaq\n", migliaia(-diff));
+						myprintf("       .zpaq: %s (%s bytes)\n",
+								 original_filename.c_str(), migliaia(original_size));
+						myprintf("       Franzen: %s (%s bytes)\n",
+								 franzen_filename.c_str(), migliaia2(footer.file_data_size));
+						color_restore();
+
+						fclose(file_handle);
+						file_handle= NULL;
+						return false;
+					}
+				}
+				else if (flagdebug)
+				{
+					color_green();
+					myprintf("Size alignment OK (%s bytes)\n", migliaia(original_size));
+					color_restore();
+				}
+			}
+			else if (flagdebug && original_filename != "")
+			{
+				myprintf("Original file not found: %s (OK, franzen standalone)\n", original_filename.c_str());
+			}
+		}
+
+		if (password_lunga) /// 65.11r //FIX-FRANZEN: only an existing file gets here
+		{
+			static bool detto= false;
+			if (!detto)
+			{
+				detto= true;
+				color_red();
+				myprintf("42102$ <<%Z>> is opened by a -franzen password longer than 255 bytes.\n", filename);
+				myprintf("42103$ zpaqfranz up to 65.11q did not use such a password at all: this file is encrypted\n");
+				myprintf("42104$ with an EMPTY one. Make it again, with a password of 255 bytes at most\n");
+				color_restore();
+			}
+		}
+		is_file_open= true;
+		if (flagdebug)
+			myprintf("File '%s' opened\n", filename);
+		return true;
+	}
+
+	void close()
+	{
+		if (flagdebug3)
+			myprintf("33071: franzenclose\n");
+
+		if (!is_file_open)
+			return;
+
+		if (file_was_modified)
+		{
+			if (flagdebug)
+				myprintf("File changed, updating footer\n");
+			if (!write_footer())
+			{
+				myprintf("38415! CRITICAL ERROR: Footer update failed!\n");
+				g_franzen_scrittirotti++; /// 65.11r //FIX-FRANZEN: a file without its footer cannot be opened: not an "all OK"
+			}
+		}
+		if (flagdebug6)
+		{
+			color_magenta();
+			myprintf("fclose handle\n");
+			color_restore();
+		}
+		if ((fclose(file_handle) != 0) && file_was_modified) /// 65.11r //FIX-FRANZEN
+		{
+			myprintf("38416! CRITICAL ERROR: cannot close the franzen file (media full?)\n");
+			g_franzen_scrittirotti++;
+		}
+		file_handle = NULL;
+		is_file_open= false;
+		wipesecrets();
+		if (flagdebug)
+			myprintf("File closed\n");
+	}
+
+  public:
+	// Get the current logical file data size
+	uint64_t get_file_data_size() const
+	{
+		return footer.file_data_size;
+	}
+
+	bool write(const char *buffer, size_t size)
+	{
+		if (flagdebug3)
+			myprintf("34258: franzen write size %s\n", migliaia(size));
+
+		if (!is_file_open || size == 0)
+			return true;
+
+		if (footer.file_data_size > UINT64_MAX - size)
+		{
+			myprintf("40046! Error: Adding data would cause file size overflow\n");
+			return false;
+		}
+
+		uint64_t new_total_size= footer.file_data_size + size;
+		if (!validate_file_size(new_total_size))
+			return false;
+
+		size_t tag_len	= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+
+		const char *current_buffer = buffer;
+		size_t		bytes_remaining= size;
+
+		// Declare segment tracking variables before any goto targets
+		int64_t	 current_write_offset	  = 0;
+		uint64_t this_segment_start_offset= 0;
+		uint64_t prev_file_data_size	  = footer.file_data_size; // Remember for segment tracking
+
+		// Allocate work buffers
+		unsigned char *plaintext	   = new unsigned char[block_size];
+		unsigned char *ciphertext_nonce= new unsigned char[nonce_len];
+		unsigned char *ciphertext_data = new unsigned char[block_size + tag_len];
+
+		bool success= true;
+
+		// RSYNC-FRIENDLY APPEND LOGIC:
+		// - NEVER modify existing bytes in the file
+		// - New blocks are written AFTER the existing footer
+		// - The old footer becomes "orphaned" but that's OK
+		// - A new footer is written at the very end
+		// - This ensures rsync --append sees identical prefix bytes
+		//
+		// SEGMENT TRACKING:
+		// - A new segment is created only when we REOPEN an existing file and append
+		// - Multiple write() calls in the same session are part of the SAME segment
+		// - is_file_new tracks whether this is a freshly created file
+		
+		// For a NEW file (no data yet), start right after header
+		// For an EXISTING file being reopened, start AFTER the current footer
+
+		// is_file_new means: this file was created in THIS session (not reopened)
+		// When reopening an existing file (is_file_new=false), we MUST create a new segment
+		// to preserve rsync-friendliness (existing data untouched)
+
+		if (is_file_new)
+		{
+			// File created in this session - continue in current segment
+			if (footer.file_data_size == 0)
+			{
+				// First write ever - start right after header
+				current_write_offset	 = sizeof(file_header) + sizeof(header_nonce);
+				this_segment_start_offset= current_write_offset;
+
+				// Initialize segment tracking for first segment
+				footer.segment_count	   = 1;
+				footer.segment_start_offset= this_segment_start_offset;
+
+				// Track current segment for writeat()
+				current_segment_physical_start= this_segment_start_offset;
+				current_segment_logical_start = 0;
+			}
+			else
+			{
+				// Continuation of current segment - write after last block
+				size_t	 nonce_len_local	  = sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+				size_t	 tag_len_local		  = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+				uint64_t full_disk_block_local= nonce_len_local + block_size + tag_len_local;
+
+				uint64_t blocks_written	 = footer.segment_data_size / block_size;
+				uint64_t last_block_plain= footer.segment_data_size % block_size;
+
+				if (current_segment_physical_start == 0)
+					current_segment_physical_start= footer.segment_start_offset;
+
+				this_segment_start_offset= footer.segment_start_offset;
+
+				// FIX: If previous write(s) left a partial last block, merge with new data
+				if (last_block_plain > 0)
+				{
+					int64_t partial_block_offset= current_segment_physical_start + blocks_written * full_disk_block_local;
+
+					unsigned char *merge_nonce		  = new unsigned char[nonce_len_local];
+					uint64_t	   partial_cipher_size= last_block_plain + tag_len_local;
+					unsigned char *merge_cipher		  = new unsigned char[partial_cipher_size];
+					unsigned char *merge_plain		  = new unsigned char[block_size];
+
+					bool merge_ok= true;
+
+					if (fseek64(file_handle, partial_block_offset, SEEK_SET) != 0)
+						merge_ok= false;
+
+					if (merge_ok && (fread(merge_nonce, 1, nonce_len_local, file_handle) != nonce_len_local ||
+									 fread(merge_cipher, 1, partial_cipher_size, file_handle) != partial_cipher_size))
+						merge_ok= false;
+
+					unsigned long long dec_len= 0;
+					if (merge_ok && sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+										merge_plain, &dec_len, NULL,
+										merge_cipher, partial_cipher_size,
+										NULL, 0, merge_nonce, key) != 0)
+						merge_ok= false;
+
+					if (!merge_ok)
+					{
+						delete[] merge_nonce;
+						delete[] merge_cipher;
+						delete[] merge_plain;
+						success= false;
+						goto cleanup;
+					}
+
+					uint64_t	   merged_total= last_block_plain + size;
+					unsigned char *merged_buf  = new unsigned char[merged_total];
+					memcpy(merged_buf, merge_plain, last_block_plain);
+					memcpy(merged_buf + last_block_plain, buffer, size);
+
+					delete[] merge_nonce;
+					delete[] merge_cipher;
+					delete[] merge_plain;
+
+					footer.file_data_size-= last_block_plain;
+					footer.segment_data_size-= last_block_plain;
+					prev_file_data_size= footer.file_data_size;
+
+					current_write_offset= partial_block_offset;
+
+					const char *merge_ptr	   = (const char *)merged_buf;
+					size_t		merge_remaining= (size_t)merged_total;
+
+					while (merge_remaining >= block_size)
+					{
+						memcpy(plaintext, merge_ptr, block_size);
+						size_t ciphertext_len_m;
+						if (!encrypt_block(plaintext, block_size, ciphertext_nonce, ciphertext_data, &ciphertext_len_m))
+						{
+							delete[] merged_buf;
+							success= false;
+							goto cleanup;
+						}
+						if (fseek64(file_handle, current_write_offset, SEEK_SET) != 0)
+						{
+							delete[] merged_buf;
+							success= false;
+							goto cleanup;
+						}
+						if (fwrite(ciphertext_nonce, 1, nonce_len, file_handle) != nonce_len ||
+							fwrite(ciphertext_data, 1, ciphertext_len_m, file_handle) != ciphertext_len_m)
+						{
+							delete[] merged_buf;
+							success= false;
+							goto cleanup;
+						}
+						merge_ptr+= block_size;
+						merge_remaining-= block_size;
+						footer.file_data_size+= block_size;
+						current_write_offset+= nonce_len + ciphertext_len_m;
+					}
+
+					if (merge_remaining > 0)
+					{
+						memcpy(plaintext, merge_ptr, merge_remaining);
+						size_t ciphertext_len_m;
+						if (!encrypt_block(plaintext, merge_remaining, ciphertext_nonce, ciphertext_data, &ciphertext_len_m))
+						{
+							delete[] merged_buf;
+							success= false;
+							goto cleanup;
+						}
+						if (fseek64(file_handle, current_write_offset, SEEK_SET) != 0)
+						{
+							delete[] merged_buf;
+							success= false;
+							goto cleanup;
+						}
+						if (fwrite(ciphertext_nonce, 1, nonce_len, file_handle) != nonce_len ||
+							fwrite(ciphertext_data, 1, ciphertext_len_m, file_handle) != ciphertext_len_m)
+						{
+							delete[] merged_buf;
+							success= false;
+							goto cleanup;
+						}
+						footer.file_data_size+= merge_remaining;
+						current_write_offset+= nonce_len + ciphertext_len_m;
+					}
+
+					delete[] merged_buf;
+
+					{
+						uint64_t data_written_this_call= footer.file_data_size - prev_file_data_size;
+						footer.segment_data_size+= data_written_this_call;
+					}
+
+					if (fflush(file_handle) != 0) /// 65.11r //FIX-FRANZEN: see the other one, below
+						success= false;
+					file_was_modified= true;
+					goto cleanup;
+				}
+				else
+				{
+					current_write_offset= current_segment_physical_start + blocks_written * full_disk_block_local;
+				}
+			}
+		}
+		else
+		{
+			// Reopened existing file - this is a true APPEND creating a new segment
+			// Start writing at current end of file (AFTER the old footer)
+			// This preserves the old data completely (rsync-friendly)
+			//FIX-FRANZEN 65.11s: what an unfinished update left after the last footer goes away now,
+			// before the new blocks are written there (see cerca_ultimo_footer)
+			if (!taglia_resti())
+			{
+				success= false;
+				goto cleanup;
+			}
+			int64_t file_size= get_actual_file_size();
+			if (file_size < 0)
+			{
+				myprintf("Error getting file size for append\n");
+				success= false;
+				goto cleanup;
+			}
+			current_write_offset	 = file_size;
+			this_segment_start_offset= current_write_offset;
+
+			// Track current segment for writeat()
+			current_segment_physical_start= current_write_offset;
+			current_segment_logical_start = footer.file_data_size; // Logical start = current total
+
+			// Update segment tracking - this is a new segment
+			footer.segment_count++;
+			footer.segment_start_offset= this_segment_start_offset;
+			footer.segment_data_size   = 0; // Reset for new segment
+
+			// Mark as "new" for this session so subsequent writes don't create more segments
+			is_file_new= true;
+
+			if (flagdebug)
+				myprintf("Starting new segment #%s at physical=%s, logical=%s\n",
+						 migliaia(footer.segment_count), migliaia2(this_segment_start_offset),
+						 migliaia3(current_segment_logical_start));
+		}
+
+		// Write full blocks while possible
+		while (bytes_remaining >= block_size)
+		{
+			memcpy(plaintext, current_buffer, block_size);
+
+			size_t ciphertext_len;
+			if (!encrypt_block(plaintext, block_size, ciphertext_nonce, ciphertext_data, &ciphertext_len))
+			{
+				myprintf("Error encrypting full block\n");
+				success= false;
+				goto cleanup;
+			}
+
+			// Write at current offset
+			if (fseek64(file_handle, current_write_offset, SEEK_SET) != 0)
+			{
+				myprintf("Error seeking for block write\n");
+				success= false;
+				goto cleanup;
+			}
+
+			if (fwrite(ciphertext_nonce, 1, nonce_len, file_handle) != nonce_len ||
+				fwrite(ciphertext_data, 1, ciphertext_len, file_handle) != ciphertext_len)
+			{
+				perror("Error writing encrypted block");
+				success= false;
+				goto cleanup;
+			}
+
+			current_buffer+= block_size;
+			bytes_remaining-= block_size;
+			footer.file_data_size+= block_size;
+			current_write_offset+= nonce_len + ciphertext_len;
+		}
+
+		// Write partial last block (if data remains)
+		if (bytes_remaining > 0)
+		{
+			memcpy(plaintext, current_buffer, bytes_remaining);
+			// DO NOT pad to block_size - write only actual bytes
+
+			size_t ciphertext_len;
+			if (!encrypt_block(plaintext, bytes_remaining, ciphertext_nonce, ciphertext_data, &ciphertext_len))
+			{
+				myprintf("Error encrypting partial block\n");
+				success= false;
+				goto cleanup;
+			}
+
+			// Write at current offset
+			if (fseek64(file_handle, current_write_offset, SEEK_SET) != 0)
+			{
+				myprintf("Error seeking for partial block write\n");
+				success= false;
+				goto cleanup;
+			}
+
+			if (fwrite(ciphertext_nonce, 1, nonce_len, file_handle) != nonce_len ||
+				fwrite(ciphertext_data, 1, ciphertext_len, file_handle) != ciphertext_len)
+			{
+				perror("Error writing partial block");
+				success= false;
+				goto cleanup;
+			}
+
+			footer.file_data_size+= bytes_remaining;
+			current_write_offset+= nonce_len + ciphertext_len;
+			bytes_remaining= 0;
+		}
+
+		// Update segment_data_size: accumulate data written in this segment
+		// For the first segment, this equals file_data_size
+		// For subsequent segments, this accumulates since the segment started
+		{
+			uint64_t data_written_this_call= footer.file_data_size - prev_file_data_size;
+			footer.segment_data_size+= data_written_this_call;
+		}
+
+		/// 65.11r //FIX-FRANZEN: fwrite fills the buffer of stdio, the media is touched here: full, or gone, is known now
+		if (fflush(file_handle) != 0)
+		{
+			perror("Error flushing encrypted data");
+			success= false;
+		}
+		file_was_modified= true;
+
+	cleanup:
+		if (flagmemzero)
+		{
+			sodium.sodium_memzero(plaintext, block_size);
+			sodium.sodium_memzero(ciphertext_nonce, nonce_len);
+			sodium.sodium_memzero(ciphertext_data, block_size + tag_len);
+		}
+
+		delete[] plaintext;
+		delete[] ciphertext_nonce;
+		delete[] ciphertext_data;
+
+		return success;
+	}
+
+	bool writeat(int64_t offset, const char *buffer, size_t size)
+	{
+		if (!is_file_open || offset < 0 || size == 0)
+			return false;
+
+		// Detect append at end - redirect to write()
+		if ((uint64_t)offset == footer.file_data_size)
+		{
+			if (flagdebug)
+				myprintf("writeat detected append at offset %s, redirecting to write()\n",
+						 migliaia(offset));
+			return write(buffer, size);
+		}
+
+		// Cannot write beyond file size
+		if ((uint64_t)offset > footer.file_data_size)
+		{
+			myprintf("38431! Error: write at beyond file size (offset=%s, file_data_size=%s)\n",
+					 migliaia(offset), migliaia2(footer.file_data_size));
+			return false;
+		}
+
+		// Truncate if write goes past end
+		if ((uint64_t)offset + size > footer.file_data_size)
+			size= (size_t)(footer.file_data_size - offset);
+
+		size_t	 tag_len		= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t	 nonce_len		= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		uint64_t full_disk_block= nonce_len + block_size + tag_len;
+
+		// Allocate work buffers
+		unsigned char *work_plaintext= new unsigned char[block_size];
+		unsigned char *work_nonce	 = new unsigned char[nonce_len];
+		unsigned char *work_encrypted= new unsigned char[block_size + tag_len];
+
+		bool		success			   = true;
+		uint64_t	current_logical_pos= offset;
+		uint64_t	bytes_remaining	   = size;
+		const char *src_ptr			   = buffer;
+
+		// Check if offset is in the CURRENT segment (the one we're writing in this session)
+		// current_segment_logical_start and current_segment_physical_start track this
+		bool in_current_segment= ((uint64_t)offset >= current_segment_logical_start);
+
+		if (flagdebug)
+		{
+			myprintf("DEBUG writeat: offset=%s, current_segment_logical_start=%s, in_current=%d\n",
+					 migliaia(offset), migliaia2(current_segment_logical_start), in_current_segment);
+			myprintf("DEBUG writeat: current_segment_physical_start=%s, segment_data_size=%s\n",
+					 migliaia(current_segment_physical_start), migliaia2(footer.segment_data_size));
+		}
+
+		while (bytes_remaining > 0 && success)
+		{
+			// Calculate which block this offset falls into
+			uint64_t offset_in_segment;
+			int64_t	 segment_physical_start;
+			uint64_t segment_data_size;
+
+			if (in_current_segment && current_logical_pos >= current_segment_logical_start)
+			{
+				// Offset is in the current segment
+				offset_in_segment	  = current_logical_pos - current_segment_logical_start;
+				segment_physical_start= current_segment_physical_start;
+				segment_data_size	  = footer.segment_data_size; // Current segment's data size
+			}
+			else
+			{
+				// Offset is in a previous segment - use header_size for first segment
+				int64_t header_size	  = sizeof(file_header) + sizeof(header_nonce);
+				offset_in_segment	  = current_logical_pos; // For first segment, logical = relative
+				segment_physical_start= header_size;
+				segment_data_size	  = current_segment_logical_start; // Data before current segment
+			}
+
+			uint64_t block_in_seg		= offset_in_segment / block_size;
+			uint64_t offset_in_block	= offset_in_segment % block_size;
+			uint64_t bytes_in_this_block= block_size - offset_in_block;
+			if (bytes_in_this_block > bytes_remaining)
+				bytes_in_this_block= bytes_remaining;
+
+			// Calculate physical offset for this block
+			int64_t physical_offset= segment_physical_start + block_in_seg * full_disk_block;
+
+			// Calculate this block's plaintext size (last block may be smaller)
+			uint64_t block_plain_size	= block_size;
+			uint64_t total_blocks_in_seg= segment_data_size > 0 ? ((segment_data_size + block_size - 1) / block_size) : 1;
+			if (block_in_seg >= total_blocks_in_seg - 1)
+			{
+				// Last block
+				uint64_t rem= segment_data_size % block_size;
+				if (rem > 0)
+					block_plain_size= rem;
+			}
+
+			if (flagdebug)
+			{
+				myprintf("DEBUG writeat: block_in_seg=%s, physical=%s, block_plain=%s\n",
+						 migliaia(block_in_seg), migliaia2(physical_offset), migliaia3(block_plain_size));
+			}
+
+			// Read existing block
+			if (fseek64(file_handle, physical_offset, SEEK_SET) != 0)
+			{
+				myprintf("38490! fseek failed to offset %s\n", migliaia(physical_offset));
+				success= false;
+				break;
+			}
+			if (fread(work_nonce, 1, nonce_len, file_handle) != nonce_len)
+			{
+				myprintf("38491! Failed to read nonce at offset %s\n", migliaia(physical_offset));
+				success= false;
+				break;
+			}
+			uint64_t encrypted_size= block_plain_size + tag_len;
+			if (fread(work_encrypted, 1, encrypted_size, file_handle) != encrypted_size)
+			{
+				myprintf("38492! Failed to read ciphertext (%s bytes)\n", migliaia(encrypted_size));
+				success= false;
+				break;
+			}
+
+			// Decrypt
+			unsigned long long dec_len= 0;
+			if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+					work_plaintext, &dec_len, NULL,
+					work_encrypted, encrypted_size,
+					NULL, 0, work_nonce, key) != 0)
+			{
+				// Decryption failed - this might happen if:
+				// The block doesn't exist yet (zpaq calls writeat before data is written)
+				// The data is corrupted
+				// Wrong segment/offset calculation
+				//
+				// For zpaq compatibility, we'll try to write the new data directly
+				// This is safe because zpaq expects to be able to write at any position
+				// within the current transaction.
+				if (flagdebug)
+					myprintf("DEBUG writeat: Decryption failed at physical=%s, writing new data\n",
+							 migliaia(physical_offset));
+
+				// Initialize plaintext buffer with zeros and write our data
+				memset(work_plaintext, 0, block_size);
+				memcpy(work_plaintext + offset_in_block, src_ptr, bytes_in_this_block);
+
+				// Use the size that we need (at least offset_in_block + bytes_in_this_block)
+				uint64_t min_block_size= offset_in_block + bytes_in_this_block;
+				if (min_block_size > block_plain_size)
+					block_plain_size= min_block_size;
+			}
+			else
+			{
+				// Decryption succeeded - modify the plaintext
+				memcpy(work_plaintext + offset_in_block, src_ptr, bytes_in_this_block);
+			}
+
+			/*
+				//FIX-FRANZEN 65.11s: the block goes back to its place (zpaq must write backward, as with
+				a fseek: the jidac header of a transaction is written again at its end, with the size of
+				the compressed data) with a NEW random nonce, as every block written by write() has.
+				It was encrypted again with the nonce it already had ("allowed within same transaction"):
+				that is two different contents under the same key and the same nonce, the block as it
+				was during the run and as it is at the end. Who has both (a copy, a snapshot, a sync
+				taken while the run goes) sees the XOR of the two contents, and the tag of that block
+				does not stand for it any more. The nonce is stored in front of its block: nothing
+				changes in the format, every version reads the files of the others.
+				To have it as before: remove the next line (casuali)
+			*/
+			casuali(work_nonce, nonce_len); /// 65.13e: -debug4 = from a counter
+			unsigned long long new_cipher_len= 0;
+			if (sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
+					work_encrypted, &new_cipher_len,
+					work_plaintext, block_plain_size,
+					NULL, 0, NULL, work_nonce, key) != 0)
+			{
+				myprintf("38494! Error re-encrypting block\n");
+				success= false;
+				break;
+			}
+
+			// Write back at the same position
+			if (fseek64(file_handle, physical_offset, SEEK_SET) != 0)
+			{
+				success= false;
+				break;
+			}
+			if (fwrite(work_nonce, 1, nonce_len, file_handle) != nonce_len ||
+				fwrite(work_encrypted, 1, new_cipher_len, file_handle) != new_cipher_len)
+			{
+				myprintf("38495! Error writing back modified block\n");
+				success= false;
+				break;
+			}
+
+			current_logical_pos+= bytes_in_this_block;
+			bytes_remaining-= bytes_in_this_block;
+			src_ptr+= bytes_in_this_block;
+		}
+
+		if (flagmemzero)
+		{
+			sodium.sodium_memzero(work_plaintext, block_size);
+			sodium.sodium_memzero(work_nonce, nonce_len);
+			sodium.sodium_memzero(work_encrypted, block_size + tag_len);
+		}
+
+		delete[] work_plaintext;
+		delete[] work_nonce;
+		delete[] work_encrypted;
+
+		if (success)
+		{
+			if (fflush(file_handle) != 0) /// 65.11r //FIX-FRANZEN: as in write()
+				success= false;
+			file_was_modified= true;
+		}
+
+		return success;
+	}
+
+	bool fulltest(const char *input_file, const char *output_file, const std::string &password, int num_threads)
+	{
+		int64_t input_size= prendidimensionefile(input_file);
+		if (input_size < 0)
+		{
+			myprintf("38563! ERROR: Input file '%s' not found or not readable\n", input_file);
+			return false;
+		}
+
+		myprintf("Starting long test with %d threads\n", num_threads);
+		myprintf("Input file     : %s (%s) => %s\n", input_file, tohuman(input_size), output_file);
+		printbar('=');
+
+		int64_t step_start;
+		bool	all_ok= true;
+
+		// Filename construction
+		std::string output_par = std::string(output_file) + ".franzen.enc";
+		std::string decoded_par= std::string(output_file) + ".franzen.dec";
+		output_par			   = nomefileseesistegia(output_par);
+		decoded_par			   = nomefileseesistegia(decoded_par);
+
+		bool   success;
+		double step_time;
+
+		int64_t multi_start= mtime();
+		color_cyan();
+		myprintf("1) Encoding\n");
+		color_restore();
+		step_start= mtime();
+		franzcri fc5(password.c_str(), password.length());
+		success= fc5.encode_parallela(input_file, output_par.c_str(), num_threads);
+		eol();
+		step_time= (mtime() - step_start) / 1000.0;
+		if (success)
+		{
+			color_green();
+			myprintf("   OK (%10.2fs @ %10s/s) %s\n", step_time, tohuman2((int64_t)(input_size / step_time)), output_par.c_str());
+		}
+		else
+		{
+			color_red();
+			myprintf(" FAILED\n");
+			all_ok= false;
+		}
+		color_restore();
+
+		color_cyan();
+		myprintf("2) Decoding\n");
+		color_restore();
+		step_start= mtime();
+
+		franzcri fc6(password.c_str(), password.length());
+		success= fc6.decode_parallela(output_par.c_str(), decoded_par.c_str(), num_threads);
+		eol();
+		step_time= (mtime() - step_start) / 1000.0;
+		if (success)
+		{
+			color_green();
+			myprintf("   OK (%10.2fs @ %10s/s) %s\n", step_time, tohuman2((int64_t)(input_size / step_time)), decoded_par.c_str());
+		}
+		else
+		{
+			color_red();
+			myprintf(" FAILED\n");
+			all_ok= false;
+		}
+		color_restore();
+
+		color_cyan();
+		myprintf("3) Verify\n");
+		color_restore();
+		step_start= mtime();
+		franzcri fc8(password.c_str(), password.length());
+		success= fc8.decode_parallela(output_par.c_str(), NULL, num_threads); // NULL = verify only
+		eol();
+		step_time= (mtime() - step_start) / 1000.0;
+		if (success)
+		{
+			color_green();
+			myprintf("   OK (%10.2fs @ %10s/s) %s\n", step_time, tohuman2((int64_t)(input_size / step_time)), output_par.c_str());
+		}
+		else
+		{
+			color_red();
+			myprintf(" FAILED\n");
+			all_ok= false;
+		}
+		color_restore();
+		int64_t multi_end= mtime();
+
+		color_cyan();
+		myprintf("4) Binary comparison %s vs %s...\n", decoded_par.c_str(), input_file);
+		color_restore();
+		step_start= mtime();
+		success	  = compare_files_binary(decoded_par.c_str(), input_file);
+		eol();
+		step_time= (mtime() - step_start) / 1000.0;
+		if (success)
+		{
+			color_green();
+			myprintf("   OK (%10.2fs @ %10s/s)\n", step_time, tohuman2((int64_t)(input_size / step_time)));
+		}
+		else
+		{
+			myprintf(" FAILED - Files differ!\n");
+			all_ok= false;
+		}
+		color_restore();
+
+		// Temporary file cleanup
+		delete_file(output_par.c_str());
+		delete_file(decoded_par.c_str());
+
+		double multi_time= (multi_end - multi_start) / 1000.0;
+
+		myprintf("Time/throughput %10.2fs @ %12s/s\n", multi_time, tohuman((int64_t)(3 * input_size / multi_time)));
+		myprintf("sodio_block_size     %s\n", tohuman(g_sodio_block_size));
+		myprintf("opslimit             %llu\n", (unsigned long long)g_sodio_pwhash_opslimit);
+		myprintf("memlimit             %s\n", tohuman(g_sodio_pwhash_memlimit));
+
+		if (all_ok)
+		{
+			color_green();
+			myprintf("*** ALL TESTS PASSED ***\n");
+		}
+		else
+		{
+			color_red();
+			myprintf("*** SOME TESTS FAILED ***\n");
+		}
+		color_restore();
+
+		return all_ok;
+	}
+
+	// Helper function da mettere prima di criautotest()
+	static void print_test_result(const char *test_name, bool passed, bool *all_tests_passed)
+	{
+		myprintf("%s: %s\n", test_name, passed ? "PASSED" : "FAILED");
+		if (!passed)
+			*all_tests_passed= false;
+	}
+
+  private:
+	// Helper: Encrypt a block of plaintext (usa buffer pre-allocati)
+	bool encrypt_block(const unsigned char *plaintext_data,
+					   size_t				plaintext_len,
+					   unsigned char	   *out_nonce,
+					   unsigned char	   *out_ciphertext,
+					   size_t			   *out_ciphertext_len)
+	{
+		size_t nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+
+		casuali(out_nonce, nonce_len); /// 65.13e: -debug4 = from a counter
+
+		unsigned long long ciphertext_len= 0;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
+				out_ciphertext, &ciphertext_len,
+				plaintext_data, plaintext_len,
+				NULL, 0, NULL, out_nonce, key) != 0)
+		{
+			return false;
+		}
+
+		if (out_ciphertext_len)
+			*out_ciphertext_len= (size_t)ciphertext_len;
+
+		return true;
+	}
+
+	// Helper: Decrypt a block (usa buffer pre-allocato)
+	bool decrypt_block(const unsigned char *ciphertext_data,
+					   size_t				ciphertext_len,
+					   const unsigned char *nonce_data,
+					   unsigned char	   *out_plaintext,
+					   size_t			   *out_plaintext_len)
+	{
+		unsigned long long decrypted_len= 0;
+		if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+				out_plaintext, &decrypted_len, NULL,
+				ciphertext_data, ciphertext_len,
+				NULL, 0, nonce_data, key) != 0)
+		{
+			if (flagmemzero)
+				sodium.sodium_memzero(out_plaintext, block_size);
+			return false;
+		}
+
+		if (out_plaintext_len)
+			*out_plaintext_len= (size_t)decrypted_len;
+
+		return true;
+	}
+
+	// Helper: Write encrypted block to file at specific block index
+	bool write_encrypted_block_at(uint64_t			   block_idx,
+								  const unsigned char *nonce,
+								  const unsigned char *ciphertext,
+								  size_t			   ciphertext_len)
+	{
+		size_t nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+
+		int64_t file_pos= get_block_file_offset(block_idx);
+		if (file_pos < 0)
+		{
+			myprintf("write_encrypted_block_at: Invalid block offset\n");
+			return false;
+		}
+
+		if (fseek64(file_handle, file_pos, SEEK_SET) != 0)
+			return false;
+
+		if (fwrite(nonce, 1, nonce_len, file_handle) != nonce_len ||
+			fwrite(ciphertext, 1, ciphertext_len, file_handle) != ciphertext_len)
+		{
+			perror("Error writing encrypted block");
+			return false;
+		}
+
+		return true;
+	}
+
+	// Helper: Read, modify, and rewrite a partial block
+	bool read_modify_write_block(uint64_t		block_idx,
+								 size_t			offset_in_block,
+								 const char	   *new_data,
+								 size_t			new_data_len,
+								 unsigned char *work_plaintext,
+								 unsigned char *work_nonce,
+								 unsigned char *work_ciphertext,
+								 unsigned char *work_encrypted)
+	{
+		size_t tag_len	= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+
+		int64_t file_pos= get_block_file_offset(block_idx);
+		if (file_pos < 0)
+			return false;
+
+		if (fseek64(file_handle, file_pos, SEEK_SET) != 0)
+			return false;
+
+		// MODIFIED: Get actual block size (may be variable for last block)
+		uint64_t block_plaintext_size = get_block_plaintext_size(block_idx);
+		uint64_t block_ciphertext_size= block_plaintext_size + tag_len;
+
+		// Read existing block with correct size
+		if (fread(work_nonce, 1, nonce_len, file_handle) != nonce_len ||
+			fread(work_encrypted, 1, block_ciphertext_size, file_handle) != block_ciphertext_size)
+		{
+			perror("Error reading existing block for modification");
+			return false;
+		}
+
+		// Decrypt existing block
+		size_t decrypted_len;
+		if (!decrypt_block(work_encrypted, block_ciphertext_size, work_nonce, work_plaintext, &decrypted_len))
+		{
+			myprintf("Error decrypting existing block for modification\n");
+			return false;
+		}
+
+		// Modify the plaintext
+		memcpy(work_plaintext + offset_in_block, new_data, new_data_len);
+
+		// Calculate new plaintext size after modification
+		// If we're writing beyond the current block size, the block grows
+		size_t new_plaintext_size= block_plaintext_size;
+		if (offset_in_block + new_data_len > block_plaintext_size)
+			new_plaintext_size= offset_in_block + new_data_len;
+
+		// Cap at block_size
+		if (new_plaintext_size > block_size)
+			new_plaintext_size= block_size;
+
+		// Re-encrypt with the new size
+		size_t new_ciphertext_len;
+		if (!encrypt_block(work_plaintext, new_plaintext_size, work_ciphertext, work_encrypted, &new_ciphertext_len))
+		{
+			myprintf("Error re-encrypting modified block\n");
+			if (flagmemzero)
+				sodium.sodium_memzero(work_plaintext, block_size);
+			return false;
+		}
+
+		if (flagmemzero)
+			sodium.sodium_memzero(work_plaintext, block_size);
+
+		// Write back with the new size
+		return write_encrypted_block_at(block_idx, work_ciphertext, work_encrypted, new_ciphertext_len);
+	}
+
+	bool decrypt_and_write_stream(FILE *output_file)
+	{
+		if (!is_file_open || !output_file)
+			return false;
+
+		size_t	 tag_len	  = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t	 nonce_len	  = sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		uint64_t total_blocks = get_num_blocks();
+		uint64_t bytes_written= 0;
+
+		std::vector<unsigned char> encrypted(block_size + tag_len);
+		std::vector<unsigned char> nonce_buf(nonce_len);
+		std::vector<unsigned char> plaintext(block_size);
+
+		for (uint64_t block_idx= 0; block_idx < total_blocks; ++block_idx)
+		{
+			int64_t block_file_offset= get_block_file_offset(block_idx);
+			if (fseek64(file_handle, block_file_offset, SEEK_SET) != 0)
+			{
+				perror("\nError positioning in input file");
+				return false;
+			}
+
+			// Read nonce
+			if (fread(&nonce_buf[0], 1, nonce_len, file_handle) != nonce_len)
+			{
+				myprintf("Error reading nonce for block %s\n", migliaia(block_idx));
+				return false;
+			}
+
+			// MODIFIED: Calculate ciphertext size for this block (variable for last block)
+			uint64_t block_plaintext_size = get_block_plaintext_size(block_idx);
+			uint64_t block_ciphertext_size= block_plaintext_size + tag_len;
+
+			// Read ciphertext
+			if (fread(&encrypted[0], 1, block_ciphertext_size, file_handle) != block_ciphertext_size)
+			{
+				myprintf("Error reading ciphertext for block %s\n", migliaia(block_idx));
+				return false;
+			}
+
+			// Decrypt the block
+			unsigned long long decrypted_len= 0;
+			if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+					&plaintext[0], &decrypted_len, NULL,
+					&encrypted[0], block_ciphertext_size,
+					NULL, 0, &nonce_buf[0], key) != 0)
+			{
+				myprintf("\n");
+				myprintf("39464! Error: Decryption of block #%s failed. File corrupted or incorrect password\n", migliaia(block_idx));
+				if (flagmemzero)
+					sodium.sodium_memzero(franzen_dati(plaintext), plaintext.size());
+				return false;
+			}
+
+			// Write decrypted block to output file
+			if (fwrite(&plaintext[0], 1, decrypted_len, output_file) != decrypted_len)
+			{
+				perror("\nError writing to output file");
+				if (flagmemzero)
+					sodium.sodium_memzero(franzen_dati(plaintext), plaintext.size());
+				return false;
+			}
+
+			bytes_written+= decrypted_len;
+		}
+
+		if (flagmemzero)
+		{
+			sodium.sodium_memzero(franzen_dati(plaintext), plaintext.size());
+			sodium.sodium_memzero(franzen_dati(encrypted), encrypted.size());
+		}
+
+		if (bytes_written != footer.file_data_size)
+		{
+			myprintf("Warning: bytes written (%s) != file_data_size (%s)\n",
+					 migliaia(bytes_written), migliaia2(footer.file_data_size));
+		}
+
+		myprintf("Decryption completed\n");
+		return true;
+	}
+
+	// Validazione parametri Argon2id
+	bool validate_argon2_params(uint64_t opslimit, uint64_t memlimit)
+	{
+		// Controlla limiti minimi e massimi ragionevoli
+		const uint64_t min_opslimit= CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE;
+		const uint64_t max_opslimit= CRYPTO_PWHASH_OPSLIMIT_SENSITIVE * 10; // Permetti fino a 10x sensitive
+		const uint64_t min_memlimit= CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE;
+		const uint64_t max_memlimit= 4ULL * 1024 * 1024 * 1024; // Max 4GB
+
+		if (opslimit < min_opslimit || opslimit > max_opslimit)
+		{
+			myprintf("39516! Error: opslimit (%s) outside allowed limits (%s-%s)\n",
+					 migliaia(opslimit), migliaia2(min_opslimit), migliaia3(max_opslimit));
+			return false;
+		}
+
+		if (memlimit < min_memlimit || memlimit > max_memlimit)
+		{
+			myprintf("39523! Error: memlimit (%s) outside allowed limits (%s-%s)\n",
+					 migliaia(memlimit), migliaia2(min_memlimit), migliaia3(max_memlimit));
+			return false;
+		}
+
+		return true;
+	}
+
+	// Controlla overflow negli offset dei blocchi
+	// Verify that block_idx * block_size non causi overflow
+	bool check_offset_overflow(uint64_t block_idx, uint64_t block_size)
+	{
+		if (block_idx > 0 && block_size > UINT64_MAX / block_idx)
+		{
+			myprintf("39537! Error: Overflow in block offset %s with block_size %s\n",
+					 migliaia(block_idx), migliaia(block_size));
+			return false;
+		}
+		return true;
+	}
+
+	// File size validation ragionevole
+	bool validate_file_size(uint64_t file_size)
+	{
+		const uint64_t max_file_size= 100ULL * (1024ULL * 1024 * 1024 * 1024);
+		if (file_size > max_file_size)
+		{
+			myprintf("39550! Error: File size (%s bytes) exceeds the maximum limit (%s bytes)\n",
+					 migliaia(file_size), migliaia2(max_file_size));
+			return false;
+		}
+		return true;
+	}
+
+	bool validate_header_integrity()
+	{
+		// Validates ONLY the fixed header fields
+		// Footer validation is done separately after read_footer()
+
+		// accept both FRANZEN and FRENZEN
+		if (memcmp(header.magic, MAGIC_BYTES, MAGIC_BYTES_LEN) != 0 &&
+		    memcmp(header.magic, MAGIC_BYTES_AES, MAGIC_BYTES_LEN) != 0)
+		{
+			myprintf("39570! Error: Invalid magic bytes\n");
+			return false;
+		}
+
+		// Version field - version 3 (legacy) and 4 (dual magic) supported
+		if (header.version != 3 && header.version != 4)
+		{
+			myprintf("39571! Error: Invalid version %s (only versions 3 and 4 supported)\n",
+					 migliaia(header.version));
+			myprintf("       This file was created with an older format. Please delete and recreate.\n");
+			return false;
+		}
+
+		// 3. Block size validation (più rigorosa)
+		const uint64_t min_block_size= 4096;
+		const uint64_t max_block_size= 16 * 1024 * 1024;
+
+		if (header.block_size < min_block_size || header.block_size > max_block_size)
+		{
+			myprintf("39570! Error: block_size %s outside limits (%s-%s)\n",
+					 migliaia(header.block_size), migliaia2(min_block_size),
+					 migliaia3(max_block_size));
+			return false;
+		}
+
+		// Check power of 2 (efficienza)
+		if ((header.block_size & (header.block_size - 1)) != 0)
+		{
+			myprintf("39578! Error: block_size %s is not a power of 2\n",
+					 migliaia(header.block_size));
+			return false;
+		}
+
+		// Check alignment (performance crypto)
+		if (header.block_size % 16 != 0)
+		{
+			myprintf("39579! Warning: block_size %s not aligned to 16 bytes\n",
+					 migliaia(header.block_size));
+			// Non fatale, ma subottimale
+		}
+
+		// 4. Argon2id parameters validation
+		if (!validate_argon2_params(header.pwhash_opslimit, header.pwhash_memlimit))
+			return false;
+
+		// Verifica prodotto opslimit * memlimit per overflow
+		if (header.pwhash_opslimit > 0 &&
+			header.pwhash_memlimit > UINT64_MAX / header.pwhash_opslimit)
+		{
+			myprintf("39580! Error: opslimit * memlimit would overflow\n");
+			return false;
+		}
+
+		// 5. Salt validation (must not be all zeros)
+		bool salt_is_zero= true;
+		for (size_t i= 0; i < sizeof(header.salt); ++i)
+		{
+			if (header.salt[i] != 0)
+			{
+				salt_is_zero= false;
+				break;
+			}
+		}
+		if (salt_is_zero)
+		{
+			myprintf("39583! Error: Salt is all zeros (invalid)\n");
+			return false;
+		}
+
+		// 6. Padding verification (should be all zeros for safety)
+		bool pad_is_zero= true;
+		for (size_t i= 0; i < sizeof(header.pad); ++i)
+		{
+			if (header.pad[i] != 0)
+			{
+				pad_is_zero= false;
+				break;
+			}
+		}
+		if (!pad_is_zero)
+		{
+			if (flagdebug)
+				myprintf("Warning: header padding not zeroed (potential data leak)\n");
+			// Not fatal, but indicates unclean implementation
+		}
+
+		if (flagdebug)
+			myprintf("Header integrity validation passed\n");
+
+		return true;
+	}
+
+	bool validate_footer_integrity()
+	{
+		// Validates footer fields after they've been read
+
+		// 1. File size validation
+		if (!validate_file_size(footer.file_data_size))
+			return false;
+
+		// 2. Check for overflow in block calculation
+		if (footer.file_data_size > 0)
+		{
+			// Check: (file_data_size + block_size - 1) non overflow
+			if (footer.file_data_size > UINT64_MAX - header.block_size + 1)
+			{
+				myprintf("39581! Error: file_data_size causes overflow in block calculation\n");
+				return false;
+			}
+
+			uint64_t num_blocks= (footer.file_data_size + header.block_size - 1) / header.block_size;
+
+			// Verify that num_blocks sia ragionevole
+			const uint64_t MAX_BLOCKS= 1000000000ULL; // 1 miliardo
+			if (num_blocks > MAX_BLOCKS)
+			{
+				myprintf("39582! Error: Too many blocks: %s (max %s)\n",
+						 migliaia(num_blocks), migliaia2(MAX_BLOCKS));
+				return false;
+			}
+
+			if (!check_offset_overflow(num_blocks - 1, header.block_size))
+				return false;
+		}
+
+		// 3. Prefix validation (coerenza con file_data_size) - MODIFIED for variable last block
+		if (footer.file_data_size > 0)
+		{
+			size_t	 nonce_len		= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+			size_t	 tag_len		= sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+			uint64_t full_block_size= header.block_size + nonce_len + tag_len;
+
+			// Verifica overflow in full_block_size
+			if (header.block_size > UINT64_MAX - nonce_len - tag_len)
+			{
+				myprintf("39584! Error: block_size causes overflow with nonce+tag\n");
+				return false;
+			}
+
+			uint64_t num_full_blks= get_num_full_blocks();
+
+			// Verifica overflow in total_encrypted_size
+			if (num_full_blks > 0 && num_full_blks > UINT64_MAX / full_block_size)
+			{
+				myprintf("39585! Error: num_blocks * full_block_size would overflow\n");
+				return false;
+			}
+
+			// MODIFIED: Calculate total encrypted size with variable last block
+			uint64_t total_encrypted_size= num_full_blks * full_block_size + get_last_block_encrypted_size();
+
+			// prefix_size deve essere < total_encrypted_size (o uguale se c'è solo 1 blocco che è l'ultimo)
+			if (footer.prefix_size > total_encrypted_size)
+			{
+				myprintf("39586! Error: prefix_size %s > total_encrypted_size %s\n",
+						 migliaia(footer.prefix_size), migliaia2(total_encrypted_size));
+				return false;
+			}
+
+			// NOTE: With rsync-friendly append, prefix_size may include orphaned footers
+			// and variable-size blocks, so it's NOT necessarily a multiple of full_block_size.
+			// This check has been removed as it's no longer valid.
+
+			// Se prefix_size > 0, prefix_crc32 dovrebbe essere != 0
+			if (footer.prefix_size > 0 && footer.prefix_crc32 == 0)
+			{
+				if (flagdebug)
+					myprintf("Warning: prefix_size > 0 but prefix_crc32 == 0 (suspicious)\n");
+			}
+
+			// If prefix_size == 0, prefix_crc32 dovrebbe essere 0
+			if (footer.prefix_size == 0 && footer.prefix_crc32 != 0)
+			{
+				myprintf("39588! Error: prefix_size == 0 but prefix_crc32 != 0\n");
+				return false;
+			}
+		}
+		else // file_data_size == 0
+		{
+			// Empty file: everything must be zero
+			if (footer.prefix_size != 0 || footer.prefix_crc32 != 0 || footer.crc32 != 0)
+			{
+				myprintf("39589! Error: Empty file but non-zero prefix/crc fields\n");
+				return false;
+			}
+		}
+
+		// 4. CRC32 validation (deve essere nel range uint32)
+		if (footer.crc32 > 0xFFFFFFFFULL)
+		{
+			myprintf("39590! Error: crc32 value %s exceeds 32-bit range\n",
+					 migliaia(footer.crc32));
+			return false;
+		}
+
+		if (footer.prefix_crc32 > 0xFFFFFFFFULL)
+		{
+			myprintf("39591! Error: prefix_crc32 value %s exceeds 32-bit range\n",
+					 migliaia(footer.prefix_crc32));
+			return false;
+		}
+
+		// 5. Quickhash validation (optional, depends on usage)
+		if (footer.file_data_size > 0 && header.quickhash == 0)
+		{
+			if (flagdebug)
+				myprintf("Warning: non-empty file but quickhash == 0\n");
+		}
+
+		// 6. Check effective file size on disk
+		if (!validate_actual_file_size())
+			return false;
+
+		if (flagdebug)
+			myprintf("Footer integrity validation passed\n");
+
+		return true;
+	}
+
+	bool validate_actual_file_size()
+	{
+		// Save current position
+		long long current_pos= -1;
+#ifdef _WIN32
+		current_pos= _ftelli64(file_handle);
+#else
+		current_pos= ftello(file_handle);
+#endif
+
+		if (current_pos < 0)
+		{
+			myprintf("39617! Error: Unable to determine the current position in the file\n");
+			return false;
+		}
+
+		// Go to end of file per determinarne la dimensione
+		if (fseek64(file_handle, 0, SEEK_END) != 0)
+		{
+			myprintf("39624! Error: Unable to position to the end of the file\n");
+			return false;
+		}
+
+		long long actual_file_size= -1;
+#ifdef _WIN32
+		actual_file_size= _ftelli64(file_handle);
+#else
+		actual_file_size= ftello(file_handle);
+#endif
+
+		// Restore original position
+		if (fseek64(file_handle, current_pos, SEEK_SET) != 0)
+		{
+			myprintf("39638! Error: Unable to restore the position in the file\n");
+			return false;
+		}
+
+		if (actual_file_size < 0)
+		{
+			myprintf("39644! Error: Unable to determine the actual file size\n");
+			return false;
+		}
+		//FIX-FRANZEN 65.11s: see get_actual_file_size
+		if (fine_valida >= 0)
+			actual_file_size= fine_valida;
+
+		// V3: With segment tracking, each segment has its own blocks
+		// File structure: [HEADER][seg1_blocks][footer1][seg2_blocks][footer2]...[segN_blocks][footerN]
+		//
+		// For single segment (segment_count == 1): simple calculation
+		// For multiple segments: need to calculate each segment's encrypted size
+
+		size_t	 nonce_len			 = sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		size_t	 tag_len			 = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		uint64_t full_block_disk_size= nonce_len + header.block_size + tag_len;
+
+		uint64_t expected_size= sizeof(file_header) + sizeof(header_nonce);
+
+		// Handle segment_count == 0 as legacy or treat as 1
+		uint64_t effective_segment_count= footer.segment_count > 0 ? footer.segment_count : 1;
+
+		if (effective_segment_count == 1)
+		{
+			// Single segment - simple calculation
+			expected_size+= get_num_full_blocks() * full_block_disk_size;
+			expected_size+= get_last_block_encrypted_size();
+			// Add footer
+			expected_size+= sizeof(file_footer);
+		}
+		else
+		{
+			// Multiple segments - need to scan footers to get each segment's size
+			// We'll calculate from the footer data we have
+
+			// Read all segment footers to calculate total encrypted size
+			int64_t	 footer_pos		= actual_file_size - sizeof(file_footer);
+			uint64_t total_encrypted= 0;
+
+			for (uint64_t seg= footer.segment_count; seg > 0; seg--)
+			{
+				if (footer_pos < (int64_t)(sizeof(file_header) + sizeof(header_nonce)))
+					break;
+
+				// Read this footer
+				if (fseek64(file_handle, footer_pos, SEEK_SET) != 0)
+					break;
+
+				file_footer seg_footer;
+				if (fread(&seg_footer, 1, sizeof(file_footer), file_handle) != sizeof(file_footer))
+					break;
+
+				// Convert from little-endian
+				uint64_t seg_data_size= le64_to_host(seg_footer.segment_data_size);
+				int64_t	 seg_start	  = le64_to_host(seg_footer.segment_start_offset);
+
+				// Calculate this segment's encrypted size
+				uint64_t seg_full_blocks	 = seg_data_size / header.block_size;
+				uint64_t seg_last_block_plain= seg_data_size % header.block_size;
+				if (seg_last_block_plain == 0 && seg_data_size > 0)
+				{
+					// Last block is full
+					seg_last_block_plain= header.block_size;
+					seg_full_blocks--;
+				}
+
+				uint64_t seg_encrypted= seg_full_blocks * full_block_disk_size;
+				if (seg_last_block_plain > 0)
+					seg_encrypted+= nonce_len + seg_last_block_plain + tag_len;
+
+				total_encrypted+= seg_encrypted;
+
+				// Move to previous footer (before this segment's data)
+				footer_pos= seg_start - sizeof(file_footer);
+			}
+
+			expected_size+= total_encrypted;
+
+			// Add footers: one for each segment (for multi-segment case)
+			expected_size+= footer.segment_count * sizeof(file_footer);
+
+			// Restore file position
+			fseek64(file_handle, current_pos, SEEK_SET);
+		}
+
+		if (flagdebug)
+		{
+			myprintf("Actual file size      : %s bytes\n", migliaia(actual_file_size));
+			myprintf("Expected size         : %s bytes\n", migliaia(expected_size));
+			myprintf("Segment count         : %s\n", migliaia(effective_segment_count));
+			myprintf("Footer size           : %s bytes\n", migliaia(sizeof(file_footer)));
+		}
+
+		if ((uint64_t)actual_file_size != expected_size)
+		{
+			// For multi-segment files, multiple write() calls in a session can create
+			// multiple partial blocks within the same segment. This makes the simple
+			// calculation inaccurate. The real integrity is guaranteed by the footer's
+			// auth tag, so we allow some tolerance for multi-segment files.
+			//
+			// Each extra partial block adds (nonce_len + tag_len) = 28 bytes overhead
+			// versus what the calculation expects (single partial block per segment).
+
+			if (effective_segment_count > 1)
+			{
+				// For multi-segment, allow extra blocks (each adds ~28 bytes overhead)
+				// Be permissive: actual >= expected is OK (extra partial blocks)
+				// actual < expected is still an error (truncated)
+				if ((uint64_t)actual_file_size >= expected_size)
+				{
+					if (flagdebug)
+						myprintf("Multi-segment file with extra overhead (%s bytes) - OK\n",
+								 migliaia(actual_file_size - expected_size));
+					return true;
+				}
+			}
+
+			color_red();
+			myprintf("39656!Error: File size does not match the expected size\n");
+			myprintf("39677:       Actual file: %s bytes, expected: %s bytes\n", migliaia(actual_file_size), migliaia2(expected_size));
+
+			if ((uint64_t)actual_file_size < expected_size)
+				myprintf("         The file appears truncated or incomplete\n");
+			else
+				myprintf("         The file contains unexpected extra data\n");
+			color_restore();
+			return false;
+		}
+
+		if (flagdebug)
+			myprintf("File size verification passed\n");
+
+		return true;
+	}
+
+	/// semplice per debug
+	bool decode(const char *input_filename, const char *output_filename)
+	{
+		if (!open(input_filename, false))
+		{
+			// Specific error already printed by open()
+			return false;
+		}
+
+		FILE *output_file= cri_fopen(output_filename, "wb");
+		if (!output_file)
+		{
+			perror("Error creating output file");
+			close();
+			return false;
+		}
+
+		// Chiama la nuova funzione di streaming
+		bool success= decrypt_and_write_stream(output_file);
+
+		fclose(output_file);
+		close(); // Closes input file e resetta lo stato
+
+		return success;
+	}
+	bool is_not_changed()
+	{
+		if (!is_file_open)
+		{
+			myprintf("39725! Error: No file open for integrity check\n");
+			return false;
+		}
+
+		// The header integrity has already been verified by open().
+		size_t	 tag_len	 = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t	 nonce_len	 = sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		uint64_t total_blocks= get_num_blocks();
+
+		// If the file is empty (only header), it is intact by definition.
+		if (total_blocks == 0)
+			return true;
+
+		if (flagdebug)
+			myprintf("Checking integrity of %s data blocks...\n", migliaia(total_blocks));
+
+		std::vector<unsigned char> dummy_plaintext(block_size);
+		unsigned long long		   dummy_decrypted_len= 0;
+
+		for (uint64_t block_idx= 0; block_idx < total_blocks; ++block_idx)
+		{
+			int64_t block_file_offset= get_block_file_offset(block_idx);
+			if (fseek64(file_handle, block_file_offset, SEEK_SET) != 0)
+			{
+				myprintf("39750! ERROR: Unable to position to block #%s\n", migliaia(block_idx));
+				return false;
+			}
+
+			std::vector<unsigned char> block_nonce(nonce_len);
+			if (fread(&block_nonce[0], 1, nonce_len, file_handle) != nonce_len)
+			{
+				myprintf("39757! ERROR: Nonce reading failed for block #%s\n", migliaia(block_idx));
+				return false;
+			}
+
+			// MODIFIED: Get actual ciphertext size for this block
+			uint64_t block_plaintext_size = get_block_plaintext_size(block_idx);
+			uint64_t block_ciphertext_size= block_plaintext_size + tag_len;
+
+			std::vector<unsigned char> encrypted(block_ciphertext_size);
+			if (fread(&encrypted[0], 1, encrypted.size(), file_handle) != encrypted.size())
+			{
+				myprintf("39764! ERROR: Reading encrypted data failed for block #%s\n", migliaia(block_idx));
+				return false;
+			}
+
+			// Attempts to decrypt: this is the real block integrity check.
+			//  If the authentication tag does not match, the function will fail.
+			if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+					&dummy_plaintext[0], &dummy_decrypted_len, NULL,
+					&encrypted[0], encrypted.size(),
+					NULL, 0, &block_nonce[0], key) != 0)
+			{
+				// Adds a newline to not overwrite the progress line
+				myprintf("39775! ERROR: Integrity check failed on block #%s The block is corrupted (good)\n", migliaia(block_idx));
+				if (flagmemzero)
+					sodium.sodium_memzero(franzen_dati(dummy_plaintext), dummy_plaintext.size());
+				return false;
+			}
+
+			/*
+					int percent = (int)(100.0 * (block_idx + 1) / total_blocks);
+					printf("\rVerification in progress: %d%%", percent);
+					fflush(stdout);
+			*/
+		}
+		if (flagmemzero)
+			sodium.sodium_memzero(franzen_dati(dummy_plaintext), dummy_plaintext.size());
+		myprintf("Verification completed\n");
+		return true;
+	}
+
+  private:
+	struct thread_data
+	{
+		franzcri		*instance;
+		const char		*input_filename;
+		pthread_mutex_t *file_mutex;
+		uint64_t		 start_block_idx;
+		uint64_t		 num_blocks_to_process;
+		uint64_t		 total_input_size;
+		uint64_t		 starttime;
+		bool			 success;
+	};
+
+	// New struct for decoding worker
+	struct decode_thread_data
+	{
+		franzcri		*instance;
+		FILE			*output_file;
+		pthread_mutex_t *file_io_mutex;
+		uint64_t		 start_block_idx;
+		uint64_t		 num_blocks_to_process;
+		uint64_t		 total_input_size;
+		uint64_t		 starttime;
+		bool			 success;
+	};
+
+	static void *encryption_worker(void *arg)
+	{
+		thread_data *data= (thread_data *)arg;
+		data->success	 = false;
+
+		FILE *input_file= cri_fopen(data->input_filename, "rb");
+		if (!input_file)
+		{
+			perror("WORKER: Error opening input file");
+			return NULL;
+		}
+
+		size_t		   tag_len	 = data->instance->sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t		   nonce_len = data->instance->sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		const uint64_t block_size= data->instance->block_size;
+
+		// OPTIMIZATION: Allocate buffer ONLY ONCE outside the loop
+		unsigned char *plaintext  = new unsigned char[block_size];
+		unsigned char *ciphertext = new unsigned char[block_size + tag_len];
+		unsigned char *block_nonce= new unsigned char[nonce_len];
+
+		for (uint64_t i= 0; i < data->num_blocks_to_process; ++i)
+		{
+			uint64_t current_block_idx= data->start_block_idx + i;
+			int64_t	 input_offset	  = (int64_t)(current_block_idx * block_size);
+
+			if (data->instance->fseek64(input_file, input_offset, SEEK_SET) != 0)
+			{
+				perror("WORKER: Error fseek64 on input file");
+				goto cleanup_and_exit;
+			}
+
+			// Calculate bytes to read per questo blocco
+			uint64_t bytes_remaining_in_file= data->total_input_size - input_offset;
+			size_t	 bytes_to_read			= ((uint64_t)block_size < bytes_remaining_in_file) ? (uint64_t)block_size : (size_t)bytes_remaining_in_file;
+
+			size_t bytes_read= fread(plaintext, 1, bytes_to_read, input_file);
+			if (bytes_read != bytes_to_read)
+			{
+				if (flagmemzero)
+					data->instance->sodium.sodium_memzero(plaintext, block_size);
+				myprintf("39858! WORKER: Error reading block #%s from input file\n",
+						 migliaia(current_block_idx));
+				goto cleanup_and_exit;
+			}
+
+			// Padding se necessario (only for full blocks - NOT the last block)
+			// The last block is encrypted at its actual size (variable-length)
+			// to match Franzen's format where the final block is not padded.
+			size_t encrypt_size = bytes_read;
+			if (bytes_read < block_size && bytes_read > 0)
+			{
+				// This is the last (partial) block - encrypt only the actual data
+				memset(plaintext + bytes_read, 0, block_size - bytes_read);
+				encrypt_size = bytes_read;
+			}
+
+			// Generate nonce
+			if (flagdebug4) /// 65.13e: the deterministic encryption: from the number of the block, whatever thread gets it
+				debug4_byte(block_nonce, nonce_len, ((uint64_t)1 << 62) + current_block_idx);
+			else
+				data->instance->sodium.randombytes_buf(block_nonce, nonce_len);
+
+			// Encrypt block (CPU intensive - outside mutex)
+			unsigned long long ciphertext_len= 0;
+			if (data->instance->sodium.crypto_aead_chacha20poly1305_ietf_encrypt(
+					ciphertext, &ciphertext_len,
+					plaintext, encrypt_size,
+					NULL, 0, NULL, block_nonce, data->instance->key) != 0)
+			{
+				myprintf("39874! WORKER: Encryption error for block #%s\n", migliaia(current_block_idx));
+				goto cleanup_and_exit;
+			}
+
+			// OPTIMIZATION: Mutex only for I/O and CRC update, not for crypto
+			pthread_mutex_lock(data->file_mutex);
+
+			int64_t block_file_offset= data->instance->get_block_file_offset(current_block_idx);
+
+			if (flagdebug3)
+				myprintf("43521: block file offset ******** %21s\n", migliaia(block_file_offset));
+
+			if (data->instance->fseek64(data->instance->file_handle, block_file_offset, SEEK_SET) != 0)
+			{
+				perror("WORKER: Error fseek64 on output file");
+				pthread_mutex_unlock(data->file_mutex);
+				goto cleanup_and_exit;
+			}
+
+			if (fwrite(block_nonce, 1, nonce_len, data->instance->file_handle) != nonce_len ||
+				fwrite(ciphertext, 1, ciphertext_len, data->instance->file_handle) != ciphertext_len)
+			{
+				perror("WORKER: Error writing block data");
+				pthread_mutex_unlock(data->file_mutex);
+				goto cleanup_and_exit;
+			}
+
+			// Update statistics
+			data->instance->worked_so_far+= bytes_read;
+			if (!flagnoeta)
+				myavanzamentoby1sec(data->instance->worked_so_far, data->total_input_size,
+									data->starttime, false);
+
+			pthread_mutex_unlock(data->file_mutex);
+		}
+
+		data->success= true;
+
+	cleanup_and_exit:
+		if (flagmemzero)
+		{
+			data->instance->sodium.sodium_memzero(plaintext, block_size);
+			data->instance->sodium.sodium_memzero(ciphertext, block_size + tag_len);
+			data->instance->sodium.sodium_memzero(block_nonce, nonce_len);
+		}
+		delete[] plaintext;
+		delete[] ciphertext;
+		delete[] block_nonce;
+
+		fclose(input_file);
+		return NULL;
+	}
+	
+	static void *decryption_worker(void *arg)
+	{
+		decode_thread_data *data= (decode_thread_data *)arg;
+		data->success			= false;
+
+		franzcri	  *instance	 = data->instance;
+		const uint64_t block_size= instance->block_size;
+		const size_t   tag_len	 = instance->sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		const size_t   nonce_len = instance->sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+
+		// OPTIMIZATION: Allocate buffer ONLY ONCE outside the loop
+		unsigned char *encrypted  = new unsigned char[block_size + tag_len];
+		unsigned char *plaintext  = new unsigned char[block_size];
+		unsigned char *block_nonce= new unsigned char[nonce_len];
+
+		for (uint64_t i= 0; i < data->num_blocks_to_process; ++i)
+		{
+			uint64_t current_block_idx= data->start_block_idx + i;
+
+			// FIX V3: Correctly determine block size for multi-segment files.
+			// Any segment can end with a partial block.
+			uint64_t this_block_plaintext_size= block_size;
+
+			if (!instance->_segments_cache.empty())
+			{
+				// Find which segment this block belongs to
+				uint64_t blocks_scanned= 0;
+				for (size_t s= 0; s < instance->_segments_cache.size(); s++) /// 65.18e: C++98 (ESX), was a range for
+				{
+					const segment_cache_item &seg= instance->_segments_cache[s];
+					// Check if block is in this segment
+					if (current_block_idx < blocks_scanned + seg.block_count)
+					{
+						// Found segment. Is it the last block of THIS segment?
+						uint64_t relative_idx= current_block_idx - blocks_scanned;
+						if (relative_idx == seg.block_count - 1)
+						{
+							uint64_t rem= seg.logical_size % block_size;
+							if (rem > 0)
+								this_block_plaintext_size= rem;
+						}
+						break;
+					}
+					blocks_scanned+= seg.block_count;
+				}
+			}
+			else
+			{
+				// Fallback for V2 (single segment logic)
+				uint64_t total_blocks= (instance->footer.file_data_size + block_size - 1) / block_size;
+				if (current_block_idx == total_blocks - 1)
+				{
+					uint64_t rem= instance->footer.file_data_size % block_size;
+					if (rem > 0)
+						this_block_plaintext_size= rem;
+				}
+			}
+
+			uint64_t this_block_cipher_size= this_block_plaintext_size + tag_len;
+
+			// Read encrypted block (mutex protected I/O)
+			pthread_mutex_lock(data->file_io_mutex);
+
+			int64_t block_file_offset= instance->get_block_file_offset(current_block_idx);
+			if (instance->fseek64(instance->file_handle, block_file_offset, SEEK_SET) != 0)
+			{
+				perror("\nWORKER: Error fseek64 on input file");
+				pthread_mutex_unlock(data->file_io_mutex);
+				goto cleanup_and_exit;
+			}
+
+			bool read_ok= (fread(block_nonce, 1, nonce_len, instance->file_handle) == nonce_len &&
+						   fread(encrypted, 1, this_block_cipher_size, instance->file_handle) == this_block_cipher_size);
+
+			pthread_mutex_unlock(data->file_io_mutex);
+
+			if (!read_ok)
+			{
+				myprintf("39942! WORKER: Error reading block #%s from input file (size %s)\n",
+						 migliaia(current_block_idx), migliaia3(this_block_cipher_size));
+				goto cleanup_and_exit;
+			}
+
+			// OPTIMIZATION: Decrypt OUTSIDE mutex (CPU intensive, parallel)
+			unsigned long long decrypted_len= 0;
+			if (instance->sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+					plaintext, &decrypted_len, NULL,
+					encrypted, this_block_cipher_size,
+					NULL, 0, block_nonce, instance->key) != 0)
+			{
+				myprintf("WORKER: ERROR: Decryption failed on block #%s "
+						 "File corrupted or incorrect password\n",
+						 migliaia(current_block_idx));
+				goto cleanup_and_exit;
+			}
+
+			// If not in 'verify' mode, write to output file
+			if (data->output_file != NULL)
+			{
+				size_t bytes_to_write= (size_t)this_block_plaintext_size;
+
+				pthread_mutex_lock(data->file_io_mutex);
+
+				// Note: For multi-segment files, direct offset calculation works ONLY if
+				// we assume logical reconstruction is continuous.
+				// However, parallel write with standard fseek might be tricky with gaps.
+				// But typically output is a plain stream.
+				// We map logical block index back to logical offset.
+				// WARNING: In V3, blocks are logically contiguous within segments, but
+				// we need the correct logical offset.
+
+				uint64_t logical_write_offset= 0;
+				// Calculate logical offset for this block using cache to be precise
+				if (!instance->_segments_cache.empty())
+				{
+					uint64_t blocks_scanned= 0;
+					for (size_t s= 0; s < instance->_segments_cache.size(); s++) /// 65.18e: C++98 (ESX), was a range for
+					{
+						const segment_cache_item &seg= instance->_segments_cache[s];
+						if (current_block_idx < blocks_scanned + seg.block_count)
+						{
+							uint64_t rel		= current_block_idx - blocks_scanned;
+							logical_write_offset= seg.logical_start + (rel * block_size);
+							break;
+						}
+						blocks_scanned+= seg.block_count;
+					}
+				}
+				else
+				{
+					logical_write_offset= current_block_idx * block_size;
+				}
+
+				if (instance->fseek64(data->output_file, logical_write_offset, SEEK_SET) != 0)
+				{
+					perror("\nWORKER: Error fseek64 on output file");
+					pthread_mutex_unlock(data->file_io_mutex);
+					goto cleanup_and_exit;
+				}
+
+				bool write_ok= (fwrite(plaintext, 1, bytes_to_write, data->output_file) == bytes_to_write);
+
+				// Update statistics
+				data->instance->worked_so_far+= (this_block_cipher_size + nonce_len);
+				if (!flagnoeta)
+					myavanzamentoby1sec(data->instance->worked_so_far, data->total_input_size,
+										data->starttime, false);
+
+				pthread_mutex_unlock(data->file_io_mutex);
+
+				if (!write_ok)
+				{
+					perror("\nWORKER: Error writing to output file");
+					goto cleanup_and_exit;
+				}
+			}
+			else
+			{
+				// Verify mode: only update stats (no I/O)
+				if (!flagnoeta)
+				{
+					pthread_mutex_lock(data->file_io_mutex);
+					data->instance->worked_so_far+= (this_block_cipher_size + nonce_len);
+					myavanzamentoby1sec(data->instance->worked_so_far, data->total_input_size,
+										data->starttime, false);
+					pthread_mutex_unlock(data->file_io_mutex);
+				}
+			}
+		}
+
+		data->success= true;
+
+	cleanup_and_exit:
+		if (flagmemzero)
+		{
+			instance->sodium.sodium_memzero(plaintext, block_size);
+			instance->sodium.sodium_memzero(encrypted, block_size + tag_len);
+			instance->sodium.sodium_memzero(block_nonce, nonce_len);
+		}
+		delete[] plaintext;
+		delete[] encrypted;
+		delete[] block_nonce;
+
+		return NULL;
+	}
+
+	/// 65.18e: here, not inside decrypt_to_buffer: C++98 (gcc 3.4 of ESX) wants no local types in a std::vector
+	struct segment_info_v3
+	{
+		int64_t	 data_start_offset;
+		uint64_t data_size;
+		uint64_t segment_num;
+	};
+
+  public:
+	bool decrypt_to_buffer(char *out_buffer, size_t buffer_size)
+	{
+		if (!is_file_open || buffer_size < footer.file_data_size)
+			return false;
+
+		size_t	 tag_len			 = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+		size_t	 nonce_len			 = sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+		uint64_t full_block_disk_size= nonce_len + block_size + tag_len;
+
+		if (flagdebug)
+			myprintf("DEBUG decrypt_to_buffer: total_blocks=%s, file_data_size=%s, segment_count=%s\n",
+					 migliaia(get_num_blocks()), migliaia2(footer.file_data_size), migliaia3(footer.segment_count));
+
+		// V3: With segment tracking, we know exactly where each segment starts
+		// If segment_count == 1, simple decryption (no appends)
+		// If segment_count > 1, we need to read segments sequentially
+
+		std::vector<unsigned char> encrypted(block_size + tag_len);
+		std::vector<unsigned char> plaintext(block_size);
+		uint64_t				   bytes_written= 0;
+
+		if (footer.segment_count <= 1)
+		{
+			// Simple case: single segment, no appends
+			uint64_t total_blocks= get_num_blocks();
+
+			for (uint64_t block_idx= 0; block_idx < total_blocks; ++block_idx)
+			{
+				int64_t block_file_offset= get_block_file_offset(block_idx);
+
+				if (flagdebug && block_idx < 3)
+					myprintf("DEBUG block %s: offset=%s\n", migliaia(block_idx), migliaia2(block_file_offset));
+
+				if (fseek64(file_handle, block_file_offset, SEEK_SET) != 0)
+				{
+					myprintf("40020! fseek failed for block #%s at offset %s\n", migliaia(block_idx), migliaia2(block_file_offset));
+					return false;
+				}
+
+				std::vector<unsigned char> block_nonce(nonce_len);
+				if (fread(&block_nonce[0], 1, nonce_len, file_handle) != nonce_len)
+				{
+					myprintf("40020! fread nonce failed for block #%s\n", migliaia(block_idx));
+					return false;
+				}
+
+				uint64_t block_plaintext_size = get_block_plaintext_size(block_idx);
+				uint64_t block_ciphertext_size= block_plaintext_size + tag_len;
+
+				if (fread(&encrypted[0], 1, block_ciphertext_size, file_handle) != block_ciphertext_size)
+				{
+					myprintf("40020! fread ciphertext failed for block #%s, size=%s\n", migliaia(block_idx), migliaia2(block_ciphertext_size));
+					return false;
+				}
+
+				unsigned long long decrypted_len= 0;
+				if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+						&plaintext[0], &decrypted_len, NULL,
+						&encrypted[0], block_ciphertext_size,
+						NULL, 0, &block_nonce[0], key) != 0)
+				{
+					myprintf("40021! Decryption of block #%s failed (offset=%s, cipher_size=%s)\n",
+							 migliaia(block_idx), migliaia2(block_file_offset), migliaia3(block_ciphertext_size));
+					if (flagmemzero)
+						sodium.sodium_memzero(franzen_dati(plaintext), plaintext.size());
+					return false;
+				}
+
+				size_t remaining= footer.file_data_size - bytes_written;
+				size_t to_copy	= ((size_t)remaining < (size_t)decrypted_len) ? (size_t)remaining : (size_t)decrypted_len;
+				memcpy(out_buffer + bytes_written, &plaintext[0], to_copy);
+				bytes_written+= to_copy;
+			}
+
+			if (flagmemzero)
+				sodium.sodium_memzero(franzen_dati(plaintext), plaintext.size());
+			return true;
+		}
+
+		// V3: Multiple segments - need to scan backwards through footers
+		// Each footer tells us about its segment via segment_start_offset and segment_data_size
+
+		// Build list of segments by reading footers from end to beginning (segment_info_v3: just before this function)
+		std::vector<segment_info_v3> segments;
+
+		int64_t actual_size= get_actual_file_size();
+		int64_t footer_pos = actual_size - sizeof(file_footer);
+
+		// Read footers from newest to oldest
+		for (uint64_t seg= footer.segment_count; seg > 0; seg--)
+		{
+			if (footer_pos < (int64_t)(sizeof(file_header) + sizeof(header_nonce)))
+			{
+				myprintf("40030! Invalid footer position during segment scan\n");
+				return false;
+			}
+
+			// Read this footer
+			if (fseek64(file_handle, footer_pos, SEEK_SET) != 0)
+			{
+				myprintf("40031! fseek failed during segment scan\n");
+				return false;
+			}
+
+			file_footer seg_footer;
+			if (fread(&seg_footer, 1, sizeof(file_footer), file_handle) != sizeof(file_footer))
+			{
+				myprintf("40032! fread failed during segment scan\n");
+				return false;
+			}
+
+			// Convert from little-endian
+			seg_footer.segment_start_offset= le64_to_host(seg_footer.segment_start_offset);
+			seg_footer.segment_data_size   = le64_to_host(seg_footer.segment_data_size);
+			seg_footer.segment_count	   = le64_to_host(seg_footer.segment_count);
+
+			segment_info_v3 info;
+			info.data_start_offset= seg_footer.segment_start_offset;
+			info.data_size		  = seg_footer.segment_data_size;
+			info.segment_num	  = seg_footer.segment_count;
+			segments.push_back(info);
+
+			if (flagdebug)
+				myprintf("Segment %s: start=%s, size=%s\n",
+						 migliaia(info.segment_num), migliaia2(info.data_start_offset), migliaia3(info.data_size));
+
+			// Move to previous footer
+			// Previous footer is at: this_segment_start - sizeof(footer)
+			footer_pos= info.data_start_offset - sizeof(file_footer);
+		}
+
+		// Reverse to get chronological order (oldest first)
+		std::reverse(segments.begin(), segments.end());
+
+		// Now decrypt each segment
+		for (size_t seg_idx= 0; seg_idx < segments.size(); seg_idx++)
+		{
+			segment_info_v3 &seg	   = segments[seg_idx];
+			uint64_t		 seg_blocks= (seg.data_size + block_size - 1) / block_size;
+			int64_t			 seg_offset= seg.data_start_offset;
+
+			if (flagdebug)
+				myprintf("Decrypting segment %zu: %s blocks from offset %s\n",
+						 seg_idx + 1, migliaia(seg_blocks), migliaia2(seg_offset));
+
+			for (uint64_t blk= 0; blk < seg_blocks; blk++)
+			{
+				int64_t block_offset= seg_offset + blk * full_block_disk_size;
+
+				// Calculate plaintext size for this block
+				uint64_t block_plain_size= block_size;
+				if (blk == seg_blocks - 1)
+				{
+					// Last block of segment
+					uint64_t remainder= seg.data_size % block_size;
+					if (remainder > 0)
+						block_plain_size= remainder;
+				}
+				uint64_t block_cipher_size= block_plain_size + tag_len;
+
+				if (fseek64(file_handle, block_offset, SEEK_SET) != 0)
+				{
+					myprintf("40033! fseek failed for segment %zu block %s\n", seg_idx + 1, migliaia(blk));
+					return false;
+				}
+
+				std::vector<unsigned char> block_nonce(nonce_len);
+				if (fread(&block_nonce[0], 1, nonce_len, file_handle) != nonce_len)
+				{
+					myprintf("40034! fread nonce failed for segment %zu block %s\n", seg_idx + 1, migliaia(blk));
+					return false;
+				}
+
+				if (fread(&encrypted[0], 1, block_cipher_size, file_handle) != block_cipher_size)
+				{
+					myprintf("40035! fread ciphertext failed for segment %zu block %s\n", seg_idx + 1, migliaia(blk));
+					return false;
+				}
+
+				unsigned long long decrypted_len= 0;
+				if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+						&plaintext[0], &decrypted_len, NULL,
+						&encrypted[0], block_cipher_size,
+						NULL, 0, &block_nonce[0], key) != 0)
+				{
+					myprintf("40036! Decryption failed for segment %zu block %s (offset=%s)\n",
+							 seg_idx + 1, migliaia(blk), migliaia2(block_offset));
+					return false;
+				}
+
+				size_t to_copy= (size_t)decrypted_len;
+				if (bytes_written + to_copy > footer.file_data_size)
+					to_copy= footer.file_data_size - bytes_written;
+
+				memcpy(out_buffer + bytes_written, &plaintext[0], to_copy);
+				bytes_written+= to_copy;
+			}
+		}
+
+		if (flagmemzero)
+			sodium.sodium_memzero(franzen_dati(plaintext), plaintext.size());
+
+		return bytes_written == footer.file_data_size;
+	}
+
+	// Function to decrypt an arbitrary portion of a franzen file
+	// Decripta i dati da una posizione arbitraria nel file logico (non cifrato).
+	// Gestisce automaticamente il caso in cui la richiesta:
+	// - Sia più piccola di un blocco
+	// - Sia più grande di un blocco
+	// - Stia a cavallo di più blocchi
+	// - Not aligned to block boundaries
+
+	bool read_at_to(char *out_buffer, size_t buffer_size, uint64_t i_offset)
+	{
+		if (!is_file_open || !out_buffer || buffer_size == 0)
+		{
+			if (!is_file_open)
+				myprintf("44001: read_at_to: file not open\n");
+			if (!out_buffer)
+				myprintf("44003: out_buffer\n");
+			if (buffer_size == 0)
+				myprintf("40004: buffer size 0\n");
+			return false;
+		}
+
+		// Verifica che non si vada oltre la dimensione del file
+		if (i_offset >= footer.file_data_size)
+		{
+			myprintf("44002: read_at_to: offset %s >= file_data_size %s (FAIL)\n",
+					 migliaia(i_offset), migliaia2(footer.file_data_size));
+			return false;
+		}
+
+		// Limita la lettura alla dimensione effettiva del file
+		uint64_t max_readable= footer.file_data_size - i_offset;
+		if (buffer_size > max_readable)
+		{
+			if (flagdebug2)
+				myprintf("44003: read_at_to: buffer_size %s troncato a %s\n",
+						 migliaia(buffer_size), migliaia2(max_readable));
+			buffer_size= (size_t)max_readable;
+		}
+
+		// Ensure segment cache is populated
+		if (_segments_cache.empty() && footer.segment_count > 0)
+			refresh_segment_cache();
+
+		size_t	 tag_len		= sodium.crypto_aead_chacha20poly1305_ietf_abytes();	// 16
+		size_t	 nonce_len		= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes(); // 12
+		uint64_t full_disk_block= nonce_len + block_size + tag_len;
+
+		// Temporary buffers for single block decryption
+		std::vector<unsigned char> encrypted(block_size + tag_len);
+		std::vector<unsigned char> plaintext(block_size);
+		std::vector<unsigned char> block_nonce_buf(nonce_len);
+
+		uint64_t current_logical_pos= i_offset;
+		uint64_t bytes_needed		= buffer_size;
+		size_t	 buffer_write_pos	= 0;
+
+		// For single-segment files, use simple logic
+		if (footer.segment_count <= 1 || _segments_cache.empty())
+		{
+			// Simple case: all blocks contiguous
+			uint64_t first_block= i_offset / block_size;
+			uint64_t last_block = (i_offset + buffer_size - 1) / block_size;
+			int64_t	 header_size= sizeof(file_header) + sizeof(header_nonce);
+
+			for (uint64_t block_idx= first_block; block_idx <= last_block && bytes_needed > 0; block_idx++)
+			{
+				// Calculate physical offset
+				int64_t block_file_offset= header_size + block_idx * full_disk_block;
+
+				// Calculate this block's plaintext size (last block may be smaller)
+				uint64_t block_plaintext_size= block_size;
+				uint64_t total_blocks		 = (footer.file_data_size + block_size - 1) / block_size;
+				if (block_idx == total_blocks - 1)
+				{
+					uint64_t rem= footer.file_data_size % block_size;
+					if (rem > 0)
+						block_plaintext_size= rem;
+				}
+
+				// Read and decrypt
+				if (fseek64(file_handle, block_file_offset, SEEK_SET) != 0)
+					return false;
+				if (fread(&block_nonce_buf[0], 1, nonce_len, file_handle) != nonce_len)
+					return false;
+
+				size_t encrypted_size= block_plaintext_size + tag_len;
+				if (fread(&encrypted[0], 1, encrypted_size, file_handle) != encrypted_size)
+					return false;
+
+				unsigned long long dec_len= 0;
+				if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+						&plaintext[0], &dec_len, NULL,
+						&encrypted[0], encrypted_size,
+						NULL, 0, &block_nonce_buf[0], key) != 0)
+				{
+					myprintf("44040! read_at_to: decriptazione fallita per blocco %s\n", migliaia(block_idx));
+					return false;
+				}
+
+				// Calculate copy range
+				uint64_t block_start_logical= block_idx * block_size;
+				uint64_t offset_in_block	= (current_logical_pos > block_start_logical)
+												  ? (current_logical_pos - block_start_logical)
+												  : 0;
+				uint64_t available			= dec_len - offset_in_block;
+				uint64_t to_copy			= (bytes_needed < available) ? bytes_needed : available;
+
+				memcpy(out_buffer + buffer_write_pos, &plaintext[offset_in_block], to_copy);
+				buffer_write_pos+= to_copy;
+				bytes_needed-= to_copy;
+				current_logical_pos+= to_copy;
+			}
+
+			return (bytes_needed == 0);
+		}
+
+		// Multi-segment file: use segment cache to find correct physical locations
+		for (size_t seg_idx= 0; seg_idx < _segments_cache.size() && bytes_needed > 0; seg_idx++)
+		{
+			const segment_cache_item &seg	 = _segments_cache[seg_idx];
+			uint64_t				  seg_end= seg.logical_start + seg.logical_size;
+
+			// Check if our request overlaps this segment
+			if (current_logical_pos >= seg_end)
+				continue; // Request is after this segment
+			if (current_logical_pos + bytes_needed <= seg.logical_start)
+				break; // Request is before this segment
+
+			// We have data to read in this segment
+			uint64_t offset_in_segment = current_logical_pos - seg.logical_start;
+			uint64_t first_block_in_seg= offset_in_segment / block_size;
+
+			// Iterate blocks in this segment
+			for (uint64_t blk= first_block_in_seg; blk < seg.block_count && bytes_needed > 0; blk++)
+			{
+				uint64_t block_logical_start_in_seg= blk * block_size;
+				uint64_t block_logical_end_in_seg  = block_logical_start_in_seg + block_size;
+				if (block_logical_end_in_seg > seg.logical_size)
+					block_logical_end_in_seg= seg.logical_size;
+
+				// Skip if we've passed this block
+				if (offset_in_segment >= block_logical_end_in_seg)
+					continue;
+
+				// Calculate Physical Offset for this block within this segment
+				int64_t physical_offset= seg.physical_start + (blk * full_disk_block);
+
+				// Calculate this block's plaintext size (last block of segment may be smaller)
+				uint64_t this_block_plain_size= block_size;
+				if (blk == seg.block_count - 1)
+				{
+					uint64_t rem= seg.logical_size % block_size;
+					if (rem > 0)
+						this_block_plain_size= rem;
+				}
+				uint64_t this_block_disk_size= this_block_plain_size + tag_len;
+
+				// Read nonce and encrypted data
+				if (fseek64(file_handle, physical_offset, SEEK_SET) != 0)
+					return false;
+				if (fread(&block_nonce_buf[0], 1, nonce_len, file_handle) != nonce_len)
+					return false;
+				if (fread(&encrypted[0], 1, this_block_disk_size, file_handle) != this_block_disk_size)
+					return false;
+
+				// Decrypt
+				unsigned long long dec_len= 0;
+				if (sodium.crypto_aead_chacha20poly1305_ietf_decrypt(
+						&plaintext[0], &dec_len, NULL,
+						&encrypted[0], this_block_disk_size,
+						NULL, 0, &block_nonce_buf[0], key) != 0)
+				{
+					myprintf("44040! read_at_to: decriptazione fallita seg %zu blocco %s (physical %s)\n",
+							 seg_idx + 1, migliaia(blk), migliaia2(physical_offset));
+					return false;
+				}
+
+				// Calculate how many bytes to skip in this block
+				uint64_t skip= 0;
+				if (offset_in_segment > block_logical_start_in_seg)
+					skip= offset_in_segment - block_logical_start_in_seg;
+
+				uint64_t available= dec_len - skip;
+				uint64_t to_copy  = (bytes_needed < available) ? bytes_needed : available;
+
+				memcpy(out_buffer + buffer_write_pos, &plaintext[skip], to_copy);
+
+				buffer_write_pos+= to_copy;
+				bytes_needed-= to_copy;
+				current_logical_pos+= to_copy;
+				offset_in_segment+= to_copy;
+			}
+		}
+
+		if (flagmemzero)
+			sodium.sodium_memzero(&plaintext[0], plaintext.size());
+
+		if (flagdebug2)
+			myprintf("44070: read_at_to: completato, scritti %s byte\n", migliaia(buffer_write_pos));
+
+		return (bytes_needed == 0);
+	}
+
+/*
+	// Debug function per testare read_at_to
+	// Decripta il file già aperto usando read_at_to con letture a pezzi
+	// Il file deve essere già aperto con open() prima di chiamare questa funzione
+	//
+	// Uso:
+	//   franzcri fc("password", strlen("password"));
+	//   fc.open("file.franzen", false);
+	//   fc.decriptadebug("output.bin", 32768);
+	//   fc.close();
+
+	bool decriptadebug(const char *output_filename, size_t chunk_size)
+	{
+		if (!output_filename)
+		{
+			myprintf("45001! decriptadebug: output_filename nullo\n");
+			return false;
+		}
+
+		if (!is_file_open)
+		{
+			myprintf("45002! decriptadebug: file non aperto! Usa open() prima\n");
+			return false;
+		}
+
+		if (chunk_size == 0)
+			chunk_size= 32768; // Default 32KB, volutamente non allineato a block_size
+
+		myprintf("45010: decriptadebug: output %s\n", output_filename);
+		myprintf("45011: decriptadebug: chunk_size     = %s\n", migliaia(chunk_size));
+		myprintf("45012: decriptadebug: file_data_size = %s\n", migliaia2(footer.file_data_size));
+		myprintf("45013: decriptadebug: block_size     = %s\n", migliaia3(block_size));
+
+		uint64_t total_blocks= (footer.file_data_size + block_size - 1) / block_size;
+		myprintf("45014: decriptadebug: total_blocks   = %s\n", migliaia4(total_blocks));
+
+		// Open the output file
+		FILE *fout= cri_fopen(output_filename, "wb");
+		if (!fout)
+		{
+			myprintf("45040! decriptadebug: impossibile creare file output %s\n", output_filename);
+			return false;
+		}
+
+		// Allocate read buffer
+		char *buffer= new char[chunk_size];
+		if (!buffer)
+		{
+			myprintf("45050! decriptadebug: impossibile allocare buffer %s byte\n", migliaia(chunk_size));
+			fclose(fout);
+			return false;
+		}
+
+		uint64_t offset		  = 0;
+		uint64_t total_written= 0;
+		uint64_t file_size	  = footer.file_data_size;
+		int		 chunk_count  = 0;
+		bool	 success	  = true;
+
+		myprintf("45060: decriptadebug: inizio ciclo di lettura\n");
+		myprintf("===========================================\n");
+
+		while (offset < file_size)
+		{
+			// Calcola quanto leggere
+			uint64_t remaining= file_size - offset;
+			size_t	 to_read  = (remaining < chunk_size) ? (size_t)remaining : chunk_size;
+
+			// Calculate involved blocks (for debug)
+			uint64_t first_block_idx= offset / block_size;
+			uint64_t last_block_idx = (offset + to_read - 1) / block_size;
+
+			myprintf("45100: chunk #%d: offset=%s to_read=%s blocchi=[%s..%s]\n",
+					 chunk_count,
+					 migliaia(offset),
+					 migliaia2(to_read),
+					 migliaia3(first_block_idx),
+					 migliaia4(last_block_idx));
+
+			// Offset inside the first block
+			size_t offset_in_first_block= (size_t)(offset % block_size);
+			myprintf("45101:          offset_in_first_block=%s\n", migliaia(offset_in_first_block));
+
+			// Chiama read_at_to
+			memset(buffer, 0xAA, chunk_size); // Pattern per debug
+
+			if (!read_at_to(buffer, to_read, offset))
+			{
+				myprintf("45110! decriptadebug: read_at_to FALLITO al chunk #%d offset=%s\n",
+						 chunk_count, migliaia(offset));
+				success= false;
+				break;
+			}
+
+			// Scrivi su file
+			size_t written= fwrite(buffer, 1, to_read, fout);
+			if (written != to_read)
+			{
+				myprintf("45120! decriptadebug: fwrite fallito, scritti %s di %s\n",
+						 migliaia(written), migliaia2(to_read));
+				success= false;
+				break;
+			}
+
+			// Debug: show first and last bytes del chunk
+			if (to_read >= 16)
+			{
+				myprintf("45130:          primi 8 byte: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+						 (unsigned char)buffer[0], (unsigned char)buffer[1],
+						 (unsigned char)buffer[2], (unsigned char)buffer[3],
+						 (unsigned char)buffer[4], (unsigned char)buffer[5],
+						 (unsigned char)buffer[6], (unsigned char)buffer[7]);
+				myprintf("45131:          ultimi 8 byte: %02X %02X %02X %02X %02X %02X %02X %02X\n",
+						 (unsigned char)buffer[to_read - 8], (unsigned char)buffer[to_read - 7],
+						 (unsigned char)buffer[to_read - 6], (unsigned char)buffer[to_read - 5],
+						 (unsigned char)buffer[to_read - 4], (unsigned char)buffer[to_read - 3],
+						 (unsigned char)buffer[to_read - 2], (unsigned char)buffer[to_read - 1]);
+			}
+
+			offset+= to_read;
+			total_written+= written;
+			chunk_count++;
+
+			myprintf("45140:          OK, total_written=%s\n", migliaia(total_written));
+			myprintf("-------------------------------------------\n");
+		}
+
+		myprintf("===========================================\n");
+		myprintf("45200: decriptadebug: ciclo terminato\n");
+		myprintf("45201: decriptadebug: chunks processati = %d\n", chunk_count);
+		myprintf("45202: decriptadebug: byte scritti      = %s\n", migliaia(total_written));
+		myprintf("45203: decriptadebug: file_data_size    = %s\n", migliaia2(file_size));
+		myprintf("45204: decriptadebug: risultato         = %s\n", success ? "OK" : "FALLITO");
+
+		delete[] buffer;
+		fclose(fout);
+
+		return success;
+	}
+
+	// Version with variable chunk size per stress test
+	// Il file deve essere già aperto con open() prima di chiamare questa funzione
+	bool decriptadebug_stress(const char *output_filename)
+	{
+		if (!output_filename)
+		{
+			myprintf("45501! decriptadebug_stress: output_filename is null\n");
+			return false;
+		}
+
+		if (!is_file_open)
+		{
+			myprintf("45502! decriptadebug_stress: file not open! Use open() first\n");
+			return false;
+		}
+
+		myprintf("45510: decriptadebug_stress: output %s\n", output_filename);
+		myprintf("45511: decriptadebug_stress: file_data_size = %s\n", migliaia(footer.file_data_size));
+		myprintf("45512: decriptadebug_stress: block_size     = %s\n", migliaia2(block_size));
+
+		// Open the output file
+		FILE *fout= cri_fopen(output_filename, "wb");
+		if (!fout)
+		{
+			myprintf("45540! decriptadebug_stress: cannot create output file\n");
+			return false;
+		}
+
+		// Large buffer for worst-case scenario
+		size_t max_chunk= (size_t)(block_size * 3); // Up to 3 blocks
+		char  *buffer	= new char[max_chunk];
+		if (!buffer)
+		{
+			myprintf("45550! decriptadebug_stress: cannot allocate buffer\n");
+			fclose(fout);
+			return false;
+		}
+
+		// Array of chunk sizes to test (intentionally weird values)
+		size_t chunk_sizes[]= {
+			1,							  // 1 byte
+			7,							  // Prime number
+			100,						  // Small
+			1000,						  // 1KB
+			4096,						  // 4KB (typical sector)
+			(size_t)(block_size - 1),	  // Almost one block
+			(size_t)(block_size),		  // Exactly one block
+			(size_t)(block_size + 1),	  // Slightly more than one block
+			(size_t)(block_size + 100),	  // A block and a bit
+			(size_t)(block_size * 2 - 1), // Almost two blocks
+			(size_t)(block_size * 2),	  // Exactly two blocks
+			(size_t)(block_size * 2 + 1), // Slightly more than two blocks
+			32768,						  // 32KB
+			65000,						  // Almost 64KB
+			100000						  // ~100KB
+		};
+		size_t num_sizes = sizeof(chunk_sizes) / sizeof(chunk_sizes[0]);
+		size_t size_index= 0;
+
+		uint64_t offset		  = 0;
+		uint64_t total_written= 0;
+		uint64_t file_size	  = footer.file_data_size;
+		int		 chunk_count  = 0;
+		bool	 success	  = true;
+
+		myprintf("45560: decriptadebug_stress: starting loop with variable chunks\n");
+		myprintf("===========================================\n");
+
+		while (offset < file_size)
+		{
+			// Choose chunk size cyclically
+			size_t current_chunk_size= chunk_sizes[size_index % num_sizes];
+			size_index++;
+
+			// Limit to max allocated
+			if (current_chunk_size > max_chunk)
+				current_chunk_size= max_chunk;
+
+			// Calculate how much to read
+			uint64_t remaining= file_size - offset;
+			size_t	 to_read  = (remaining < (uint64_t)current_chunk_size) ? (size_t)remaining : current_chunk_size;
+
+			uint64_t first_block_idx= offset / block_size;
+			uint64_t last_block_idx = (offset + to_read - 1) / block_size;
+			size_t	 offset_in_first= (size_t)(offset % block_size);
+
+			myprintf("45600: chunk #%d: chunk_size=%s offset=%s to_read=%s\n",
+					 chunk_count,
+					 migliaia((uint64_t)current_chunk_size),
+					 migliaia2(offset),
+					 migliaia3((uint64_t)to_read));
+			myprintf("45601:          blocks=[%s..%s] offset_in_first=%s\n",
+					 migliaia(first_block_idx),
+					 migliaia2(last_block_idx),
+					 migliaia3((uint64_t)offset_in_first));
+
+			memset(buffer, 0xAA, to_read);
+
+			if (!read_at_to(buffer, to_read, offset))
+			{
+				myprintf("45610! decriptadebug_stress: read_at_to FAILED\n");
+				success= false;
+				break;
+			}
+
+			size_t written= fwrite(buffer, 1, to_read, fout);
+			if (written != to_read)
+			{
+				myprintf("45620! decriptadebug_stress: fwrite failed\n");
+				success= false;
+				break;
+			}
+
+			offset+= to_read;
+			total_written+= (uint64_t)written;
+			chunk_count++;
+		}
+
+		myprintf("===========================================\n");
+		myprintf("45700: decriptadebug_stress: result = %s\n", success ? "OK" : "FAILED");
+		myprintf("45701: decriptadebug_stress: bytes written = %s / %s\n",
+				 migliaia(total_written), migliaia2(file_size));
+
+		delete[] buffer;
+		fclose(fout);
+
+		return success;
+	}
+*/
+	void dumpa(const bool flagall, const unsigned int menoenne)
+	{
+		printbar('=');
+		color_cyan();
+		myprintf("FRANZEN FILE DUMP\n");
+		color_restore();
+		printbar('=');
+
+		// Stato generale
+		color_cyan();
+		myprintf("STATUS\n");
+		color_restore();
+		myprintf("is_file_open         : %21s\n", is_file_open ? "YES" : "NO");
+		myprintf("is_file_new          : %21s\n", is_file_new ? "YES" : "NO");
+		myprintf("is_loaded            : %21s\n", is_libsodium_loaded ? "YES" : "NO");
+		myprintf("is_init              : %21s\n", is_libsodium_initialized ? "YES" : "NO");
+		myprintf("file_was_modified    : %21s\n", file_was_modified ? "YES" : "NO");
+
+		// Password analysis solo se disponibile
+		if (g_franzen != "")
+		{
+			myprintf("password_len         : %21s\n", migliaia(password_len));
+			(void)esamina_password(g_franzen, true);
+		}
+		else
+		{
+			myprintf("password_len         : %21s (no password provided)\n", "N/A");
+		}
+
+		if (!is_file_open)
+		{
+			myprintf("\nFile not open\n");
+			printbar('=');
+			return;
+		}
+
+		// Header - Magic e autenticazione (sempre visibile, dati pubblici)
+		color_cyan();
+		myprintf("HEADER: MAGIC & AUTH :            (56 bytes)\n");
+		color_restore();
+		myprintf("magic            [8] :           ");
+		for (int i= 0; i < MAGIC_BYTES_LEN; i++)
+		{
+			if (header.magic[i] >= 32 && header.magic[i] < 127)
+				myprintf("%c", header.magic[i]);
+			else
+				myprintf("\\x%02X", (unsigned char)header.magic[i]);
+		}
+		myprintf("\n");
+
+		myprintf("auth_tag        [16] : ");
+		for (int i= 0; i < SIZEOF_AUTH_TAG; i++)
+			myprintf("%02X", header.auth_tag[i]);
+		myprintf("\n");
+
+		myprintf("salt            [16] : ");
+		for (int i= 0; i < SIZEOF_SALT; i++)
+			myprintf("%02X", header.salt[i]);
+		myprintf("\n");
+
+		myprintf("key_check_tag   [16] : ");
+		for (int i= 0; i < SIZEOF_KEY_CHECK_TAG; i++)
+			myprintf("%02X", header.key_check_tag[i]);
+		myprintf("\n");
+
+		// Header - Metadati principali (sempre visibile)
+		color_cyan();
+		myprintf("HEADER: METADATA     :            (fixed)\n");
+		color_restore();
+		myprintf("block_size           : %21s bytes (%s)\n", migliaia(header.block_size), tohuman(header.block_size));
+		myprintf("quickhash            :      %016llX\n", (unsigned long long)header.quickhash);
+		myprintf("version              : %21s\n", migliaia(header.version));
+
+		// Header - Parametri Argon2 (sempre visibile)
+		color_cyan();
+		myprintf("HEADER:KEY DERIVATION:    (16 bytes, Argon2)\n");
+		color_restore();
+		myprintf("pwhash_opslimit      : %21s\n", migliaia(header.pwhash_opslimit));
+		myprintf("pwhash_memlimit      : %21s bytes (%s)\n", migliaia(header.pwhash_memlimit), tohuman(header.pwhash_memlimit));
+
+		const char *strength= "UNKNOWN";
+		if (header.pwhash_opslimit == CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE)
+			strength= "INTERACTIVE (fast)";
+		else if (header.pwhash_opslimit == CRYPTO_PWHASH_OPSLIMIT_MODERATE)
+			strength= "MODERATE (balanced)";
+		else if (header.pwhash_opslimit == CRYPTO_PWHASH_OPSLIMIT_SENSITIVE)
+			strength= "SENSITIVE (slow/secure)";
+		myprintf("strength             : %21s\n", strength);
+
+		// Footer data (variable, updated on each write)
+		color_cyan();
+		myprintf("FOOTER: VARIABLE DATA:            (60 bytes at end of file)\n");
+		color_restore();
+		myprintf("file_data_size       : %21s bytes (%s)\n", migliaia(footer.file_data_size), tohuman(footer.file_data_size));
+		myprintf("crc32                :              %08X\n", (uint32_t)(footer.crc32 & 0xFFFFFFFF));
+		myprintf("prefix_crc32         :              %08X\n", (uint32_t)(footer.prefix_crc32 & 0xFFFFFFFF));
+		myprintf("prefix_size          : %21s bytes (%s)\n", migliaia(footer.prefix_size), tohuman(footer.prefix_size));
+		myprintf("footer_nonce    [12] :    ");
+		for (int i= 0; i < SIZEOF_ONCE; i++)
+			myprintf("%02X", footer.footer_nonce[i]);
+		myprintf("\n");
+		myprintf("footer_auth_tag [16] : ");
+		for (int i= 0; i < SIZEOF_AUTH_TAG; i++)
+			myprintf("%02X", footer.footer_auth_tag[i]);
+		myprintf("\n");
+
+		// Header - Padding and nonce (sempre visibile)
+		color_cyan();
+		myprintf("HEADER: PAD & NONCE\n");
+		color_restore();
+		myprintf("pad              [4] :           %02X %02X %02X %02X\n",
+				 header.pad[0], header.pad[1], header.pad[2], header.pad[3]);
+		myprintf("header_nonce    [12] :    ");
+		for (int i= 0; i < SIZEOF_ONCE; i++)
+			myprintf("%02X", header_nonce[i]);
+		myprintf("\n");
+
+		// Se non c'è password, fermiamoci qui
+		if (g_franzen == "")
+		{
+			color_yellow();
+			myprintf("\nNo password provided (-franzen). Showing header only.\n");
+			myprintf("Use -franzen <password> for full dump including nonce check.\n");
+			color_restore();
+			printbar('=');
+			return;
+		}
+
+		// From here on, password is required
+
+		// Calcoli derivati
+		color_cyan();
+		myprintf("CALC\n");
+		color_restore();
+		myprintf("sizeof(file_header)  : %21s bytes\n", migliaia(sizeof(file_header)));
+		myprintf("sizeof(header_nonce) : %21s bytes\n", migliaia(sizeof(header_nonce)));
+		myprintf("sizeof(file_footer)  : %21s bytes\n", migliaia(sizeof(file_footer)));
+		myprintf("total header size    : %21s bytes\n", migliaia(sizeof(file_header) + sizeof(header_nonce)));
+
+		if (footer.file_data_size > 0 && header.block_size > 0)
+		{
+			uint64_t num_blocks			 = get_num_blocks();
+			uint64_t num_full_blocks	 = get_num_full_blocks();
+			uint64_t last_block_plaintext= (num_blocks > 0) ? get_block_plaintext_size(num_blocks - 1) : 0;
+			uint64_t last_block_disk	 = get_last_block_encrypted_size();
+
+			size_t tag_len	= 16; // SIZEOF_AUTH_TAG
+			size_t nonce_len= 12; // SIZEOF_ONCE
+			if (is_libsodium_loaded)
+			{
+				tag_len	 = sodium.crypto_aead_chacha20poly1305_ietf_abytes();
+				nonce_len= sodium.crypto_aead_chacha20poly1305_ietf_npubbytes();
+			}
+
+			uint64_t full_block_on_disk= nonce_len + header.block_size + tag_len;
+			// MODIFIED: Calculate total encrypted size considering variable last block
+			uint64_t total_encrypted_size= num_full_blocks * full_block_on_disk + last_block_disk;
+			uint64_t expected_file_size	 = sizeof(file_header) + sizeof(header_nonce) + total_encrypted_size + sizeof(file_footer);
+
+			color_cyan();
+			myprintf("BLOCK STRUCTURE (Variable Last Block)\n");
+			color_restore();
+			myprintf("num_blocks           : %21s\n", migliaia(num_blocks));
+			myprintf("num_full_blocks      : %21s\n", migliaia(num_full_blocks));
+			myprintf("last_block_data_size : %21s bytes\n", migliaia(last_block_plaintext));
+			myprintf("last_block_disk_size : %21s bytes (nonce + data + tag)\n", migliaia(last_block_disk));
+			myprintf("nonce_len            : %21s bytes\n", migliaia(nonce_len));
+			myprintf("tag_len              : %21s bytes\n", migliaia(tag_len));
+			myprintf("full_block_on_disk   : %21s bytes (nonce + data + tag)\n", migliaia(full_block_on_disk));
+			myprintf("total_encrypted_size : %21s bytes (%s)\n", migliaia(total_encrypted_size), tohuman(total_encrypted_size));
+			myprintf("expected_file_size   : %21s bytes (%s) (header+blocks+footer)\n", migliaia(expected_file_size), tohuman(expected_file_size));
+
+			bool is_last_full= (last_block_plaintext == header.block_size);
+			myprintf("last_block_type      : %21s\n", is_last_full ? "FULL" : "PARTIAL (variable)");
+
+			// Overhead
+			double overhead_pct= 0;
+			if (footer.file_data_size > 0)
+				overhead_pct= ((double)(expected_file_size - footer.file_data_size) / footer.file_data_size) * 100.0;
+			myprintf("encryption_overhead  : %21s bytes (%.2f%%)\n",
+					 migliaia(expected_file_size - footer.file_data_size), overhead_pct);
+
+			// Mappa blocchi
+			color_cyan();
+			if (flagall && menoenne <= 0)
+				myprintf("BLOCKS MAP (all)\n");
+			else if (flagall && menoenne > 0)
+				myprintf("BLOCKS MAP (first %d and last %d)\n", menoenne, menoenne);
+			else
+				myprintf("BLOCKS MAP (first 10 and last 5)\n");
+			color_restore();
+			myprintf("Block#     File_Offset             Data_Offset           Data_Size  Disk_Size\n");
+			myprintf("---------- ----------------------- --------------------- ---------- ----------\n");
+
+			uint64_t blocks_to_show_start= 10;
+			uint64_t blocks_to_show_end	 = 5;
+
+			if (flagall)
+			{
+				if (menoenne > 0)
+				{
+					blocks_to_show_start= (uint64_t)menoenne;
+					blocks_to_show_end	= (uint64_t)menoenne;
+					if (num_blocks <= (uint64_t)(menoenne * 2))
+					{
+						blocks_to_show_start= num_blocks;
+						blocks_to_show_end	= 0;
+					}
+				}
+				else
+				{
+					blocks_to_show_start= num_blocks;
+					blocks_to_show_end	= 0;
+				}
+			}
+			else
+			{
+				if (num_blocks <= 15)
+				{
+					blocks_to_show_start= num_blocks;
+					blocks_to_show_end	= 0;
+				}
+			}
+
+			for (uint64_t i= 0; i < blocks_to_show_start && i < num_blocks; i++)
+			{
+				int64_t		file_offset= get_block_file_offset(i);
+				uint64_t	data_offset= i * header.block_size;
+				uint64_t	data_size  = get_block_plaintext_size(i);
+				uint64_t	disk_size  = get_block_disk_size(i);
+				const char *marker	   = (i == num_blocks - 1 && data_size < header.block_size) ? " *" : "";
+
+				myprintf("%12s %21s %21s %10s %10s%s\n",
+						 migliaia(i), migliaia2(file_offset), migliaia3(data_offset), migliaia4(data_size), migliaia5(disk_size), marker);
+			}
+
+			if (blocks_to_show_end > 0 && blocks_to_show_start < num_blocks)
+			{
+				uint64_t start_of_end= num_blocks - blocks_to_show_end;
+				// Evita sovrapposizione con i primi blocchi già mostrati
+				if (start_of_end <= blocks_to_show_start)
+					start_of_end= blocks_to_show_start;
+
+				if (start_of_end > blocks_to_show_start)
+				{
+					myprintf("       ... ... ... ... (%s blocks omitted)\n",
+							 migliaia(start_of_end - blocks_to_show_start));
+				}
+
+				for (uint64_t i= start_of_end; i < num_blocks; i++)
+				{
+					int64_t		file_offset= get_block_file_offset(i);
+					uint64_t	data_offset= i * header.block_size;
+					uint64_t	data_size  = get_block_plaintext_size(i);
+					uint64_t	disk_size  = get_block_disk_size(i);
+					const char *marker2	   = (i == num_blocks - 1 && data_size < header.block_size) ? " *" : "";
+
+					myprintf("%12s %21s %21s %10s %10s%s\n",
+							 migliaia(i), migliaia2(file_offset), migliaia3(data_offset), migliaia4(data_size), migliaia5(disk_size), marker2);
+				}
+			}
+
+			myprintf("\n(* = partial/variable size block)\n");
+
+			// VERIFY NONCE UNIQUENESS (solo se flagall)
+			// Duplicate nonces with same key = catastrofe crittografica
+			if (flagall && num_blocks > 0)
+			{
+				color_cyan();
+				myprintf("NONCE UNIQUENESS CHECK\n");
+				color_restore();
+
+				myprintf("Checking %s block nonces...\n", migliaia(num_blocks));
+
+				// Usa std::set<string> per O(log n) insert e lookup
+				std::set<std::string>						  seen_nonces;
+				std::vector<std::pair<uint64_t, std::string> > duplicates;
+
+				// Salva posizione corrente
+				int64_t saved_pos= ftello(file_handle);
+
+				unsigned char nonce_buf[12];
+				bool		  read_error		= false;
+				int64_t		  last_progress_time= mtime();
+				int64_t		  start_time		= last_progress_time;
+
+				for (uint64_t i= 0; i < num_blocks; i++)
+				{
+					int64_t block_file_offset= get_block_file_offset(i);
+					if (fseek64(file_handle, block_file_offset, SEEK_SET) != 0)
+					{
+						myprintf("46001! Error seeking to block %s\n", migliaia(i));
+						read_error= true;
+						break;
+					}
+
+					if (fread(nonce_buf, 1, nonce_len, file_handle) != nonce_len)
+					{
+						myprintf("46002! Error reading nonce for block %s\n", migliaia(i));
+						read_error= true;
+						break;
+					}
+
+					// Converti nonce in stringa per usarlo come chiave
+					std::string nonce_str((char *)nonce_buf, nonce_len);
+
+					// Try inserting into set
+					if (!seen_nonces.insert(nonce_str).second)
+					{
+						// Duplicate found!
+						std::string nonce_hex;
+						for (size_t k= 0; k < nonce_len; k++)
+						{
+							char hex[3];
+							snprintf(hex, sizeof(hex), "%02X", nonce_buf[k]);
+							nonce_hex+= hex;
+						}
+						duplicates.push_back(std::make_pair(i, nonce_hex));
+
+						if (duplicates.size() >= 100)
+							break;
+					}
+
+					// Progress ogni secondo
+					int64_t now= mtime();
+					if (now - last_progress_time >= 1000)
+					{
+						last_progress_time	 = now;
+						double elapsed_sec	 = (now - start_time) / 1000.0;
+						double blocks_per_sec= (elapsed_sec > 0) ? (i + 1) / elapsed_sec : 0;
+						double eta_sec		 = (blocks_per_sec > 0) ? (num_blocks - i - 1) / blocks_per_sec : 0;
+
+						myprintf("  Checked %12s / %s (%12s/s, ETA %.0fs)\r",
+								 migliaia(i + 1), migliaia2(num_blocks),
+								 migliaia3((int64_t)blocks_per_sec), eta_sec);
+					}
+				}
+
+				// Clear progress line and show total time
+				int64_t total_time= mtime() - start_time;
+				if (total_time >= 1000)
+				{
+					eol();
+					myprintf(" Checked %s nonces in %.1fs\n",
+							 migliaia(num_blocks), total_time / 1000.0);
+				}
+
+				// Ripristina posizione
+				fseek64(file_handle, saved_pos, SEEK_SET);
+
+				if (!read_error)
+				{
+					if (duplicates.empty())
+					{
+						color_green();
+						myprintf("All %s nonces are UNIQUE - OK\n", migliaia(num_blocks));
+						color_restore();
+					}
+					else
+					{
+						color_red();
+						myprintf("CRITICAL: %s DUPLICATE NONCES FOUND!\n", migliaia(duplicates.size()));
+						myprintf("This is a SEVERE cryptographic weakness!\n");
+						myprintf("Repeated nonce with same key allows plaintext recovery!\n");
+						color_restore();
+
+						myprintf("\nDuplicate nonce details:\n");
+						for (size_t d= 0; d < duplicates.size() && d < 20; d++)
+						{
+							myprintf("  Block %12s : nonce %s\n",
+									 migliaia(duplicates[d].first),
+									 duplicates[d].second.c_str());
+						}
+
+						if (duplicates.size() > 20)
+							myprintf("  ... and %s more\n", migliaia(duplicates.size() - 20));
+
+						if (duplicates.size() >= 100)
+							myprintf("  (stopped after 100 duplicates)\n");
+					}
+				}
+			}
+		}
+		else
+		{
+			myprintf("\nEMPTY FILE OR INVALID block_size\n");
+		}
+
+		printbar('=');
+	}
+
+	/// keeping for easy debug
+	bool encode(const char *input_filename, const char *output_filename)
+	{
+		FILE *input_file= cri_fopen(input_filename, "rb");
+		if (!input_file)
+		{
+			perror("Error opening input file");
+			return false;
+		}
+
+		fseek(input_file, 0, SEEK_END);
+		long long total_size= -1;
+#ifdef _WIN32
+		total_size= _ftelli64(input_file);
+#else
+		total_size= ftello(input_file);
+#endif
+		fseek(input_file, 0, SEEK_SET);
+		long long bytes_processed= 0;
+
+		if (!open(output_filename, true))
+		{
+			fclose(input_file);
+			return false;
+		}
+
+		std::vector<char> buffer(io_buffer_size);
+		size_t			  bytes_read;
+		bool			  success= true;
+		int64_t			  inizio = mtime();
+		while ((bytes_read= fread(&buffer[0], 1, io_buffer_size, input_file)) > 0)
+		{
+			if (!write(&buffer[0], bytes_read))
+			{
+				myprintf("\n");
+				myprintf("39145! Error during writing of encrypted data\n");
+				success= false;
+				break;
+			}
+			bytes_processed+= bytes_read;
+			// Print progress
+
+			if (!flagnoeta)
+				myavanzamentoby1sec(bytes_processed, total_size, inizio);
+		}
+
+		if (ferror(input_file))
+		{
+			perror("\nError reading from input file");
+			success= false;
+		}
+		if (flagmemzero)
+			sodium.sodium_memzero(franzen_dati(buffer), buffer.size());
+		fclose(input_file);
+		close();
+
+		if (success)
+			myprintf("Encoding completed\n");
+
+		return success;
+	}
+
+	/// this is the real one
+	bool encode_parallela(const char *input_filename, const char *output_filename, int num_threads)
+	{
+		if (num_threads <= 0)
+		{
+			myprintf("39184! Error: The number of threads must be greater than zero\n");
+			return false;
+		}
+
+		FILE *input_file= cri_fopen(input_filename, "rb");
+		if (!input_file)
+		{
+			perror("Error opening input file");
+			return false;
+		}
+
+		if (fseek64(input_file, 0, SEEK_END) != 0)
+		{
+			perror("Error positioning to the end of the input file");
+			fclose(input_file);
+			return false;
+		}
+
+		long long total_size= -1;
+#ifdef _WIN32
+		total_size= _ftelli64(input_file);
+#else
+		total_size= ftello(input_file);
+#endif
+		fclose(input_file);
+
+		if (total_size < 0)
+		{
+			myprintf("39212! CRITICAL ERROR: Unable to determine the size of file '%s'\n", input_filename);
+			// Do not leave an empty and corrupt output file
+			// open() non è stato ancora chiamato, quindi non c'è nulla da pulire.
+			return false;
+		}
+
+		if (total_size == 0)
+		{
+			if (!open(output_filename, true)) /// 65.11r //FIX-FRANZEN: it said OK with no file at all
+				return false;
+			close();
+			return true;
+		}
+
+		if (!open(output_filename, true))
+		{
+			// If opening fails, il file non esiste, non c'è bisogno di cancellarlo.
+			return false;
+		}
+
+		if (total_size < 0)
+		{
+			myprintf("39233! CRITIC: cannot get total_size of '%s'\n", input_filename);
+			close();
+			delete_file(output_filename); // Removes empty file creato da open()
+			return false;
+		}
+
+		footer.file_data_size= total_size;
+		footer.segment_data_size= total_size;  // Single segment: all data belongs to it
+		// Note: segment_count and segment_start_offset are already set by open()
+		// header is already written by open(), and footer will be written by close()
+
+		uint64_t total_blocks= (total_size + block_size - 1) / block_size;
+		if ((int)num_threads > (int)total_blocks)
+			num_threads= total_blocks > 0 ? (int)total_blocks : 1;
+		if (num_threads == 0 && total_blocks > 0)
+			num_threads= 1;
+
+		/// pthread_t* threads 	= new pthread_t[num_threads];
+		/// thread_data* t_data = new thread_data[num_threads];
+
+		std::vector<pthread_t>	 threads(num_threads);
+		std::vector<thread_data> t_data(num_threads);
+		pthread_mutex_t			 file_mutex;
+		pthread_mutex_init(&file_mutex, NULL);
+
+		uint64_t blocks_per_thread= total_blocks / num_threads;
+		uint64_t remaining_blocks = total_blocks % num_threads;
+		uint64_t current_block_idx= 0;
+		bool	 all_threads_ok	  = true;
+
+		if (flagverbose)
+			if (num_threads > 0)
+				myprintf("Encoding threads %d on %s blocks of %s for %s...\n", num_threads, migliaia(total_blocks), tohuman(block_size), tohuman2(total_size));
+
+		for (int i= 0; i < num_threads; ++i)
+		{
+			t_data[i].instance		  = this;
+			t_data[i].input_filename  = input_filename;
+			t_data[i].file_mutex	  = &file_mutex;
+			t_data[i].start_block_idx = current_block_idx;
+			t_data[i].total_input_size= total_size;
+			t_data[i].starttime		  = mtime();
+
+			uint64_t blocks_for_this_thread= blocks_per_thread;
+			if (remaining_blocks > 0)
+			{
+				blocks_for_this_thread++;
+				remaining_blocks--;
+			}
+			t_data[i].num_blocks_to_process= blocks_for_this_thread;
+
+			if (pthread_create(&threads[i], NULL, encryption_worker, &t_data[i]) != 0)
+			{
+				perror("Error creating thread");
+				all_threads_ok= false;
+				break;
+			}
+
+			current_block_idx+= blocks_for_this_thread;
+		}
+
+		if (all_threads_ok)
+			for (int i= 0; i < num_threads; ++i)
+			{
+				pthread_join(threads[i], NULL);
+				if (!t_data[i].success)
+					all_threads_ok= false;
+			}
+
+		pthread_mutex_destroy(&file_mutex);
+		/// delete[] threads;
+		/// delete[] t_data;
+
+		close();
+
+		if (!all_threads_ok)
+		{
+			/// 65.17n: as decode: a file with a good footer around blocks that are not there helps nobody
+			myprintf("39311! One or more threads encountered an error: the output file is deleted\n");
+			delete_file(output_filename);
+			return false;
+		}
+
+		return true;
+	}
+	bool decode_parallela(const char *input_filename, const char *output_filename, int num_threads)
+	{
+		if (num_threads <= 0)
+		{
+			myprintf("39321! Error: The number of threads must be greater than zero\n");
+			return false;
+		}
+
+		// Opens the encrypted file and reads/verifies the header. The key is derived here.
+		if (!open(input_filename, false))
+			return false;
+
+		// FIX V3: Ensure segment cache is valid to calculate correct block counts
+		if (!_segments_cache_valid)
+			refresh_segment_cache();
+
+		// Determina la modalità: se output_filename è nullo o vuoto, è una verifica.
+		bool verify_only_mode= (output_filename == NULL || *output_filename == '\0');
+
+		FILE *output_file= NULL;
+		if (!verify_only_mode)
+		{
+			output_file= cri_fopen(output_filename, "wb");
+			if (!output_file)
+			{
+				perror("Error creating output file");
+				close(); // Closes input file
+				return false;
+			}
+		}
+		else
+		{
+			if (flagverbose)
+				myprintf("Starting parallel verification (no disk writing)...\n");
+		}
+
+		// FIX V3: Calculate total blocks by summing blocks of all segments.
+		// Simple division (file_size / block_size) is wrong for multi-segment files
+		// because each segment can end with a partial block, introducing "gaps" in logical mapping.
+		uint64_t total_blocks= 0;
+		if (!_segments_cache.empty())
+		{
+			for (size_t i= 0; i < _segments_cache.size(); i++)
+				total_blocks+= _segments_cache[i].block_count;
+		}
+		else
+		{
+			// Fallback for V2 or single segment
+			total_blocks= (footer.file_data_size + block_size - 1) / block_size;
+		}
+
+		if ((total_blocks > 0) && ((int)num_threads > (int)total_blocks))
+			num_threads= (int)total_blocks;
+		if (num_threads == 0 && total_blocks > 0)
+			num_threads= 1;
+
+		// Se il file è vuoto (0 blocchi), il lavoro è già finito.
+		if (total_blocks == 0)
+		{
+			if (output_file)
+				fclose(output_file);
+			close();
+			return true;
+		}
+
+		std::vector<pthread_t>			threads(num_threads);
+		std::vector<decode_thread_data> t_data(num_threads);
+
+		pthread_mutex_t file_io_mutex;
+		pthread_mutex_init(&file_io_mutex, NULL);
+
+		uint64_t blocks_per_thread= total_blocks / num_threads;
+		uint64_t remaining_blocks = total_blocks % num_threads;
+		uint64_t current_block_idx= 0;
+		bool	 all_threads_ok	  = true;
+
+		if (flagverbose)
+		{
+			if (!verify_only_mode)
+				myprintf("Decoding threads %d on %s blocks of %s for %s...\n", num_threads, migliaia(total_blocks), tohuman(block_size), tohuman2(footer.file_data_size));
+			else
+				myprintf("Verifying threads %d on %s blocks of %s for %s...\n", num_threads, migliaia(total_blocks), tohuman(block_size), tohuman2(footer.file_data_size));
+		}
+
+		for (int i= 0; i < num_threads; ++i)
+		{
+			t_data[i].instance		  = this;
+			t_data[i].output_file	  = output_file;
+			t_data[i].file_io_mutex	  = &file_io_mutex;
+			t_data[i].start_block_idx = current_block_idx;
+			t_data[i].total_input_size= footer.file_data_size; // Used only for ETA stats
+			t_data[i].starttime		  = mtime();
+
+			uint64_t blocks_for_this_thread= blocks_per_thread;
+			if (remaining_blocks > 0)
+			{
+				blocks_for_this_thread++;
+				remaining_blocks--;
+			}
+			t_data[i].num_blocks_to_process= blocks_for_this_thread;
+
+			if (pthread_create(&threads[i], NULL, decryption_worker, &t_data[i]) != 0)
+			{
+				perror("Error creating thread");
+				all_threads_ok= false;
+				break;
+			}
+			current_block_idx+= blocks_for_this_thread;
+		}
+
+		if (all_threads_ok)
+			for (int i= 0; i < num_threads; ++i)
+			{
+				pthread_join(threads[i], NULL);
+				if (!t_data[i].success)
+					all_threads_ok= false;
+			}
+
+		pthread_mutex_destroy(&file_io_mutex);
+
+		if (output_file)
+			fclose(output_file);
+		close(); // Closes input file
+
+		if (!all_threads_ok)
+		{
+			// Se c'è stato un errore e stavamo scrivendo un file, lo cancelliamo.
+			if (!verify_only_mode)
+				delete_file(output_filename);
+			return false;
+		}
+
+		return true;
+	}
+
+	//FIX-FRANZEN 65.11s: what the tests 11-15 of criautotest need
+	static bool at_leggi(const char *i_nome, std::vector<unsigned char> &o_dati)
+	{
+		o_dati.clear();
+		FILE *f= cri_fopen(i_nome, "rb");
+		if (!f)
+			return false;
+		std::vector<unsigned char> pezzo(65536);
+		size_t					   n;
+		while ((n= fread(&pezzo[0], 1, pezzo.size(), f)) > 0)
+			o_dati.insert(o_dati.end(), pezzo.begin(), pezzo.begin() + n);
+		fclose(f);
+		return true;
+	}
+	static bool at_scrivi(const char *i_nome, const std::vector<unsigned char> &i_dati, size_t i_quanti)
+	{
+		FILE *f= cri_fopen(i_nome, "wb");
+		if (!f)
+			return false;
+		const bool fatto= (i_quanti == 0) || (fwrite(&i_dati[0], 1, i_quanti, f) == i_quanti);
+		return (fclose(f) == 0) && fatto;
+	}
+	/// bytes that do not repeat block after block: a wrong block, or a block out of its place, shows
+	static void at_dati(std::vector<char> &o_dati, size_t i_quanti, unsigned int i_seme)
+	{
+		o_dati.resize(i_quanti);
+		uint32_t x= 2463534242u + i_seme * 7919u;
+		if (x == 0)
+			x= 1;
+		for (size_t i= 0; i < i_quanti; i++)
+		{
+			x^= x << 13;
+			x^= x >> 17;
+			x^= x << 5;
+			o_dati[i]= (char)(x & 255);
+		}
+	}
+	/// the file opens with this password and holds exactly these bytes (read in pieces of an odd size)
+	static bool at_contiene(const char *i_nome, const std::string &i_password, const std::vector<char> &i_attesi)
+	{
+		franzcri f(i_password.c_str(), i_password.length());
+		if (!f.open(i_nome, false))
+			return false;
+		bool			  uguale= (f.get_file_data_size() == (uint64_t)i_attesi.size());
+		std::vector<char> letto(70001);
+		size_t			  fatto= 0;
+		while (uguale && (fatto < i_attesi.size()))
+		{
+			size_t quanti= i_attesi.size() - fatto;
+			if (quanti > letto.size())
+				quanti= letto.size();
+			if (!f.read_at_to(&letto[0], quanti, fatto))
+				uguale= false;
+			else if (memcmp(&letto[0], &i_attesi[fatto], quanti) != 0)
+				uguale= false;
+			fatto+= quanti;
+		}
+		f.close();
+		return uguale;
+	}
+
+	/// 65.18e: a lambda of TEST 8 before (C++98: ESX). compare first N bytes of two files (rsync-friendliness check)
+	static bool cri_headcompare(const char *file1, const char *file2, size_t compare_len)
+	{
+		FILE *f1= cri_fopen(file1, "rb");
+		FILE *f2= cri_fopen(file2, "rb");
+		if (!f1 || !f2)
+		{
+			if (f1)
+				fclose(f1);
+			if (f2)
+				fclose(f2);
+			return false;
+		}
+
+		bool		  identical	 = true;
+		size_t		  diff_offset= 0;
+		unsigned char byte1= 0, byte2= 0;
+		char		  buf1[4096], buf2[4096];
+		size_t		  total= 0;
+
+		while (total < compare_len && identical)
+		{
+			size_t to_read= (compare_len - total < 4096) ? (compare_len - total) : 4096;
+			size_t r1	  = fread(buf1, 1, to_read, f1);
+			size_t r2	  = fread(buf2, 1, to_read, f2);
+
+			if (r1 != to_read || r2 != to_read)
+			{
+				identical  = false;
+				diff_offset= total;
+				break;
+			}
+
+			for (size_t i= 0; i < to_read; i++)
+			{
+				if (buf1[i] != buf2[i])
+				{
+					identical  = false;
+					diff_offset= total + i;
+					byte1	   = (unsigned char)buf1[i];
+					byte2	   = (unsigned char)buf2[i];
+					break;
+				}
+			}
+			total+= to_read;
+		}
+
+		fclose(f1);
+		fclose(f2);
+
+		if (!identical)
+		{
+			myprintf("       DIFF at offset %s (0x%llX): file1=0x%02X, file2=0x%02X\n",
+					 migliaia(diff_offset), (unsigned long long)diff_offset, byte1, byte2);
+		}
+		return identical;
+	}
+
+	/// 65.18e: a lambda of TEST 8 before (C++98: ESX). get file size
+	static int64_t cri_filesize(const char *filename)
+	{
+		FILE *f= cri_fopen(filename, "rb");
+		if (!f)
+			return -1;
+		fseek(f, 0, SEEK_END);
+		int64_t size= ftell(f);
+		fclose(f);
+		return size;
+	}
+
+	/// 65.18e: a lambda of TEST 8 before (C++98: ESX). create test data with pattern
+	static std::vector<char> cri_pattern(size_t size, char base_char)
+	{
+		std::vector<char> data(size);
+		for (size_t i= 0; i < size; i++)
+		{
+			data[i]= base_char + (i % 26);
+		}
+		return data;
+	}
+
+	bool criautotest()
+	{
+		myprintf("38820: Starting advanced autotest...\n");
+		if (!is_libsodium_loaded)
+		{
+			myprintf("38823! AUTOTEST FAILED: libsodium not loaded\n");
+			return false;
+		}
+
+		bool			  all_tests_passed	= true;
+		const char		 *test_filename		= "test_file.franzen";
+		const std::string correct_password	= "pluto";
+		const std::string wrong_password	= "wrongpass";
+		const size_t	  block_size_default= G_FRANZEN_SIZE;
+		const size_t	  block_size_min	= 4096;
+		const size_t	  block_size_max	= 1024 * 1024;
+		const size_t	  small_data_size	= 1024;
+		const size_t	  large_data_size	= 2 * 1024 * 1024;
+
+		// TEST 1: Create, write, rewrite (writeat), and verify
+		myprintf("\nTEST 1: Creating, write, rewrite, verify...\n");
+		{
+			// Create and write initial data
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(test_filename, true))
+				{
+					print_test_result("TEST 1 - Creation opening", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> data(small_data_size, 'A');
+				if (!fc.write(&data[0], data.size()))
+				{
+					print_test_result("TEST 1 - Initial writing", false, &all_tests_passed);
+					fc.close();
+					goto cleanup;
+				}
+				fc.close(); // This wipes the password
+			}
+
+			// Reopen with NEW instance for writeat
+			{
+				franzcri fc2(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc2.open(test_filename, false))
+				{
+					print_test_result("TEST 1 - Reopening for writeat", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::string overwrite_data(104, 'B');
+				if (!fc2.writeat(200, overwrite_data.c_str(), overwrite_data.size()))
+				{
+					print_test_result("TEST 1 - Writeat call", false, &all_tests_passed);
+					fc2.close();
+					goto cleanup;
+				}
+				fc2.close();
+			}
+
+			// Reopen with ANOTHER new instance for verification
+			{
+				franzcri fc3(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc3.open(test_filename, false))
+				{
+					print_test_result("TEST 1 - Reopening for verification", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> decrypted(small_data_size);
+				if (!fc3.decrypt_to_buffer(&decrypted[0], decrypted.size()))
+				{
+					print_test_result("TEST 1 - Decryption", false, &all_tests_passed);
+					fc3.close();
+					goto cleanup;
+				}
+				fc3.close();
+
+				bool correct= true;
+				for (size_t i= 0; i < small_data_size; ++i)
+				{
+					char expected= (i >= 200 && i < 304) ? 'B' : 'A';
+					if (decrypted[i] != expected)
+					{
+						myprintf("TEST 1 - Error: Incorrect data at position %zu. Expected '%c', found '%c'\n",
+								 i, expected, decrypted[i]);
+						correct= false;
+						break;
+					}
+				}
+				print_test_result("TEST 1 - Content verification", correct, &all_tests_passed);
+
+				for (unsigned int i= 0; i < 10; i++)
+					myprintf("TEST 1 - %03d %02X\n", i, decrypted[i]);
+			}
+		}
+
+		// TEST 2: Empty file
+		myprintf("\nTEST 2: Creating empty file...\n");
+		{
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(test_filename, true))
+				{
+					print_test_result("TEST 2 - Opening creation of empty file", false, &all_tests_passed);
+					goto cleanup;
+				}
+				fc.close();
+			}
+
+			{
+				franzcri fc2(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc2.open(test_filename, false))
+				{
+					print_test_result("TEST 2 - Reopening empty file", false, &all_tests_passed);
+					goto cleanup;
+				}
+				if (!fc2.is_not_changed())
+				{
+					print_test_result("TEST 2 - Empty file integrity verification", false, &all_tests_passed);
+					fc2.close();
+					goto cleanup;
+				}
+				std::vector<char> decrypted(0);
+				bool			  success= fc2.decrypt_to_buffer(franzen_dati(decrypted), 0);
+				fc2.close();
+				print_test_result("TEST 2 - Empty file decryption", success && decrypted.empty(), &all_tests_passed);
+			}
+		}
+
+		// TEST 3: Large file
+		myprintf("\nTEST 3: Big file...\n");
+		{
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(test_filename, true))
+				{
+					print_test_result("TEST 3 - Opening creation of large file", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> data(large_data_size, 'C');
+				if (!fc.write(&data[0], data.size()))
+				{
+					print_test_result("TEST 3 - Writing large file", false, &all_tests_passed);
+					fc.close();
+					goto cleanup;
+				}
+				fc.close();
+			}
+
+			{
+				franzcri fc2(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc2.open(test_filename, false))
+				{
+					print_test_result("TEST 3 - Reopening large file", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> decrypted(large_data_size);
+				if (!fc2.decrypt_to_buffer(&decrypted[0], decrypted.size()))
+				{
+					print_test_result("TEST 3 - Decryption of large file", false, &all_tests_passed);
+					fc2.close();
+					goto cleanup;
+				}
+				fc2.close();
+
+				bool correct= true;
+				for (size_t i= 0; i < large_data_size; ++i)
+				{
+					if (decrypted[i] != 'C')
+					{
+						myprintf("TEST 3 - Error: Incorrect data at position %zu. Expected 'C', found '%c'\n",
+								 i, decrypted[i]);
+						correct= false;
+						break;
+					}
+				}
+				print_test_result("TEST 3 - Large file content verification", correct, &all_tests_passed);
+			}
+		}
+
+		// TEST 4: Wrong password
+		myprintf("\nTEST 4: Test with wrong password...\n");
+		{
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(test_filename, true))
+				{
+					print_test_result("TEST 4 - File creation", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> data(small_data_size, 'D');
+				if (!fc.write(&data[0], data.size()))
+				{
+					print_test_result("TEST 4 - Initial writing", false, &all_tests_passed);
+					fc.close();
+					goto cleanup;
+				}
+				fc.close();
+			}
+
+			{
+				franzcri fc_wrong(wrong_password.c_str(), wrong_password.length(), block_size_default);
+				bool	 should_fail= !fc_wrong.open(test_filename, false);
+				print_test_result("TEST 4 - Opening with incorrect password", should_fail, &all_tests_passed);
+			}
+		}
+
+		// TEST 5: Corrupted file
+		myprintf("\nTEST 5: Corrupted file...\n");
+		{
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(test_filename, true))
+				{
+					print_test_result("TEST 5 - File creation", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> data(small_data_size, 'E');
+				if (!fc.write(&data[0], data.size()))
+				{
+					print_test_result("TEST 5 - Initial writing", false, &all_tests_passed);
+					fc.close();
+					goto cleanup;
+				}
+				fc.close();
+			}
+
+			// Corrupt the file
+			{
+				FILE *f= cri_fopen(test_filename, "r+b");
+				if (f)
+				{
+					size_t offset= sizeof(file_header) + sizeof(header_nonce) +
+								   sodium.crypto_aead_chacha20poly1305_ietf_npubbytes() + 10;
+					fseek(f, offset, SEEK_SET);
+					unsigned char corrupt_byte= 0xFF;
+					fwrite(&corrupt_byte, 1, 1, f);
+					fclose(f);
+				}
+			}
+
+			{
+				franzcri fc2(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc2.open(test_filename, false))
+				{
+					print_test_result("TEST 5 - Opening corrupted file", false, &all_tests_passed);
+					goto cleanup;
+				}
+				bool should_fail= !fc2.is_not_changed();
+				fc2.close();
+				print_test_result("TEST 5 - Corruption detection", should_fail, &all_tests_passed);
+			}
+		}
+
+		// TEST 6: Extreme block sizes
+		myprintf("\nTEST 6: Min/max block_size...\n");
+		{
+			// Minimum block size
+			{
+				franzcri fc_min(correct_password.c_str(), correct_password.length(), block_size_min);
+				if (!fc_min.open(test_filename, true))
+				{
+					print_test_result("TEST 6 - Opening with minimum block_size", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> data(small_data_size, 'F');
+				if (!fc_min.write(&data[0], data.size()))
+				{
+					print_test_result("TEST 6 - Writing with minimum block_size", false, &all_tests_passed);
+					fc_min.close();
+					goto cleanup;
+				}
+				fc_min.close();
+			}
+
+			{
+				franzcri fc_min2(correct_password.c_str(), correct_password.length(), block_size_min);
+				if (!fc_min2.open(test_filename, false))
+				{
+					print_test_result("TEST 6 - Reopening with minimum block_size", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> decrypted(small_data_size);
+				bool			  success= fc_min2.decrypt_to_buffer(&decrypted[0], decrypted.size());
+				fc_min2.close();
+
+				bool correct= true;
+				if (success)
+				{
+					for (size_t i= 0; i < small_data_size; ++i)
+					{
+						if (decrypted[i] != 'F')
+						{
+							myprintf("TEST 6 - Error: Incorrect data at position %zu with minimum block_size. "
+									 "Expected 'F', found '%c'\n",
+									 i, decrypted[i]);
+							correct= false;
+							break;
+						}
+					}
+				}
+				print_test_result("TEST 6 - Minimum block_size verification", success && correct, &all_tests_passed);
+			}
+
+			// Maximum block size
+			{
+				franzcri fc_max(correct_password.c_str(), correct_password.length(), block_size_max);
+				if (!fc_max.open(test_filename, true))
+				{
+					print_test_result("TEST 6 - Opening with maximum block_size", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> data(small_data_size, 'G');
+				if (!fc_max.write(&data[0], data.size()))
+				{
+					print_test_result("TEST 6 - Writing with maximum block_size", false, &all_tests_passed);
+					fc_max.close();
+					goto cleanup;
+				}
+				fc_max.close();
+			}
+
+			{
+				franzcri fc_max2(correct_password.c_str(), correct_password.length(), block_size_max);
+				if (!fc_max2.open(test_filename, false))
+				{
+					print_test_result("TEST 6 - Reopening with maximum block_size", false, &all_tests_passed);
+					goto cleanup;
+				}
+				std::vector<char> decrypted(small_data_size);
+				bool			  success= fc_max2.decrypt_to_buffer(&decrypted[0], decrypted.size());
+				fc_max2.close();
+
+				bool correct= true;
+				if (success)
+				{
+					for (size_t i= 0; i < small_data_size; ++i)
+					{
+						if (decrypted[i] != 'G')
+						{
+							myprintf("TEST 6 - Error: Incorrect data at position %zu with maximum block_size. "
+									 "Expected 'G', found '%c'\n",
+									 i, decrypted[i]);
+							correct= false;
+							break;
+						}
+					}
+				}
+				print_test_result("TEST 6 - Maximum block_size verification", success && correct, &all_tests_passed);
+			}
+		}
+
+		// TEST 7: RSYNC-FRIENDLY APPEND TEST
+		// Verifies that after append, the original file content is bit-identical
+		// to the prefix of the appended file (crucial for rsync --append)
+		
+		myprintf("\nTEST 7: Rsync-friendly append (bit-identical prefix)...\n");
+		{
+			const char	*file_original= "franzen_test_original.tmp";
+			const char	*file_appended= "franzen_test_appended.tmp";
+			const size_t original_size= 100000; // ~100KB, multiple blocks
+			const size_t append_size  = 50000;	// ~50KB more
+
+			// Step 1: Create original file with some data
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(file_original, true))
+				{
+					print_test_result("TEST 7 - Creating original file", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				std::string data(original_size, 'X');
+				// Make it somewhat varied
+				for (size_t i= 0; i < original_size; i++)
+					data[i]= 'A' + (i % 26);
+
+				if (!fc.write(data.c_str(), data.size()))
+				{
+					print_test_result("TEST 7 - Writing original data", false, &all_tests_passed);
+					fc.close();
+					goto cleanup7;
+				}
+				fc.close();
+			}
+
+			// Step 2: Copy original to appended file (binary copy)
+			{
+				FILE *src= cri_fopen(file_original, "rb");
+				FILE *dst= cri_fopen(file_appended, "wb");
+				if (!src || !dst)
+				{
+					if (src)
+						fclose(src);
+					if (dst)
+						fclose(dst);
+					print_test_result("TEST 7 - Copying file", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				char   buf[8192];
+				size_t n;
+				while ((n= fread(buf, 1, sizeof(buf), src)) > 0)
+					fwrite(buf, 1, n, dst);
+
+				fclose(src);
+				fclose(dst);
+			}
+
+			// Step 3: Append data to the copied file
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(file_appended, false)) // Open existing, not create new
+				{
+					print_test_result("TEST 7 - Opening for append", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				std::string append_data(append_size, 'Z');
+				for (size_t i= 0; i < append_size; i++)
+					append_data[i]= 'a' + (i % 26);
+
+				if (!fc.write(append_data.c_str(), append_data.size()))
+				{
+					print_test_result("TEST 7 - Appending data", false, &all_tests_passed);
+					fc.close();
+					goto cleanup7;
+				}
+				fc.close();
+			}
+
+			// Step 4: Compare the two files - original should be bit-identical prefix of appended
+			{
+				int64_t len_orig	= prendidimensionefile(file_original);
+				int64_t len_appended= prendidimensionefile(file_appended);
+
+				myprintf("  Original file size:  %s bytes\n", migliaia(len_orig));
+				myprintf("  Appended file size:  %s bytes\n", migliaia(len_appended));
+				myprintf("  Delta:               %s bytes\n", migliaia(len_appended - len_orig));
+
+				if (len_appended <= len_orig)
+				{
+					myprintf("  ERROR: Appended file should be larger!\n");
+					print_test_result("TEST 7 - Size check", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				// Binary compare first len_orig bytes
+				FILE *f1= cri_fopen(file_original, "rb");
+				FILE *f2= cri_fopen(file_appended, "rb");
+
+				if (!f1 || !f2)
+				{
+					if (f1)
+						fclose(f1);
+					if (f2)
+						fclose(f2);
+					print_test_result("TEST 7 - Opening files for compare", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				bool		  prefix_identical= true;
+				int64_t		  diff_offset	  = -1;
+				unsigned char byte1= 0, byte2= 0;
+
+				char	buf1[8192], buf2[8192];
+				int64_t total_compared= 0;
+
+				while (total_compared < len_orig && prefix_identical)
+				{
+					size_t to_read= (len_orig - total_compared > (int64_t)sizeof(buf1))
+										? sizeof(buf1)
+										: (size_t)(len_orig - total_compared);
+
+					size_t r1= fread(buf1, 1, to_read, f1);
+					size_t r2= fread(buf2, 1, to_read, f2);
+
+					if (r1 != to_read || r2 != to_read)
+					{
+						prefix_identical= false;
+						diff_offset		= total_compared;
+						break;
+					}
+
+					if (memcmp(buf1, buf2, to_read) != 0)
+					{
+						// Find exact byte
+						for (size_t i= 0; i < to_read; i++)
+						{
+							if (buf1[i] != buf2[i])
+							{
+								diff_offset		= total_compared + i;
+								byte1			= (unsigned char)buf1[i];
+								byte2			= (unsigned char)buf2[i];
+								prefix_identical= false;
+								break;
+							}
+						}
+					}
+
+					total_compared+= to_read;
+				}
+
+				fclose(f1);
+				fclose(f2);
+
+				if (prefix_identical)
+				{
+					color_green();
+					myprintf("  SUCCESS: First %s bytes are BIT-IDENTICAL!\n", migliaia(len_orig));
+					myprintf("  rsync --append would transfer only the delta (%s bytes)\n",
+							 migliaia(len_appended - len_orig));
+					color_restore();
+					print_test_result("TEST 7 - Rsync-friendly prefix", true, &all_tests_passed);
+				}
+				else
+				{
+					color_red();
+					myprintf("  FAILURE: Files differ at offset %s\n", migliaia(diff_offset));
+					myprintf("  Original byte: 0x%02X, Appended byte: 0x%02X\n", byte1, byte2);
+					color_restore();
+					print_test_result("TEST 7 - Rsync-friendly prefix", false, &all_tests_passed);
+				}
+			}
+
+			// Step 5: Verify both files decrypt correctly
+			{
+				// Verify original
+				franzcri fc1(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc1.open(file_original, false))
+				{
+					print_test_result("TEST 7 - Verify original opens", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				std::vector<char> dec1(original_size);
+				bool			  ok1= fc1.decrypt_to_buffer(&dec1[0], dec1.size());
+				fc1.close();
+
+				// Verify appended
+				franzcri fc2(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc2.open(file_appended, false))
+				{
+					print_test_result("TEST 7 - Verify appended opens", false, &all_tests_passed);
+					goto cleanup7;
+				}
+
+				std::vector<char> dec2(original_size + append_size);
+				bool			  ok2= fc2.decrypt_to_buffer(&dec2[0], dec2.size());
+				fc2.close();
+
+				// Check decrypted content
+				bool content_ok= ok1 && ok2;
+				if (content_ok)
+				{
+					// Original content should match first part of appended
+					for (size_t i= 0; i < original_size && content_ok; i++)
+					{
+						char expected= 'A' + (i % 26);
+						if (dec1[i] != expected || dec2[i] != expected)
+						{
+							myprintf("  Content mismatch at position %zu\n", i);
+							content_ok= false;
+						}
+					}
+					// Appended content should be correct
+					for (size_t i= 0; i < append_size && content_ok; i++)
+					{
+						char expected= 'a' + (i % 26);
+						if (dec2[original_size + i] != expected)
+						{
+							myprintf("  Appended content mismatch at position %zu\n", i);
+							content_ok= false;
+						}
+					}
+				}
+
+				print_test_result("TEST 7 - Content verification", content_ok, &all_tests_passed);
+			}
+
+		cleanup7:
+			delete_file(file_original);
+			delete_file(file_appended);
+		}
+
+		// TEST 8: BOUNDARY STRESS TEST SUITE
+		// Test all combinations relative to 64KB block boundary
+		myprintf("\n");
+		myprintf("TEST 8: BOUNDARY STRESS TEST SUITE (64KB block boundary combinations)\n");
+		{
+			const char *test_file_base= "boundary_test_base.franz";
+			const char *test_file_work= "boundary_test_work.franz";
+
+			// Test case structure
+			struct boundary_test_case
+			{
+				const char *name;
+				size_t		initial_size;
+				size_t		append_size;
+				bool		expect_rsync_friendly;
+			};
+
+			// Define test cases - all combinations around 64KB boundary
+			const size_t KBYTE= 1024;
+			const size_t BLOCK= 65536; // 64KB
+
+			boundary_test_case test_cases[]= {
+				// Small + Small (both < 1 block)
+				{"Small+Small (1KB+1KB)", 1 * KBYTE, 1 * KBYTE, true},
+				{"Small+Small (2KB+500B)", 2 * KBYTE, 500, true},
+
+				// Small + Large (initial < 1 block, append crosses boundary)
+				{"Small+Large (1KB+100KB)", 1 * KBYTE, 100 * KBYTE, true},
+				{"Small+Large (10KB+200KB)", 10 * KBYTE, 200 * KBYTE, true},
+
+				// Large + Small (initial > 1 block, small append)
+				{"Large+Small (100KB+1KB)", 100 * KBYTE, 1 * KBYTE, true},
+				{"Large+Small (200KB+500B)", 200 * KBYTE, 500, true},
+
+				// Large + Large (both > 1 block)
+				{"Large+Large (100KB+100KB)", 100 * KBYTE, 100 * KBYTE, true},
+				{"Large+Large (150KB+150KB)", 150 * KBYTE, 150 * KBYTE, true},
+
+				// Exact boundary cases
+				{"Exact (64KB+1KB)", BLOCK, 1 * KBYTE, true},
+				{"Exact (64KB+64KB)", BLOCK, BLOCK, true},
+				{"Exact-1 (64KB-1+1B)", BLOCK - 1, 1, true},
+				{"Exact-1 (64KB-1+1KB)", BLOCK - 1, 1 * KBYTE, true},
+				{"Exact+1 (64KB+1+1KB)", BLOCK + 1, 1 * KBYTE, true},
+
+				// Edge cases
+				{"Minimal (100B+100B)", 100, 100, true},
+				{"Minimal (1B+1B)", 1, 1, true},
+
+				// Multi-block boundaries
+				{"2Blocks (128KB+1KB)", 2 * BLOCK, 1 * KBYTE, true},
+				{"2Blocks-1 (128KB-1+1B)", 2 * BLOCK - 1, 1, true},
+			};
+
+			int num_tests= sizeof(test_cases) / sizeof(test_cases[0]);
+			int passed	 = 0;
+			int failed	 = 0;
+
+			for (int t= 0; t < num_tests; t++)
+			{
+				boundary_test_case &tc= test_cases[t];
+
+				myprintf("\n--- Subtest %d/%d: %s ---\n", t + 1, num_tests, tc.name);
+				myprintf("    Initial: %s bytes (%s blocks + %s remainder)\n",
+						 migliaia(tc.initial_size),
+						 migliaia2(tc.initial_size / BLOCK),
+						 migliaia3(tc.initial_size % BLOCK));
+				myprintf("    Append:  %s bytes (%s blocks + %s remainder)\n",
+						 migliaia(tc.append_size),
+						 migliaia2(tc.append_size / BLOCK),
+						 migliaia3(tc.append_size % BLOCK));
+				myprintf("    Total:   %s bytes (%s blocks + %s remainder)\n",
+						 migliaia(tc.initial_size + tc.append_size),
+						 migliaia2((tc.initial_size + tc.append_size) / BLOCK),
+						 migliaia3((tc.initial_size + tc.append_size) % BLOCK));
+
+				// Declare all variables at the beginning to avoid goto issues
+				bool		subtest_passed= true;
+				std::string failure_reason;
+				int64_t		initial_file_size = 0;
+				int64_t		appended_file_size= 0;
+				int64_t		delta			  = 0;
+
+				// Step 1: Create initial file
+				myprintf("    [Step 1] Creating initial file...\n");
+				{
+					delete_file(test_file_base);
+					delete_file(test_file_work);
+
+					franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+					if (!fc.open(test_file_base, true))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to create initial file";
+						goto subtest_done;
+					}
+
+					std::vector<char> data= cri_pattern(tc.initial_size, 'A');
+					if (!fc.write(&data[0], data.size()))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to write initial data";
+						fc.close();
+						goto subtest_done;
+					}
+					fc.close();
+				}
+
+				initial_file_size= cri_filesize(test_file_base);
+				myprintf("    [Step 1] OK - File size: %s bytes\n", migliaia(initial_file_size));
+
+				// Step 2: Verify initial file decrypts correctly
+				myprintf("    [Step 2] Verifying initial file decryption...\n");
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+					if (!fc.open(test_file_base, false))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to open initial file for reading";
+						goto subtest_done;
+					}
+
+					std::vector<char> dec(tc.initial_size);
+					if (!fc.decrypt_to_buffer(&dec[0], dec.size()))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to decrypt initial file";
+						fc.close();
+						goto subtest_done;
+					}
+					fc.close();
+
+					// Verify content
+					std::vector<char> expected	= cri_pattern(tc.initial_size, 'A');
+					bool			  content_ok= (memcmp(&dec[0], &expected[0], tc.initial_size) == 0);
+					if (!content_ok)
+					{
+						subtest_passed= false;
+						failure_reason= "Initial file content mismatch after decryption";
+						goto subtest_done;
+					}
+				}
+				myprintf("    [Step 2] OK - Content verified\n");
+
+				// Step 3: Copy file (to preserve original for comparison)
+				myprintf("    [Step 3] Copying file for append test...\n");
+				{
+					FILE *src= cri_fopen(test_file_base, "rb");
+					FILE *dst= cri_fopen(test_file_work, "wb");
+					if (!src || !dst)
+					{
+						if (src)
+							fclose(src);
+						if (dst)
+							fclose(dst);
+						subtest_passed= false;
+						failure_reason= "Failed to copy file";
+						goto subtest_done;
+					}
+
+					char   buf[8192];
+					size_t n;
+					while ((n= fread(buf, 1, sizeof(buf), src)) > 0)
+					{
+						fwrite(buf, 1, n, dst);
+					}
+					fclose(src);
+					fclose(dst);
+				}
+				myprintf("    [Step 3] OK - File copied\n");
+
+				// Step 4: Append data to the copy
+				myprintf("    [Step 4] Appending data...\n");
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+					if (!fc.open(test_file_work, false))
+					{ // Open existing
+						subtest_passed= false;
+						failure_reason= "Failed to open file for append";
+						goto subtest_done;
+					}
+
+					std::vector<char> data= cri_pattern(tc.append_size, 'a');
+					if (!fc.write(&data[0], data.size()))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to append data";
+						fc.close();
+						goto subtest_done;
+					}
+					fc.close();
+				}
+
+				appended_file_size= cri_filesize(test_file_work);
+				delta			  = appended_file_size - initial_file_size;
+				myprintf("    [Step 4] OK - Appended file size: %s bytes (delta: %s bytes)\n",
+						 migliaia(appended_file_size), migliaia2(delta));
+
+				// Step 5: RSYNC-FRIENDLINESS CHECK
+				myprintf("    [Step 5] Checking rsync-friendliness (prefix identity)...\n");
+				myprintf("       Comparing first %s bytes...\n", migliaia(initial_file_size));
+				{
+					bool rsync_ok= cri_headcompare(test_file_base, test_file_work, initial_file_size);
+
+					if (rsync_ok)
+					{
+						color_green();
+						myprintf("       HEAD OK! First %s bytes are BIT-IDENTICAL\n", migliaia(initial_file_size));
+						myprintf("       rsync --append would transfer only %s bytes (delta)\n", migliaia2(delta));
+						color_restore();
+					}
+					else
+					{
+						color_yellow();
+						myprintf("       HEAD KAPUTT! Prefix differs - rsync --append would NOT work efficiently\n");
+						color_restore();
+
+						if (tc.expect_rsync_friendly)
+						{
+							subtest_passed= false;
+							failure_reason= "rsync-friendliness check failed (expected identical prefix)";
+							// Don't goto, continue to check decryption too
+						}
+					}
+				}
+
+				// Step 6: Verify appended file decrypts correctly
+				myprintf("    [Step 6] Verifying appended file decryption...\n");
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+					if (!fc.open(test_file_work, false))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to open appended file for reading";
+						goto subtest_done;
+					}
+
+					std::vector<char> dec(tc.initial_size + tc.append_size);
+					if (!fc.decrypt_to_buffer(&dec[0], dec.size()))
+					{
+						subtest_passed= false;
+						failure_reason= "Failed to decrypt appended file";
+						fc.close();
+						goto subtest_done;
+					}
+					fc.close();
+
+					// Verify content - first part should be 'A' pattern
+					std::vector<char> expected1= cri_pattern(tc.initial_size, 'A');
+					if (memcmp(&dec[0], &expected1[0], tc.initial_size) != 0)
+					{
+						subtest_passed= false;
+						failure_reason= "Appended file: initial data corrupted after decryption";
+
+						// Find first mismatch for debug
+						for (size_t i= 0; i < tc.initial_size; i++)
+						{
+							if (dec[i] != expected1[i])
+							{
+								myprintf("       First mismatch at offset %s: got 0x%02X, expected 0x%02X\n",
+										 migliaia(i), (unsigned char)dec[i], (unsigned char)expected1[i]);
+								break;
+							}
+						}
+						goto subtest_done;
+					}
+
+					// Second part should be 'a' pattern
+					std::vector<char> expected2= cri_pattern(tc.append_size, 'a');
+					if (memcmp(&dec[tc.initial_size], &expected2[0], tc.append_size) != 0)
+					{
+						subtest_passed= false;
+						failure_reason= "Appended file: appended data corrupted after decryption";
+
+						// Find first mismatch for debug
+						for (size_t i= 0; i < tc.append_size; i++)
+						{
+							if (dec[tc.initial_size + i] != expected2[i])
+							{
+								myprintf("       First mismatch at offset %s (in appended part): got 0x%02X, expected 0x%02X\n",
+										 migliaia(tc.initial_size + i),
+										 (unsigned char)dec[tc.initial_size + i],
+										 (unsigned char)expected2[i]);
+								break;
+							}
+						}
+						goto subtest_done;
+					}
+				}
+				myprintf("    [Step 6] OK - All content verified correctly\n");
+
+			subtest_done:
+				if (subtest_passed)
+				{
+					color_green();
+					myprintf("    SUBTEST PASSED: %s\n", tc.name);
+					color_restore();
+					passed++;
+				}
+				else
+				{
+					color_red();
+					myprintf("    SUBTEST FAILED: %s\n", tc.name);
+					myprintf("    Reason: %s\n", failure_reason.c_str());
+					color_restore();
+					failed++;
+					all_tests_passed= false;
+				}
+
+				// Cleanup
+				delete_file(test_file_base);
+				delete_file(test_file_work);
+			}
+
+			// Summary
+			myprintf("\n========================================================================\n");
+			myprintf("TEST 8 SUMMARY: %d/%d subtests passed", passed, num_tests);
+			if (failed > 0)
+			{
+				myprintf(" (%d FAILED)", failed);
+			}
+			myprintf("\n========================================================================\n");
+
+			print_test_result("TEST 8 - Boundary Stress Test Suite", (failed == 0), &all_tests_passed);
+		}
+
+		// TEST 9: ZPAQ-STYLE APPEND WITH HEADER WRITEBACK
+		// Simulates how zpaq works:
+		// Write empty header at position X (current end of file)
+		// Write data blocks
+		// Seek back to X and rewrite the header with actual values
+		// This tests writeat() on multi-segment files
+		{
+			myprintf("\n");
+			myprintf("TEST 9: ZPAQ-STYLE APPEND WITH HEADER WRITEBACK\n");
+			myprintf("Simulates zpaq behavior: write header, write data, rewrite header\n\n");
+
+			bool test9_passed= true;
+
+			// Create initial file with some data (simulates first zpaq transaction)
+			myprintf("--- Step 1: Create initial file ---\n");
+			{
+				franzcri f("testpass9", 9);
+				if (!f.open(test_filename, true))
+				{
+					myprintf("    FAILED: Cannot create test file\n");
+					test9_passed= false;
+					goto test9_cleanup;
+				}
+
+				// Write initial "transaction" - header (64 bytes) + data (1000 bytes) in ONE write
+				// This is how zpaq works: it buffers and writes in chunks
+				char initial_buffer[1064];
+				memset(initial_buffer, 'H', 64);		// Header part
+				initial_buffer[0]= 0x01;				// Transaction marker
+				memset(initial_buffer + 64, 'D', 1000); // Data part
+
+				if (!f.write(initial_buffer, sizeof(initial_buffer)))
+				{
+					myprintf("    FAILED: Cannot write initial data\n");
+					test9_passed= false;
+				}
+
+				f.close();
+				myprintf("    Initial file created: %zu bytes of data\n", sizeof(initial_buffer));
+			}
+
+			// Verify initial file
+			myprintf("--- Step 2: Verify initial file ---\n");
+			{
+				franzcri f("testpass9", 9);
+				if (!f.open(test_filename, false))
+				{
+					myprintf("    FAILED: Cannot reopen initial file\n");
+					test9_passed= false;
+					goto test9_cleanup;
+				}
+
+				uint64_t file_size= f.get_file_data_size();
+				myprintf("    File data size: %s bytes\n", migliaia(file_size));
+
+				// Read and verify
+				char verify_buf[1064];
+				if (!f.read_at_to(verify_buf, sizeof(verify_buf), 0))
+				{
+					myprintf("    FAILED: Cannot read initial data\n");
+					test9_passed= false;
+				}
+				else if (verify_buf[0] != 0x01 || verify_buf[64] != 'D')
+				{
+					myprintf("    FAILED: Initial data corrupted\n");
+					test9_passed= false;
+				}
+				else
+				{
+					myprintf("    Initial data verified OK\n");
+				}
+				f.close();
+			}
+
+			// Now simulate zpaq append: header at start of new segment, data, then rewrite header
+			myprintf("--- Step 3: Append with header writeback (zpaq-style) ---\n");
+			{
+				franzcri f("testpass9", 9);
+				if (!f.open(test_filename, false))
+				{
+					myprintf("    FAILED: Cannot reopen for append\n");
+					test9_passed= false;
+					goto test9_cleanup;
+				}
+
+				uint64_t header_position= f.get_file_data_size(); // Position where we'll write header
+				myprintf("    Header position (start of new segment): %s\n", migliaia(header_position));
+
+				// Step 3a+3b: Write placeholder header + data in ONE write
+				// zpaq actually buffers data, so this is realistic
+				char new_buffer[2064]; // 64 header + 2000 data
+
+				// Placeholder header
+				memset(new_buffer, 0, 64);
+				new_buffer[0]= 0x02; // Transaction 2 marker
+
+				// Data
+				memset(new_buffer + 64, 'E', 2000);
+
+				myprintf("    Writing placeholder header + %d bytes of data...\n", 2000);
+				if (!f.write(new_buffer, sizeof(new_buffer)))
+				{
+					myprintf("    FAILED: Cannot write new data\n");
+					test9_passed= false;
+				}
+
+				uint64_t final_size= f.get_file_data_size();
+				myprintf("    Total file size now: %s bytes\n", migliaia(final_size));
+
+				// Step 3c: Seek back and rewrite header with actual values (THE CRITICAL PART)
+				// This is what zpaq does: writeJidacHeader with actual size/hash values
+				char new_header[64];
+				memset(new_header, 0, sizeof(new_header));
+				new_header[0]= 0x02;
+				// Simulate writing the data size into the header
+				uint32_t data_size= 2000;
+				memcpy(new_header + 4, &data_size, sizeof(data_size));
+				new_header[63]= (char)0xFF; // End marker
+
+				myprintf("    Seeking back to rewrite header at offset %s...\n", migliaia(header_position));
+				if (!f.writeat(header_position, new_header, sizeof(new_header)))
+				{
+					myprintf("    FAILED: writeat failed for header rewrite!\n");
+					test9_passed= false;
+				}
+				else
+				{
+					myprintf("    Header rewritten successfully\n");
+				}
+
+				f.close();
+			}
+
+			// Verify the complete file
+			myprintf("--- Step 4: Verify complete file ---\n");
+			{
+				franzcri f("testpass9", 9);
+				if (!f.open(test_filename, false))
+				{
+					myprintf("    FAILED: Cannot reopen for verification\n");
+					test9_passed= false;
+					goto test9_cleanup;
+				}
+
+				uint64_t total_size= f.get_file_data_size();
+				myprintf("    Total data size: %s bytes\n", migliaia(total_size));
+				myprintf("    Expected: %zu bytes\n", (size_t)(64 + 1000 + 64 + 2000));
+
+				if (total_size != 64 + 1000 + 64 + 2000)
+				{
+					myprintf("    FAILED: Size mismatch!\n");
+					test9_passed= false;
+				}
+
+				// Read and verify first transaction
+				char buf1[1064];
+				if (!f.read_at_to(buf1, sizeof(buf1), 0))
+				{
+					myprintf("    FAILED: Cannot read first transaction\n");
+					test9_passed= false;
+				}
+				else if (buf1[0] != 0x01)
+				{
+					myprintf("    FAILED: First transaction header corrupted (got 0x%02X, expected 0x01)\n", (unsigned char)buf1[0]);
+					test9_passed= false;
+				}
+				else
+				{
+					myprintf("    First transaction verified OK\n");
+				}
+
+				// Read and verify second transaction header (THE REWRITTEN ONE)
+				char buf2[64];
+				if (!f.read_at_to(buf2, sizeof(buf2), 1064)) // offset = 64+1000 = 1064
+				{
+					myprintf("    FAILED: Cannot read second transaction header\n");
+					test9_passed= false;
+				}
+				else
+				{
+					myprintf("    Second header read: marker=0x%02X, end=0x%02X\n",
+							 (unsigned char)buf2[0], (unsigned char)buf2[63]);
+
+					if (buf2[0] != 0x02)
+					{
+						myprintf("    FAILED: Second transaction marker wrong (got 0x%02X, expected 0x02)\n", (unsigned char)buf2[0]);
+						test9_passed= false;
+					}
+					else if (buf2[63] != (char)0xFF)
+					{
+						myprintf("    FAILED: Second header end marker wrong (got 0x%02X, expected 0xFF)\n", (unsigned char)buf2[63]);
+						myprintf("    This means writeat() did NOT correctly update the header!\n");
+						test9_passed= false;
+					}
+					else
+					{
+						uint32_t stored_size;
+						memcpy(&stored_size, buf2 + 4, sizeof(stored_size));
+						myprintf("    Stored data size in header: %u (expected 2000)\n", stored_size);
+						if (stored_size == 2000)
+							myprintf("    Second transaction header verified OK!\n");
+						else
+						{
+							myprintf("    FAILED: Data size in header wrong\n");
+							test9_passed= false;
+						}
+					}
+				}
+
+				// Read and verify second transaction data
+				char buf3[2000];
+				if (!f.read_at_to(buf3, sizeof(buf3), 1064 + 64)) // offset = 64+1000+64 = 1128
+				{
+					myprintf("    FAILED: Cannot read second transaction data\n");
+					test9_passed= false;
+				}
+				else
+				{
+					bool data_ok= true;
+					for (int i= 0; i < 2000; i++)
+					{
+						if (buf3[i] != 'E')
+						{
+							myprintf("    FAILED: Second transaction data corrupted at byte %d (got 0x%02X)\n", i, (unsigned char)buf3[i]);
+							data_ok		= false;
+							test9_passed= false;
+							break;
+						}
+					}
+					if (data_ok)
+						myprintf("    Second transaction data verified OK\n");
+				}
+
+				f.close();
+			}
+
+		test9_cleanup:
+			print_test_result("TEST 9 - ZPAQ-style append with header writeback", test9_passed, &all_tests_passed);
+		}
+
+		// TEST 10: SUCCESSIVE WRITES (SALT + PAYLOAD)
+		// Simulates AES+Franzen double encryption behavior:
+		// zpaq first writes a 32-byte AES salt via write(), then writes the
+		// actual compressed/encrypted data via a second write().
+		// This creates a partial block (32 bytes) followed by a large write.
+		// The partial block MUST be merged with the subsequent data so that
+		// read_at_to() can decrypt the contiguous stream correctly.
+		{
+			myprintf("\n");
+			myprintf("TEST 10: SUCCESSIVE WRITES - SALT + PAYLOAD (partial block merge)\n");
+			myprintf("Simulates AES+Franzen: write 32-byte salt, then write %zu-byte payload\n\n",
+					 small_data_size);
+
+			bool test10_passed= true;
+
+			const size_t salt_size	 = 32;
+			const char	 salt_byte	 = 43; // '+' = 0x2B
+			const char	 payload_byte= 'A';
+			const size_t total_size	 = salt_size + small_data_size; // 32 + 1024 = 1056
+
+			// Step 1: Create file with two successive writes (salt then payload)
+			myprintf("--- Step 1: Create file with two successive writes ---\n");
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc.open(test_filename, true))
+				{
+					myprintf("    FAILED: Cannot create test file\n");
+					test10_passed= false;
+					goto test10_cleanup;
+				}
+
+				// First write: 32-byte salt (creates a partial block)
+				char salt[32];
+				memset(salt, salt_byte, sizeof(salt));
+				if (!fc.write(salt, sizeof(salt)))
+				{
+					myprintf("    FAILED: Cannot write salt (%zu bytes)\n", sizeof(salt));
+					test10_passed= false;
+					fc.close();
+					goto test10_cleanup;
+				}
+				myprintf("    Written salt: %zu bytes (value 0x%02X)\n", sizeof(salt), (unsigned char)salt_byte);
+
+				// Second write: 1024-byte payload (must merge with the partial block above)
+				std::vector<char> payload(small_data_size, payload_byte);
+				if (!fc.write(&payload[0], payload.size()))
+				{
+					myprintf("    FAILED: Cannot write payload (%zu bytes)\n", payload.size());
+					test10_passed= false;
+					fc.close();
+					goto test10_cleanup;
+				}
+				myprintf("    Written payload: %zu bytes (value '%c')\n", payload.size(), payload_byte);
+
+				fc.close();
+				myprintf("    File created and closed. Expected data size: %zu bytes\n", total_size);
+			}
+
+			// Step 2: Dump file structure for diagnostics
+			myprintf("--- Step 2: Dump file structure ---\n");
+			{
+				franzcri fcdump(correct_password.c_str(), correct_password.length());
+				if (!fcdump.open(test_filename, false))
+				{
+					myprintf("    FAILED: Cannot open file for dump\n");
+					test10_passed= false;
+					goto test10_cleanup;
+				}
+
+				uint64_t reported_size= fcdump.get_file_data_size();
+				myprintf("    Reported file_data_size: %s bytes (expected %zu)\n",
+						 migliaia(reported_size), total_size);
+
+				if (reported_size != total_size)
+				{
+					myprintf("    FAILED: Size mismatch! Got %s, expected %zu\n",
+							 migliaia(reported_size), total_size);
+					test10_passed= false;
+				}
+				fcdump.close();
+			}
+
+			// Step 3: Reopen and decrypt the entire file
+			myprintf("--- Step 3: Decrypt and verify content ---\n");
+			{
+				franzcri fc2(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc2.open(test_filename, false))
+				{
+					myprintf("    FAILED: Cannot reopen file for verification\n");
+					test10_passed= false;
+					goto test10_cleanup;
+				}
+
+				std::vector<char> decrypted(total_size);
+				if (!fc2.decrypt_to_buffer(&decrypted[0], decrypted.size()))
+				{
+					myprintf("    FAILED: Decryption failed\n");
+					test10_passed= false;
+					fc2.close();
+					goto test10_cleanup;
+				}
+				fc2.close();
+
+				myprintf("    Decrypted %s bytes. First 10 bytes:\n", migliaia((int64_t)decrypted.size()));
+				for (unsigned int i= 0; i < 10; i++)
+					myprintf("      [%03d] 0x%02X '%c'\n", i, (unsigned char)decrypted[i],
+							 (decrypted[i] >= 32 && decrypted[i] < 127) ? decrypted[i] : '.');
+
+				// Verify salt region: bytes [0..31] should all be salt_byte (0x2B = '+')
+				myprintf("    Verifying salt region [0..%zu)...\n", salt_size);
+				for (size_t i= 0; i < salt_size; i++)
+				{
+					if (decrypted[i] != salt_byte)
+					{
+						myprintf("    FAILED: Salt mismatch at position %zu: expected 0x%02X, got 0x%02X\n",
+								 i, (unsigned char)salt_byte, (unsigned char)decrypted[i]);
+						test10_passed= false;
+						break;
+					}
+				}
+				if (test10_passed)
+					myprintf("    Salt region OK (all %zu bytes = 0x%02X)\n", salt_size, (unsigned char)salt_byte);
+
+				// Verify payload region: bytes [32..1055] should all be payload_byte ('A')
+				if (test10_passed)
+				{
+					myprintf("    Verifying payload region [%zu..%zu)...\n", salt_size, total_size);
+					for (size_t i= salt_size; i < total_size; i++)
+					{
+						if (decrypted[i] != payload_byte)
+						{
+							myprintf("    FAILED: Payload mismatch at position %zu: expected '%c' (0x%02X), got 0x%02X\n",
+									 i, payload_byte, (unsigned char)payload_byte, (unsigned char)decrypted[i]);
+							test10_passed= false;
+							break;
+						}
+					}
+					if (test10_passed)
+						myprintf("    Payload region OK (all %zu bytes = '%c')\n", small_data_size, payload_byte);
+				}
+			}
+
+			// Step 4: Verify random-access reads across the salt/payload boundary
+			myprintf("--- Step 4: Random-access read across salt/payload boundary ---\n");
+			if (test10_passed)
+			{
+				franzcri fc3(correct_password.c_str(), correct_password.length(), block_size_default);
+				if (!fc3.open(test_filename, false))
+				{
+					myprintf("    FAILED: Cannot reopen for random-access test\n");
+					test10_passed= false;
+					goto test10_cleanup;
+				}
+
+				// Read 8 bytes crossing the boundary: [28..35] = 4 salt bytes + 4 payload bytes
+				const size_t cross_offset= salt_size - 4;
+				const size_t cross_len	 = 8;
+				char		 cross_buf[8];
+
+				if (!fc3.read_at_to(cross_buf, cross_len, cross_offset))
+				{
+					myprintf("    FAILED: read_at_to failed at offset %zu\n", cross_offset);
+					test10_passed= false;
+				}
+				else
+				{
+					bool cross_ok= true;
+					for (size_t i= 0; i < cross_len; i++)
+					{
+						char expected= (cross_offset + i < salt_size) ? salt_byte : payload_byte;
+						if (cross_buf[i] != expected)
+						{
+							myprintf("    FAILED: Cross-boundary byte [%zu] (file offset %zu): "
+									 "expected 0x%02X, got 0x%02X\n",
+									 i, cross_offset + i,
+									 (unsigned char)expected, (unsigned char)cross_buf[i]);
+							cross_ok	 = false;
+							test10_passed= false;
+							break;
+						}
+					}
+					if (cross_ok)
+						myprintf("    Cross-boundary read OK (offsets %zu..%zu)\n",
+								 cross_offset, cross_offset + cross_len - 1);
+				}
+
+				// Read only the last byte of the file
+				char last_byte;
+				if (!fc3.read_at_to(&last_byte, 1, total_size - 1))
+				{
+					myprintf("    FAILED: Cannot read last byte at offset %zu\n", total_size - 1);
+					test10_passed= false;
+				}
+				else if (last_byte != payload_byte)
+				{
+					myprintf("    FAILED: Last byte wrong: expected '%c', got 0x%02X\n",
+							 payload_byte, (unsigned char)last_byte);
+					test10_passed= false;
+				}
+				else
+				{
+					myprintf("    Last byte read OK (offset %zu = '%c')\n", total_size - 1, payload_byte);
+				}
+
+				fc3.close();
+			}
+
+		test10_cleanup:
+			print_test_result("TEST 10 - Successive writes (salt + payload, partial block merge)",
+							  test10_passed, &all_tests_passed);
+		}
+
+		//FIX-FRANZEN 65.11s: tests 11-15, on what the review of October 2026 found and changed
+
+		// TEST 11: writeat (the jidac header written again at the end of a transaction) puts the block
+		// back with a new nonce; the blocks it does not touch stay as they are, byte by byte
+		{
+			myprintf("\nTEST 11: writeat: the block is written again with a new nonce\n");
+			const size_t			   testa = sizeof(file_header) + SIZEOF_ONCE;
+			const size_t			   blocco= SIZEOF_ONCE + block_size_default + SIZEOF_AUTH_TAG;
+			bool					   fatto = true;
+			std::vector<char>		   attesi, secondo;
+			std::vector<unsigned char> prima, dopo;
+			at_dati(attesi, 200000, 11);
+			at_dati(secondo, 100000, 111);
+			const std::string h1(104, 'H'), h2(104, 'K'), h3(104, 'Z');
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				fatto= fc.open(test_filename, true) && fc.write(&attesi[0], attesi.size()) && at_leggi(test_filename, prima);
+				// 104 bytes at the start (the header of a transaction), then 104 across the first two blocks
+				fatto= fatto && fc.writeat(0, h1.c_str(), h1.size()) && fc.writeat(block_size_default - 50, h2.c_str(), h2.size());
+				fatto= fatto && at_leggi(test_filename, dopo);
+				fc.close();
+			}
+			memcpy(&attesi[0], h1.c_str(), 104);
+			memcpy(&attesi[block_size_default - 50], h2.c_str(), 104);
+			fatto= fatto && (prima.size() == dopo.size()) && (prima.size() > testa + 3 * blocco);
+			print_test_result("TEST 11 - New file: writing, writeat", fatto, &all_tests_passed);
+			if (fatto)
+			{
+				const bool nuove= (memcmp(&prima[testa], &dopo[testa], SIZEOF_ONCE) != 0) &&
+								  (memcmp(&prima[testa + blocco], &dopo[testa + blocco], SIZEOF_ONCE) != 0);
+				const bool ferme= (memcmp(&prima[0], &dopo[0], testa) == 0) &&
+								  (memcmp(&prima[testa + 2 * blocco], &dopo[testa + 2 * blocco], prima.size() - testa - 2 * blocco) == 0);
+				print_test_result("TEST 11 - The two blocks written again have a new nonce", nuove, &all_tests_passed);
+				print_test_result("TEST 11 - Header and other blocks: not touched", ferme, &all_tests_passed);
+				print_test_result("TEST 11 - Content after writeat", at_contiene(test_filename, correct_password, attesi), &all_tests_passed);
+			}
+			// the same on the file opened again: the header of the second transaction (a new segment)
+			std::vector<unsigned char> chiuso;
+			fatto= fatto && at_leggi(test_filename, chiuso);
+			if (fatto)
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length(), block_size_default);
+				fatto= fc.open(test_filename, false) && fc.write(&secondo[0], secondo.size()) && at_leggi(test_filename, prima);
+				fatto= fatto && fc.writeat(attesi.size(), h3.c_str(), h3.size()) && at_leggi(test_filename, dopo);
+				fc.close();
+			}
+			memcpy(&secondo[0], h3.c_str(), 104);
+			attesi.insert(attesi.end(), secondo.begin(), secondo.end());
+			fatto= fatto && (prima.size() == dopo.size()) && (prima.size() > chiuso.size() + blocco);
+			print_test_result("TEST 11 - File opened again: writing, writeat", fatto, &all_tests_passed);
+			if (fatto)
+			{
+				const size_t qui= chiuso.size(); // the new segment starts where the file ended
+				print_test_result("TEST 11 - Second transaction: its first block has a new nonce",
+								  memcmp(&prima[qui], &dopo[qui], SIZEOF_ONCE) != 0, &all_tests_passed);
+				print_test_result("TEST 11 - Second transaction: what was there before is not touched",
+								  (memcmp(&chiuso[0], &dopo[0], qui) == 0) &&
+									  (memcmp(&prima[qui + blocco], &dopo[qui + blocco], prima.size() - qui - blocco) == 0),
+								  &all_tests_passed);
+				print_test_result("TEST 11 - Content of the two transactions", at_contiene(test_filename, correct_password, attesi), &all_tests_passed);
+			}
+		}
+
+		// TEST 12: a password over 255 bytes was said "not good", and then an EMPTY one was used
+		{
+			myprintf("\nTEST 12: a password over 255 bytes\n");
+			const char		 *nome2= "test_file2.franzen";
+			const std::string lunga(300, 'A'), altra(290, 'B');
+			const std::string p255(255, 'C');
+			std::string		  q255(255, 'C');
+			q255[254]= 'D';
+			std::vector<char> dati;
+			at_dati(dati, 100000, 12);
+			delete_file(nome2);
+			bool rifiutata;
+			{
+				franzcri fc(lunga.c_str(), lunga.length());
+				rifiutata= !fc.open(nome2, true);
+				fc.close();
+			}
+			FILE	  *c   = cri_fopen(nome2, "rb");
+			const bool nato= (c != NULL);
+			if (c)
+				fclose(c);
+			print_test_result("TEST 12 - New file, 300 bytes of password: refused, and no file made", rifiutata && (!nato), &all_tests_passed);
+			bool fatto;
+			{
+				franzcri fc(p255.c_str(), p255.length());
+				fatto= fc.open(nome2, true) && fc.write(&dati[0], dati.size());
+				fc.close();
+			}
+			print_test_result("TEST 12 - 255 bytes of password: written and read", fatto && at_contiene(nome2, p255, dati), &all_tests_passed);
+			print_test_result("TEST 12 - 255 bytes, the last one different: refused", !at_contiene(nome2, q255, dati), &all_tests_passed);
+			// a file of a zpaqfranz up to 65.11q, made with a long password (that is: with an empty one)
+			{
+				franzcri fc(lunga.c_str(), lunga.length());
+				fc.password_lunga= false; // as it was
+				fatto			 = fc.open(nome2, true) && fc.write(&dati[0], dati.size());
+				fc.close();
+			}
+			print_test_result("TEST 12 - File of an older version (long password): still read, with any long password",
+							  fatto && at_contiene(nome2, altra, dati), &all_tests_passed);
+			print_test_result("TEST 12 - ... and not with a wrong short one", !at_contiene(nome2, wrong_password, dati), &all_tests_passed);
+			delete_file(nome2);
+		}
+
+		// TEST 13: an update that does not get to its end (killed, power loss, media full) leaves its
+		// blocks after the last footer: the file is read up to there, a new update removes them
+		{
+			myprintf("\nTEST 13: an update that did not finish\n");
+			const int64_t			   contati= g_franzen_recuperati, tolti= g_franzen_tagliati;
+			std::vector<char>		   s1, s2, s3, s4, tutto, nulla;
+			std::vector<unsigned char> uno, buono, interrotto, ora, prova;
+			at_dati(s1, 150000, 131);
+			at_dati(s2, 70000, 132);
+			at_dati(s3, 200000, 133);
+			at_dati(s4, 30000, 134);
+			bool fatto;
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length());
+				fatto= fc.open(test_filename, true) && fc.write(&s1[0], s1.size());
+				fc.close();
+			}
+			fatto= fatto && at_leggi(test_filename, uno); // one update
+			if (fatto)
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length());
+				fatto= fc.open(test_filename, false) && fc.write(&s2[0], s2.size());
+				fc.close();
+			}
+			fatto= fatto && at_leggi(test_filename, buono); // two updates
+			if (fatto)
+			{
+				// the third one writes its blocks and stops there: the file as it is on the disk then
+				franzcri fc(correct_password.c_str(), correct_password.length());
+				fatto= fc.open(test_filename, false) && fc.write(&s3[0], s3.size()) && at_leggi(test_filename, interrotto);
+				fc.close();
+			}
+			fatto= fatto && (uno.size() < buono.size()) && (buono.size() + 100000 < interrotto.size());
+			print_test_result("TEST 13 - Preparing (two updates, a third one left unfinished)", fatto, &all_tests_passed);
+			tutto= s1;
+			tutto.insert(tutto.end(), s2.begin(), s2.end());
+			if (fatto)
+			{
+				bool passa= at_scrivi(test_filename, interrotto, interrotto.size()) && at_contiene(test_filename, correct_password, tutto);
+				print_test_result("TEST 13 - The file is read up to its last complete update", passa, &all_tests_passed);
+				print_test_result("TEST 13 - Reading does not change it", at_leggi(test_filename, ora) && (ora == interrotto), &all_tests_passed);
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length());
+					passa= fc.open(test_filename, false) && fc.write(&s4[0], s4.size());
+					fc.close();
+				}
+				std::vector<char> conquarto= tutto;
+				conquarto.insert(conquarto.end(), s4.begin(), s4.end());
+				print_test_result("TEST 13 - A new update after it: all the data are there", passa && at_contiene(test_filename, correct_password, conquarto), &all_tests_passed);
+				const size_t attesa= buono.size() + SIZEOF_ONCE + s4.size() + SIZEOF_AUTH_TAG + sizeof(file_footer);
+				passa			   = at_leggi(test_filename, ora) && (ora.size() == attesa) && (memcmp(&ora[0], &buono[0], buono.size()) == 0);
+				print_test_result("TEST 13 - ... and what was left is gone (the file is the good one + the new update)", passa, &all_tests_passed);
+
+				prova= buono;
+				prova.insert(prova.end(), interrotto.begin() + buono.size(), interrotto.begin() + buono.size() + 50);
+				passa= at_scrivi(test_filename, prova, prova.size()) && at_contiene(test_filename, correct_password, tutto);
+				print_test_result("TEST 13 - 50 bytes left (less than a footer)", passa, &all_tests_passed);
+				prova= buono;
+				prova.insert(prova.end(), interrotto.begin() + buono.size(), interrotto.begin() + buono.size() + 1000);
+				passa= at_scrivi(test_filename, prova, prova.size()) && at_contiene(test_filename, correct_password, tutto);
+				print_test_result("TEST 13 - A piece of a block left", passa, &all_tests_passed);
+				prova= buono;
+				prova[prova.size() - 10]^= 0x55;
+				passa= at_scrivi(test_filename, prova, prova.size()) && at_contiene(test_filename, correct_password, s1);
+				print_test_result("TEST 13 - Last footer damaged: the file is read as it was one update before", passa, &all_tests_passed);
+				passa= at_scrivi(test_filename, buono, uno.size() + 20000) && at_contiene(test_filename, correct_password, s1);
+				print_test_result("TEST 13 - A copy cut in the middle of the second update: the first one is read", passa, &all_tests_passed);
+
+				// nothing complete in the file: it is not opened, and it is left as it is
+				prova= uno;
+				prova[prova.size() - 10]^= 0x55;
+				passa= at_scrivi(test_filename, prova, prova.size()) && (!at_contiene(test_filename, correct_password, s1));
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length());
+					if (fc.open(test_filename, false))
+						passa= false;
+					fc.close();
+				}
+				print_test_result("TEST 13 - One update only, its footer damaged: not opened", passa, &all_tests_passed);
+				print_test_result("TEST 13 - ... and not touched", at_leggi(test_filename, ora) && (ora == prova), &all_tests_passed);
+				passa= at_scrivi(test_filename, uno, uno.size() - 5000) && (!at_contiene(test_filename, correct_password, s1));
+				print_test_result("TEST 13 - One update only, cut before its footer: not opened", passa, &all_tests_passed);
+
+				// an empty file (made and closed), then an update that does not finish
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length());
+					passa= fc.open(test_filename, true);
+					fc.close();
+				}
+				if (passa)
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length());
+					passa= fc.open(test_filename, false) && fc.write(&s3[0], s3.size()) && at_leggi(test_filename, prova);
+					fc.close();
+				}
+				passa= passa && at_scrivi(test_filename, prova, prova.size()) && at_contiene(test_filename, correct_password, nulla);
+				print_test_result("TEST 13 - Empty file + unfinished update: read as the empty file it was", passa, &all_tests_passed);
+				{
+					franzcri fc(correct_password.c_str(), correct_password.length());
+					passa= fc.open(test_filename, false) && fc.write(&s4[0], s4.size());
+					fc.close();
+				}
+				print_test_result("TEST 13 - ... and a new update goes in", passa && at_contiene(test_filename, correct_password, s4), &all_tests_passed);
+			}
+			print_test_result("TEST 13 - The unfinished updates were seen, and two of them removed",
+							  (g_franzen_recuperati > contati) && (g_franzen_tagliati == tolti + 2), &all_tests_passed);
+			/// these were tests: nothing to say at the end of the run
+			g_franzen_recuperati= contati;
+			g_franzen_tagliati	= tolti;
+		}
+
+		// TEST 14: a write of 104 bytes (the size of a jidac header) is data as any other
+		{
+			myprintf("\nTEST 14: 700 writes of 104 bytes\n");
+			std::vector<char> attesi;
+			at_dati(attesi, 104 * 700, 14);
+			bool fatto;
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length());
+				fatto= fc.open(test_filename, true);
+				for (size_t i= 0; fatto && (i < 700); i++)
+					fatto= fc.write(&attesi[i * 104], 104);
+				fc.close();
+			}
+			print_test_result("TEST 14 - 700 writes of 104 bytes: all there, in their order", fatto && at_contiene(test_filename, correct_password, attesi), &all_tests_passed);
+		}
+
+		// TEST 15: one byte changed inside a block: that block is refused, the others are read
+		{
+			myprintf("\nTEST 15: one damaged block\n");
+			const size_t			   testa = sizeof(file_header) + SIZEOF_ONCE;
+			const size_t			   blocco= SIZEOF_ONCE + block_size_default + SIZEOF_AUTH_TAG;
+			std::vector<char>		   attesi;
+			std::vector<unsigned char> crudo;
+			at_dati(attesi, 3 * block_size_default + 100, 15);
+			bool fatto;
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length());
+				fatto= fc.open(test_filename, true) && fc.write(&attesi[0], attesi.size());
+				fc.close();
+			}
+			fatto= fatto && at_contiene(test_filename, correct_password, attesi) && at_leggi(test_filename, crudo) && (crudo.size() > testa + 3 * blocco);
+			if (fatto)
+			{
+				crudo[testa + blocco + 5000]^= 1; // inside the second block
+				fatto= at_scrivi(test_filename, crudo, crudo.size());
+			}
+			print_test_result("TEST 15 - Preparing", fatto, &all_tests_passed);
+			if (fatto)
+			{
+				franzcri fc(correct_password.c_str(), correct_password.length());
+				bool	 aperto= fc.open(test_filename, false);
+				char	 b[100];
+				bool	 primo= false, secondo= true, terzo= false, intatto= true;
+				if (aperto)
+				{
+					primo  = fc.read_at_to(b, 100, 10) && (memcmp(b, &attesi[10], 100) == 0);
+					secondo= fc.read_at_to(b, 100, block_size_default + 10);
+					terzo  = fc.read_at_to(b, 100, 2 * block_size_default + 10) && (memcmp(b, &attesi[2 * block_size_default + 10], 100) == 0);
+					intatto= fc.is_not_changed();
+				}
+				fc.close();
+				print_test_result("TEST 15 - The damaged block is refused", aperto && (!secondo) && (!intatto), &all_tests_passed);
+				print_test_result("TEST 15 - The blocks before and after it are read", aperto && primo && terzo, &all_tests_passed);
+			}
+		}
+
+	cleanup:
+		delete_file(test_filename);
+
+		if (all_tests_passed)
+			color_green();
+		else
+			color_red();
+
+		myprintf("\nAutotest done. Result: %s\n", all_tests_passed ? "PASSED" : "SOME FAILED");
+		color_restore();
+
+		return all_tests_passed;
+	}
+
+}; // End class franzcri
+
+
+
+
+
+
+
+franzcri *g_p_franzenfile	   = 0;
+/// 65.13e: -chunk -franzen: the franzen file of the first part of the run, open until the end (the jidac header
+/// of the run is written there again, with its sizes). g_p_franzenfile is the one of the part being written
+franzcri *g_p_franzenprimo	   = 0;
+int64_t	  g_franzen_jidacheader= -1;
+franzcri *g_rp_franzenlettore  = 0; /// 65.16g: the franzen file of the .tmp of repack, read by its check (control-C closes it)
+/*
+	65.11l: the index (a -index, backup) of a franzen archive is a franzen file of its own
+	(x.index.franzen): what goes to the index is written there, and only there. Before, the bytes of
+	the index went into the franzen file of the archive too, and closing the index closed that one:
+	a .franzen that could not be opened any more, after an "all OK"
+*/
+franzcri	 *g_p_franzenindex	  = 0;
+/// the salt of the last franzen file made or opened for writing: the index is made with it (as the
+/// parts after the first: one key for the whole set, see g_franzen_chiavi)
+bool		  g_franzen_salenoto  = false;
+unsigned char g_franzen_sale[SIZEOF_SALT];
+/// reads of a franzen file that could not be decrypted (see InputArchive::read): the run cannot end "all OK"
+int64_t		  g_franzen_lettirotti= 0;
+
+string g_franzen_filename = "";     // Franzen file path
+
+bool g_franzen_zpaq_nowrite= false; // -franzen without -debug (with or without -key): do not write the .zpaq at all
+
+
+// Thread-local: ogni thread ha il suo puntatore
+#ifdef ESX
+/// 65.18e: ESX (gcc 3.4, glibc 2.3, kernel 2.4: LinuxThreads, a static binary) has no working __thread: reading it
+/// was a segmentation fault (an add with nothing to add on a franzen archive, in cleanup_thread_franzenfile).
+/// There a pthread key, the same thing done by hand
+static pthread_key_t  g_tls_franzen_chiave;
+static pthread_once_t g_tls_franzen_una= PTHREAD_ONCE_INIT;
+static void			  tls_franzen_crea(void)
+{
+	pthread_key_create(&g_tls_franzen_chiave, NULL);
+}
+static franzcri *tls_franzen_prendi(void)
+{
+	pthread_once(&g_tls_franzen_una, tls_franzen_crea);
+	return (franzcri *)pthread_getspecific(g_tls_franzen_chiave);
+}
+static void tls_franzen_metti(franzcri *i_franzcri)
+{
+	pthread_once(&g_tls_franzen_una, tls_franzen_crea);
+	pthread_setspecific(g_tls_franzen_chiave, i_franzcri);
+}
+#else
+__thread franzcri *tls_franzenfile= NULL;
+static franzcri	  *tls_franzen_prendi(void)
+{
+	return tls_franzenfile;
+}
+static void tls_franzen_metti(franzcri *i_franzcri)
+{
+	tls_franzenfile= i_franzcri;
+}
+#endif
+
+
+franzcri* get_thread_franzenfile()
+{
+	franzcri *mio= tls_franzen_prendi(); /// 65.18e: this thread's own (see above, ESX)
+    if (mio != NULL)
+		return mio;
+
+	if (flagdebug6)
+		{
+			color_cyan();
+			myprintf("g_franzen_filename %s password %s\n",g_franzen_filename.c_str(),g_franzen.c_str());
+			color_restore();
+		if (mio==NULL)
+			myprintf("Tls franzen null\n");
+		else
+			myprintf("Tls NOT null\n");
+		}
+    // If this thread doesn't have a franzcri yet, lo creiamo
+    if (mio == NULL && g_franzen_filename != "")
+    {
+        if (flagdebug)
+            myprintf("46001: Thread creating its own franzcri for %s\n",
+                     g_franzen_filename.c_str());
+
+        mio = new franzcri(g_franzen.c_str(),
+                                        g_franzen.length());
+        tls_franzen_metti(mio);
+
+        if (!mio->open(g_franzen_filename.c_str(), false))
+        {
+            myprintf("46010! Thread failed to open franzen file\n");
+            delete mio;
+            tls_franzen_metti(NULL);
+            return NULL;
+        }
+
+        if (flagdebug)
+            myprintf("46020: Thread franzcri opened successfully\n");
+    }
+	else
+		myprintf("Problema creando tls_franzen\n");
+
+    return mio;
+}
+
+void cleanup_thread_franzenfile()
+{
+	franzcri *mio= tls_franzen_prendi(); /// 65.18e: see above (ESX)
+    if (mio != NULL)
+    {
+        if (flagdebug)
+            myprintf("46030: Thread closing its franzcri\n");
+        mio->close();
+        delete mio;
+        tls_franzen_metti(NULL);
+    }
+}
+
+
 
 #endif
 /// 65.11l: set by the OutputArchive of the index while it writes: its bytes are not for the franzen
@@ -121141,12 +130704,10 @@ size_t myfwrite(const void *ptr, size_t size, size_t nobj, FP fp)
 {
 	bool fakezpaq= false;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	// Franzen-only: the cleartext .zpaq is deliberately not opened (fp==FPNULL, which
 	// is INVALID_HANDLE_VALUE on Windows, NULL elsewhere), but the byte stream must
 	// still flow through here to feed the .zpaq.franzen below
 	fakezpaq= ((fp == 0) || (fp == FPNULL)) && (g_franzen_scriveindice ? (g_p_franzenindex != 0) : (g_franzen_zpaq_nowrite && (g_p_franzenfile != 0)));
-#endif /// NOSFTPEND
 #endif
 	if ((fp == 0) && (!fakezpaq))
 	{
@@ -121200,6 +130761,62 @@ size_t myfwrite(const void *ptr, size_t size, size_t nobj, FP fp)
 	g_fwritten+= r;
 
 #ifndef NOFRANZEN
+	
+	if (g_franzen_scriveindice)
+	{
+		/// 65.11l: the index: its own franzen file (if any), always forward
+		if (g_p_franzenindex)
+			if (!g_p_franzenindex->write((const char *)ptr, size * nobj))
+				if (g_franzen_scrittirotti++ == 0) /// 65.11r //FIX-FRANZEN: said once, counted always (see below)
+					myprintf("31680! cannot write on the franzen file of the index\n");
+	}
+	else if (g_p_franzenfile)
+	{
+		/*
+			65.11r //FIX-FRANZEN: the jidac header written again at the end of add() is known by what add() says
+			(g_franzen_jidacheader: set just before it, cleared just after), not by its size. Any write
+			of 104 bytes was taken for it: when the last bytes of the archive, flushed before going back
+			to the header, were exactly 104 (one run in 65.536) they were not written at all. The run
+			ended "all OK", and the archive could not be read. And a write that fails is an error now:
+			with -franzen alone there is no .zpaq behind to tell that the media is full
+		*/
+		bool fatto;
+		if (g_franzen_jidacheader >= 0)
+		{
+			if (flagdebug6)
+				myprintf("FRANZEN_WRITEAT: offset=%s size=%s\n", migliaia(g_franzen_jidacheader), migliaia2(size * nobj));
+			fatto= g_p_franzenfile->writeat(g_franzen_jidacheader, (const char *)ptr, size * nobj);
+			if (fatto && flagdebug3)
+			{
+				myprintf("111111111111111 fatto writeat del jidacheader %s di %d\n", migliaia(g_franzen_jidacheader), (int)(size * nobj));
+				if (g_password)
+				{
+					color_yellow();
+					char verify[36];
+					g_p_franzenfile->read_at_to(verify, 36, 0);
+					myprintf("VERIFY salt after writeat:\n");
+					for (int i= 0; i < 36; i++)
+						myprintf("  %03d: %02X\n", i, (unsigned char)verify[i]);
+					color_restore();
+				}
+			}
+		}
+		else
+		{
+			fatto= g_p_franzenfile->write((const char *)ptr, size * nobj);
+			if (fatto && flagdebug3)
+				myprintf("31679: writted on franzenfile %21s %21s\n", migliaia(size * nobj), migliaia((int64_t)(size_t)g_p_franzenfile));
+		}
+		if (!fatto)
+			if (g_franzen_scrittirotti++ == 0)
+				myprintf("31681! cannot write on the franzen file of the archive\n");
+	}
+	else
+	{
+///		myprintf("FRANZEN_NULL: g_p_franzenfile is NULL! size=%s\n", 
+	///			 migliaia(size*nobj));
+	}
+
 #endif
 	if (flagfasttxt || flagbackupzeta)
 	{
@@ -122271,12 +131888,15 @@ static string ini_chiave(const string &i_switch, bool i_hasher= true)
 			return "#hasher";
 	static const char *uguali[][2]= {{"-out", "-output"}, {"-error", "-errorlog"}, {"-search", "-find"}, {"-searchhash", "-findhash"},
 									 {"-exec_err", "-exec_error"}, {"-ifexists", "-ifexist"}, {"-limit", "-n"}, {"-ram", "-ramsize"},
-									 {"-filelist", "-fast"}, {"-nofilelist", "-fast"}, {"-nofast", "-fast"}, {"-noturbo", "-turbo"},
-									 {"-nodashboard", "-dashboard"}, {"-nosparse", "-sparse"}, {"-zip", "-deflate"}};
+									 {"-filelist", "-lfast"}, {"-nofilelist", "-lfast"}, {"-nolfast", "-lfast"}, {"-noturbo", "-turbo"},
+									 {"-nodashboard", "-dashboard"}, {"-nosparse", "-sparse"}, {"-zip", "-deflate"},
+									 {"-nofast", "-lfast"}}; /// 65.18o: -nofast is the old name of -nolfast (-fast is a level now)
 	for (size_t i= 0; i < sizeof(uguali) / sizeof(uguali[0]); i++)
 		if (i_switch == uguali[i][0])
 			return uguali[i][1];
 	/// as cli_getstring and cli_getint read them: -m3 -mx6.0 = -method, -t8 = -threads, -P3306...
+	if (livellonome_e(i_switch)) /// 65.18o: -lean ... -max are a -m: the one of the command line wins over the -ini
+		return "-method";
 	if (i_switch == "-m") /// 65.17a: -m 3 and -t 8 too
 		return "-method";
 	if (i_switch == "-t")
@@ -123092,7 +132712,12 @@ string getuname()
 	return "";
 }
 
+#if defined(__linux__)
+#include <sched.h> /// 65.18m: sched_getaffinity
+#endif // corresponds to #if (#if defined(__linux__))
 // Guess number of cores. In 32 bit mode, max is 2.
+/// 65.18m: only the cores the process may run on (Windows: start /affinity, a job as franztime -cpus;
+/// Linux: taskset, the cpuset of a container): the default of -t is right there too
 int numberOfProcessors()
 {
 #ifdef __HAIKU__
@@ -123105,7 +132730,8 @@ int numberOfProcessors()
 	return 1;
 #endif // corresponds to #ifdef (#ifdef ESX)
 
-	int rc= 0; // result
+	int rc		= 0;  // result
+	int ammessi = -1; /// 65.18m: cores (or CPUs with -ht) the affinity allows, -1 = not known (no limit)
 
 #ifdef SOLARIS
 	if (flagdebug3)
@@ -123185,8 +132811,17 @@ int numberOfProcessors()
 #endif // BSD // corresponds to #ifdef (#ifdef BSD  // BSD or Mac OS/X)
 
 #if defined(__linux__)
+#ifdef CPU_COUNT
+	cpu_set_t ammesse; /// 65.18m: the CPUs of this process
+	CPU_ZERO(&ammesse);
+	const bool conammesse= (sched_getaffinity(0, sizeof(ammesse), &ammesse) == 0) && (CPU_COUNT(&ammesse) > 0);
+#endif // corresponds to #ifdef (#ifdef CPU_COUNT)
 	if (flaght)
 	{
+#ifdef CPU_COUNT
+		if (conammesse)
+			ammessi= CPU_COUNT(&ammesse);
+#endif // corresponds to #ifdef (#ifdef CPU_COUNT)
 		// Count lines of the form "processor\t: %d\n" in /proc/cpuinfo
 		// where %d is 0, 1, 2,..., rc-1
 		FILE *in= fopen("/proc/cpuinfo", "r");
@@ -123228,16 +132863,33 @@ int numberOfProcessors()
 		//int	 logical_cores= 0;
 
 		int	 processori	  = 0; // "processor" lines
+		/// 65.18m: the cores (physical id, core id) with at least one CPU of this process
+		int								 processore= -1;
+		int								 fisico	   = 0;
+		std::set<std::pair<int, int> > coriammessi;
 		while (fgets(line, sizeof(line), cpuinfo) != NULL)
-		/*	if (strncmp(line, "processor", 9) == 0)
-				logical_cores++;
-			else*/
-				if (strncmp(line, "cpu cores", 9) == 0)
+		{
+			const char *duepunti= strchr(line, ':');
+			if (strncmp(line, "cpu cores", 9) == 0)
 				sscanf(line, "cpu cores : %d", &cpu_cores);
 			else if (strncmp(line, "siblings", 8) == 0)
 				sscanf(line, "siblings : %d", &siblings);
 			else if (strncmp(line, "processor", 9) == 0)
+			{
 				processori++;
+				processore= duepunti ? atoi(duepunti + 1) : -1;
+				fisico	  = 0;
+			}
+			else if ((strncmp(line, "physical id", 11) == 0) && duepunti)
+				fisico= atoi(duepunti + 1);
+			else if ((strncmp(line, "core id", 7) == 0) && duepunti)
+			{
+#ifdef CPU_COUNT
+				if (conammesse && (processore >= 0) && (processore < CPU_SETSIZE) && CPU_ISSET(processore, &ammesse))
+					coriammessi.insert(std::make_pair(fisico, atoi(duepunti + 1)));
+#endif // corresponds to #ifdef (#ifdef CPU_COUNT)
+			}
+		}
 		fclose(cpuinfo);
 
 		rc= cpu_cores;
@@ -123249,17 +132901,37 @@ int numberOfProcessors()
 #else
 		(void)processori;
 #endif // corresponds to #if (#if defined(NAS) || !defined(ANCIENT))
+#ifdef CPU_COUNT
+		/// x86: the cores with a CPU of ours; no "core id" (ARM): every CPU is a core
+		if (conammesse)
+			ammessi= coriammessi.empty() ? CPU_COUNT(&ammesse) : (int)coriammessi.size();
+#else
+		(void)processore; /// a glibc older than 2.6: no CPU_COUNT, no limit
+		(void)fisico;
+#endif // corresponds to #ifdef (#ifdef CPU_COUNT)
 	}
 #endif // corresponds to #if (#if defined(__linux__) )
 
 #ifdef _WIN32
 	// In Windows return %NUMBER_OF_PROCESSORS%
 
+	/// 65.18m: the CPUs of this process (a process in more groups of processors gets 0: no limit then)
+	DWORD_PTR maschera= 0;
+	DWORD_PTR sistema = 0;
+	if (!GetProcessAffinityMask(GetCurrentProcess(), &maschera, &sistema))
+		maschera= 0;
 	if (flaght)
 	{
 		SYSTEM_INFO si= SYSTEM_INFO();
 		GetSystemInfo(&si);
 		rc= si.dwNumberOfProcessors;
+		if (maschera != 0)
+		{
+			int quante= 0;
+			for (DWORD_PTR m= maschera; m != 0; m&= m - 1)
+				quante++;
+			ammessi= quante;
+		}
 	}
 	else
 	{
@@ -123292,14 +132964,30 @@ int numberOfProcessors()
 			return 1;
 		}
 
+		int coriammessi= 0; /// 65.18m: with at least one CPU of this process
 		for (DWORD i= 0; i < length / sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION); i++)
 			if (buffer[i].Relationship == RelationProcessorCore)
+			{
 				physical_cores++;
+				if (buffer[i].ProcessorMask & maschera)
+					coriammessi++;
+			}
 
 		free(buffer);
 		rc= physical_cores;
+		if (maschera != 0)
+			ammessi= coriammessi;
 	}
 #endif // corresponds to #ifdef (#ifdef _WIN32)
+	/// 65.18m: fewer cores for this process than the machine has (affinity): those
+	if ((ammessi > 0) && (ammessi < rc))
+	{
+		static bool detto= false;
+		if (flagverbose && !detto)
+			myprintf("41300: %d cores of %d: the affinity of the process\n", ammessi, rc);
+		detto= true;
+		rc	 = ammessi;
+	}
 	if (rc < 1)
 		rc= 1; /// numero massimo core 32bit
 	if (sizeof(char *) == 4 && rc > 2)
@@ -124008,7 +133696,7 @@ bool g_vinfocontrollato= false; /// 65.15x: vinfo_controlla ran on them (t): con
 int64_t g_codaarchivio= 0; /// 65.15y: read_archive, the bytes after the last block that are not a block (a WARNING)
 int g_anomalieblocchi= 0; /// 65.15y: tw, pp: blocks whose end is not right, their data good (03745): conlastoria, a WARNING
 int64_t g_fuoriblocchi= 0; /// 65.15y: read_archive, bytes between two blocks that are not a block, a c block with no end (03747, 03748); 65.15z8: a tag not whole (03751), a comment of c h i not "<size> jDC" (03752)
-/// 65.15z9: read_archive, the fragments a FILE of any version uses (not the virtual ones: the -fast history, VFILE-),
+/// 65.15z9: read_archive, the fragments a FILE of any version uses (not the virtual ones: the -lfast history, VFILE-),
 /// and whether it could say so (not streaming, not the old filelistpointer, not a -fastadd going on). pp: a bad one
 /// of an older version is data lost (x -all), an ERROR
 vector<bool> g_frammentifile;
@@ -124109,7 +133797,6 @@ class InputArchive : public ArchiveBase, public libzpaq::Reader
 	string          physical_file; // actual file to open (.zpaq or .zpaq.franzen)
 	bool            uses_franzen;  // true if Franzen encryption is present
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	/*
 		65.11l: the franzen files belong to the InputArchive that reads them: one for every part of a
 		multipart archive, opened when a read needs it, closed with the InputArchive. Before: one franzcri
@@ -124122,7 +133809,6 @@ class InputArchive : public ArchiveBase, public libzpaq::Reader
 	unsigned		   franzen_ultima;		 // the part of the last read (the next one is there too, almost always)
 	int64_t			   franzen_ultimoinizio; // where it begins, in the whole archive
 	franzcri		  *franzen_parte(unsigned i_parte);
-#endif /// NOSFTPEND
 #endif
 	
   public:
@@ -124133,10 +133819,8 @@ class InputArchive : public ArchiveBase, public libzpaq::Reader
 	bool isopen()
 	{
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (uses_franzen)
 			return true;
-#endif /// NOSFTPEND
 #endif
 		return fp != FPNULL;
 	}
@@ -124144,7 +133828,6 @@ class InputArchive : public ArchiveBase, public libzpaq::Reader
 	// Open filename. If password then decrypt input.
 	InputArchive(const char *filename);
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	~InputArchive()
 	{
 		for (unsigned i= 0; i < franzen_parti.size(); i++)
@@ -124157,7 +133840,6 @@ class InputArchive : public ArchiveBase, public libzpaq::Reader
 				franzen_parti[i]= NULL;
 			}
 	}
-#endif /// NOSFTPEND
 #endif
 	
 	// Read and return 1 byte or -1 (EOF)
@@ -124299,7 +133981,6 @@ bool is_buffer_franzen(const char* buffer, size_t len) {
 }
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 // True when the cleartext .zpaq does not exist but a valid .zpaq.franzen does:
 // the archive lives only in its franzen file (made by -franzen without -key/-debug)
 bool isfranzenonly(const string &i_zpaqname)
@@ -124313,17 +133994,14 @@ bool isfranzenonly(const string &i_zpaqname)
 			return false;
 	return is_file_franzen(franzenname(i_zpaqname));
 }
-#endif /// NOSFTPEND
 #endif
 /// 65.13e: -chunk -franzen: a part is a franzen file only (x_0003.zpaq.franzen). The size of the data in a part
 /// on the disk: of a franzen one, what the part would be in clear
 int64_t dimensionepezzo(const string &i_fisico)
 {
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (isfranzen(i_fisico))
 		return franzcri::leggi_dimensione(i_fisico.c_str());
-#endif /// NOSFTPEND
 #endif
 	return prendidimensionefile(i_fisico.c_str());
 }
@@ -124357,14 +134035,53 @@ ArchiveType InputArchive::detect_archive_type(const string& base_file)
 		printf("zpaq_exists    %d %s\n",int(zpaq_exists),zpaq_file.c_str());
 		printf("franzen_exists %d %s\n",int(franzen_exists),franzen_file.c_str());
 	}
-	/// zpaq-std: only its .franzen there. The open build has no Franzen: say so, not "Archive not found"
-	if ((!zpaq_exists) && franzen_exists)
-	{
-		myprintf("00740! %s is a Franzen archive (ChaCha20): zpaq-std, built from zpaqfranz's open build,\n", franzen_file.c_str());
-		myprintf("00740! cannot open it. zpaqfranz can (its full build)\n");
-		error("Franzen archive");
-	}
 #ifndef NOFRANZEN
+	// Determine which physical file to use
+	if (franzen_exists && is_file_franzen(franzen_file))
+	{
+		g_franzen_filename=franzen_file;
+		if (flagdebug)
+			myprintf("Franzen exist & isfranzen %s\n",franzen_file.c_str());
+		// Franzen file exists and is valid
+		physical_file = franzen_file;
+		uses_franzen = true;
+		franzen_nomi.clear();
+		franzen_nomi.push_back(franzen_file); /// 65.11l: the first part (the others: see the constructor)
+		
+		// Read first 32 bytes (decrypted) to check for AES salt
+		char header[32];
+		if (!read_header_bytes(header, 32))
+		{
+			error("Failed to read header from Franzen archive");
+		}
+		
+		// If decrypted content starts with "7kSt" (or zPQ) → no AES (Franzen only)
+		// Otherwise → AES salt present → AES + Franzen
+		if (is_buffer_zpaq(header, 32))
+		{
+			if (!g_franzen_alreadywritten)
+			{
+				franzen_colore(); /// 65.18f: cyan franzsodium, magenta libsodium (was magenta always)
+				myprintf("Archive type: ZPAQ with Franzen encryption\n");
+				color_restore();
+				g_franzen_alreadywritten=true;
+			}
+			return ARCHIVE_ZPAQ_FRANZEN;
+		}
+		else
+		{
+			if (!g_franzen_alreadywritten)
+			{
+				franzen_colore(); /// 65.18f: cyan franzsodium, magenta libsodium (was magenta always)
+				myprintf("Archive type: ZPAQ with AES + Franzen encryption\n");
+				color_restore();
+				g_franzen_alreadywritten=true;
+			}
+				
+			return ARCHIVE_ZPAQ_AES_FRANZEN;
+		}
+	}
+	else 
 #endif	
 	if (zpaq_exists)
 	{
@@ -124422,6 +134139,14 @@ ArchiveType InputArchive::detect_archive_type(const string& base_file)
 	}
 	else 
 #ifndef NOFRANZEN
+	if (franzen_exists)
+	{
+		// Only .franzen exists but it's not a valid Franzen file
+		myprintf("39129! File %s not found and %s is not a valid franzen file\n", 
+		         zpaq_file.c_str(), franzen_file.c_str());
+		error("Archive not found");
+	}
+	else
 #endif
 	{
 		// Neither file exists
@@ -124436,7 +134161,6 @@ ArchiveType InputArchive::detect_archive_type(const string& base_file)
 bool InputArchive::read_header_bytes(char* buffer, size_t len)
 {
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL
 	if (uses_franzen)
 	{
 		if (flagdebug6)
@@ -124479,7 +134203,6 @@ bool InputArchive::read_header_bytes(char* buffer, size_t len)
 	}
 	else
 #endif
-#endif
 	{
 		
 		if (flagdebug6)
@@ -124497,7 +134220,6 @@ bool InputArchive::read_header_bytes(char* buffer, size_t len)
 }
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 /// 65.11l: the franzen file of a part (0 = the first), opened at the first read that falls there
 franzcri *InputArchive::franzen_parte(unsigned i_parte)
 {
@@ -124530,7 +134252,6 @@ franzcri *InputArchive::franzen_parte(unsigned i_parte)
 	}
 	return franzen_parti[i_parte];
 }
-#endif /// NOSFTPEND
 #endif
 
 // InputArchive constructor
@@ -124541,10 +134262,8 @@ InputArchive::InputArchive(const char *filename) : fn(filename), uses_franzen(fa
 	off = 0;
 	total_sz = 0;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	franzen_ultima = 0;
 	franzen_ultimoinizio = 0;
-#endif /// NOSFTPEND
 #endif
 	
 	// Get file sizes (for multi-part archives)
@@ -124586,7 +134305,6 @@ InputArchive::InputArchive(const char *filename) : fn(filename), uses_franzen(fa
 	
 	// Initialize Franzen if needed
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL
 	if (uses_franzen)
 	{
 		// Ask for Franzen password if not provided
@@ -124648,7 +134366,6 @@ InputArchive::InputArchive(const char *filename) : fn(filename), uses_franzen(fa
 		}
 	}
 #endif
-#endif
 	
 	// Initialize AES if needed (65.13g: not for work quadra, g_letturacruda)
 	if ((archive_type == ARCHIVE_ZPAQ_AES || archive_type == ARCHIVE_ZPAQ_AES_FRANZEN) && (!g_letturacruda))
@@ -124684,7 +134401,7 @@ InputArchive::InputArchive(const char *filename) : fn(filename), uses_franzen(fa
 		char salt[32];
 		if (flagdebug6)
 		{
-			myprintf("Sono in posizione prima di leggere header %s fp vale %s\n",migliaia(ftello(fp)),migliaia(int64_t(fp)));
+			myprintf("Sono in posizione prima di leggere header %s fp vale %s\n",migliaia(ftello(fp)),migliaia((int64_t)(size_t)fp));
 			printbar('*');
 			memset(salt,11,32);
 			for (unsigned int i=0;i<32;i++)
@@ -124745,7 +134462,6 @@ int InputArchive::read(char *obuf, int len)
 	
 	// Step 1: Read data (either via Franzen or direct fread)
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL
 	if (uses_franzen)
 	{
 		/*
@@ -124817,7 +134533,6 @@ int InputArchive::read(char *obuf, int len)
 		nr = actual_len; // FIX: use actual bytes read, not requested len
 	}
 	else
-#endif
 #endif
 	{
 		// Read directly from file
@@ -125123,7 +134838,6 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			myprintf("00213: flush k3\n");
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		/// 65.13e: -chunk -franzen: the jidac header of the run, written again at its end, goes to its place in
 		/// the franzen file of the first part of the run (still open), encrypted (AES) at its offset in the archive
 		if (g_write_on_first && (ptr == 104) && franzenpezzi && g_p_franzenprimo)
@@ -125142,7 +134856,6 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			ptr				= 0;
 			return;
 		}
-#endif /// NOSFTPEND
 #endif
 		if (g_write_on_first && (ptr == 104) && (firstfp != FPNULL))
 		{
@@ -125294,7 +135007,7 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 		{
 			if (nowrite || streamout) // must come first: fp is FPNULL (-1 on Windows), which is != 0; stdout has no ftello
 				cryptoffset= off + nowritebase; // off is the virtual ftello (65.11l: inside the part, if multipart)
-			else if ((int64_t)fp != 0)
+			else if (fp != 0)
 				cryptoffset= ftello(fp) + off;
 			else
 				cryptoffset= 0;
@@ -125426,7 +135139,6 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 	void nuovopezzofranzen()
 	{
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (g_p_franzenfile && (g_p_franzenfile != g_p_franzenprimo))
 		{
 			g_p_franzenfile->close();
@@ -125445,7 +135157,6 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 		}
 		if (flagverbose)
 			myprintf("43787: Creating Franzen (FRANZEN) <<%Z>>\n", nome.c_str());
-#endif /// NOSFTPEND
 #endif
 	}
 	// Position the next read or write offset to p.
@@ -125623,13 +135334,44 @@ class OutputArchive : public ArchiveBase, public libzpaq::Writer
 			if (flagdebug3)
 				myprintf("37816: ho fatto close su file\n");
 #ifndef NOFRANZEN
+			if (eindice) /// 65.11l: the index closes its own franzen file (if any), never the one of the archive
+			{
+				if (g_p_franzenindex)
+				{
+					g_p_franzenindex->close();
+					g_p_franzenindex= 0;
+				}
+			}
+			else if (g_p_franzenfile)
+			{
+				color_magenta();
+				{
+					if (flagdebug3)
+						myprintf("-------------------- chiudo davvero %21s\n", migliaia((int64_t)(size_t)g_p_franzenfile));
+				}
+				color_restore();
+				/// 65.13e: -chunk -franzen: the first part of the run, if still open (its header not written again)
+				if (g_p_franzenprimo && (g_p_franzenprimo != g_p_franzenfile))
+				{
+					g_p_franzenprimo->close();
+					delete g_p_franzenprimo;
+				}
+				g_p_franzenprimo= 0;
+				g_p_franzenfile->close();
+				g_p_franzenfile= 0;
+			}
+
+			else
+			{
+				if (flagdebug)
+					myprintf("44430: nofranzen zero!\n");
+			}
+
 #endif
 		}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (nowrite && (!eindice)) /// 65.11l: the index is closed before the archive, which still needs it
 			g_franzen_zpaq_nowrite= false;
-#endif /// NOSFTPEND
 #endif
 		nowrite= false;
 		fp= FPNULL;
@@ -139848,12 +149590,12 @@ class Jidac
 	franzfs					thefranzfs;
 	string					memfilehash;
 
-	/// -fast
+	/// -lfast
 	bool				  fl_capture; // read_archive() collects the history
 	size_t				  fl_prossimocontrollo; // 65.15a: fl_controllacattura(), the next size to look at
 	bool				  fl_seen;	  // read_archive() found a pointer
 	bool				  fl_vopen;	  // a version is being collected
-	bool				  fl_writestop; // add -nofast: write that it is over
+	bool				  fl_writestop; // add -nolfast: write that it is over
 	bool				  fl_attail;	// add: the archive ends with a good pointer
 	string				  fl_blob;	  // the history, as stored
 	map<string, uint32_t> fl_names;	  // name => ID
@@ -139878,10 +149620,10 @@ class Jidac
 	void				  fl_iblock(const char *i_s, const char *i_end, int64_t i_fdate);
 	int					  fl_parsepointer(InputArchive &i_in, int64_t i_pos, string &o_payload);
 	bool				  fl_findpointer(InputArchive &i_in, string &o_payload, int64_t i_fine= -1); /// 65.15y: i_fine, where to look back from
-	int					  fl_controllastorie(const char *i_arc, string &o_cosa); /// 65.15y: every -fast history, not only the last one
+	int					  fl_controllastorie(const char *i_arc, string &o_cosa); /// 65.15y: every -lfast history, not only the last one
 	bool				  fl_decompressblock(InputArchive &i_in, int64_t i_offset, libzpaq::StringBuffer &o_out, int64_t i_primo= -1); /// 65.15y: i_primo
 	int64_t				  fl_readarchive(const char *i_arc);
-	int					  fl_controllastoria(const char *i_arc); // 65.15t: 0 no -fast history, 1 good, 2 damaged
+	int					  fl_controllastoria(const char *i_arc); // 65.15t: 0 no -lfast history, 1 good, 2 damaged
 	int					  conlastoria(int i_rc);				 // 65.15t: a test (t tw pp), WARNING if the history is damaged
 	int64_t				  read_archive_add(const char *i_arc);
 	void				  fl_controllacattura(); // 65.15a: the history made again too big for the RAM: stopped
@@ -139904,7 +149646,7 @@ class Jidac
 	void				  sc_filtra();
 	bool				  sc_salva(OutputArchive &i_out, CompressJob &io_job, vector<unsigned> &io_blocklist, HTIndex &io_htinv, int64_t i_headerend, vector<string> &io_chunks);
 	void				  buildindexchunks(vector<string> &o_chunks);
-	bool				  m_vinfook;	   /// a: the version being written gets a VFILE-info record (as the -fast history)
+	bool				  m_vinfook;	   /// a: the version being written gets a VFILE-info record (as the -lfast history)
 	int					  m_vinfoversione; /// its number
 	int64_t				  m_vinfops;	   /// where it begins
 	int64_t				  m_vinfofr;	   /// its first fragment
@@ -140088,6 +149830,9 @@ class Jidac
 	int comparehex();
 	int work();
 #ifndef NOFRANZEN
+	int franzencommand();
+	int do_franzen_operation(const string& input_filename, const string& output_filename, bool is_encode, bool test_only);
+
 #endif
 
 	int count();
@@ -140518,6 +150263,21 @@ struct StringReader : public libzpaq::Reader
 	}
 };
 
+/// 65.18f: the block the main thread is going to wait for, already queued behind blocks read ahead: to the front
+/// of the queue (with little RAM those are thrown away by worker_routine, they must not come first). Under queue_mutex.
+/// Its users: franzimage (Windows) and extractstdout (not ANCIENT)
+#if defined(_WIN32) || !defined(ANCIENT)
+static void coda_in_testa(std::deque<int> &io_coda, int i_blocco)
+{
+	std::deque<int>::iterator dove= std::find(io_coda.begin(), io_coda.end(), i_blocco);
+	if ((dove != io_coda.end()) && (dove != io_coda.begin()))
+	{
+		io_coda.erase(dove);
+		io_coda.push_front(i_blocco);
+	}
+}
+#endif
+
 void *worker_routine(void *arg)
 {
 	ThreadContext *ctx		= (ThreadContext *)arg;
@@ -140733,11 +150493,30 @@ void *worker_routine(void *arg)
 
 		bool is_priority= (block_idx == ctx->priority_block);
 
-		int wait_count= 0;
+		/*
+			65.18f: a STALL of pp (and x -stdout, and the reads of an image) with little RAM, seen on FreeBSD
+			(a VM of 4 GB, g_GLOBAL_RAM_LIMIT 170 MB): the cache full of blocks read ahead, the main thread
+			waiting for one more block (cond_block_ready: no garbage collection while it waits), the worker of
+			that block waiting for RAM (cond_cache_not_full) like the others with their blocks read ahead, or
+			that block still in the queue with no worker free to take it: nobody woke anybody any more (the
+			way out after 50 waits counts wake-ups). Now, while the RAM is short: the block the main thread is
+			waiting for goes in even over the limit (one block), and a block read ahead, while the main thread
+			waits for another one, is thrown away (asked again when it is needed: the main thread forces a block
+			that is not queued) and this worker is free for the queue
+		*/
+		bool buttato  = false;
+		int	 wait_count= 0;
 		while (((int64_t(ctx->current_cache_size + res->size()) > g_GLOBAL_RAM_LIMIT) ||
 				(ctx->current_cache_size > (g_GLOBAL_RAM_LIMIT * 0.8) && (!is_priority))) &&
 			   !ctx->shutdown)
 		{
+			if (is_priority) /// 65.18f: the main thread waits for this one
+				break;
+			if (ctx->main_waiting_blocks > 0) /// 65.18f: it waits for another one: this one read ahead goes away
+			{
+				buttato= true;
+				break;
+			}
 			if (wait_count == 0)
 			{
 				if (flagdebug)
@@ -140759,6 +150538,18 @@ void *worker_routine(void *arg)
 		}
 		if (wait_count > 0)
 			ctx->blocks_waiting_ram--;
+
+		if (buttato) /// 65.18f: see above. Lock order as in the main thread: cache_mutex, then queue_mutex
+		{
+			if (flagdebug)
+				myprintf("09226: Worker %d: block %d read ahead thrown away (RAM full, the main thread waits for block %d)", thread_id, block_idx, (int)ctx->priority_block);
+			delete res;
+			pthread_mutex_lock(ctx->queue_mutex);
+			ctx->pending_jobs.erase(block_idx);
+			pthread_mutex_unlock(ctx->queue_mutex);
+			pthread_mutex_unlock(ctx->cache_mutex);
+			continue;
+		}
 
 		if (ctx->block_cache.find(block_idx) == ctx->block_cache.end())
 		{
@@ -141340,6 +151131,8 @@ size_t leggi(void *buffer, size_t size)
 				m_ctx->pending_jobs.insert(current_needed_block);
 				pthread_cond_signal(&m_cond_new_job);
 			}
+			else
+				coda_in_testa(m_ctx->job_queue, current_needed_block); /// 65.18f
 			pthread_mutex_unlock(&m_queue_mutex);
 
 			m_ctx->priority_block= current_needed_block;
@@ -141635,9 +151428,7 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 	apezzi			  = (g_chunk_size > 0) && (!eindice);
 	franzenpezzi	  = false;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	franzenpezzi= apezzi && g_franzen_zpaq_nowrite;
-#endif /// NOSFTPEND
 #endif
 	limitepezzo		  = g_chunk_size;
 	chunknumber		  = 0;
@@ -141656,10 +151447,8 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 		else
 			firstchunk= false;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (franzenpezzi)
 			limitepezzo= franzen_capienza(g_chunk_size);
-#endif /// NOSFTPEND
 #endif
 
 		if (flagdebug3) //fika: it was -debug4 (now the deterministic encryption)
@@ -141725,7 +151514,6 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 	}
 	bool franzenistheoutput= false;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	// the archive itself is the .franzen: it must NEVER be opened as a cleartext .zpaq
 	franzenistheoutput= (g_franzen != "") && isfranzen(thefilename);
 	/// 65.11l: the index of an archive that is franzen-only: franzen-only too (x.index.franzen)
@@ -141739,7 +151527,6 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 		}
 		franzenistheoutput= true;
 	}
-#endif /// NOSFTPEND
 #endif
 	if (franzenistheoutput)
 		fp= FPNULL;
@@ -141809,6 +151596,43 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 
 		seek(0, SEEK_END);
 #ifndef NOFRANZEN
+		if ((g_franzen != "") && (!eindice)) /// 65.11l: not for the index (it was a "442581 franzenfile already setted!")
+		{
+			if (g_p_franzenfile)
+			{
+				myprintf("44386! franzenfile already setted (should not)!\n");
+			}
+			else
+			{
+				string franzenfilename= franzenname(thefilename);
+				g_p_franzenfile = new franzcri(g_franzen.c_str(), g_franzen.length());
+				if (g_p_franzenfile->open(franzenfilename.c_str(), false))
+				{
+					//FIX-FRANZEN 65.11s: see below, the other open for append
+					if (!g_p_franzenfile->taglia_resti())
+						error("cannot remove what an unfinished update left in the franzen archive");
+					{
+						const int64_t ora= prendidimensionefile(franzenfilename.c_str());
+						if ((ora >= 0) && (ora < g_starting_franzenfile))
+							g_starting_franzenfile= ora;
+					}
+					franzen_colore(); /// 65.18f: cyan franzsodium, magenta libsodium
+					printbar('*');
+					if (g_p_franzenfile->get_is_aes_too())
+						myprintf("43783: Appending AES+Franzen (FRENZEN) <<%Z>>\n", franzenfilename.c_str());
+					else
+						myprintf("43787: Appending Franzen (FRANZEN) <<%Z>>\n", franzenfilename.c_str());
+					printbar('*');
+					color_restore();
+				}
+				else
+				{
+					/// stop here: going on would update the .zpaq and leave the .franzen behind (libsodium missing, permissions...)
+					myprintf("43791!  cannot open franzen <<%Z>>\n", franzenfilename.c_str());
+					error("cannot open franzen archive for append");
+				}
+			}
+		}
 #endif
 	}
 	// Create new file
@@ -141817,9 +151641,7 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 		if (flagdebug3)
 			myprintf("00295: not isopen\n");
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		nowrite= g_franzen_zpaq_nowrite; // -franzen without -debug (with or without -key): the .zpaq is never opened
-#endif /// NOSFTPEND
 #endif
 		if (nowrite)
 		{
@@ -141854,6 +151676,97 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 			g_addedchunklist.push_back(franzenpezzi ? franzenname(thefilename) : thefilename); /// 65.13e: the file on the disk
 		}
 #ifndef NOFRANZEN
+		if ((g_franzen != "") && ((!eindice) || indicefranzen)) /// 65.11l: the index too, if franzen-only
+		{
+			franzcri *&ilfranzen= eindice ? g_p_franzenindex : g_p_franzenfile;
+			if (ilfranzen)
+			{
+				myprintf("442581 franzenfile already setted!\n");
+			}
+			else
+			{
+				string franzenfilename= franzenname(thefilename);
+				bool has_aes = (g_password != NULL && g_password[0] != 0);
+				if (nowrite && is_file_franzen(franzenfilename))
+				{
+					// franzen-only incremental append: the archive lives only in the .zpaq.franzen
+					nowriteeof= g_header_pos; // logical (decoded) size of the existing archive
+					ilfranzen= new franzcri(g_franzen.c_str(), g_franzen.length());
+					if (ilfranzen->open(franzenfilename.c_str(), false))
+					{
+						/*
+							//FIX-FRANZEN 65.11s: a franzen file that ends with what an unfinished update left
+							(see franzcri::cerca_ultimo_footer) is put right here, where it is opened to be
+							written: the rest is cut away, the new update starts where the last complete one
+							ends. The size "at the start" (where a control-C, or an update with nothing in
+							it, brings the file back) is that one
+						*/
+						if (!ilfranzen->taglia_resti())
+							error("cannot remove what an unfinished update left in the franzen archive");
+						if (!eindice)
+						{
+							const int64_t ora= prendidimensionefile(franzenfilename.c_str());
+							if ((ora >= 0) && (ora < g_starting_franzenfile))
+								g_starting_franzenfile= ora;
+						}
+						if (eindice) /// 65.11l: the index goes on from its own end (nobody seeks it: see below)
+							nowriteeof= (int64_t)ilfranzen->get_file_data_size();
+						if (ilfranzen->get_is_aes_too() != has_aes)
+						{
+							if (has_aes)
+								myprintf("43796! <<%Z>> is Franzen-only (no AES): -key cannot be used\n", franzenfilename.c_str());
+							else
+								myprintf("43793! <<%Z>> is AES+Franzen: -key is needed\n", franzenfilename.c_str());
+							error("franzen-only append: AES mismatch between archive and options");
+						}
+						franzen_colore(); /// 65.18f: cyan franzsodium, magenta libsodium
+						printbar('*');
+						if (has_aes)
+							myprintf("43792: Appending AES+Franzen (FRENZEN) <<%Z>>\n", franzenfilename.c_str());
+						else
+							myprintf("43794: Appending Franzen (FRANZEN) <<%Z>>\n", franzenfilename.c_str());
+						printbar('*');
+						color_restore();
+					}
+					else
+					{
+						myprintf("43795! cannot open franzen <<%Z>>\n", franzenfilename.c_str());
+						error("cannot open franzen archive for append");
+					}
+				}
+				else
+				{
+					ilfranzen = new franzcri(g_franzen.c_str(), g_franzen.length(), 0, 0, 0, CRYPTO_PWHASH_ALG_DEFAULT, has_aes);
+					/// 65.11l: a part after the first, and the index, with the salt of the first franzen file of
+					/// the set: one key (one Argon2id) for all of them
+					{
+						unsigned char sale[SIZEOF_SALT];
+						const string  primo= franzenname(subpart(i_thearchive, 1));
+						if ((primo != franzenfilename) && franzcri::leggi_sale(primo.c_str(), sale))
+							ilfranzen->usa_sale(sale);
+						else if (g_franzen_salenoto)
+							ilfranzen->usa_sale(g_franzen_sale);
+					}
+					if (ilfranzen->open(franzenfilename.c_str(), true))
+					{
+						franzen_colore(); /// 65.18f: cyan franzsodium, magenta libsodium
+						printbar('*');
+						if (has_aes)
+							myprintf("43783: Creating AES+Franzen (FRENZEN) <<%Z>>\n", franzenfilename.c_str());
+						else
+							myprintf("43787: Creating Franzen (FRANZEN) <<%Z>>\n", franzenfilename.c_str());
+						printbar('*');
+						color_restore();
+					}
+					else
+					{
+						/// stop here: with Franzen-only (nowrite) the data would go nowhere, and "all OK" at the end
+						myprintf("43791!  cannot create franzen <<%Z>>\n", franzenfilename.c_str());
+						error("cannot create franzen archive");
+					}
+				}
+			}
+		}
 #endif
 		if (nowrite) /// 65.11l: a new part of a multipart archive: from here on off is inside the part
 		{
@@ -141863,12 +151776,10 @@ OutputArchive::OutputArchive(string i_thearchive, const char *filename, const ch
 				off= nowriteeof;
 		}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if ((!eindice) && (g_p_franzenfile != 0))
 			g_franzen_salenoto= franzcri::leggi_sale(franzenname(thefilename).c_str(), g_franzen_sale);
 		if (franzenpezzi) /// 65.13e: the first part of the run: open until the end (its header is written again)
 			g_p_franzenprimo= g_p_franzenfile;
-#endif /// NOSFTPEND
 #endif
 		if (password)
 		{
@@ -142327,6 +152238,7 @@ void Array<T>::resize(size_t sz, int ex) {
     assert(offset>=0 && offset<=64);
     assert((char*)data-offset);
     free((char*)data-offset);
+    g_allocatedram-=(int64_t)(128+n*sizeof(T)); /// 65.18n: what was added below (it was never taken back)
   }
   n=0;
   if (sz==0) return;
@@ -142335,7 +152247,8 @@ void Array<T>::resize(size_t sz, int ex) {
   if (nb<=128 || (nb-128)/sizeof(T)!=n) unzerror("Array too big");
   data=(T*)calloc(nb, 1);
   g_allocatedram+=nb;
-  
+  ram_aggiornapicco();
+
   if (!data) unzerror("out of memory");
   // Align array on a 64 byte address.
   // This optimization is NOT required by the ZPAQ standard.
@@ -143050,7 +152963,7 @@ void unzZPAQL::init(int hbits, int mbits) {
   passimax=ZPAQL_PASSIINIZIO;
 }
 /// 65.15x: p runs every ZPAQL program (HCOMP, PCOMP) in this interpreter, and a damaged one looped for ever (work
-/// probe: p HANG on the -fast history and on the index). The limit of the index of libzpaq (65.15b): this many
+/// probe: p HANG on the -lfast history and on the index). The limit of the index of libzpaq (65.15b): this many
 /// steps, ZPAQL_PASSIPERBYTE more for each byte in, and these more for each byte out (OUT): a program that makes much
 /// from little (the LZ77 of a block of zeros) is not stopped
 #define UNZ_PASSIPERUSCITA 1000
@@ -146507,7 +156420,7 @@ struct franz_helpriga
 #define HRU(n, k, x)				{"", LINGUA_RU, 'T', 0, "", x, n, k}
 #define HES(n, k, x)				{"", LINGUA_ES, 'T', 0, "", x, n, k}
 #define HPT(n, k, x)				{"", LINGUA_PT, 'T', 0, "", x, n, k}
-static const franz_helpriga g_helprighe_tutte[]=
+static const franz_helpriga g_helprighetutte[]=
 {
 	/// @range
 	HRIGA(1, "@range", 'a', "-range X:Y", "Range versions [X-Y]"),
@@ -146702,9 +156615,9 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(37, 0xDB0BAF9D, "БЫСТРЫЙ набор (с -to): ТОЛЬКО извлечь sha256.zpaq, сжать его с|-m1, затем с -m8, затем t обоих архивов (скрипт quicktest.sh/bat)|(вне autotest -all ключ -quick сохраняет обычное значение)"),
 	HES(37, 0xDB0BAF9D, "La suite RÁPIDA (con -to): SOLO extrae sha256.zpaq, lo comprime con|-m1, luego con -m8, luego t de ambos (script quicktest.sh/bat)|(-quick mantiene su sentido general fuera de autotest -all)"),
 	HPT(37, 0xDB0BAF9D, "A suíte RÁPIDA (com -to): SÓ extrai sha256.zpaq, comprime-o com|-m1, depois com -m8, depois t de ambos (script quicktest.sh/bat)|(-quick mantém seu sentido geral fora de autotest -all)"),
-	HU(38, "autotest", "-m1 ... -m5", "With -all -to: the level of the tests (no -m: -m4, the suite as before)|-m1 quick (a few MB): default values, x, -fast history, VFILE-info, -comment,|    -fastadd, dump, difficult names|-m2 + 31.080 small files: hashes, -key, multipart, -chunk, backup -chunk, healing,|    -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB of folders: the hashes, encrypted -chunk, -frugal, -m8, -fastadd|-m4 + 6 GB of big files: Franzen, mount, -turbo, backup -chunk (28 GB free)|-m5 everything (hours): every method (t, p), -all, -715, damaged archives,|    the quadratura: in clear, -key, -franzen, both; one piece == multipart|    == -chunk == backup to the byte, and one byte changed must be seen|    (33 GB free; there, a -m5 with 16 threads takes ~6 GB of RAM)|-checktxt checks the level the folder was made with"),
-	HIT(38, 0xC76F91DA, "Con -all -to: il livello dei test (senza -m: -m4, la suite di prima)|-m1 rapido (pochi MB): valori di default, x, storia -fast, VFILE-info, -comment,|    -fastadd, dump, nomi difficili|-m2 + 31.080 file piccoli: hash, -key, multipart, -chunk, backup -chunk, healing,|    -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB di cartelle: gli hash, -chunk cifrato, -frugal, -m8, -fastadd|-m4 + 6 GB di file grossi: Franzen, mount, -turbo, backup -chunk (28 GB liberi)|-m5 tutto (ore): ogni metodo (t, p), -all, -715, archivi danneggiati,|    la quadratura: in chiaro, -key, -franzen, entrambi; un pezzo == multipart|    == -chunk == backup al byte, e un byte cambiato deve essere visto|    (33 GB liberi; li', un -m5 con 16 thread prende ~6 GB di RAM)|-checktxt controlla il livello con cui e' stata fatta la cartella"),
-	HRU(38, 0xC76F91DA, "С -all -to: уровень тестов (без -m: -m4, прежний набор)|-m1 быстрый (несколько MB): значения по умолчанию, x, история -fast, VFILE-info,|    -comment, -fastadd, dump, сложные имена|-m2 + 31.080 мелких файлов: хеши, -key, multipart, -chunk, backup -chunk, healing,|    -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB папок: хеши, зашифрованный -chunk, -frugal, -m8, -fastadd|-m4 + 6 GB больших файлов: Franzen, mount, -turbo, backup -chunk (28 GB свободно)|-m5 всё (часы): все методы (t, p), -all, -715, повреждённые архивы,|    сверка: открыто, -key, -franzen, оба; один кусок == multipart|    == -chunk == backup побайтно, и изменённый байт должен быть замечен|    (33 GB свободно; там -m5 с 16 потоками занимает ~6 GB RAM)|-checktxt проверяет уровень, с которым создана папка"),
+	HU(38, "autotest", "-m1 ... -m5", "With -all -to: the level of the tests (no -m: -m4, the suite as before)|-m1 quick (a few MB): default values, x, -lfast history, VFILE-info, -comment,|    -fastadd, dump, difficult names|-m2 + 31.080 small files: hashes, -key, multipart, -chunk, backup -chunk, healing,|    -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB of folders: the hashes, encrypted -chunk, -frugal, -m8, -fastadd|-m4 + 6 GB of big files: Franzen, mount, -turbo, backup -chunk (28 GB free)|-m5 everything (hours): every method (t, p), -all, -715, damaged archives,|    the quadratura: in clear, -key, -franzen, both; one piece == multipart|    == -chunk == backup to the byte, and one byte changed must be seen|    (33 GB free; there, a -m5 with 16 threads takes ~6 GB of RAM)|-checktxt checks the level the folder was made with"),
+	HIT(38, 0x9DED8DD6, "Con -all -to: il livello dei test (senza -m: -m4, la suite di prima)|-m1 rapido (pochi MB): valori di default, x, storia -lfast, VFILE-info, -comment,|    -fastadd, dump, nomi difficili|-m2 + 31.080 file piccoli: hash, -key, multipart, -chunk, backup -chunk, healing,|    -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB di cartelle: gli hash, -chunk cifrato, -frugal, -m8, -fastadd|-m4 + 6 GB di file grossi: Franzen, mount, -turbo, backup -chunk (28 GB liberi)|-m5 tutto (ore): ogni metodo (t, p), -all, -715, archivi danneggiati,|    la quadratura: in chiaro, -key, -franzen, entrambi; un pezzo == multipart|    == -chunk == backup al byte, e un byte cambiato deve essere visto|    (33 GB liberi; li', un -m5 con 16 thread prende ~6 GB di RAM)|-checktxt controlla il livello con cui e' stata fatta la cartella"),
+	HRU(38, 0x9DED8DD6, "С -all -to: уровень тестов (без -m: -m4, прежний набор)|-m1 быстрый (несколько MB): значения по умолчанию, x, история -lfast, VFILE-info,|    -comment, -fastadd, dump, сложные имена|-m2 + 31.080 мелких файлов: хеши, -key, multipart, -chunk, backup -chunk, healing,|    -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB папок: хеши, зашифрованный -chunk, -frugal, -m8, -fastadd|-m4 + 6 GB больших файлов: Franzen, mount, -turbo, backup -chunk (28 GB свободно)|-m5 всё (часы): все методы (t, p), -all, -715, повреждённые архивы,|    сверка: открыто, -key, -franzen, оба; один кусок == multipart|    == -chunk == backup побайтно, и изменённый байт должен быть замечен|    (33 GB свободно; там -m5 с 16 потоками занимает ~6 GB RAM)|-checktxt проверяет уровень, с которым создана папка"),
 	HES(38, 0xC76F91DA, "Con -all -to: el nivel de las pruebas (sin -m: -m4, la suite de antes)|-m1 rápido (unos MB): valores por defecto, x, historial -fast, VFILE-info,|    -comment, -fastadd, dump, nombres difíciles|-m2 + 31.080 archivos pequeños: hashes, -key, multiparte, -chunk,|    backup -chunk, reparación, -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB de carpetas: los hashes, -chunk cifrado, -frugal, -m8, -fastadd|-m4 + 6 GB de archivos grandes: Franzen, mount, -turbo, backup -chunk|    (28 GB libres)|-m5 todo (horas): cada método (t, p), -all, -715, archivos dañados,|    la cuadratura: en claro, -key, -franzen, ambos; una pieza == multiparte|    == -chunk == backup al byte, y un byte cambiado debe detectarse|    (33 GB libres; ahí, un -m5 con 16 hilos usa ~6 GB de RAM)|-checktxt verifica el nivel con que se hizo la carpeta"),
 	HPT(38, 0xC76F91DA, "Com -all -to: o nível dos testes (sem -m: -m4, a suíte de antes)|-m1 rápido (alguns MB): valores padrão, x, histórico -fast, VFILE-info,|    -comment, -fastadd, dump, nomes difíceis|-m2 + 31.080 arquivos pequenos: hashes, -key, multiparte, -chunk,|    backup -chunk, reparo, -m6, -turbo, -tar (*nix)|-m3 + 1.75 GB de pastas: os hashes, -chunk cifrado, -frugal, -m8, -fastadd|-m4 + 6 GB de arquivos grandes: Franzen, mount, -turbo, backup -chunk|    (28 GB livres)|-m5 tudo (horas): cada método (t, p), -all, -715, arquivos danificados,|    a quadratura: em claro, -key, -franzen, ambos; uma peça == multiparte|    == -chunk == backup ao byte, e um byte alterado deve ser detectado|    (33 GB livres; ali, um -m5 com 16 threads usa ~6 GB de RAM)|-checktxt verifica o nível com que a pasta foi feita"),
 	HU(39, "autotest", "-debug4", "With -all -to: bigone01.big of 4 MB, not 400 (-m5 much faster)"),
@@ -147047,9 +156960,9 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HES(102, 0x95522BCA, "Crea backup multiparte robusto"),
 	HPT(102, 0x95522BCA, "Cria backup multiparte robusto"),
 	/// franzencommand
-	HU(103, "franzencommand", "CMD franzen", "Encrypt/decrypt files using ChaCha20-Poly1305 (libsodium)|Auto-detects operation: encrypts non-franzen, decrypts franzen files|Output name auto-generated if -to not specified"),
-	HIT(103, 0xDF75748B, "Cifra/decifra file con ChaCha20-Poly1305 (libsodium)|Capisce da solo l'operazione: cifra i|non franzen, decifra i file franzen|Nome di output generato da solo se manca -to"),
-	HRU(103, 0xDF75748B, "Шифрование/расшифровка файлов ChaCha20-Poly1305 (libsodium)|Операция определяется сама: шифрует|не-franzen, расшифровывает файлы franzen|Имя выходного файла создаётся автоматически, если не указан -to"),
+	HU(103, "franzencommand", "CMD franzen", "Encrypt/decrypt files using ChaCha20-Poly1305 (franzsodium, built in)|Auto-detects operation: encrypts non-franzen, decrypts franzen files|Output name auto-generated if -to not specified"),
+	HIT(103, 0x0258A2F4, "Cifra/decifra file con ChaCha20-Poly1305 (franzsodium, interno)|Capisce da solo l'operazione: cifra i|non franzen, decifra i file franzen|Nome di output generato da solo se manca -to"),
+	HRU(103, 0x0258A2F4, "Шифрование/расшифровка ChaCha20-Poly1305 (franzsodium, встроенный)|Операция определяется сама: шифрует|не-franzen, расшифровывает файлы franzen|Имя выходного файла создаётся автоматически, если не указан -to"),
 	HES(103, 0xDF75748B, "Cifra/descifra archivos con ChaCha20-Poly1305 (libsodium)|Detecta la operación: cifra los no franzen, descifra los franzen|Nombre de salida automático si no se indica -to"),
 	HPT(103, 0xDF75748B, "Cifra/decifra arquivos com ChaCha20-Poly1305 (libsodium)|Detecta a operação: cifra os não franzen, decifra os franzen|Nome de saída automático se -to não for indicado"),
 	HU(104, "franzencommand", "-franzen PWD", "Password for Franzen encryption/decryption"),
@@ -147663,7 +157576,7 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(1908, 0x6E013D11, "Ключ файла-ключа (от 4 KB, хорошая энтропия), хранить на бумаге.|В Windows также копируется в буфер обмена для вставки"),
 	HES(1908, 0x6E013D11, "La clave de un keyfile (al menos 4 KB, buena entropía), para|guardar en papel. En Windows también va al portapapeles, para pegarla"),
 	HPT(1908, 0x6E013D11, "A chave de um keyfile (ao menos 4 KB, boa entropia), para|guardar em papel. No Windows vai também para a área de|transferência, para colar"),
-#ifdef ZPAQFULL /// NOSFTPSTART
+#ifndef NOFRANZEN /// 65.18k: the open build too
 	HU(212, "work", "encode f1 f2 pass", "FRANZEN encrypt. Use -ssd for multithread (limit with -tX). -force to overwrite"),
 	HIT(212, 0xF543D6DB, "Cifra con FRANZEN. -ssd per il multithread|  (limite con -tX). -force per sovrascrivere"),
 	HRU(212, 0xF543D6DB, "Шифрование FRANZEN. -ssd для многопоточности|  (ограничение -tX). -force для перезаписи"),
@@ -147694,6 +157607,8 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(217, 0xCF8DCDA8, "Быстрая проверка пароля FRANZEN"),
 	HES(217, 0xCF8DCDA8, "FRANZEN verifica rápido la contraseña"),
 	HPT(217, 0xCF8DCDA8, "FRANZEN verifica rápido a senha"),
+#endif
+#ifdef ZPAQFULL /// NOSFTPSTART
 	HU(218, "work", "vss", "franzVSS manager"),
 	HIT(218, 0xEFACA8CF, "Gestore di franzVSS"),
 	HRU(218, 0xEFACA8CF, "Менеджер franzVSS"),
@@ -147746,6 +157661,21 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HU(1898, "work", "proxmoxvma -stdout", "A VMA from stdin to stdout with a fixed UUID (proxvzdump -proxmox)"),
 	HIT(1898, 0x0AA4D318, "Un VMA da stdin a stdout con l'UUID fisso (proxvzdump -proxmox)"),
 	HRU(1898, 0x0AA4D318, "VMA из stdin в stdout с постоянным UUID (proxvzdump -proxmox)"),
+	HU(1909, "work", "proxmox audit H [P [F]]", "Before an upgrade: what it takes to rebuild a Proxmox from an|empty ISO (reports of ~100 commands, /etc with /etc/pve, /root,|keys, partition tables...). By SSH as root: host[:port],|password, SHA256 of the host key. Into private_<node>.zpaq|(everything, a version a run) and public_<node>.zpaq + .zip|(no passwords, keys, tokens: to give to an AI)"),
+	HIT(1909, 0xF015FF36, "Prima di un aggiornamento: cio' che serve per rifare un Proxmox|da una ISO vuota (report di ~100 comandi, /etc con /etc/pve,|/root, chiavi, tabelle delle partizioni...). Via SSH da root:|host[:porta], password, SHA256 della chiave dell'host. In|private_<nodo>.zpaq (tutto, una versione a giro) e|public_<nodo>.zpaq + .zip (niente password, chiavi, token:|da dare a una AI)"),
+	HRU(1909, 0xF015FF36, "Перед обновлением: всё, что нужно, чтобы пересобрать Proxmox|с пустого ISO (отчёты ~100 команд, /etc с /etc/pve, /root,|ключи, таблицы разделов...). По SSH от root: host[:port],|пароль, SHA256 ключа хоста. В private_<узел>.zpaq (всё,|версия за запуск) и public_<узел>.zpaq + .zip (без паролей,|ключей, токенов: для ИИ)"),
+	HU(1910, "work", "proxmox audit localhost", "The same on the node itself, as root (no SSH)"),
+	HIT(1910, 0x1882B357, "Lo stesso sul nodo stesso, da root (niente SSH)"),
+	HRU(1910, 0x1882B357, "То же самое на самом узле, от root (без SSH)"),
+	HU(1911, "work", "proxmox audit F.tar", "The archives from the tar of the script run by hand"),
+	HIT(1911, 0x4325163F, "Gli archivi dal tar dello script lanciato a mano"),
+	HRU(1911, 0x4325163F, "Архивы из tar скрипта, запущенного вручную"),
+	HU(1912, "work", "proxmox audit -script F", "Writes the script it runs on the node (read only), to read it|or to run it by hand: bash F > F.tar"),
+	HIT(1912, 0x05D787C4, "Scrive lo script che gira sul nodo (sola lettura), per|leggerlo o lanciarlo a mano: bash F > F.tar"),
+	HRU(1912, 0x05D787C4, "Записывает скрипт для узла (только чтение), чтобы прочитать|его или запустить вручную: bash F > F.tar"),
+	HU(1913, "work", "proxmox audit -to D", "The folder of the archives (default: here). -key -franzen:|the private one only. -ssh K: a key file for root"),
+	HIT(1913, 0xF8E341B3, "La cartella degli archivi (default: qui). -key -franzen:|solo il privato. -ssh K: un file chiave per root"),
+	HRU(1913, 0xF8E341B3, "Папка архивов (по умолчанию: здесь). -key -franzen:|только приватный. -ssh K: файл ключа для root"),
 #endif /// NOSFTPEND
 	HESEMPI("work", 'b'),
 	HE(225, "work", "Write a large ASCII string", "work big \"count the ok\""),
@@ -147871,7 +157801,7 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(245, 0xBAE09161, "Проверить свободное место"),
 	HES(245, 0xBAE09161, "Comprobar espacio libre"),
 	HPT(245, 0xBAE09161, "Verificar espaço livre"),
-#ifdef ZPAQFULL /// NOSFTPSTART
+#ifndef NOFRANZEN /// 65.18k: the open build too
 	HE(246, "work", "Encrypt (experimental)", "work encode j:\\1.zpaq z:\\crip.cha pippo -ssd"),
 	HIT(246, 0xB8AE4443, "Cifra (sperimentale)"),
 	HRU(246, 0xB8AE4443, "Зашифровать (экспериментально)"),
@@ -147897,6 +157827,8 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(250, 0xDCBBA264, "Пароль FRANZEN"),
 	HES(250, 0xDCBBA264, "Contraseña FRANZEN"),
 	HPT(250, 0xDCBBA264, "Senha FRANZEN"),
+#endif
+#ifdef ZPAQFULL /// NOSFTPSTART
 	HE(251, "work", "Manage VSS (shadow copy)", "work vss"),
 	HIT(251, 0x9CBA21DE, "Gestisce VSS (copie shadow)"),
 	HRU(251, 0x9CBA21DE, "Управление VSS (теневые копии)"),
@@ -147931,6 +157863,12 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HE(1881, "work", "Manager of a Proxmox (it asks for the password)", "work proxmox 192.168.1.2"),
 	HIT(1881, 0x79BB27B6, "Manager di un Proxmox (chiede la password)"),
 	HRU(1881, 0x79BB27B6, "Менеджер Proxmox (спросит пароль)"),
+	HE(1914, "work", "Audit of a Proxmox by SSH (it shows the host key)", "work proxmox audit 192.168.1.2 -to z:\\audit"),
+	HIT(1914, 0xF8398338, "Audit di un Proxmox via SSH (mostra la chiave dell'host)"),
+	HRU(1914, 0xF8398338, "Аудит Proxmox по SSH (покажет ключ хоста)"),
+	HE(1915, "work", "Audit on the node itself", "work proxmox audit localhost -to /mnt/usb"),
+	HIT(1915, 0x2C7DBA89, "Audit sul nodo stesso"),
+	HRU(1915, 0x2C7DBA89, "Аудит на самом узле"),
 #endif /// NOSFTPEND
 	HBREVE(255, "work", "Run multiple commands"),
 	HIT(255, 0xA5D20944, "Esegue piu' comandi"),
@@ -149249,9 +159187,9 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(468, 0x0875FE4D, "НЕ игнорировать .zfs           (по умолчанию: YES)"),
 	HES(468, 0x0875FE4D, "NO ignora .zfs                (predet.: SÍ)"),
 	HPT(468, 0x0875FE4D, "NÃO ignora .zfs                (padrão: SIM)"),
-	HU(469, "a", "-715", "Runs just about like 7.15 (-m1, no -turbo, no -fast)"),
-	HIT(469, 0x41990C38, "Funziona quasi come la 7.15 (-m1,|  niente -turbo, niente -fast)"),
-	HRU(469, 0x41990C38, "Работает почти как 7.15 (-m1, без -turbo, без -fast)"),
+	HU(469, "a", "-715", "Runs just about like 7.15 (-m1, no -turbo, no -lfast)"),
+	HIT(469, 0xD1781BF6, "Funziona quasi come la 7.15 (-m1,|  niente -turbo, niente -lfast)"),
+	HRU(469, 0xD1781BF6, "Работает почти как 7.15 (-m1, без -turbo, без -lfast)"),
 	HES(469, 0x41990C38, "Funciona casi como 7.15 (-m1, sin -turbo, sin -fast)"),
 	HPT(469, 0x41990C38, "Funciona quase como o 7.15 (-m1, sem -turbo, sem -fast)"),
 	HU(470, "a", "-debug -zero", "Add files but zero-filled (debugging)"),
@@ -149279,6 +159217,30 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(474, 0x7DFC4D30, "Режим store: без дедупликации, без сжатия"),
 	HES(474, 0x7DFC4D30, "Modo almacenar: sin deduplicación, sin compresión"),
 	HPT(474, 0x7DFC4D30, "Modo armazenar: sem deduplicação, sem compressão"),
+	/// 65.18o: the levels by name (g_livelli), from the lightest to the strongest. What they are, there: here
+	/// the words of the author, for who does not know -m80 or -m7 (-lean -m80 -t2 -noturbo, -fast -m80,
+	/// -normal -m8, -good -m9, -better -m7, -ultra -m6, -max -m5)
+	HU(1923, "a", "-lean", "Minimal resources, slower (e.g. NAS)"),
+	HIT(1923, 0xC4A7A8CA, "Risorse minime, piu' lento (es. NAS)"),
+	HRU(1923, 0xC4A7A8CA, "Минимум ресурсов, медленнее (например, NAS)"),
+	HU(1924, "a", "-fast", "A bit faster and bigger than -normal"),
+	HIT(1924, 0x2ACCB236, "Un po' piu' veloce e piu' grande di -normal"),
+	HRU(1924, 0x2ACCB236, "Чуть быстрее и больше, чем -normal"),
+	HU(1925, "a", "-normal", "Balanced speed and size (recommended)"),
+	HIT(1925, 0xD3FD286A, "Velocita' e dimensione bilanciate (consigliato)"),
+	HRU(1925, 0xD3FD286A, "Баланс скорости и размера (рекомендуется)"),
+	HU(1926, "a", "-good", "A bit smaller and slower than -normal"),
+	HIT(1926, 0xF1E1BAEB, "Un po' piu' piccolo e piu' lento di -normal"),
+	HRU(1926, 0xF1E1BAEB, "Чуть меньше и медленнее, чем -normal"),
+	HU(1927, "a", "-better", "High compression, fast extraction"),
+	HIT(1927, 0x1691C492, "Compressione alta, estrazione veloce"),
+	HRU(1927, 0x1691C492, "Высокое сжатие, быстрое извлечение"),
+	HU(1928, "a", "-ultra", "Very slow compression and extraction"),
+	HIT(1928, 0x8F32CE3E, "Compressione ed estrazione molto lente"),
+	HRU(1928, 0x8F32CE3E, "Очень медленные сжатие и извлечение"),
+	HU(1929, "a", "-max", "Extreme compression, extremely slow|  One level only, not with -m (an error); a -t or -turbo written wins"),
+	HIT(1929, 0x95E9FF2F, "Compressione estrema, estremamente lento|  Un livello solo, non con -m (errore); un -t o -turbo scritto vince"),
+	HRU(1929, 0x95E9FF2F, "Экстремальное сжатие, крайне медленно|  Только один, не с -m (ошибка); заданные -t, -turbo главнее"),
 	HU(475, "a", "-touch", "Re-hash unchanged files without a usable hash (7.15, other algo)"),
 	HIT(475, 0xC35E8E67, "Ricalcola l'hash dei file invariati senza|  un hash utile (7.15, altro algoritmo)"),
 	HRU(475, 0xC35E8E67, "Пересчитать хеш неизменённых файлов без|  пригодного хеша (7.15, другой алгоритм)"),
@@ -149292,9 +159254,9 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HES(476, 0x63370BCD, "En Windows busca el archivo en todas las unidades (disp. USB)"),
 	HPT(476, 0x63370BCD, "No Windows procura o arquivo em todas as unidades (disp. USB)"),
 #endif // corresponds to #ifdef (#ifdef _WIN32)
-	HU(477, "a", "-append", "Append-only (antiransomware): two passes, the output is written only forward|  (never a seek back to fix the header). The passes must add the same number of|  files, folders and bytes, else nothing is kept and the exit code is 2. A check|  by quantity: a file replaced by one of the SAME size, in between, is not seen.|  -stdin is refused (it cannot be read twice). No -fast (the next plain a stores it)"),
-	HIT(477, 0x67CEAB19, "Solo accodamento (antiransomware): due passate, l'output si scrive solo in|  avanti (mai un ritorno indietro per sistemare l'header). Le passate devono|  aggiungere lo stesso numero di file, cartelle e byte, altrimenti non si|  tiene nulla e il codice di uscita e' 2. Un controllo per quantita': un file|  sostituito, nel frattempo, da uno della STESSA dimensione non si vede.|  -stdin e' rifiutato (non si puo' leggere due volte).|  Niente -fast (la salva il prossimo a normale)"),
-	HRU(477, 0x67CEAB19, "Только дописывание (antiransomware): два прохода, вывод пишется только|  вперёд (никогда не возвращается назад, чтобы исправить заголовок).|  Проходы должны добавить одинаковое число файлов, папок и байт, иначе|  ничего не сохраняется и код выхода 2. Проверка по количеству: файл,|  заменённый в промежутке файлом ТОГО ЖЕ размера, не замечается.|  -stdin отвергается (его нельзя прочитать дважды).|  Без -fast (её сохранит следующий обычный a)"),
+	HU(477, "a", "-append", "Append-only (antiransomware): two passes, the output is written only forward|  (never a seek back to fix the header). The passes must add the same number of|  files, folders and bytes, else nothing is kept and the exit code is 2. A check|  by quantity: a file replaced by one of the SAME size, in between, is not seen.|  -stdin is refused (it cannot be read twice). No -lfast (the next plain a stores it)"),
+	HIT(477, 0x9533826D, "Solo accodamento (antiransomware): due passate, l'output si scrive solo in|  avanti (mai un ritorno indietro per sistemare l'header). Le passate devono|  aggiungere lo stesso numero di file, cartelle e byte, altrimenti non si|  tiene nulla e il codice di uscita e' 2. Un controllo per quantita': un file|  sostituito, nel frattempo, da uno della STESSA dimensione non si vede.|  -stdin e' rifiutato (non si puo' leggere due volte).|  Niente -lfast (la salva il prossimo a normale)"),
+	HRU(477, 0x9533826D, "Только дописывание (antiransomware): два прохода, вывод пишется только|  вперёд (никогда не возвращается назад, чтобы исправить заголовок).|  Проходы должны добавить одинаковое число файлов, папок и байт, иначе|  ничего не сохраняется и код выхода 2. Проверка по количеству: файл,|  заменённый в промежутке файлом ТОГО ЖЕ размера, не замечается.|  -stdin отвергается (его нельзя прочитать дважды).|  Без -lfast (её сохранит следующий обычный a)"),
 	HES(477, 0x67CEAB19, "Solo agregar (antiransomware): dos pasadas, la salida se escribe solo hacia|  adelante (nunca se retrocede para corregir la cabecera). Las pasadas deben|  agregar la misma cantidad de archivos, carpetas y bytes; si no, no se guarda|  nada y el código de salida es 2. Control por cantidad: un archivo reemplazado|  entre medio por otro del MISMO tamaño no se detecta.|  -stdin se rechaza (no se puede leer dos veces). Sin -fast (el siguiente a|  común lo guarda)"),
 	HPT(477, 0x67CEAB19, "Somente acrescentar (antiransomware): duas passadas, a saída é escrita só para|  frente (nunca volta para corrigir o cabeçalho). As passadas devem adicionar o|  mesmo número de arquivos, pastas e bytes; senão nada é mantido e o código de|  saída é 2. Controle por quantidade: um arquivo trocado no meio por outro do|  MESMO tamanho não é percebido.|  -stdin é recusado (não pode ser lido duas vezes). Sem -fast (o próximo a|  comum o armazena)"),
 	HU(478, "a", "-append -stdout", "The archive on the command line is only READ, the new data go to stdout:|  a complete archive if it does not exist, else ONLY the new version, a delta to be|  glued after it (cat a.zpaq delta >b.zpaq, same -key and salt). Only archive bytes|  on stdout: CHECK THE EXIT CODE, a stream with code <> 0 is not valid"),
@@ -149303,6 +159265,9 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HES(478, 0x5AA41CD7, "El archivo de la línea de comandos solo se LEE, los datos nuevos van a stdout:|  un archivo completo si no existe; si no, SOLO la versión nueva, un delta para|  pegar detrás (cat a.zpaq delta >b.zpaq, mismo -key y salt). Solo bytes del|  archivo en stdout: REVISE EL CÓDIGO DE SALIDA, un flujo con código <> 0 no es|  válido"),
 	HPT(478, 0x5AA41CD7, "O arquivo da linha de comando é só LIDO, os dados novos vão para o stdout:|  um arquivo completo se não existir; senão SÓ a nova versão, um delta para|  colar depois dele (cat a.zpaq delta >b.zpaq, mesmo -key e salt). Só bytes do|  arquivo no stdout: VERIFIQUE O CÓDIGO DE SAÍDA, um fluxo com código <> 0 não|  é válido"),
 	HGENERA(0, "a", 'u', 'H', "", ""),
+	HU(1943, "a", "-...b", "b: the same hash in binary (smaller), with the|  creation date and added or changed (+ #) for l"), /// 65.18r (issue 351)
+	HIT(1943, 0x616688A1, "b: lo stesso hash in binario (piu' piccolo), con|  la data di creazione e aggiunto o cambiato (+ #) per l"),
+	HRU(1943, 0x616688A1, "b: тот же хеш в двоичном виде (меньше), с датой|  создания и пометкой добавлен/изменён (+ #) для l"),
 	HU(479, "a", "-test", "Do a post-add test (doveryay, no proveryay)."),
 	HIT(479, 0x90874BB9, "Test dopo l'add (doveryay, no proveryay)."),
 	HRU(479, 0x90874BB9, "Тест после add (доверяй, но проверяй)."),
@@ -149340,26 +159305,26 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HES(485, 0xC7677281, "foo  Agrega una versión con el texto ASCII 'foo' (única, sin importar|  mayúsculas)|  %date %time %datetime %year %month %day %hour %min %sec %week %weekday|  (o $date...) se reemplazan: -comment \"daily %date\""),
 	HPT(485, 0xC7677281, "foo  Adiciona uma versão com o texto ASCII 'foo' (única, sem diferenciar|  maiúsculas)|  %date %time %datetime %year %month %day %hour %min %sec %week %weekday|  (ou $date...) são substituídos: -comment \"daily %date\""),
 #ifdef ANCIENT
-	HU(486, "a", "-fast", "Store the history inside, for a fast l (then automatic)"),
+	HU(486, "a", "-lfast", "Store the history inside, for a fast l (then automatic)"),
 	HIT(486, 0x804FBB48, "Salva la storia dentro, per un l veloce (poi automatico)"),
 	HRU(486, 0x804FBB48, "Хранить историю внутри для быстрого l (затем автоматически)"),
 	HES(486, 0x804FBB48, "Guarda el historial dentro, para un l rápido (luego|automático)"),
 	HPT(486, 0x804FBB48, "Armazena o histórico dentro, para um l rápido (depois|automático)"),
 #else
-	HU(487, "a", "-fast", "Store the history inside, for a fast l (default)"),
+	HU(487, "a", "-lfast", "Store the history inside, for a fast l (default)"),
 	HIT(487, 0x9C05A881, "Salva la storia dentro, per un l veloce (default)"),
 	HRU(487, 0x9C05A881, "Хранить историю внутри для быстрого l (по умолчанию)"),
 	HES(487, 0x9C05A881, "Guarda el historial dentro, para un l rápido (por defecto)"),
 	HPT(487, 0x9C05A881, "Armazena o histórico dentro, para um l rápido (padrão)"),
 #endif
-	HU(488, "a", "-nofast", "Do not store the history (-fast)|With the history, a VFILE-info record too: what the version is and did|  (zpaqfranz, system, method, time, files, bytes). i -verbose shows them, t checks them"),
-	HIT(488, 0xA6FE9112, "Non salva la storia (-fast)|Con la storia anche un record VFILE-info: cos'e' e cosa ha fatto la versione|  (zpaqfranz, sistema, metodo, tempo, file, byte). i -verbose li mostra, t li controlla"),
-	HRU(488, 0xA6FE9112, "Не хранить историю (-fast)|С историей также запись VFILE-info: что это за версия и что она сделала|  (zpaqfranz, система, метод, время, файлы, байты). i -verbose показывает, t проверяет"),
+	HU(488, "a", "-nolfast", "Do not store the history (-lfast)|With the history, a VFILE-info record too: what the version is and did|  (zpaqfranz, system, method, time, files, bytes). i -verbose shows them, t checks them"),
+	HIT(488, 0x5B44CF7A, "Non salva la storia (-lfast)|Con la storia anche un record VFILE-info: cos'e' e cosa ha fatto la versione|  (zpaqfranz, sistema, metodo, tempo, file, byte). i -verbose li mostra, t li controlla"),
+	HRU(488, 0x5B44CF7A, "Не хранить историю (-lfast)|С историей также запись VFILE-info: что это за версия и что она сделала|  (zpaqfranz, система, метод, время, файлы, байты). i -verbose показывает, t проверяет"),
 	HES(488, 0xA6FE9112, "No guarda el historial (-fast)|Con el historial, también un registro VFILE-info: qué es y qué hizo la versión|  (zpaqfranz, sistema, método, tiempo, archivos, bytes). i -verbose los muestra,|  t los verifica"),
 	HPT(488, 0xA6FE9112, "Não armazena o histórico (-fast)|Com o histórico, também um registro VFILE-info: o que a versão é e fez|  (zpaqfranz, sistema, método, tempo, arquivos, bytes). i -verbose os mostra,|  t os verifica"),
-	HU(489, "a", "-fastadd", "Store the state of the archive: the next add -fastadd reads only the last version|  (much faster on a big archive; some tens of KB each version; with -fast only)"),
-	HIT(489, 0x92732D76, "Salva lo stato dell'archivio: il prossimo add -fastadd legge|  solo l'ultima versione (molto piu' veloce su un archivio|  grande; qualche decina di KB per versione; solo con -fast)"),
-	HRU(489, 0x92732D76, "Хранить состояние архива: следующий add -fastadd читает|  только последнюю версию (гораздо быстрее на большом|  архиве; несколько десятков KB на версию; только с -fast)"),
+	HU(489, "a", "-fastadd", "Store the state of the archive: the next add -fastadd reads only the last version|  (much faster on a big archive; some tens of KB each version; with -lfast only)"),
+	HIT(489, 0xE9EB804C, "Salva lo stato dell'archivio: il prossimo add -fastadd legge|  solo l'ultima versione (molto piu' veloce su un archivio|  grande; qualche decina di KB per versione; solo con -lfast)"),
+	HRU(489, 0xE9EB804C, "Хранить состояние архива: следующий add -fastadd читает|  только последнюю версию (гораздо быстрее на большом|  архиве; несколько десятков KB на версию; только с -lfast)"),
 	HES(489, 0x92732D76, "Guarda el estado del archivo: el siguiente add -fastadd lee solo la última|  versión (mucho más rápido en un archivo grande; unas decenas de KB por|  versión; solo con -fast)"),
 	HPT(489, 0x92732D76, "Armazena o estado do arquivo: o próximo add -fastadd lê só a última versão|  (muito mais rápido num arquivo grande; algumas dezenas de KB por versão;|  só com -fast)"),
 	HU(490, "a", "-copy", "z:\\two  Make a 2nd copy of the written data into another folder"),
@@ -149689,6 +159654,9 @@ static const franz_helpriga g_helprighe_tutte[]=
 	HRU(550, 0x6B17ABB3, "Хранить метаданные *nix, как tar: владелец, права,|  время в нс, symlink, hard link, FIFO, устройства"),
 	HES(550, 0x6B17ABB3, "Guarda metadatos *nix, como tar: dueño, modo, tiempos ns, symlinks, hard links, FIFO,|dispositivos"),
 	HPT(550, 0x6B17ABB3, "Armazena metadados *nix, como tar: dono, modo, tempos ns, symlinks, hard links, FIFO,|dispositivos"),
+	HU(1922, "a", "-tar -not X/*", "With -tar, X/* leaves out what is inside X, not X itself:|  the folder is kept, empty, with its owner, mode and times (as tar)"), /// 65.18j issue 350
+	HIT(1922, 0x77CEC5E5, "Con -tar, X/* lascia fuori cio' che c'e' dentro X, non X:|  la cartella resta, vuota, con proprietario, permessi e tempi (tar)"),
+	HRU(1922, 0x77CEC5E5, "С -tar, X/* исключает содержимое X, но не саму X:|  папка остаётся, пустая, с владельцем, правами и временем (как tar)"),
 #endif
 #ifdef _WIN32
 	HU(551, "a", "-ntfs", "Scan reading the $MFT of the volume, not folder by folder (if no -image): the same list,|  faster. By itself when every source is a whole NTFS drive (a z:\\1.zpaq c:\\ e:\\) and an|  administrator runs; -ntfs asks for it on a folder too. No administrator: the normal scan"),
@@ -149856,7 +159824,7 @@ losetup -d /dev/loop0
 	HRU(576, 0xF4518D86, "Добавить папку, максимальное сжатие"),
 	HES(576, 0xF4518D86, "Agregar carpeta, compresión máxima"),
 	HPT(576, 0xF4518D86, "Adicionar pasta, compressão máxima"),
-	HE(577, "a", "Do not store the history (for l)", "a z:\\d.zpaq c:\\nz\\ -nofast"),
+	HE(577, "a", "Do not store the history (for l)", "a z:\\d.zpaq c:\\nz\\ -nolfast"),
 	HIT(577, 0x3F293A69, "Non salva la storia (per l)"),
 	HRU(577, 0x3F293A69, "Не хранить историю (для l)"),
 	HES(577, 0x3F293A69, "No guardar el historial (para l)"),
@@ -149942,7 +159910,7 @@ losetup -d /dev/loop0
 	HRU(589, 0x0032FDAC, "Ускоренный add, 8 потоков для нарезки и хеша"),
 	HES(589, 0x0032FDAC, "Agregado rápido, 8 hilos para cortar y hash"),
 	HPT(589, 0x0032FDAC, "Adição rápida, 8 threads para cortar e hash"),
-	HE(590, "a", "Add as before 65.6a", "a z:\\1.zpaq *.cpp -m1 -noturbo -nofast"),
+	HE(590, "a", "Add as before 65.6a", "a z:\\1.zpaq *.cpp -m1 -noturbo -nolfast"),
 	HIT(590, 0x5E5CF323, "Aggiunge come prima della 65.6a"),
 	HRU(590, 0x5E5CF323, "Добавить как до 65.6a"),
 	HES(590, 0x5E5CF323, "Agregar como antes de 65.6a"),
@@ -150633,9 +160601,9 @@ losetup -d /dev/loop0
 	HRU(717, 0x8A867CE7, "показывает уровень совместимости архива|715  = обычный zpaq 7.15 (или zpaqfranz -715)|60+  = 7.15 + расширения zpaqfranz v60+ ~июль 2024|<60  = 7.15 + расширения zpaqfranz до v59.x|файл: обычный, AES, Franzen, Franzen+AES, части"),
 	HES(717, 0x8A867CE7, "muestra el nivel de compatibilidad del archivo|715  = zpaq 7.15 simple (o zpaqfranz -715)|60+  = 7.15 + extensiones de zpaqfranz v60+ ~jul 2024|<60  = 7.15 + extensiones de zpaqfranz hasta v59.x|el archivo: simple, AES, Franzen, Franzen+AES, partes"),
 	HPT(717, 0x8A867CE7, "mostra o nível de compatibilidade do arquivo|715  = zpaq 7.15 simples (ou zpaqfranz -715)|60+  = 7.15 + extensões do zpaqfranz v60+ ~jul 2024|<60  = 7.15 + extensões do zpaqfranz até v59.x|o arquivo: simples, AES, Franzen, Franzen+AES, partes"),
-	HU(718, "dump", "Virtual files", "-fast history, VFILE-info, VCOMMENT...: how many,|how big, the first and the last version"),
-	HIT(718, 0x6C148330, "storia -fast, VFILE-info, VCOMMENT...: quanti,|quanto grandi, la prima e l'ultima versione"),
-	HRU(718, 0x6C148330, "история -fast, VFILE-info, VCOMMENT...: сколько,|какого размера, первая и последняя версия"),
+	HU(718, "dump", "Virtual files", "-lfast history, VFILE-info, VCOMMENT...: how many,|how big, the first and the last version"),
+	HIT(718, 0x4B9F2044, "storia -lfast, VFILE-info, VCOMMENT...: quanti,|quanto grandi, la prima e l'ultima versione"),
+	HRU(718, 0x4B9F2044, "история -lfast, VFILE-info, VCOMMENT...: сколько,|какого размера, первая и последняя версия"),
 	HES(718, 0x6C148330, "historial -fast, VFILE-info, VCOMMENT...: cuántos,|qué tamaño, la primera y la última versión"),
 	HPT(718, 0x6C148330, "histórico -fast, VFILE-info, VCOMMENT...: quantos,|qual tamanho, a primeira e a última versão"),
 	HU(719, "dump", "Blocks", "c, d+h, i of every version: what is missing"),
@@ -151363,9 +161331,9 @@ losetup -d /dev/loop0
 	HES(839, 0x86E41A47, "Muestra (si hay) la fecha de creación del archivo"),
 	HPT(839, 0x86E41A47, "Mostra (se houver) a data de criação do arquivo"),
 #endif // corresponds to #ifdef (#ifdef _WIN32)
-	HU(840, "l", "-nofast", "Do not use the stored history (-fast), read all"),
-	HIT(840, 0x17560BBB, "Non usa la storia salvata (-fast), legge tutto"),
-	HRU(840, 0x17560BBB, "Не использовать сохранённую историю (-fast), читать всё"),
+	HU(840, "l", "-nolfast", "Do not use the stored history (-lfast), read all"),
+	HIT(840, 0x7E614815, "Non usa la storia salvata (-lfast), legge tutto"),
+	HRU(840, 0x7E614815, "Не использовать сохранённую историю (-lfast), читать всё"),
 	HES(840, 0x17560BBB, "No usa el historial guardado (-fast), lee todo"),
 	HPT(840, 0x17560BBB, "Não usa o histórico salvo (-fast), lê tudo"),
 	HU(841, "l", "-date", "Show creation date (if any)"),
@@ -151499,7 +161467,7 @@ losetup -d /dev/loop0
 	HRU(865, 0x859BFB7E, "Найти версии файла"),
 	HES(865, 0x859BFB7E, "Buscar las versiones de un archivo"),
 	HPT(865, 0x859BFB7E, "Achar as versões de um arquivo"),
-	HE(866, "l", "Force recomputing list", "l z:\\1.zpaq -nofast"),
+	HE(866, "l", "Force recomputing list", "l z:\\1.zpaq -nolfast"),
 	HIT(866, 0xC9E393B7, "Forza il ricalcolo dell'elenco"),
 	HRU(866, 0xC9E393B7, "Принудительно пересчитать список"),
 	HES(866, 0xC9E393B7, "Forzar recálculo de la lista"),
@@ -151585,9 +161553,9 @@ losetup -d /dev/loop0
 	HRU(882, 0x2EDC75E7, "Подсчитать 'странные' файлы и|  показать несжатый размер (медленно)"),
 	HES(882, 0x2EDC75E7, "Cuenta archivos 'raros' y muestra tamaño sin comprimir|(lento)"),
 	HPT(882, 0x2EDC75E7, "Conta arquivos 'estranhos' e mostra tamanho descomprimido|(lento)"),
-	HU(883, "i", "-verbose", "What the versions say they are (VFILE-info, written with -fast), below the list|and what ac saved, if the archive has one: the last backup (-all: every one)"),
-	HIT(883, 0x6BBBB6D1, "Cosa dicono di essere le versioni (VFILE-info, scritto|con -fast), sotto l'elenco e cosa ha salvato ac, se|l'archivio ne ha uno: l'ultimo backup (-all: tutti)"),
-	HRU(883, 0x6BBBB6D1, "Что версии говорят о себе (VFILE-info, записывается с -fast), под списком|и что сохранил ac, если в архиве он есть: последний backup (-all: все)"),
+	HU(883, "i", "-verbose", "What the versions say they are (VFILE-info, written with -lfast), below the list|and what ac saved, if the archive has one: the last backup (-all: every one)"),
+	HIT(883, 0xD281E77B, "Cosa dicono di essere le versioni (VFILE-info, scritto|con -lfast), sotto l'elenco e cosa ha salvato ac, se|l'archivio ne ha uno: l'ultimo backup (-all: tutti)"),
+	HRU(883, 0xD281E77B, "Что версии говорят о себе (VFILE-info, записывается с -lfast), под списком|и что сохранил ac, если в архиве он есть: последний backup (-all: все)"),
 	HES(883, 0x6BBBB6D1, "Lo que las versiones dicen ser (VFILE-info, escrito con -fast), bajo la lista|y lo que guardó ac, si el archivo tiene: el último backup (-all: todos)"),
 	HPT(883, 0x6BBBB6D1, "O que as versões dizem ser (VFILE-info, gravado com -fast), abaixo da lista|e o que o ac salvou, se o arquivo tiver: o último backup (-all: todos)"),
 	HINCLUDI("i", 'u', "@range", 'b'),
@@ -152384,9 +162352,9 @@ losetup -d /dev/loop0
 	HRU(1032, 0xC11E7455, "Многопоточное восстановление CRC-32|  / проверка перед .franzen\n"),
 	HES(1032, 0xC11E7455, "Reconstructor multithread de CRC-32|  / comprobación previa a .franzen\n"),
 	HPT(1032, 0xC11E7455, "Reconstrutor multithread de CRC-32|  / verificação prévia de .franzen\n"),
-	HU(1033, "t", "VFILE-info", "The versions that say what they are (a -fast): their number, where they|begin, first fragment and index are checked. Nothing more is read"),
-	HIT(1033, 0x40B8CB3F, "Le versioni che dicono cosa sono (un -fast): il|loro numero, dove cominciano, il primo frammento e|l'indice vengono controllati. Non si legge altro"),
-	HRU(1033, 0x40B8CB3F, "Версии, которые говорят о себе (-fast): их номер, где они начинаются,|первый фрагмент и индекс проверяются. Больше ничего не читается"),
+	HU(1033, "t", "VFILE-info", "The versions that say what they are (a -lfast): their number, where they|begin, first fragment and index are checked. Nothing more is read"),
+	HIT(1033, 0xB0A49C09, "Le versioni che dicono cosa sono (un -lfast): il|loro numero, dove cominciano, il primo frammento e|l'indice vengono controllati. Non si legge altro"),
+	HRU(1033, 0xB0A49C09, "Версии, которые говорят о себе (-lfast): их номер, где они начинаются,|первый фрагмент и индекс проверяются. Больше ничего не читается"),
 	HES(1033, 0x40B8CB3F, "Las versiones que dicen lo que son (un -fast): se comprueban su número,|dónde|empiezan, el primer fragmento y el índice. No se lee nada más"),
 	HPT(1033, 0x40B8CB3F, "As versões que dizem o que são (um -fast): são verificados seu número,|onde|começam, o primeiro fragmento e o índice. Nada mais é lido"),
 	HU(1034, "t", "-debug6", "Enforce CRC-32 error\n"),
@@ -154982,8 +164950,8 @@ losetup -d /dev/loop0
 	HRU(1483, 0x556B0665, "Пароль Franzen (ChaCha20) X|переменная FRANZFRANZEN используется, если -franzen не задан"),
 	HES(1483, 0x556B0665, "Contraseña X de Franzen (ChaCha20)|si no se da -franzen, se usa la variable FRANZFRANZEN"),
 	HPT(1483, 0x556B0665, "Senha X do Franzen (ChaCha20)|sem -franzen, usa a variável de ambiente FRANZFRANZEN"),
-	/// 65.11e/f: the methods, a line each, for who has to choose. The texts are the
-	/// author's; the numbers behind them are in zpaqmount/compressor.txt
+	/// 65.11e/f: the methods, a line each, for who has to choose. 
+	/// The numbers behind them are in zpaqmount/compressor.txt
 #if defined(ZPAQZSTD) && !defined(ANCIENT)
 	HRIGA(1484, "*main", 'o', "-mN -method N", "compression method: 0 = none, 1..9 = see below"),
 	HIT(1484, 0x29C1EC88, "metodo di compressione: 0 = nessuna, 1..9 = vedi sotto"),
@@ -155170,9 +165138,9 @@ losetup -d /dev/loop0
 	HPT(1516, 0x6D2859BD, "Switches mais comuns"),
 	/// *franz
 	///	-all [N]             All version
-	HRIGA(1517, "*franz", 'o', "-715", "Works just about like v7.15 (-m1, no -turbo, no -fast)"),
-	HIT(1517, 0xE8787C1A, "Funziona quasi come la v7.15 (-m1,|  niente -turbo, niente -fast)"),
-	HRU(1517, 0xE8787C1A, "Работает почти как v7.15 (-m1, без -turbo, без -fast)"),
+	HRIGA(1517, "*franz", 'o', "-715", "Works just about like v7.15 (-m1, no -turbo, no -lfast)"),
+	HIT(1517, 0x518D965C, "Funziona quasi come la v7.15 (-m1,|  niente -turbo, niente -lfast)"),
+	HRU(1517, 0x518D965C, "Работает почти как v7.15 (-m1, без -turbo, без -lfast)"),
 	HES(1517, 0xE8787C1A, "Funciona casi como v7.15 (-m1, sin -turbo, sin -fast)"),
 	HPT(1517, 0xE8787C1A, "Funciona quase como v7.15 (-m1, sem -turbo, sem -fast)"),
 	HRIGA(1518, "*franz", 'o', "-all [N]", "All versions (default 4 digits)"),
@@ -155205,7 +165173,7 @@ losetup -d /dev/loop0
 	HRU(1523, 0x88F0C735, "Команда utf: найти папки длиной>X, извлечь maxdirlen"),
 	HES(1523, 0x88F0C735, "Comando utf: busca carpetas con largo>X, extrae maxdirlen"),
 	HPT(1523, 0x88F0C735, "Comando utf: acha pastas com tamanho>X, extrai maxdirlen"),
-	HRIGA(1524, "*franz", 'o', "-fast", "Store the history inside the archive, for a fast l (default, not in ESX/NAS)"),
+	HRIGA(1524, "*franz", 'o', "-lfast", "Store the history inside the archive, for a fast l (default, not in ESX/NAS)"),
 	HIT(1524, 0xD7625BCB, "Salva la storia dentro l'archivio, per un l veloce (default, non in ESX/NAS)"),
 	HRU(1524, 0xD7625BCB, "Хранить историю внутри архива для быстрого l (по умолчанию, не в ESX/NAS)"),
 	HES(1524, 0xD7625BCB, "Guarda el historial en el archivo, para un l rápido (default, no en ESX/NAS)"),
@@ -155468,6 +165436,17 @@ losetup -d /dev/loop0
 	HRU(1572, 0xC51E8E51, "memzero в libsodium (просто плацебо)"),
 	HES(1572, 0xC51E8E51, "Hace memzero en libsodium (puro placebo)"),
 	HPT(1572, 0xC51E8E51, "Faz memzero no libsodium (só placebo)"),
+#ifndef NOFRANZEN
+	HRIGA(1916, "*voodoo", 'o', "-franzsodium", "Franzen with franzsodium, built in: the default (it wins on -libsodium)"), /// 65.18c, 65.18e default
+	HIT(1916, 0xB61DA77F, "Franzen con franzsodium, interno: il default (vince su -libsodium)"),
+	HRU(1916, 0xB61DA77F, "Franzen со встроенным franzsodium: по умолчанию (важнее -libsodium)"),
+	HRIGA(1920, "*voodoo", 'o', "-libsodium", "Franzen with libsodium (external library), not franzsodium (built in)"), /// 65.18e
+	HIT(1920, 0x5436E831, "Franzen con libsodium (libreria esterna), non franzsodium (interno)"),
+	HRU(1920, 0x5436E831, "Franzen с libsodium (внешняя библиотека), не встроенный franzsodium"),
+	HRIGA(1918, "*voodoo", 'o', "-sodiumcheck", "Franzen: libsodium and franzsodium both, every result compared (debug)"), /// 65.18d
+	HIT(1918, 0x62050ED4, "Franzen: libsodium e franzsodium insieme, ogni risultato confrontato"),
+	HRU(1918, 0x62050ED4, "Franzen: libsodium и franzsodium вместе, каждый результат сравнивается"),
+#endif
 	HRIGA(1573, "*voodoo", 'o', "-repack F [X]", "Extract to new archive F with key X (default: none)"),
 	HIT(1573, 0x29A65CCC, "Estrae in un nuovo archivio F con|  la chiave X (default: nessuna)"),
 	HRU(1573, 0x29A65CCC, "Извлечь в новый архив F с ключом X (по умолчанию: без)"),
@@ -155825,79 +165804,79 @@ losetup -d /dev/loop0
 	HRU(1629, 0xE480E837, "Отключить контрольные суммы"),
 	HES(1629, 0xE480E837, "Desactiva los checksums"),
 	HPT(1629, 0xE480E837, "Desativa os checksums"),
-	HTESTO(1630, "@hash", 'a', 0, "Old but ubiquitous, superfast, not very strong"),
-	HIT(1630, 0x2E0C2794, "Vecchio ma ovunque, velocissimo, non molto robusto"),
-	HRU(1630, 0x2E0C2794, "Старый, но повсеместный, сверхбыстрый, не очень стойкий"),
+	HTESTO(1630, "@hash", 'a', 0, "CRC-32, 32 bit: old but ubiquitous, superfast, not very strong"),
+	HIT(1630, 0x52A759C4, "CRC-32, 32 bit: vecchio ma ovunque, velocissimo, non molto robusto"),
+	HRU(1630, 0x52A759C4, "CRC-32, 32 бита: старый, но повсеместный, сверхбыстрый, не очень стойкий"),
 	HES(1630, 0x2E0C2794, "Antiguo pero omnipresente, superrápido, no muy robusto"),
 	HPT(1630, 0x2E0C2794, "Antigo mas onipresente, super-rápido, não muito forte"),
-	HTESTO(1631, "@hash", 'a', 0, "Very fast, low CPU usage, zpaqfranz's default"),
-	HIT(1631, 0x30BCD2F4, "Molto veloce, poca CPU, il default di zpaqfranz"),
-	HRU(1631, 0x30BCD2F4, "Очень быстрый, мало CPU, по умолчанию в zpaqfranz"),
+	HTESTO(1631, "@hash", 'a', 0, "XXH64, 64 bit: very fast, low CPU usage, zpaqfranz's default"),
+	HIT(1631, 0x2C5AE139, "XXH64, 64 bit: molto veloce, poca CPU, il default di zpaqfranz"),
+	HRU(1631, 0x2C5AE139, "XXH64, 64 бита: очень быстрый, мало CPU, по умолчанию в zpaqfranz"),
 	HES(1631, 0x30BCD2F4, "Muy rápido, poco uso de CPU, el default de zpaqfranz"),
 	HPT(1631, 0x30BCD2F4, "Muito rápido, pouco uso de CPU, o padrão do zpaqfranz"),
-	HTESTO(1632, "@hash", 'a', 0, "Very fast, low CPU usage, zpaqfranz's 60+ default"),
-	HIT(1632, 0xED861FFB, "Molto veloce, poca CPU, il default di zpaqfranz 60+"),
-	HRU(1632, 0xED861FFB, "Очень быстрый, мало CPU, по умолчанию в zpaqfranz 60+"),
+	HTESTO(1632, "@hash", 'a', 0, "XXH64, 64 bit, b: very fast, low CPU usage, zpaqfranz's 60+ default"),
+	HIT(1632, 0x15F0EA50, "XXH64, 64 bit, b: molto veloce, poca CPU, il default di zpaqfranz 60+"),
+	HRU(1632, 0x15F0EA50, "XXH64, 64 бита, b: очень быстрый, мало CPU, по умолчанию в zpaqfranz 60+"),
 	HES(1632, 0xED861FFB, "Muy rápido, poco uso de CPU, default de zpaqfranz 60+"),
 	HPT(1632, 0xED861FFB, "Muito rápido, pouco uso de CPU, padrão do zpaqfranz 60+"),
-	HTESTO(1633, "@hash", 'a', 0, "Fair speed, very reliable, some collisions known"),
-	HIT(1633, 0xB9D7D588, "Velocita' discreta, molto affidabile, note alcune collisioni"),
-	HRU(1633, 0xB9D7D588, "Приличная скорость, очень надёжный, известны коллизии"),
+	HTESTO(1633, "@hash", 'a', 0, "SHA-1, 160 bit: fair speed, very reliable, some collisions known"),
+	HIT(1633, 0x465EF7F8, "SHA-1, 160 bit: velocita' discreta, molto affidabile, note alcune collisioni"),
+	HRU(1633, 0x465EF7F8, "SHA-1, 160 бит: приличная скорость, очень надёжный, известны коллизии"),
 	HES(1633, 0xB9D7D588, "Velocidad aceptable, muy confiable, colisiones conocidas"),
 	HPT(1633, 0xB9D7D588, "Velocidade razoável, muito confiável, colisões conhecidas"),
-	HTESTO(1634, "@hash", 'a', 0, "CPU intensive, one of the most reliable. Legal proof in EU"),
-	HIT(1634, 0x57815577, "Pesante per la CPU, fra i piu' affidabili. Valore legale nella UE"),
-	HRU(1634, 0x57815577, "Нагружает CPU, один из самых надёжных. Юридическая сила в ЕС"),
+	HTESTO(1634, "@hash", 'a', 0, "SHA-256, 256 bit: CPU intensive, very reliable. Legal proof in EU"),
+	HIT(1634, 0x59B87490, "SHA-256, 256 bit: pesante per la CPU, molto affidabile. Valore legale nella UE"),
+	HRU(1634, 0x59B87490, "SHA-256, 256 бит: нагружает CPU, очень надёжный. Юридическая сила в ЕС"),
 	HES(1634, 0x57815577, "Usa mucha CPU, de los más confiables. Prueba legal en la UE"),
 	HPT(1634, 0x57815577, "Usa muita CPU, um dos mais confiáveis. Prova legal na UE"),
-	HTESTO(1635, "@hash", 'a', 0, "Very fast and strong, zpaqfranz default for file comparing"),
-	HIT(1635, 0x4DF4AA56, "Molto veloce e robusto, default di zpaqfranz per confrontare file"),
-	HRU(1635, 0x4DF4AA56, "Очень быстрый и стойкий, по умолчанию в zpaqfranz для сравнения файлов"),
+	HTESTO(1635, "@hash", 'a', 0, "XXH3, 128 bit: very fast and strong, default for file comparing"),
+	HIT(1635, 0x900E37CA, "XXH3, 128 bit: molto veloce e robusto, default per confrontare file"),
+	HRU(1635, 0x900E37CA, "XXH3, 128 бит: очень быстрый и стойкий, по умолчанию для сравнения файлов"),
 	HES(1635, 0x4DF4AA56, "Muy rápido y robusto, default de zpaqfranz para comparar archivos"),
 	HPT(1635, 0x4DF4AA56, "Muito rápido e forte, padrão do zpaqfranz para comparar arquivos"),
-	HTESTO(1636, "@hash", 'a', 0, "Common, fast, hashdeep compatible. Not cryptographically secure"),
-	HIT(1636, 0xEA688B19, "Comune, veloce, compatibile con hashdeep. Non sicuro in crittografia"),
-	HRU(1636, 0xEA688B19, "Распространённый, быстрый, совместим с hashdeep. Криптографически не стойкий"),
+	HTESTO(1636, "@hash", 'a', 0, "MD5, 128 bit: common, fast, hashdeep compatible. Not secure"),
+	HIT(1636, 0x5D15D322, "MD5, 128 bit: comune, veloce, compatibile con hashdeep. Non sicuro"),
+	HRU(1636, 0x5D15D322, "MD5, 128 бит: распространённый, быстрый, совместим с hashdeep. Не стойкий"),
 	HES(1636, 0xEA688B19, "Común, rápido, compatible con hashdeep. No es criptográficamente seguro"),
 	HPT(1636, 0xEA688B19, "Comum, rápido, compatível com hashdeep. Não é criptograficamente seguro"),
-	HTESTO(1637, "@hash", 'a', 0, "Fast, CPU intensive (on Win64 HW acceleration), reliable"),
-	HIT(1637, 0x14B2B8DF, "Veloce, pesante per la CPU (su Win64 accelerato in HW), affidabile"),
-	HRU(1637, 0x14B2B8DF, "Быстрый, нагружает CPU (в Win64 аппаратное ускорение), надёжный"),
+	HTESTO(1637, "@hash", 'a', 0, "BLAKE3, 256 bit: fast, CPU intensive (HW on Win64), reliable"),
+	HIT(1637, 0x830C0A4B, "BLAKE3, 256 bit: veloce, pesante per la CPU (in HW su Win64), affidabile"),
+	HRU(1637, 0x830C0A4B, "BLAKE3, 256 бит: быстрый, нагружает CPU (аппаратно в Win64), надёжный"),
 	HES(1637, 0x14B2B8DF, "Rápido, usa mucha CPU (aceleración HW en Win64), confiable"),
 	HPT(1637, 0x14B2B8DF, "Rápido, usa muita CPU (aceleração HW no Win64), confiável"),
-	HTESTO(1638, "@hash", 'a', 0, "Latest NIST standard, very strong"),
-	HIT(1638, 0x0A3A8138, "L'ultimo standard NIST, molto robusto"),
-	HRU(1638, 0x0A3A8138, "Новейший стандарт NIST, очень стойкий"),
+	HTESTO(1638, "@hash", 'a', 0, "SHA3-256, 256 bit: latest NIST standard (FIPS 202), very strong"),
+	HIT(1638, 0x9E755BC8, "SHA3-256, 256 bit: l'ultimo standard NIST (FIPS 202), molto robusto"),
+	HRU(1638, 0x9E755BC8, "SHA3-256, 256 бит: новейший стандарт NIST (FIPS 202), очень стойкий"),
 	HES(1638, 0x0A3A8138, "Último estándar NIST, muy robusto"),
 	HPT(1638, 0x0A3A8138, "Último padrão NIST, muito forte"),
-	HTESTO(1639, "@hash", 'a', 0, "Slow but very reliable"),
-	HIT(1639, 0x045B5361, "Lento ma molto affidabile"),
-	HRU(1639, 0x045B5361, "Медленный, но очень надёжный"),
+	HTESTO(1639, "@hash", 'a', 0, "WHIRLPOOL, 512 bit: slow but very reliable"),
+	HIT(1639, 0xB65ACA42, "WHIRLPOOL, 512 bit: lento ma molto affidabile"),
+	HRU(1639, 0xB65ACA42, "WHIRLPOOL, 512 бит: медленный, но очень надёжный"),
 	HES(1639, 0x045B5361, "Lento pero muy confiable"),
 	HPT(1639, 0x045B5361, "Lento mas muito confiável"),
-	HTESTO(1640, "@hash", 'a', 0, "Experimental Google HighwayHash, C implementation, 64 bit"),
-	HIT(1640, 0xAF58AAFD, "HighwayHash di Google sperimentale, implementazione in C, 64 bit"),
-	HRU(1640, 0xAF58AAFD, "Экспериментальный HighwayHash от Google, реализация на C, 64 бит"),
+	HTESTO(1640, "@hash", 'a', 0, "HighwayHash, 64 bit: experimental (Google), C implementation"),
+	HIT(1640, 0x9804F278, "HighwayHash, 64 bit: sperimentale (Google), implementazione in C"),
+	HRU(1640, 0x9804F278, "HighwayHash, 64 бита: экспериментальный (Google), реализация на C"),
 	HES(1640, 0xAF58AAFD, "HighwayHash de Google experimental, implementación en C, 64 bit"),
 	HPT(1640, 0xAF58AAFD, "HighwayHash do Google experimental, implementação em C, 64 bit"),
-	HTESTO(1641, "@hash", 'a', 0, "Experimental Google HighwayHash, C implementation, 128 bit"),
-	HIT(1641, 0xE5CA57B2, "HighwayHash di Google sperimentale, implementazione in C, 128 bit"),
-	HRU(1641, 0xE5CA57B2, "Экспериментальный HighwayHash от Google, реализация на C, 128 бит"),
+	HTESTO(1641, "@hash", 'a', 0, "HighwayHash, 128 bit: experimental (Google), C implementation"),
+	HIT(1641, 0xF20E10FD, "HighwayHash, 128 bit: sperimentale (Google), implementazione in C"),
+	HRU(1641, 0xF20E10FD, "HighwayHash, 128 бит: экспериментальный (Google), реализация на C"),
 	HES(1641, 0xE5CA57B2, "HighwayHash de Google experimental, implementación en C, 128 bit"),
 	HPT(1641, 0xE5CA57B2, "HighwayHash do Google experimental, implementação em C, 128 bit"),
-	HTESTO(1642, "@hash", 'a', 0, "Experimental Google HighwayHash, C implementation, 256 bit"),
-	HIT(1642, 0x72B28666, "HighwayHash di Google sperimentale, implementazione in C, 256 bit"),
-	HRU(1642, 0x72B28666, "Экспериментальный HighwayHash от Google, реализация на C, 256 бит"),
+	HTESTO(1642, "@hash", 'a', 0, "HighwayHash, 256 bit: experimental (Google), C implementation"),
+	HIT(1642, 0x0FF9BCB9, "HighwayHash, 256 bit: sperimentale (Google), implementazione in C"),
+	HRU(1642, 0x0FF9BCB9, "HighwayHash, 256 бит: экспериментальный (Google), реализация на C"),
 	HES(1642, 0x72B28666, "HighwayHash de Google experimental, implementación en C, 256 bit"),
 	HPT(1642, 0x72B28666, "HighwayHash do Google experimental, implementação em C, 256 bit"),
-	HTESTO(1643, "@hash", 'a', 0, "'Castagnoli' variation of CRC-32, HW accelerated"),
-	HIT(1643, 0x1D79B7FA, "Variante 'Castagnoli' del CRC-32, accelerata in HW"),
-	HRU(1643, 0x1D79B7FA, "Вариант CRC-32 'Castagnoli', аппаратное ускорение"),
+	HTESTO(1643, "@hash", 'a', 0, "CRC-32C, 32 bit: 'Castagnoli' variation of CRC-32, HW accelerated"),
+	HIT(1643, 0xDA1A5D79, "CRC-32C, 32 bit: variante 'Castagnoli' di CRC-32, accelerato in HW"),
+	HRU(1643, 0xDA1A5D79, "CRC-32C, 32 бита: вариант CRC-32 'Castagnoli', аппаратное ускорение"),
 	HES(1643, 0x1D79B7FA, "Variante 'Castagnoli' de CRC-32, acelerada por HW"),
 	HPT(1643, 0x1D79B7FA, "Variante 'Castagnoli' do CRC-32, acelerada por HW"),
-	HTESTO(1644, "@hash", 'a', 0, "Maybe the fastest, limited 'strength'"),
-	HIT(1644, 0xA1C78555, "Forse il piu' veloce, 'robustezza' limitata"),
-	HRU(1644, 0xA1C78555, "Возможно, самый быстрый, ограниченная 'стойкость'"),
+	HTESTO(1644, "@hash", 'a', 0, "wyhash, 64 bit: maybe the fastest, limited 'strength'"),
+	HIT(1644, 0x1EA70FE0, "wyhash, 64 bit: forse il piu' veloce, 'robustezza' limitata"),
+	HRU(1644, 0x1EA70FE0, "wyhash, 64 бита: возможно, самый быстрый, ограниченная 'стойкость'"),
 	HES(1644, 0xA1C78555, "Quizás el más rápido, 'robustez' limitada"),
 	HPT(1644, 0xA1C78555, "Talvez o mais rápido, 'robustez' limitada"),
 	HTESTO(1645, "@hash", 'a', 0, "Look for similarities, not differences"),
@@ -155930,6 +165909,25 @@ losetup -d /dev/loop0
 	HRU(1650, 0xCCE6DBF7, "Как xxhash64 (с датами Windows)"),
 	HES(1650, 0xCCE6DBF7, "Igual que xxhash64 (con las fechas de Windows)"),
 	HPT(1650, 0xCCE6DBF7, "Igual ao xxhash64 (com as datas do Windows)"),
+	/// 65.18r (issue 351): the "b" hashes, a text of their own (it was the one of the plain hash)
+	HTESTO(1937, "@hash", 'a', 0, "SHA-1, 160 bit, b: fair speed, very reliable, some collisions known"),
+	HIT(1937, 0xF9E9FB54, "SHA-1, 160 bit, b: velocita' discreta, molto affidabile, note alcune collisioni"),
+	HRU(1937, 0xF9E9FB54, "SHA-1, 160 бит, b: приличная скорость, очень надёжный, известны коллизии"),
+	HTESTO(1938, "@hash", 'a', 0, "SHA-256, 256 bit, b: CPU intensive, very reliable. Legal proof in EU"),
+	HIT(1938, 0x8A4434F4, "SHA-256, 256 bit, b: pesante per la CPU, molto affidabile. Valore legale UE"),
+	HRU(1938, 0x8A4434F4, "SHA-256, 256 бит, b: нагружает CPU, очень надёжный. Юридическая сила в ЕС"),
+	HTESTO(1939, "@hash", 'a', 0, "XXH3, 128 bit, b: very fast and strong"),
+	HIT(1939, 0xD5B087AC, "XXH3, 128 bit, b: molto veloce e robusto"),
+	HRU(1939, 0xD5B087AC, "XXH3, 128 бит, b: очень быстрый и стойкий"),
+	HTESTO(1940, "@hash", 'a', 0, "MD5, 128 bit, b: common, fast, hashdeep compatible. Not secure"),
+	HIT(1940, 0x8A85C186, "MD5, 128 bit, b: comune, veloce, compatibile con hashdeep. Non sicuro"),
+	HRU(1940, 0x8A85C186, "MD5, 128 бит, b: распространённый, быстрый, совместим с hashdeep. Не стойкий"),
+	HTESTO(1941, "@hash", 'a', 0, "BLAKE3, 256 bit, b: fast, CPU intensive (HW on Win64), reliable"),
+	HIT(1941, 0xBDD64EBF, "BLAKE3, 256 bit, b: veloce, pesante per la CPU (in HW su Win64), affidabile"),
+	HRU(1941, 0xBDD64EBF, "BLAKE3, 256 бит, b: быстрый, нагружает CPU (аппаратно в Win64), надёжный"),
+	HTESTO(1942, "@hash", 'a', 0, "SHA3-256, 256 bit, b: latest NIST standard (FIPS 202), very strong"),
+	HIT(1942, 0xB78EABD2, "SHA3-256, 256 bit, b: l'ultimo standard NIST (FIPS 202), molto robusto"),
+	HRU(1942, 0xB78EABD2, "SHA3-256, 256 бит, b: новейший стандарт NIST (FIPS 202), очень стойкий"),
 	/// 65.14l @flag: the descriptions of the flags (h common), found by their English (help_t; -helpcheck: one for each)
 	HTESTO(1651, "@flag", 'a', 0, "Runs just about like zpaq 7.15"),
 	HIT(1651, 0xC2822A12, "Funziona quasi come zpaq 7.15"),
@@ -156066,11 +166064,33 @@ losetup -d /dev/loop0
 	HRU(1677, 0xA6C6FA0C, "Хранить историю для быстрого l (затем автоматически)"),
 	HES(1677, 0xA6C6FA0C, "Guarda el historial para un l rápido (luego automático)"),
 	HPT(1677, 0xA6C6FA0C, "Salva o histórico para um l rápido (depois automático)"),
-	HTESTO(1678, "@flag", 'a', 0, "Stop the automatic -fast / l the slow way"),
-	HIT(1678, 0x5DD2B998, "Ferma il -fast automatico / l nel modo lento"),
-	HRU(1678, 0x5DD2B998, "Остановить автоматический -fast / l медленным способом"),
+	HTESTO(1678, "@flag", 'a', 0, "Stop the automatic -lfast / l the slow way"),
+	HIT(1678, 0x86CBA2D0, "Ferma il -lfast automatico / l nel modo lento"),
+	HRU(1678, 0x86CBA2D0, "Остановить автоматический -lfast / l медленным способом"),
 	HES(1678, 0x5DD2B998, "Detiene el -fast automático / l de la forma lenta"),
 	HPT(1678, 0x5DD2B998, "Para o -fast automático / l do modo lento"),
+	/// 65.18o: the levels by name, as g_livelli says them (h a: 1923...)
+	HTESTO(1930, "@flag", 'a', 0, "Minimal resources, slower (e.g. NAS)"),
+	HIT(1930, 0xC4A7A8CA, "Risorse minime, piu' lento (es. NAS)"),
+	HRU(1930, 0xC4A7A8CA, "Минимум ресурсов, медленнее (например, NAS)"),
+	HTESTO(1931, "@flag", 'a', 0, "A bit faster and bigger than -normal"),
+	HIT(1931, 0x2ACCB236, "Un po' piu' veloce e piu' grande di -normal"),
+	HRU(1931, 0x2ACCB236, "Чуть быстрее и больше, чем -normal"),
+	HTESTO(1932, "@flag", 'a', 0, "Balanced speed and size (recommended)"),
+	HIT(1932, 0xD3FD286A, "Velocita' e dimensione bilanciate (consigliato)"),
+	HRU(1932, 0xD3FD286A, "Баланс скорости и размера (рекомендуется)"),
+	HTESTO(1933, "@flag", 'a', 0, "A bit smaller and slower than -normal"),
+	HIT(1933, 0xF1E1BAEB, "Un po' piu' piccolo e piu' lento di -normal"),
+	HRU(1933, 0xF1E1BAEB, "Чуть меньше и медленнее, чем -normal"),
+	HTESTO(1934, "@flag", 'a', 0, "High compression, fast extraction"),
+	HIT(1934, 0x1691C492, "Compressione alta, estrazione veloce"),
+	HRU(1934, 0x1691C492, "Высокое сжатие, быстрое извлечение"),
+	HTESTO(1935, "@flag", 'a', 0, "Very slow compression and extraction"),
+	HIT(1935, 0x8F32CE3E, "Compressione ed estrazione molto lente"),
+	HRU(1935, 0x8F32CE3E, "Очень медленные сжатие и извлечение"),
+	HTESTO(1936, "@flag", 'a', 0, "Extreme compression, extremely slow"),
+	HIT(1936, 0xD817FD51, "Compressione estrema, estremamente lento"),
+	HRU(1936, 0xD817FD51, "Экстремальное сжатие, крайне медленно"),
 	HTESTO(1679, "@flag", 'a', 0, "Store the state of the archive for a fast add"),
 	HIT(1679, 0x607862A1, "Salva lo stato dell'archivio per un add veloce"),
 	HRU(1679, 0x607862A1, "Хранить состояние архива для быстрого add"),
@@ -156468,6 +166488,17 @@ losetup -d /dev/loop0
 	HRU(1756, 0xC51E8E51, "memzero в libsodium (просто плацебо)"),
 	HES(1756, 0xC51E8E51, "Hace memzero en libsodium (solo placebo)"),
 	HPT(1756, 0xC51E8E51, "Faz memzero na libsodium (só placebo)"),
+#ifndef NOFRANZEN
+	HTESTO(1917, "@flag", 'a', 0, "Franzen with franzsodium, built in: the default (it wins on -libsodium)"), /// 65.18c, 65.18e default
+	HIT(1917, 0xB61DA77F, "Franzen con franzsodium, interno: il default (vince su -libsodium)"),
+	HRU(1917, 0xB61DA77F, "Franzen со встроенным franzsodium: по умолчанию (важнее -libsodium)"),
+	HTESTO(1921, "@flag", 'a', 0, "Franzen with libsodium (external library), not franzsodium (built in)"), /// 65.18e
+	HIT(1921, 0x5436E831, "Franzen con libsodium (libreria esterna), non franzsodium (interno)"),
+	HRU(1921, 0x5436E831, "Franzen с libsodium (внешняя библиотека), не встроенный franzsodium"),
+	HTESTO(1919, "@flag", 'a', 0, "Franzen: libsodium and franzsodium both, every result compared (debug)"), /// 65.18d
+	HIT(1919, 0x62050ED4, "Franzen: libsodium e franzsodium insieme, ogni risultato confrontato"),
+	HRU(1919, 0x62050ED4, "Franzen: libsodium и franzsodium вместе, каждый результат сравнивается"),
+#endif
 	HTESTO(1757, "@flag", 'a', 0, "pakka: every version of a file on its own line (catpaq)"),
 	HIT(1757, 0x138E09CC, "pakka: ogni versione di un file sulla sua riga (catpaq)"),
 	HRU(1757, 0x138E09CC, "pakka: каждая версия файла на своей строке (catpaq)"),
@@ -156741,55 +166772,56 @@ losetup -d /dev/loop0
 	HES(9882, 0x24AF9C9D, "Qué tipos de archivo hay en una carpeta, cuántos y cuánto ocupan"),
 	HPT(9882, 0x24AF9C9D, "Que tipos de arquivo há numa pasta, quantos e quanto ocupam"),
 };
-/// zpaq-std: built from zpaqfranz's open build, which has no Franzen (ChaCha20, .franzen): the help left
-/// it in. Out: the switches -franzen and -franzen2 (also "-key -franzen" of commands the open build has not),
-/// work's FRANZEN encode/decode/test, the examples with a Franzen archive, the help of the command franzen,
-/// and the translations of those lines
-static bool help_contiene(const char *i_testo, const char *i_cosa) /// without case
+static const size_t g_helptutte= sizeof(g_helprighetutte) / sizeof(g_helprighetutte[0]);
+#ifndef NOFRANZEN /// 65.18k: the open build has Franzen too (franzsodium, built in): the whole help
+static const franz_helpriga *const g_helprighe = g_helprighetutte;
+static const size_t				   g_helpquante= g_helptutte;
+#else
+/*
+	65.17p (issue 349): a build with no Franzen (it was the open one; since 65.18k only one built with -DNOFRANZEN)
+	has no help for it: out the lines of the command franzen, the ones with -franzen in the left column (a switch) or
+	in an example, the ones that talk of FRANZFRANZEN, and their translations. A line that only names Franzen stays
+*/
+static bool help_parlafranzen(const char *i_testo, const char *i_cosa)
 {
-	if ((i_testo == NULL) || (i_cosa == NULL))
+	if (i_testo == NULL)
 		return false;
-	const size_t n= strlen(i_cosa);
+	const size_t lunghezza= strlen(i_cosa);
 	for (const char *p= i_testo; *p; p++)
 	{
 		size_t k= 0;
-		while ((k < n) && p[k] && (tolower((unsigned char)p[k]) == tolower((unsigned char)i_cosa[k])))
+		while ((k < lunghezza) && p[k] && (tolower((unsigned char)p[k]) == i_cosa[k]))
 			k++;
-		if (k == n)
+		if (k == lunghezza)
 			return true;
 	}
 	return false;
 }
-static bool help_franzen(const franz_helpriga &r)
+static bool help_rigafranzen(const franz_helpriga &i_riga)
 {
-	if ((r.comando != NULL) && (!strcmp(r.comando, "franzencommand")))
-		return true;
-	if (r.tipo == 'r')
-		return help_contiene(r.testata, "-franzen") || ((r.testo != NULL) && (!strncmp(r.testo, "FRANZEN ", 8)));
-	if (r.tipo == 'e')
-		return help_contiene(r.testo, "franzen") || help_contiene(r.testata, "franzen");
-	return false;
+	return (!strcmp(i_riga.comando, "franzencommand")) || help_parlafranzen(i_riga.testo, "franzfranzen") ||
+		   (((i_riga.tipo == 'r') || (i_riga.tipo == 'e')) && help_parlafranzen(i_riga.testata, "franzen")) ||
+		   (((i_riga.tipo == 'e') || (i_riga.tipo == 't')) && help_parlafranzen(i_riga.testo, "-franzen"));
 }
-static std::vector<franz_helpriga> help_senza_franzen()
+static vector<franz_helpriga> help_senzafranzen()
 {
-	const size_t tutte= sizeof(g_helprighe_tutte) / sizeof(g_helprighe_tutte[0]);
-	std::set<int> via;
-	for (size_t i= 0; i < tutte; i++)
-		if ((g_helprighe_tutte[i].tipo != 'T') && (g_helprighe_tutte[i].id > 0) && help_franzen(g_helprighe_tutte[i]))
-			via.insert(g_helprighe_tutte[i].id);
-	std::vector<franz_helpriga> out;
-	for (size_t i= 0; i < tutte; i++)
+	std::set<int> tolte; /// their translations go too
+	for (size_t i= 0; i < g_helptutte; i++)
+		if ((g_helprighetutte[i].tipo != 'T') && (g_helprighetutte[i].id > 0) && help_rigafranzen(g_helprighetutte[i]))
+			tolte.insert(g_helprighetutte[i].id);
+	vector<franz_helpriga> risultato;
+	for (size_t i= 0; i < g_helptutte; i++)
 	{
-		const franz_helpriga &r= g_helprighe_tutte[i];
-		if (((r.tipo != 'T') && help_franzen(r)) || ((r.id > 0) && via.count(r.id)))
-			continue;
-		out.push_back(r);
+		const franz_helpriga &r= g_helprighetutte[i];
+		if (!((r.tipo == 'T') ? (tolte.count(r.id) > 0) : help_rigafranzen(r)))
+			risultato.push_back(r);
 	}
-	return out;
+	return risultato;
 }
-static const std::vector<franz_helpriga> g_helprighe_v= help_senza_franzen();
-static const franz_helpriga *const		 g_helprighe  = g_helprighe_v.data();
-static const size_t						 g_helpquante = g_helprighe_v.size();
+static const vector<franz_helpriga> g_helpaperta = help_senzafranzen();
+static const franz_helpriga *const	g_helprighe	 = &g_helpaperta[0];
+static const size_t					g_helpquante = g_helpaperta.size();
+#endif
 /// 65.14l: the language of the help (lingua_scegli); -helpid: the id of every line shown
 int					g_lingua= LINGUA_EN;
 bool				g_helpid= false;
@@ -157049,9 +167081,7 @@ static const franz_helpcomando g_helpcomandi[]=
 	{"redu", "redu", "Admin    ", 7},
 	{"trim", "trim", "Admin    ", 7},
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	{"franzen", "franzencommand", "Admin    ", 7},
-#endif /// NOSFTPEND
 #endif
 #ifdef ZPAQFULL /// NOSFTPSTART
 #if defined(_WIN32)
@@ -157132,7 +167162,11 @@ void help_printhash(bool i_flagadd)
 	/// 65.14l: the descriptions in the language of the help, whole (UTF-8: no buffer to cut them)
 	for (MAPPATIPOHASH::iterator p= g_mappatipohash.begin(); p != g_mappatipohash.end(); ++p)
 		if (p->second.flagiszpaq)
+		{
+			if (i_flagadd && (p->first == FRANZO_NONE)) /// 65.18r (issue 351): h a has its own line of -nochecksum (472)
+				continue;
 			scrivi_riga(p->second.switchname.c_str(), help_t(p->second.hashdescription.c_str()));
+		}
 	if (!i_flagadd)
 	{
 		for (MAPPATIPOHASH::iterator p= g_mappatipohash.begin(); p != g_mappatipohash.end(); ++p)
@@ -157630,7 +167664,7 @@ int help_cerca(int i_argc, const char **i_argv)
 		}
 	int			   esito= 0;
 	/// 65.16g: h -no*: a switch with * or ? is every switch of the help that matches it (h a -no*: of a), one name for
-	/// each key (-nofast and -fast are one), said first; then each one as if asked by itself
+	/// each key (-nolfast and -lfast are one), said first; then each one as if asked by itself
 	vector<string> espansi;
 	for (size_t n= 0; n < cercati.size(); n++)
 	{
@@ -157901,7 +167935,7 @@ int help_controlla()
 	for (size_t i= 0; i < sizeof(amano) / sizeof(amano[0]); i++)
 		help_aggiungi(parser, amano[i]);
 	std::set<string>   nascosti; /// on purpose: the flags with no description, and these
-	static const char *senza[]= {"-elevatedpid", "-rescuefake", "-cpfake"};
+	static const char *senza[]= {"-elevatedpid", "-rescuefake", "-cpfake", "-turbochunk"};
 	for (size_t i= 0; i < sizeof(senza) / sizeof(senza[0]); i++)
 		nascosti.insert(help_chiave(senza[i]));
 	for (MAPPAFLAGS::iterator p= g_programflags.mappaflags.begin(); p != g_programflags.mappaflags.end(); ++p)
@@ -159575,35 +169609,35 @@ void replacetabs(std::string &str)
 /// the last line of a run, its first part: the time it took and the memory (-verbose: one by one).
 /// The outcome is printed after it by who calls: main(), and the window that waited for an
 /// elevated run (65.8z11)
+/// 65.18n: a size of the last line, in bytes, as tohuman() writes it but without spaces (every one the same way)
+static string ram_perriga(int64_t i_bytes)
+{
+	if (i_bytes < 0)
+		i_bytes= 0;
+	string risultato= tohuman(i_bytes);
+	myreplaceall(risultato, " ", "");
+	myreplaceall(risultato, "0.00B", "0");
+	myreplaceall(risultato, ".00B", "");
+	return risultato;
+}
+int64_t franz_picco_os(); /// 65.18n: the peak of the process, from the system (see there)
 void ultimariga_tempo()
 {
 	if (g_allocatedram < 0)
 		g_allocatedram= 0;
 	if (g_arrayram < 0)
 		g_arrayram= 0;
-	string mem_heap= tohuman(g_allocatedram);
-	myreplaceall(mem_heap, " ", "");
-	myreplaceall(mem_heap, "0.00B", "0");
-	myreplaceall(mem_heap, ".00B", "");
-
-	string mem_array= tohuman(g_arrayram);
-	myreplaceall(mem_array, " ", "");
-	myreplaceall(mem_array, "0.00B", "0");
-	myreplaceall(mem_array, ".00B", "");
-
-	string mem_dt= tohuman(g_dt_ram);
-	myreplaceall(mem_dt, " ", "");
-	myreplaceall(mem_dt, "0.00B", "0");
-	myreplaceall(mem_dt, ".00B", "");
-
-	string mem_all= tohuman(g_allocatedram + g_dt_ram + g_arrayram);
-	myreplaceall(mem_all, " ", "");
-	myreplaceall(mem_all, "0.00B", "0");
-	myreplaceall(mem_all, ".00B", "");
-	if (flagverbose)
-		myprintf("01302: %1.3fs (%s,heap %s|array %s|dt %s=>%s) ", (mtime() - g_start) / 1000.0, timetohuman((uint32_t)((mtime() - g_start) / 1000.0)).c_str(), mem_heap.c_str(), mem_array.c_str(), mem_dt.c_str(), mem_all.c_str());
+	ram_aggiornapicco();
+	/// 65.18n: the number is the PEAK of the counters of zpaqfranz (it was their sum at the end: what was left,
+	/// not what was used), then ",OS REPORT" the peak of the process from the system, when it says it
+	const int64_t picco_os= franz_picco_os();
+	string		  osreport= "";
+	if (picco_os > 0)
+		osreport= ",OS REPORT " + ram_perriga(picco_os);
+	if (flagverbose) /// heap|array|dt as they are at the end, then the peak
+		myprintf("01302: %1.3fs (%s,heap %s|array %s|dt %s=>%s,peak %s%s) ", (mtime() - g_start) / 1000.0, timetohuman((uint32_t)((mtime() - g_start) / 1000.0)).c_str(), ram_perriga(g_allocatedram).c_str(), ram_perriga(g_arrayram).c_str(), ram_perriga(g_dt_ram).c_str(), ram_perriga(g_allocatedram + g_dt_ram + g_arrayram).c_str(), ram_perriga(g_rampicco).c_str(), osreport.c_str());
 	else
-		myprintf("01302: %1.3fs (%s,%s) ", (mtime() - g_start) / 1000.0, timetohuman((uint32_t)((mtime() - g_start) / 1000.0)).c_str(), mem_all.c_str());
+		myprintf("01302: %1.3fs (%s,%s%s) ", (mtime() - g_start) / 1000.0, timetohuman((uint32_t)((mtime() - g_start) / 1000.0)).c_str(), ram_perriga(g_rampicco).c_str(), osreport.c_str());
 }
 
 #ifdef _WIN32
@@ -159700,7 +169734,7 @@ static int cloud_eleva(bool i_pausa, bool i_finta)
 void programflags_riempi(bool *i_flagtest)
 {
 	static bool flagdummy=false; /// (its address stays in g_programflags)
-	/// 65.6a: a is -m8 -turbo -fast by default (-m1 -noturbo -nofast as before).
+	/// 65.6a: a is -m8 -turbo -lfast by default (-m1 -noturbo -nolfast as before).
 	/// Not in the ANCIENT builds (ESX, NAS): there everything is as before
 #ifdef ANCIENT
 	const bool nuovodefault=false;
@@ -159732,12 +169766,18 @@ void programflags_riempi(bool *i_flagtest)
 	g_programflags.add(&flagdonotforcexls,	"-xls",					"Do NOT force adding of XLS/PPT (default: NO)",		"a;");
 	g_programflags.add(&flagdummy,			"-debug -zero -kill",	"Add 0-byte long file (debugging)",					"");
 	g_programflags.add(&flagdummy,			"-debug -zero",			"Add files but zero-filled (debugging)",			"");
-	/// 65.6g: -filelist is now -fast. The old names still work (scripts of 65.4-65.5), not in the help.
-	/// The aliases first: add() sets the default, and -fast has to be the last one
+	/// 65.6g: -filelist is now -lfast. The old names still work (scripts of 65.4-65.5), not in the help.
+	/// The aliases first: add() sets the default, and -lfast has to be the last one
 	g_programflags.add(&flagfilelist,		"-filelist",			"",													"");
 	g_programflags.add(&flagnofilelist,		"-nofilelist",			"",													"");
-	g_programflags.add(&flagfilelist,		"-fast",				"Store the history for a fast l (then automatic)",	"",nuovodefault);
-	g_programflags.add(&flagnofilelist,		"-nofast",				"Stop the automatic -fast / l the slow way",		"");
+	/// 65.18o: -fast and -nofast are -lfast and -nolfast (-fast is a level now: an human takes -fast for one).
+	/// -nofast stays as an old name (scripts, -nofast -timestamp), not in the help; -fast does not
+	g_programflags.add(&flagnofilelist,		"-nofast",				"",													"");
+	g_programflags.add(&flagfilelist,		"-lfast",				"Store the history for a fast l (then automatic)",	"",nuovodefault);
+	g_programflags.add(&flagnofilelist,		"-nolfast",				"Stop the automatic -lfast / l the slow way",		"");
+	/// 65.18o: the levels by name (g_livelli): -lean -fast -normal -good -better -ultra -max
+	for (int k= 0; k < NLIVELLI; k++)
+		g_programflags.add(&g_livellousato[k], g_livelli[k].nome, g_livelli[k].aiuto, "a;");
 	g_programflags.add(&flagfastadd,		"-fastadd",				"Store the state of the archive for a fast add",	"");
 	g_programflags.add(&flagfastaddtest,	"-fastaddtest",			"",													"");
 #ifdef _WIN32
@@ -159882,27 +169922,27 @@ void tipohash_riempi()
 {
 	// A bit of refactoring. The boolean differentiate hashes used inside zpaqfranz archive
 	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_NONE		 ,	tipohash("NONE",		0,"Disable checksums",											true	,"-nochecksum",		&flagnochecksum,	&finalizza_none,		"")));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_CRC_32	 ,	tipohash("CRC-32",	 	8,"Old but ubiquitous, superfast, not very strong",				true	,"-crc32",			&flagcrc32,			&finalizza_crc32,		TOSTRING(FRANZO_CRC_32))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64	 ,	tipohash("XXHASH64",   16,"Very fast, low CPU usage, the default before zpaqfranz 60",				true	,"-xxhash",			&flagxxhash64,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64B ,	tipohash("XXHASH64B",  16,"Very fast, low CPU usage, the default",			true	,"-xxhashb",		&flagxxhash64b,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_1	 ,	tipohash("SHA-1",	   40,"Fair speed, very reliable, some collisions known",			true	,"-sha1",			&flagsha1,			&finalizza_sha1,		TOSTRING(FRANZO_SHA_1))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_1B	 ,	tipohash("SHA-1B",	   40,"Fair speed, very reliable, some collisions known",			true	,"-sha1b",			&flagsha1b,			&finalizza_sha1,		TOSTRING(FRANZO_SHA_1B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_256	 ,	tipohash("SHA-256",	   64,"CPU intensive, one of the most reliable. Legal proof in EU",	true	,"-sha256",			&flagsha256,		&finalizza_sha256,		TOSTRING(FRANZO_SHA_256))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_256B	 ,	tipohash("SHA-256B",   64,"CPU intensive, one of the most reliable. Legal proof in EU",	true	,"-sha256b",		&flagsha256b,		&finalizza_sha256,		TOSTRING(FRANZO_SHA_256B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3		 ,	tipohash("XXH3",	   32,"Very fast and strong, the default for file comparing",	true	,"-xxh3",			&flagxxh3,			&finalizza_xxh3,		TOSTRING(FRANZO_SHA3))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3B	 ,	tipohash("XXH3B",	   32,"Very fast and strong, the default for file comparing",	true	,"-xxh3b",			&flagxxh3b,			&finalizza_xxh3,		TOSTRING(FRANZO_XXH3B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_MD5		 ,	tipohash("MD5",	       32,"Common, fast, hashdeep compatible. Not cryptographically secure",	true	,"-md5",			&flagmd5,			&finalizza_md5,			TOSTRING(FRANZO_MD5))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_MD5B		 ,	tipohash("MD5B",	   32,"Common, fast, hashdeep compatible. Not cryptographically secure",	true	,"-md5b",			&flagmd5b,			&finalizza_md5,			TOSTRING(FRANZO_MD5B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_BLAKE3	 ,	tipohash("BLAKE3",	   64,"Fast, CPU intensive (on Win64 HW acceleration), reliable",	true	,"-blake3",			&flagblake3,		&finalizza_blake3,		TOSTRING(FRANZO_BLAKE3))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_BLAKE3B	 ,	tipohash("BLAKE3B",	   64,"Fast, CPU intensive (on Win64 HW acceleration), reliable",	true	,"-blake3b",		&flagblake3b,		&finalizza_blake3,		TOSTRING(FRANZO_BLAKE3B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA3		 ,	tipohash("SHA-3",	   64,"Latest NIST standard, very strong",							true	,"-sha3",			&flagsha3,			&finalizza_sha3,		TOSTRING(FRANZO_SHA3))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA3B	 ,	tipohash("SHA-3B",	   64,"Latest NIST standard, very strong",							true	,"-sha3b",			&flagsha3b,			&finalizza_sha3,		TOSTRING(FRANZO_SHA3B))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_WHIRLPOOL ,	tipohash("WHIRLPOOL", 128,"Slow but very reliable",										true	,"-whirlpool",		&flagwhirlpool,		&finalizza_whirlpool,	TOSTRING(FRANZO_WHIRLPOOL))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_HIGHWAY64 ,	tipohash("HIGHWAY64",  16,"Experimental Google HighwayHash, C implementation, 64 bit",		true	,"-highway64",		&flaghighway64,		&finalizza_highway64,	TOSTRING(FRANZO_HIGHWAY64))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_HIGHWAY128,	tipohash("HIGHWAY128", 32,"Experimental Google HighwayHash, C implementation, 128 bit",		true	,"-highway128",		&flaghighway128,	&finalizza_highway128,	TOSTRING(FRANZO_HIGHWAY128))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_HIGHWAY256,	tipohash("HIGHWAY256", 64,"Experimental Google HighwayHash, C implementation, 256 bit",		true	,"-highway256",		&flaghighway256,	&finalizza_highway256,	TOSTRING(FRANZO_HIGHWAY256))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_CRC32C		 ,	tipohash("CRC-32C",	    8,"'Castagnoli' variation of CRC-32, HW accelerated",			false	,"-crc32c",			&flagcrc32c,		&finalizza_crc32c,		TOSTRING(ALGO_CRC32C))));
-	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_WYHASH		 ,	tipohash("WYHASH",	   16,"Maybe the fastest, limited 'strength'",						false	,"-wyhash",			&flagwyhash,		&finalizza_wyhash,		TOSTRING(ALGO_WYHASH))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_CRC_32	 ,	tipohash("CRC-32",	 	8,"CRC-32, 32 bit: old but ubiquitous, superfast, not very strong",				true	,"-crc32",			&flagcrc32,			&finalizza_crc32,		TOSTRING(FRANZO_CRC_32))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64	 ,	tipohash("XXHASH64",   16,"XXH64, 64 bit: very fast, low CPU usage, zpaqfranz's default",				true	,"-xxhash",			&flagxxhash64,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXHASH64B ,	tipohash("XXHASH64B",  16,"XXH64, 64 bit, b: very fast, low CPU usage, zpaqfranz's 60+ default",			true	,"-xxhashb",		&flagxxhash64b,		&finalizza_xxhash64,	TOSTRING(FRANZO_XXHASH64B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_1	 ,	tipohash("SHA-1",	   40,"SHA-1, 160 bit: fair speed, very reliable, some collisions known",			true	,"-sha1",			&flagsha1,			&finalizza_sha1,		TOSTRING(FRANZO_SHA_1))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_1B	 ,	tipohash("SHA-1B",	   40,"SHA-1, 160 bit, b: fair speed, very reliable, some collisions known",			true	,"-sha1b",			&flagsha1b,			&finalizza_sha1,		TOSTRING(FRANZO_SHA_1B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_256	 ,	tipohash("SHA-256",	   64,"SHA-256, 256 bit: CPU intensive, very reliable. Legal proof in EU",	true	,"-sha256",			&flagsha256,		&finalizza_sha256,		TOSTRING(FRANZO_SHA_256))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA_256B	 ,	tipohash("SHA-256B",   64,"SHA-256, 256 bit, b: CPU intensive, very reliable. Legal proof in EU",	true	,"-sha256b",		&flagsha256b,		&finalizza_sha256,		TOSTRING(FRANZO_SHA_256B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3		 ,	tipohash("XXH3",	   32,"XXH3, 128 bit: very fast and strong, default for file comparing",	true	,"-xxh3",			&flagxxh3,			&finalizza_xxh3,		TOSTRING(FRANZO_SHA3))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_XXH3B	 ,	tipohash("XXH3B",	   32,"XXH3, 128 bit, b: very fast and strong",	true	,"-xxh3b",			&flagxxh3b,			&finalizza_xxh3,		TOSTRING(FRANZO_XXH3B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_MD5		 ,	tipohash("MD5",	       32,"MD5, 128 bit: common, fast, hashdeep compatible. Not secure",	true	,"-md5",			&flagmd5,			&finalizza_md5,			TOSTRING(FRANZO_MD5))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_MD5B		 ,	tipohash("MD5B",	   32,"MD5, 128 bit, b: common, fast, hashdeep compatible. Not secure",	true	,"-md5b",			&flagmd5b,			&finalizza_md5,			TOSTRING(FRANZO_MD5B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_BLAKE3	 ,	tipohash("BLAKE3",	   64,"BLAKE3, 256 bit: fast, CPU intensive (HW on Win64), reliable",	true	,"-blake3",			&flagblake3,		&finalizza_blake3,		TOSTRING(FRANZO_BLAKE3))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_BLAKE3B	 ,	tipohash("BLAKE3B",	   64,"BLAKE3, 256 bit, b: fast, CPU intensive (HW on Win64), reliable",	true	,"-blake3b",		&flagblake3b,		&finalizza_blake3,		TOSTRING(FRANZO_BLAKE3B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA3		 ,	tipohash("SHA-3",	   64,"SHA3-256, 256 bit: latest NIST standard (FIPS 202), very strong",							true	,"-sha3",			&flagsha3,			&finalizza_sha3,		TOSTRING(FRANZO_SHA3))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_SHA3B	 ,	tipohash("SHA-3B",	   64,"SHA3-256, 256 bit, b: latest NIST standard (FIPS 202), very strong",							true	,"-sha3b",			&flagsha3b,			&finalizza_sha3,		TOSTRING(FRANZO_SHA3B))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_WHIRLPOOL ,	tipohash("WHIRLPOOL", 128,"WHIRLPOOL, 512 bit: slow but very reliable",										true	,"-whirlpool",		&flagwhirlpool,		&finalizza_whirlpool,	TOSTRING(FRANZO_WHIRLPOOL))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_HIGHWAY64 ,	tipohash("HIGHWAY64",  16,"HighwayHash, 64 bit: experimental (Google), C implementation",		true	,"-highway64",		&flaghighway64,		&finalizza_highway64,	TOSTRING(FRANZO_HIGHWAY64))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_HIGHWAY128,	tipohash("HIGHWAY128", 32,"HighwayHash, 128 bit: experimental (Google), C implementation",		true	,"-highway128",		&flaghighway128,	&finalizza_highway128,	TOSTRING(FRANZO_HIGHWAY128))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(FRANZO_HIGHWAY256,	tipohash("HIGHWAY256", 64,"HighwayHash, 256 bit: experimental (Google), C implementation",		true	,"-highway256",		&flaghighway256,	&finalizza_highway256,	TOSTRING(FRANZO_HIGHWAY256))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_CRC32C		 ,	tipohash("CRC-32C",	    8,"CRC-32C, 32 bit: 'Castagnoli' variation of CRC-32, HW accelerated",			false	,"-crc32c",			&flagcrc32c,		&finalizza_crc32c,		TOSTRING(ALGO_CRC32C))));
+	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_WYHASH		 ,	tipohash("WYHASH",	   16,"wyhash, 64 bit: maybe the fastest, limited 'strength'",						false	,"-wyhash",			&flagwyhash,		&finalizza_wyhash,		TOSTRING(ALGO_WYHASH))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_NILSIMSA	 ,	tipohash("NILSIMSA",  128,"Look for similarities, not differences",						false	,"-nilsimsa",		&flagnilsimsa,		&finalizza_nilsimsa,	TOSTRING(ALGO_NILSIMSA))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_ENTROPY	 ,	tipohash("ENTROPY",     6,"Quick-and-dirty entropy estimator",							false	,"-entropy",		&flagentropy,		&finalizza_entropy,		TOSTRING(ALGO_ENTROPY))));
 	g_mappatipohash.insert(std::pair<int, tipohash>(ALGO_QUICK	 	 ,	tipohash("QUICK",      16,"Quick partial hasher",										false	,"-quick",			&flagquick,			&finalizza_xxhash64,	TOSTRING(ALGO_QUICK))));
@@ -160729,9 +170769,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_filesandcommand(opt,"comparehex",	'?',argc,argv,&i));
 		else if (cli_filesandcommand(opt,"work",		']',argc,argv,&i));
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL ///NOSFTPSTART
 		else if (cli_filesandcommand(opt,"franzen",		'#',argc,argv,&i));
-#endif ///NOSFTPEND
 #endif
 #ifdef ZPAQFULL ///NOSFTPSTART
 #ifdef SFTP
@@ -161630,6 +171668,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_onlystring(opt, "-cpfake", "", g_cpfake, argc, argv, &i, NULL)); /// 65.13d: not in the help: for the tests
 		else if (opt == "-turbo") /// the flag is set by g_programflags; a number after it (only digits: a folder "2024_photos" stays a folder) are its threads
 		{
+			g_turbodetto= true; /// 65.18o: -lean does not turn it off
 			if (i < argc - 1)
 			{
 				const char *numero= argv[i + 1];
@@ -161641,6 +171680,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					g_turbothreads= (int)myatoll(argv[++i]);
 			}
 		}
+		else if (cli_getuint64	(opt,"-turbochunk",	false,	"",								argc,argv,&i,g_turbochunk,		&g_turbochunk)); /// 65.18l: not in the help: for the tests
 		else if (cli_getint		(opt,"-summary",	true, 	"",								argc,argv,&i,1,					&summary));
 		///else if (cli_getint		(opt,"-red4",		false, 	"",								argc,argv,&i,-1,				&red4));
 		else if (cli_onlystring	(opt,"-snapshot",			"",				snapmark,		argc,argv,&i,					NULL));
@@ -161673,12 +171713,33 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getdate	(opt,"-datefrom",											argc,argv,&i,					&g_datefrom));
 		else if (cli_getdate	(opt,"-dateto",												argc,argv,&i,					&g_dateto));
 		else if (cli_getarray	(opt,"-not",												argc,argv,&i,					&notfiles,		&nottype));
-		else if ((opt == "-franzen") || (opt == "-franzen2")) /// zpaq-std: the open build has no Franzen
+#ifdef ZPAQFULL ///NOSFTPSTART
+#ifdef _WIN32 /// 65.14d: the SFX module is Windows only
+		else if (cli_getarray	(opt,"-sfxnot",												argc,argv,&i,					&sfxnotfiles,	&sfxnottype));
+		else if (cli_getarray	(opt,"-sfxonly",											argc,argv,&i,					&sfxonlyfiles,	NULL));
+		else if (cli_getstring	(opt,"-sfxuntil",	false, 	"",								argc,argv,&i,"",				&g_sfxuntil));
+#endif
+#endif ///NOSFTPEND
+#ifndef NOFRANZEN /// 65.18k: the open build too (Franzen with franzsodium, built in)
+		/// 65.18i: -franzen (or -franzen2) with no password right after it, or an empty one (-franzen "$PW" with PW
+		/// not set), was taken for nothing: the archive was written IN CLEAR, and "all OK". Now an error, nothing done.
+		/// To be asked for the password of an existing Franzen archive: leave -franzen out (or FRANZFRANZEN)
+		else if (((opt == "-franzen") || (opt == "-franzen2")) && ((i + 1 >= argc) || (argv[i + 1][0] == '-') || (argv[i + 1][0] == 0)))
 		{
-			myprintf("00739! %s: Franzen (ChaCha20, .franzen) is not in zpaq-std, which is built from zpaqfranz's open\n", opt.c_str());
-			myprintf("00739! build: nothing done. -key encrypts with AES; a .franzen archive opens with zpaqfranz\n");
+			myprintf("00599! %s without its password right after it (%s): nothing done\n", opt.c_str(), (i + 1 >= argc) ? "it is the last argument" : ((argv[i + 1][0] == 0) ? "an empty one" : argv[i + 1]));
 			return 2;
 		}
+		else if (cli_onlystring	(opt,"-franzen",				"",							g_franzen,	argc,argv,&i,					NULL));
+		else if (cli_onlystring	(opt,"-franzen2",				"",							g_franzen2,	argc,argv,&i,					NULL)); /// 65.13n
+#else
+		/// 65.17p (issue 349): a build with no Franzen (it was the open one; since 65.18k only one built with
+		/// -DNOFRANZEN). -franzen was "Unknown option" and its value a misplaced argument: now said, and nothing done
+		else if (opt.compare(0, 8, "-franzen") == 0)
+		{
+			myprintf("00574! %s: this build has no Franzen (NOFRANZEN): nothing done\n", argv[i]);
+			return 2;
+		}
+#endif
 		else if (cli_getarray	(opt,"-only",												argc,argv,&i,					&onlyfiles,		NULL));
 		else if (cli_getarray	(opt,"-always",												argc,argv,&i,					&alwaysfiles,	NULL));
 		///else if (cli_getarray	(opt,"-level0",												argc,argv,&i,					&level0,		NULL));
@@ -161856,6 +171917,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			return esito;
 	}
 #ifndef NOFRANZEN
+    g_franzen_filename = "";
 #endif
 /*
 	Check from "weird" parameters
@@ -161863,17 +171925,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 	// zpaqfranz 64.8: take the -key (AES) password from the FRANZKEY env var when -key
 	// was not given on the command line. Hashed identically to cli_getkey (SHA256 of the
 	// chars + any -keyfile hash) so FRANZKEY=X yields the same key as -key X.
-	// zpaq-std: FRANZFRANZEN, Franzen's password, stops it: the open build has no Franzen, and the
-	// archive was written in clear with no word (zpaqfranz's open build does the same)
-	{
-		const char *env_franzen= getenv("FRANZFRANZEN");
-		if ((env_franzen != NULL) && (env_franzen[0] != '\0'))
-		{
-			myprintf("00741! FRANZFRANZEN is set, but Franzen (ChaCha20, .franzen) is not in zpaq-std, which is built\n");
-			myprintf("00741! from zpaqfranz's open build: nothing done. Unset it; -key (or FRANZKEY) encrypts with AES\n");
-			return 2;
-		}
-	}
 	if (g_password == NULL)
 	{
 		const char *env_key = getenv("FRANZKEY");
@@ -161898,6 +171949,53 @@ int Jidac::loadparameters(int argc, const char** argv)
 				myprintf("00556: -key from FRANZKEY env var\n");
 		}
 	}
+#ifndef NOFRANZEN
+	if (g_franzen == "")
+	{
+		const char *env_franzen = getenv("FRANZFRANZEN");
+		if (env_franzen != NULL && env_franzen[0] != '\0')
+		{
+			g_franzen = env_franzen;
+			if (flagdebug)
+				myprintf("00557: -franzen from FRANZFRANZEN env var\n");
+		}
+	}
+#ifndef ZPAQLIBSODIUM
+	/// 65.18e: a build without ZPAQLIBSODIUM (ANCIENT: NAS, ESX...; 32 bit Windows; open) has franzsodium only: asked for
+	/// libsodium, it says so before doing anything (it would not be what was asked for)
+	if ((flaglibsodium && !flagfranzsodium) || flagsodiumcheck)
+	{
+		myprintf("00595! %s: this build has no libsodium (Franzen uses franzsodium, built in): nothing done\n", flagsodiumcheck ? "-sodiumcheck" : "-libsodium");
+		return 2;
+	}
+#endif
+#endif
+#ifdef NOFRANZEN
+	/// 65.17p (issue 349): a build with no Franzen (it was the open one; since 65.18k only one built with -DNOFRANZEN).
+	/// FRANZFRANZEN was ignored (a plain archive, exit 0, for who believed it encrypted), a .franzen was "Archive not
+	/// found" (or the .zpaq next to it was used): it stops here
+	{
+		const char *env_franzen= getenv("FRANZFRANZEN");
+		if ((env_franzen != NULL) && (env_franzen[0] != '\0'))
+		{
+			myprintf("00576! FRANZFRANZEN is set, but this build has no Franzen (NOFRANZEN): nothing done\n");
+			return 2;
+		}
+		string franzen= archive;
+		for (size_t k= 0; k < franzen.size(); k++)
+			franzen[k]= tolower((unsigned char)franzen[k]);
+		const bool estensione= (franzen.size() >= 8) && (franzen.compare(franzen.size() - 8, 8, ".franzen") == 0);
+		if ((archive != "") && (estensione || fileexists(archive + ".franzen")))
+		{
+			myprintf("00590! <<%s>> is a Franzen archive: this build has no Franzen (NOFRANZEN), it cannot read or write it\n", (estensione ? archive : archive + ".franzen").c_str());
+			return 2;
+		}
+	}
+#endif
+
+/*
+	Check from "weird" parameters
+*/
 	if (g_keyfile!="")
 	{
 		if (g_password==NULL)
@@ -161907,7 +172005,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		}
 	}
 	/// 65.6a: -append makes two passes, the first one writes nothing (and no history):
-	/// no -fast, the next plain a stores the history again
+	/// no -lfast, the next plain a stores the history again
 	if (flagappend)
 		flagfilelist=false;
 	if (flagnosynology)
@@ -161952,6 +172050,53 @@ int Jidac::loadparameters(int argc, const char** argv)
 		all=8;
 	}
 
+	/// 65.18o: the levels by name (g_livelli). One only, and not with -m: an error, not a choice made in silence.
+	/// What a level sets, a switch written wins: -lean is -m80 -t2 -noturbo, -lean -t4 has 4 threads
+	{
+		int			livelli= 0;
+		int			scelto = -1;
+		std::string nomi   = "";
+		for (int k= 0; k < NLIVELLI; k++)
+			if (g_livellousato[k])
+			{
+				livelli++;
+				scelto= k;
+				if (nomi != "")
+					nomi+= " ";
+				nomi+= g_livelli[k].nome;
+			}
+		if ((livelli > 1) || ((livelli == 1) && !method.empty()))
+		{
+			if (!method.empty())
+				nomi+= " -m" + method;
+			myprintf("03995! %s: one level only (-lean -fast -normal -good -better -ultra -max) and not with -m\n", nomi.c_str());
+			return 2;
+		}
+		if (livelli == 1)
+		{
+#ifdef ZPAQZSTD
+			method= g_livelli[scelto].metodo;
+#else
+			method= g_livelli[scelto].senzazstd; /// 65.18q: no -m7 -m8 -m9 here (they would be -m5)
+#endif // ZPAQZSTD
+			std::string anche= "";
+			if (strcmp(g_livelli[scelto].nome, "-lean") == 0)
+			{
+				if (howmanythreads < 1) /// no -t written
+				{
+					howmanythreads= 2;
+					anche+= " -t2";
+				}
+				if (!g_turbodetto) /// no -turbo written
+				{
+					flagturbo= false;
+					anche+= " -noturbo";
+				}
+			}
+			if (flagverbose)
+				myprintf("03996: %s = -m%s%s\n", g_livelli[scelto].nome, method.c_str(), anche.c_str());
+		}
+	}
 #ifdef ZPAQZSTD
 	/// 65.11e: -m7 = -m86h19, -m9 = -m8h9 (see zstd_sinonimo). Here, once, for every
 	/// command: from now on the method begins with 8, as if it had been written so
@@ -167060,6 +177205,24 @@ bool Jidac::onlynorecursion(string filename)
 // Test whether filename and attributes are selected by files, -only, and -not
 // If rn then test renamed filename.
 // if i_size >0 check file size too (minsize,maxsize)
+/// 65.18j (issue 350): -tar, as tar --exclude=/proc/*: a -not "X/*" leaves out what is inside X, not the folder
+/// X itself (kept, empty, with its owner, mode and times: /proc, /sys, /dev, /run of a whole system restored).
+/// The folder (here with its final /) is matched by such a pattern only because the last * takes nothing: without
+/// the / it is not. -not "X" (or "X/") leaves out the folder too, as before. The scan prunes as before (scandir
+/// gets the names without the final /): the children are left out one by one. Only with -tar
+static bool tar_solocontenuto(const string &i_pattern, const char *i_nome)
+{
+	const size_t lnome= strlen(i_nome);
+	if ((lnome < 2) || (i_nome[lnome - 1] != '/'))
+		return false; /// not a folder (or the root)
+	size_t fine= i_pattern.size();
+	while ((fine > 0) && (i_pattern[fine - 1] == '*'))
+		fine--;
+	if ((fine == i_pattern.size()) || (fine == 0) || (i_pattern[fine - 1] != '/'))
+		return false; /// the pattern does not end with "/*"
+	const string senzabarra(i_nome, lnome - 1);
+	return !ispath(i_pattern.c_str(), senzabarra.c_str());
+}
 bool Jidac::isselected(const char *filename, bool rn, int64_t i_size)
 {
 	if (g_optional == "versum")
@@ -167203,7 +177366,11 @@ bool Jidac::isselected(const char *filename, bool rn, int64_t i_size)
 		if (flagdebug3)
 			myprintf("00618: check notfiles %03d %s  on filename %s\n", (int)j, notfiles[j].c_str(), filename);
 		if (ispath(notfiles[j].c_str(), filename))
+		{
+			if (flagtar && tar_solocontenuto(notfiles[j], filename)) /// 65.18j issue 350: the folder stays
+				continue;
 			return false;
+		}
 	}
 	return true;
 }
@@ -173319,6 +183486,8 @@ ThreadReturn decompressThread(void *arg)
 	} // end while true
 	// Last block
 #ifndef NOFRANZEN
+	if (g_franzen!="")
+		cleanup_thread_franzenfile();
 #endif
 	return 0;
 }
@@ -174061,7 +184230,7 @@ int Jidac::list()
 	int64_t		  t_read = 0;
 	int64_t		  t_prep = 0;
 	int64_t		  t_print= 0;
-	/// -fast: the history stored inside, instead of the index blocks of every version
+	/// -lfast: the history stored inside, instead of the index blocks of every version
 	bool fastlist= false;
 	g_dtlight	 = true; /// just listing: no hash objects in the DT
 	if ((!flagnofilelist) && (!flagstat) && (!flagcollision) && (!flagstdout))
@@ -174197,6 +184366,35 @@ int Jidac::list()
 		string commento;
 		if (vcomment_leggi(p->first, numver, commento))
 			mappacommenti.insert(std::pair<int, string>(numver, commento));
+	}
+	/// 65.18r (issue 351): with -all, # (changed) for every hash, not only the "b" ones (only their block has the byte
+	/// added/changed: -whirlpool, -sha3, -crc32, -nochecksum, zpaq 7.15 archives were always +). The keys are
+	/// "NNNN|$1path", in the order of the versions (NNNN of fixed width): a file is changed if, in the version before
+	/// where it is, it was there and not deleted. The "b" hashes keep what their block says
+	std::set<const DT *> cambiati;
+	if (all > 0)
+	{
+		std::map<string, bool> presente; /// path => there (not deleted) in the last version seen
+		for (DTMap::iterator p= dt.begin(); p != dt.end(); ++p)
+		{
+			const string &chiave= p->first;
+			if ((chiave.size() <= (size_t)all + 3) || (chiave[all] != '|'))
+				continue; /// the folder of a version (NNNN/), or not a key of -all
+			const string percorso= chiave.substr(all + 3);
+			if (isdirectory(percorso))
+				continue;
+			std::map<string, bool>::iterator c= presente.find(percorso);
+			const bool c_era= (c != presente.end()) && c->second;
+			if (p->second.date != 0)
+			{
+				if (c_era)
+					cambiati.insert(&p->second);
+			}
+			if (c == presente.end())
+				presente.insert(std::pair<string, bool>(percorso, p->second.date != 0));
+			else
+				c->second= (p->second.date != 0);
+		}
 	}
 	flagchecksum= ischecksum() || flagchecksum;
 
@@ -174387,7 +184585,7 @@ int Jidac::list()
 
 				if (flagdebug3)
 					myprintf("00765: franzotype %d myhashtype %s myhash %s mycrc32 %s myisadded %d\n", franzotypedetected, myhashtype.c_str(), myhash.c_str(), mycrc32.c_str(), (int)myisadded);
-				bool flaghoadded= (myhashtype == "XXHASH64B") || (myhashtype == "MD5B") || (myhashtype == "BLAKE3B") || (myhashtype == "SHA-256B") || (myhashtype == "SHA-3B") || (myhashtype == "XXH3B") || (myhashtype == "SHA1-B");
+				bool flaghoadded= (myhashtype == "XXHASH64B") || (myhashtype == "MD5B") || (myhashtype == "BLAKE3B") || (myhashtype == "SHA-256B") || (myhashtype == "SHA-3B") || (myhashtype == "XXH3B") || (myhashtype == "SHA-1B"); /// 65.18r: was "SHA1-B", never: -sha1b had no #
 
 				if (!flagchecksum)
 				{
@@ -174517,8 +184715,12 @@ int Jidac::list()
 						else
 						{
 							if (flaghoadded)
+							{
 								if (!myisadded)
 									simbolino= "#";
+							}
+							else if (cambiati.count(&p->second)) /// 65.18r: -all, any other hash (see cambiati)
+								simbolino= "#";
 						}
 
 						if (all > 0 && p->first.size() == all + 1u && (v= atoi(p->first.c_str())) > 0 && v < ver.size())
@@ -174965,9 +185167,7 @@ int Jidac::setpassword()
 	/// 65.13l: as add: -franzen (without -debug) writes the .franzen only. It wrote a .zpaq beside it: AES only
 	/// with -key2, all in clear with -key2 . (an archive kept under franzen, copied out in clear)
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	g_franzen_zpaq_nowrite= (g_franzen != "") && (isfranzen(repack) || (!flagdebug));
-#endif /// NOSFTPEND
 #endif
 	char salt[32]= {0};
 	if (new_password)
@@ -175018,7 +185218,6 @@ int Jidac::setpassword()
 int Jidac::setpassword_franzen()
 {
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (g_franzen == "")
 	{
 		myprintf("03599! -franzen2 needs -franzen (the password of now)\n");
@@ -175155,7 +185354,6 @@ int Jidac::setpassword_franzen()
 	}
 	myprintf("03614: Done <<%Z>> (%s bytes, the new Franzen password)\n", uscita.c_str(), migliaia(prendidimensionefile(uscita.c_str())));
 	return 0;
-#endif /// NOSFTPEND
 #endif
 	myprintf("03615! -franzen2: Franzen is not in this build\n");
 	return 2;
@@ -177460,6 +187658,69 @@ int64_t franz_ramlibera()
 #endif
 	return libera;
 }
+/// 65.18n: the peak of the RAM of this process as the system sees it (resident, every thread: zstd and the C++
+/// library too, that the counters of zpaqfranz do not see), in bytes. 0 = not known (Solaris, Haiku, ESXi...)
+int64_t franz_picco_os()
+{
+	int64_t picco= 0;
+#ifdef _WIN32
+	typedef BOOL(WINAPI * tipo_pmc)(HANDLE, franz_pmc *, DWORD);
+	tipo_pmc leggi= (tipo_pmc)(void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "K32GetProcessMemoryInfo");
+	if (leggi == NULL) /// before Windows 7 the same function is in psapi.dll
+	{
+		HMODULE psapi= LoadLibraryA("psapi.dll");
+		if (psapi != NULL)
+			leggi= (tipo_pmc)(void *)GetProcAddress(psapi, "GetProcessMemoryInfo");
+	}
+	if (leggi != NULL)
+	{
+		franz_pmc pm;
+		memset(&pm, 0, sizeof(pm));
+		pm.cb= sizeof(pm);
+		if (leggi(GetCurrentProcess(), &pm, sizeof(pm)))
+			picco= (int64_t)pm.PeakWorkingSetSize;
+	}
+#else
+#ifndef __HAIKU__ /// its struct rusage has the times only
+	struct rusage uso;
+	memset(&uso, 0, sizeof(uso));
+	if (getrusage(RUSAGE_SELF, &uso) == 0)
+	{
+#ifdef __APPLE__
+		picco= (int64_t)uso.ru_maxrss; /// macOS: bytes
+#else
+		picco= (int64_t)uso.ru_maxrss * 1024; /// Linux and the BSDs: KB (Solaris: always 0)
+#endif // corresponds to #ifdef (#ifdef __APPLE__)
+	}
+#endif // corresponds to #ifndef (#ifndef __HAIKU__)
+#ifdef __linux__
+	if (picco <= 0) /// a kernel before 2.6.32 has no ru_maxrss: VmHWM is the same peak ("VmHWM:	   1234 kB")
+	{
+		FILE *stato= fopen("/proc/self/status", "r");
+		if (stato != NULL)
+		{
+			char riga[256];
+			while (fgets(riga, sizeof(riga), stato) != NULL)
+				if (strncmp(riga, "VmHWM:", 6) == 0)
+				{
+					int64_t kb= 0;
+					for (const char *p= riga + 6; *p; p++)
+						if ((*p >= '0') && (*p <= '9'))
+							kb= kb * 10 + (*p - '0');
+						else if (kb > 0)
+							break;
+					picco= kb * 1024;
+					break;
+				}
+			fclose(stato);
+		}
+	}
+#endif // corresponds to #ifdef (#ifdef __linux__)
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+	if (picco < 0)
+		picco= 0;
+	return picco;
+}
 /*
 int contabit(unsigned int u)
 {
@@ -178163,7 +188424,7 @@ static const unsigned int g_autotestquickn= sizeof(g_autotestquick) / sizeof(g_a
 
 /*
 	65.12h: autotest -all -to X -m1 ... -m5, the level of the tests (no -m: -m4, the suite as it was)
-	  -m1  quick: the default values, x, the -fast history (l), VFILE-info (t), -comment, -fastadd, dump,
+	  -m1  quick: the default values, x, the -lfast history (l), VFILE-info (t), -comment, -fastadd, dump,
 		   the difficult names
 	  -m2  + the folders 05-09 (31.080 small files, 31 MB): hashes, -key, multipart, -chunk, backup
 		   (with -chunk too, plain and -key), the hash healing, -m6, -turbo, -tar (*nix)
@@ -178345,16 +188606,16 @@ static const autotestpasso g_autotestpassi[]= {
 	///NOSFTPSTART
 	{4, AT_MOUNT, 0, "\"%E\" mount \"%Dm6.zpaq\" \"%Dmnt\" -test -noeta -out \"%Dout76.txt\"", "out76.txt", "Mount test: OK", "Mount -m6 (m4.5) archive"},
 	///NOSFTPEND
-	{4, 0, 0, "\"%E\" a \"%Dturbo_no.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m1 -noturbo -noeta -nofast ", NULL, NULL, NULL},
-	{4, 0, 0, "\"%E\" a \"%Dturbo_no.zpaq\" \"%Dbigone03.big\" -timestamp 2025-01-02_10:00:00 -m1 -noturbo -noeta -nofast ", NULL, NULL, NULL},
-	{4, 0, 0, "\"%E\" a \"%Dturbo_si.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m1 -turbo -noeta -nofast -out \"%Dout83.txt\"", "out83.txt", "(all OK)", "-turbo add (parallel fragmenter)"},
-	{4, 0, 0, "\"%E\" a \"%Dturbo_si.zpaq\" \"%Dbigone03.big\" -timestamp 2025-01-02_10:00:00 -m1 -turbo -noeta -nofast ", NULL, NULL, NULL},
+	{4, 0, 0, "\"%E\" a \"%Dturbo_no.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m1 -noturbo -noeta -nolfast ", NULL, NULL, NULL},
+	{4, 0, 0, "\"%E\" a \"%Dturbo_no.zpaq\" \"%Dbigone03.big\" -timestamp 2025-01-02_10:00:00 -m1 -noturbo -noeta -nolfast ", NULL, NULL, NULL},
+	{4, 0, 0, "\"%E\" a \"%Dturbo_si.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m1 -turbo -noeta -nolfast -out \"%Dout83.txt\"", "out83.txt", "(all OK)", "-turbo add (parallel fragmenter)"},
+	{4, 0, 0, "\"%E\" a \"%Dturbo_si.zpaq\" \"%Dbigone03.big\" -timestamp 2025-01-02_10:00:00 -m1 -turbo -noeta -nolfast ", NULL, NULL, NULL},
 	{4, 0, 0, "\"%E\" work fc \"%Dturbo_no.zpaq\" \"%Dturbo_si.zpaq\" -out \"%Dout84.txt\"", "out84.txt", "Binary ==", "-turbo archive == plain archive (2 versions)"},
 	{4, 0, 0, "\"%E\" t \"%Dturbo_si.zpaq\" -noeta -out \"%Dout85.txt\"", "out85.txt", "(all OK)", "-turbo archive testing"},
-	{4, AT_ZSTD, 0, "\"%E\" a \"%Dturbo8_no.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m8 -noturbo -noeta -nofast ", NULL, NULL, NULL},
-	{4, AT_ZSTD, 0, "\"%E\" a \"%Dturbo8_si.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m8 -turbo -noeta -nofast ", NULL, NULL, NULL},
+	{4, AT_ZSTD, 0, "\"%E\" a \"%Dturbo8_no.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m8 -noturbo -noeta -nolfast ", NULL, NULL, NULL},
+	{4, AT_ZSTD, 0, "\"%E\" a \"%Dturbo8_si.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" \"%Dbigone15.big\" \"%Dte\" \"%Dheal\" -timestamp 2025-01-01_10:00:00 -m8 -turbo -noeta -nolfast ", NULL, NULL, NULL},
 	{4, AT_ZSTD, 0, "\"%E\" work fc \"%Dturbo8_no.zpaq\" \"%Dturbo8_si.zpaq\" -out \"%Dout86.txt\"", "out86.txt", "Binary ==", "-turbo -m8 archive == plain -m8 archive"},
-	/// 65.12h -m1: the default values, x, the -fast history (l), VFILE-info (t), -comment, -fastadd, dump
+	/// 65.12h -m1: the default values, x, the -lfast history (l), VFILE-info (t), -comment, -fastadd, dump
 	{1, 0, 0, "\"%E\" a \"%Dbase.zpaq\" \"%Dte\" -noeta -out \"%Dout95.txt\"", "out95.txt", "(all OK)", "a with the default values"},
 	{1, 0, 0, "\"%E\" a \"%Dbase.zpaq\" \"%Dheal\" -comment \"second\" -noeta", NULL, NULL, NULL},
 	{1, 0, 0, "\"%E\" t \"%Dbase.zpaq\" -noeta -out \"%Dout96.txt\"", "out96.txt", "(all OK)", "t with the default values"},
@@ -178362,7 +188623,7 @@ static const autotestpasso g_autotestpassi[]= {
 	{1, 0, 0, "\"%E\" v \"%Dbase.zpaq\" -out \"%Dout97.txt\"", "out97.txt", "(all OK)", "v against the files"},
 	{1, 0, 0, "\"%E\" x \"%Dbase.zpaq\" \"%Dte\" -to \"%Dex_base\" -space -noeta", NULL, NULL, NULL},
 	{1, 0, 0, "\"%E\" sum \"%Dex_base\" -sha256 -rename -force -out \"%Dout99.txt\"", "out99.txt", "NOT renamed files  256", "x, the files extracted"},
-	{1, 0, 0, "\"%E\" l \"%Dbase.zpaq\" -out \"%Dout100.txt\"", "out100.txt", "Fast list by -fast", "l from the -fast history"},
+	{1, 0, 0, "\"%E\" l \"%Dbase.zpaq\" -out \"%Dout100.txt\"", "out100.txt", "Fast list by -lfast", "l from the -lfast history"},
 	{1, 0, 0, "\"%E\" l \"%Dbase.zpaq\" -comment second -out \"%Dout101.txt\"", "out101.txt", "Found version -until 2", "l -comment: the version of a comment"},
 	{1, 0, 0, "\"%E\" a \"%Dfastadd.zpaq\" \"%Dte\" -fastadd -noeta", NULL, NULL, NULL},
 	{1, 0, 0, "\"%E\" a \"%Dfastadd.zpaq\" \"%Dheal\" -fastaddtest -noeta -out \"%Dout102.txt\"", "out102.txt", "the stored state is the one read", "-fastadd: the stored state against a full read"},
@@ -178379,14 +188640,14 @@ static const autotestpasso g_autotestpassi[]= {
 	{2, 0, 0, "\"%E\" a \"%Dkey.zpaq\" \"%D05\" \"%Dheal\" -key pippo -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" t \"%Dkey.zpaq\" -key pippo -noeta -out \"%Dout107.txt\"", "out107.txt", "(all OK)", "-key, t"},
 	{2, 0, 0, "\"%E\" v \"%Dkey.zpaq\" -key pippo -out \"%Dout108.txt\"", "out108.txt", "(all OK)", "-key, v"},
-	{2, 0, 0, "\"%E\" l \"%Dkey.zpaq\" -key pippo -out \"%Dout109.txt\"", "out109.txt", "Fast list by -fast", "-key, l from the -fast history"},
+	{2, 0, 0, "\"%E\" l \"%Dkey.zpaq\" -key pippo -out \"%Dout109.txt\"", "out109.txt", "Fast list by -lfast", "-key, l from the -lfast history"},
 	{2, 0, 0, "\"%E\" a \"%Dfkey.zpaq\" \"%D05\" -fastadd -key pippo -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" a \"%Dfkey.zpaq\" \"%D06\" -fastaddtest -key pippo -noeta -out \"%Dout110.txt\"", "out110.txt", "the stored state is the one read", "-key, -fastadd"},
 	{2, 0, 0, "\"%E\" a \"%Dmp_????.zpaq\" \"%D05\" -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" a \"%Dmp_????.zpaq\" \"%D06\" -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" a \"%Dmp_????.zpaq\" \"%D07\" -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" t \"%Dmp_????.zpaq\" -all -noeta -out \"%Dout111.txt\"", "out111.txt", "(all OK)", "multipart, t -all"},
-	{2, 0, 0, "\"%E\" l \"%Dmp_????.zpaq\" -out \"%Dout112.txt\"", "out112.txt", "Fast list by -fast", "multipart, l from the -fast history"},
+	{2, 0, 0, "\"%E\" l \"%Dmp_????.zpaq\" -out \"%Dout112.txt\"", "out112.txt", "Fast list by -lfast", "multipart, l from the -lfast history"},
 	{2, 0, 0, "\"%E\" a \"%Dfmp_????.zpaq\" \"%D05\" -fastadd -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" a \"%Dfmp_????.zpaq\" \"%D06\" -fastaddtest -noeta -out \"%Dout113.txt\"", "out113.txt", "the stored state is the one read", "multipart, -fastadd"},
 	{2, 0, 0, "\"%E\" a \"%Dch_????.zpaq\" \"%D05\" \"%D06\" -chunk 200k -noeta", NULL, NULL, NULL},
@@ -178404,8 +188665,8 @@ static const autotestpasso g_autotestpassi[]= {
 	{2, 0, 0, "\"%E\" a \"%Dm6s.zpaq\" \"%Dte\" \"%Dheal\" \"%Dnames\" \"%D07\" -m6 -noeta", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" t \"%Dm6s.zpaq\" -noeta -out \"%Dout118.txt\"", "out118.txt", "(all OK)", "-m6, t"},
 	{2, 0, 0, "\"%E\" p \"%Dm6s.zpaq\" -verify -noeta -out \"%Dout119.txt\"", "out119.txt", "All OK (paranoid test with check against filesystem)", "-m6, p -verify"},
-	{2, 0, 0, "\"%E\" a \"%Dts_no.zpaq\" \"%Dte\" \"%Dheal\" \"%D05\" -timestamp 2025-01-01_10:00:00 -m1 -noturbo -noeta -nofast", NULL, NULL, NULL},
-	{2, 0, 0, "\"%E\" a \"%Dts_si.zpaq\" \"%Dte\" \"%Dheal\" \"%D05\" -timestamp 2025-01-01_10:00:00 -m1 -turbo -noeta -nofast", NULL, NULL, NULL},
+	{2, 0, 0, "\"%E\" a \"%Dts_no.zpaq\" \"%Dte\" \"%Dheal\" \"%D05\" -timestamp 2025-01-01_10:00:00 -m1 -noturbo -noeta -nolfast", NULL, NULL, NULL},
+	{2, 0, 0, "\"%E\" a \"%Dts_si.zpaq\" \"%Dte\" \"%Dheal\" \"%D05\" -timestamp 2025-01-01_10:00:00 -m1 -turbo -noeta -nolfast", NULL, NULL, NULL},
 	{2, 0, 0, "\"%E\" work fc \"%Dts_no.zpaq\" \"%Dts_si.zpaq\" -out \"%Dout120.txt\"", "out120.txt", "Binary ==", "-turbo archive == plain archive"},
 	{2, AT_UNIX, 0, "\"%E\" a \"%Dtar.zpaq\" \"%Dheal\" \"%Dnames\" -tar -noeta", NULL, NULL, NULL},
 	{2, AT_UNIX, 0, "\"%E\" t \"%Dtar.zpaq\" -noeta -out \"%Dout158.txt\"", "out158.txt", "(all OK)", "-tar, t"},
@@ -178415,7 +188676,7 @@ static const autotestpasso g_autotestpassi[]= {
 	{3, 0, 0, "\"%E\" a \"%Dfat.zpaq\" \"%D01\" -fastadd -noeta", NULL, NULL, NULL},
 	{3, 0, 0, "\"%E\" a \"%Dfat.zpaq\" \"%D02\" -fastadd -noeta", NULL, NULL, NULL},
 	{3, 0, 0, "\"%E\" a \"%Dfat.zpaq\" \"%D09\" -fastaddtest -noeta -out \"%Dout121.txt\"", "out121.txt", "the stored state is the one read", "-fastadd, 1 GB in 4 versions"},
-	{3, 0, 0, "\"%E\" l \"%Dfat.zpaq\" -out \"%Dout122.txt\"", "out122.txt", "Fast list by -fast", "l from the -fast history, 1 GB"},
+	{3, 0, 0, "\"%E\" l \"%Dfat.zpaq\" -out \"%Dout122.txt\"", "out122.txt", "Fast list by -lfast", "l from the -lfast history, 1 GB"},
 	/// -m4: backup -chunk on big files, plain and -key; -fastadd with Franzen
 	{4, 0, 0, "\"%E\" backup \"%Dbkb.zpaq\" \"%Dbigone01.big\" -chunk 100m -noeta", NULL, NULL, NULL},
 	{4, 0, 0, "\"%E\" backup \"%Dbkb.zpaq\" \"%Dbigone01.big\" \"%Dbigone02.big\" -chunk 100m -noeta", NULL, NULL, NULL},
@@ -178470,31 +188731,31 @@ static const autotestpasso g_autotestpassi[]= {
 		backup, backup -chunk: work quadra (parts glued, franzen decoded) == one piece; pp of the -chunk one; then one
 		byte of a part complemented (work poke ~): work quadra must say KO, t must end with errors
 	*/
-	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D05\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D05\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D05\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D05\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D05\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D06\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D06\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D06\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D06\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D06\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D06\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D06\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D06\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D06\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D06\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D07\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D07\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D07\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D07\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D07\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D08\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D08\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D08\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D08\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D08\" -chunk 100k -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D05\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D05\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D05\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D05\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D05\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D06\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D06\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D06\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D06\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D06\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D06\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D06\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D06\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D06\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D06\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D07\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D07\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D07\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D07\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D07\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_P.zpaq\" \"%D08\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_P_????.zpaq\" \"%D08\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_P_????.zpaq\" \"%D08\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_P.zpaq\" \"%D08\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_P.zpaq\" \"%D08\" -chunk 100k -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
 	{5, 0, 0, "\"%E\" t \"%Dq5s_P.zpaq\" -noeta -out \"%Dqu_P_01.txt\"", "qu_P_01.txt", "(all OK)", "quadratura in clear, t of the one piece"},
 	{5, 0, 0, NULL, "qu_P_01.txt", "4 versions,", "quadratura in clear, 4 versions (the third run changed nothing)"},
 	{5, 0, 0, "\"%E\" t \"%Dq5m_P_????.zpaq\" -noeta -out \"%Dqu_P_02.txt\"", "qu_P_02.txt", "(all OK)", "quadratura in clear, t of the multipart"},
@@ -178516,31 +188777,31 @@ static const autotestpasso g_autotestpassi[]= {
 	{5, 0, 0, "\"%E\" work poke \"%Dq5bc_P_00000001.zpaq\" 50000 \"~\" -force -kill -out \"%Dqu_P_18.txt\"", "qu_P_18.txt", "done", "quadratura in clear negative: one byte of the backup -chunk changed"},
 	{5, 0, 0, "\"%E\" work quadra \"%Dq5b_P_????????.zpaq\" \"%Dq5bc_P_????????.zpaq\" -out \"%Dqu_P_19.txt\"", "qu_P_19.txt", "QUADRA KO", "quadratura in clear negative: the backup -chunk is not the same any more"},
 	{5, 0, 0, "\"%E\" t \"%Dq5bc_P_????????.zpaq\" -noeta -out \"%Dqu_P_20.txt\"", "qu_P_20.txt", "(with errors)", "quadratura in clear negative: t of the backup -chunk ends with errors"},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D05\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D05\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D05\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D05\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D05\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D06\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D06\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D06\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D06\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D06\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D06\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D07\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D07\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D07\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D07\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D07\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D08\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D08\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D08\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D08\" -key pippo -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D08\" -chunk 100k -key pippo -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D05\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D05\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D05\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D05\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D05\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D06\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D06\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D06\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D06\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D06\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D06\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D06\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D07\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D07\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D07\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D07\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D07\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5s_A.zpaq\" \"%D08\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5m_A_????.zpaq\" \"%D08\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" a \"%Dq5c_A_????.zpaq\" \"%D08\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5b_A.zpaq\" \"%D08\" -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, 0, 0, "\"%E\" backup \"%Dq5bc_A.zpaq\" \"%D08\" -chunk 100k -key pippo -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
 	{5, 0, 0, "\"%E\" t \"%Dq5s_A.zpaq\" -key pippo -noeta -out \"%Dqu_A_01.txt\"", "qu_A_01.txt", "(all OK)", "quadratura -key, t of the one piece"},
 	{5, 0, 0, NULL, "qu_A_01.txt", "4 versions,", "quadratura -key, 4 versions (the third run changed nothing)"},
 	{5, 0, 0, "\"%E\" t \"%Dq5m_A_????.zpaq\" -key pippo -noeta -out \"%Dqu_A_02.txt\"", "qu_A_02.txt", "(all OK)", "quadratura -key, t of the multipart"},
@@ -178562,31 +188823,31 @@ static const autotestpasso g_autotestpassi[]= {
 	{5, 0, 0, "\"%E\" work poke \"%Dq5bc_A_00000001.zpaq\" 50000 \"~\" -force -kill -out \"%Dqu_A_18.txt\"", "qu_A_18.txt", "done", "quadratura -key negative: one byte of the backup -chunk changed"},
 	{5, 0, 0, "\"%E\" work quadra \"%Dq5b_A_????????.zpaq\" \"%Dq5bc_A_????????.zpaq\" -out \"%Dqu_A_19.txt\"", "qu_A_19.txt", "QUADRA KO", "quadratura -key negative: the backup -chunk is not the same any more"},
 	{5, 0, 0, "\"%E\" t \"%Dq5bc_A_????????.zpaq\" -key pippo -noeta -out \"%Dqu_A_20.txt\"", "qu_A_20.txt", "(with errors)", "quadratura -key negative: t of the backup -chunk ends with errors"},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D05\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D05\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D05\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D05\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D05\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D07\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D07\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D07\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D07\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D07\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D08\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D08\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D08\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D08\" -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D08\" -chunk 100k -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D05\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D05\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D05\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D05\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D05\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D06\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D06\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D07\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D07\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D07\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D07\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D07\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_F.zpaq\" \"%D08\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_F_????.zpaq\" \"%D08\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_F_????.zpaq\" \"%D08\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_F.zpaq\" \"%D08\" -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_F.zpaq\" \"%D08\" -chunk 100k -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
 	{5, AT_FRANZEN, 0, "\"%E\" t \"%Dq5s_F.zpaq\" -franzen \"%F\" -noeta -out \"%Dqu_F_01.txt\"", "qu_F_01.txt", "(all OK)", "quadratura -franzen, t of the one piece"},
 	{5, AT_FRANZEN, 0, NULL, "qu_F_01.txt", "4 versions,", "quadratura -franzen, 4 versions (the third run changed nothing)"},
 	{5, AT_FRANZEN, 0, "\"%E\" t \"%Dq5m_F_????.zpaq\" -franzen \"%F\" -noeta -out \"%Dqu_F_02.txt\"", "qu_F_02.txt", "(all OK)", "quadratura -franzen, t of the multipart"},
@@ -178608,31 +188869,31 @@ static const autotestpasso g_autotestpassi[]= {
 	{5, AT_FRANZEN, 0, "\"%E\" work poke \"%Dq5bc_F_00000001.zpaq.franzen\" 50000 \"~\" -force -kill -out \"%Dqu_F_18.txt\"", "qu_F_18.txt", "done", "quadratura -franzen negative: one byte of the backup -chunk changed"},
 	{5, AT_FRANZEN, 0, "\"%E\" work quadra \"%Dq5b_F_????????.zpaq\" \"%Dq5bc_F_????????.zpaq\" -franzen \"%F\" -out \"%Dqu_F_19.txt\"", "qu_F_19.txt", "QUADRA KO", "quadratura -franzen negative: the backup -chunk is not the same any more"},
 	{5, AT_FRANZEN, 0, "\"%E\" t \"%Dq5bc_F_????????.zpaq\" -franzen \"%F\" -noeta -out \"%Dqu_F_20.txt\"", "qu_F_20.txt", "(with errors)", "quadratura -franzen negative: t of the backup -chunk ends with errors"},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D05\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D05\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D05\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D05\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D05\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D07\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D07\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D07\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D07\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D07\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D08\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D08\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D08\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D08\" -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
-	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D08\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nofast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D05\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D05\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D05\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D05\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D05\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-01_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-02_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D06\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D06\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-03_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D07\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D07\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D07\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D07\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D07\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-04_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5s_K.zpaq\" \"%D08\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5m_K_????.zpaq\" \"%D08\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" a \"%Dq5c_K_????.zpaq\" \"%D08\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5b_K.zpaq\" \"%D08\" -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
+	{5, AT_FRANZEN, 0, "\"%E\" backup \"%Dq5bc_K.zpaq\" \"%D08\" -chunk 100k -key pippo -franzen \"%F\" -debug4 -nolfast -noeta -timestamp 2025-02-05_10:00:00", NULL, NULL, NULL},
 	{5, AT_FRANZEN, 0, "\"%E\" t \"%Dq5s_K.zpaq\" -key pippo -franzen \"%F\" -noeta -out \"%Dqu_K_01.txt\"", "qu_K_01.txt", "(all OK)", "quadratura -key -franzen, t of the one piece"},
 	{5, AT_FRANZEN, 0, NULL, "qu_K_01.txt", "4 versions,", "quadratura -key -franzen, 4 versions (the third run changed nothing)"},
 	{5, AT_FRANZEN, 0, "\"%E\" t \"%Dq5m_K_????.zpaq\" -key pippo -franzen \"%F\" -noeta -out \"%Dqu_K_02.txt\"", "qu_K_02.txt", "(all OK)", "quadratura -key -franzen, t of the multipart"},
@@ -179413,6 +189674,8 @@ static void colori_alluscita()
 	files on the .tmp are closed (what writes it; what reads it in the check, Franzen: only if that thread stopped,
 	else it may be reading it), then deleted. *nix: deleted at once (an open file can be)
 */
+/// 65.17p: work proxmox audit under way: its work folder (secrets in clear) goes away. Set there, NULL: nothing
+void (*g_auditpulisci)()= NULL;
 static void rp_controlc()
 {
 	if (g_rp_temporaneo == "")
@@ -179433,7 +189696,6 @@ static void rp_controlc()
 		myfclose(&g_rp_fp);
 	}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (g_p_franzenfile) /// the output with Franzen, being written
 	{
 		g_p_franzenfile->close();
@@ -179444,7 +189706,6 @@ static void rp_controlc()
 		g_rp_franzenlettore->close();
 		g_rp_franzenlettore= 0;
 	}
-#endif /// NOSFTPEND
 #endif
 #endif
 	for (int i= 0; i < 2; ++i)
@@ -179519,6 +189780,8 @@ void my_handler(int s)
 	tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 #endif // corresponds to #ifdef (#ifdef unix)
 	rp_controlc(); /// 65.16g
+	if (g_auditpulisci != NULL) /// 65.17p
+		g_auditpulisci();
 
 	if (g_chunk_size > 0)
 	{
@@ -179587,7 +189850,6 @@ void my_handler(int s)
 
 		myprintf("01268: Fixed-size chunk: (try) deleting all of them (should be %s)\n", migliaia(g_addedchunklist.size() - 1));
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		/// 65.13e: -chunk -franzen: the parts are franzen files, open (Windows does not delete an open file)
 		if (g_p_franzenprimo && (g_p_franzenprimo != g_p_franzenfile))
 			g_p_franzenprimo->close();
@@ -179597,7 +189859,6 @@ void my_handler(int s)
 			g_p_franzenfile->close();
 			g_p_franzenfile= 0;
 		}
-#endif /// NOSFTPEND
 #endif
 		for (unsigned int i= 0; i < g_addedchunklist.size(); i++)
 		{
@@ -179665,7 +189926,6 @@ void my_handler(int s)
 						myprintf("01279! *CANNOT DELETE* <<%Z>>\n", g_archive.c_str());
 				}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		/// 65.11l: the new part of a backup made as a franzen file only (x_003.tmp.franzen): closed, then removed
 		bool franzenrimasto= false;
 		if (flagalwayscheck && (g_archive != "") && (g_franzen != "") && (!isfranzen(g_archive)) && fileexists(franzenname(g_archive)))
@@ -179683,7 +189943,6 @@ void my_handler(int s)
 				franzenrimasto= true;
 			}
 		}
-#endif /// NOSFTPEND
 #endif
 		// we must trim the index too!
 		if (!g_flagcreating)
@@ -179707,7 +189966,6 @@ void my_handler(int s)
 			}
 		}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		// roll back the franzen archive too (with or without a cleartext .zpaq)
 		if (!g_flagcreating)
 			if (g_franzen_filename != "")
@@ -179729,17 +189987,14 @@ void my_handler(int s)
 							printerr("61921", g_franzen_filename.c_str(), 0);
 					}
 				}
-#endif /// NOSFTPEND
 #endif
 		if (flagalwayscheck)
 			rollbackok= !fileexists(g_archive);
 		else
 			rollbackok= (prendidimensionefile(g_archive.c_str()) <= g_starting_zpaqsize);
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (franzenrimasto)
 			rollbackok= false;
-#endif /// NOSFTPEND
 #endif
 	}
 	/// the archive being written: where it is now (single file, multipart: the new part, -chunk: the new chunks)
@@ -180462,7 +190717,6 @@ int zpaq_main_internal(int argc, const char **argv)
     if ((g_frammentiorfani > 0) && (errorcode == 0)) /// 72414: the last archive read has files missing from a version
         errorcode = 1;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
     if (g_franzen_lettirotti > 0) /// 65.11l: whatever the command made of it, a franzen file is damaged
     {
         color_red();
@@ -180477,6 +190731,18 @@ int zpaq_main_internal(int argc, const char **argv)
         color_restore();
         errorcode = 2;
     }
+#ifdef ZPAQLIBSODIUM
+    if (g_sodiumcheck_diversi > 0) /// 65.18d: -sodiumcheck, franzsodium did not give what libsodium gave
+    {
+        color_red();
+        myprintf("43816! -sodiumcheck: %s of %s calls where franzsodium gave something else than libsodium\n",
+                 migliaia(g_sodiumcheck_diversi), migliaia(g_sodiumcheck_chiamate));
+        color_restore();
+        errorcode = 2;
+    }
+    else if (g_sodiumcheck_chiamate > 0)
+        myprintf("43817: -sodiumcheck: %s calls, franzsodium gave what libsodium gave\n", migliaia(g_sodiumcheck_chiamate));
+#endif // ZPAQLIBSODIUM
     //FIX-FRANZEN 65.11s: a franzen file read up to its last complete update, and left as it is (no add in this run)
     if ((g_franzen_recuperati > g_franzen_tagliati) && (errorcode == 0))
     {
@@ -180485,7 +190751,6 @@ int zpaq_main_internal(int argc, const char **argv)
         color_restore();
         errorcode = 1;
     }
-#endif /// NOSFTPEND
 #endif
 
     if (g_fastadddiversi > 0) /// 65.12f: see add2
@@ -182418,7 +192683,6 @@ int Jidac::test()
 	int franzentestresult=-1;
 	    
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (is_file_franzen(archive))
 		if (flagssd || flagparanoid)
 		{
@@ -182432,7 +192696,6 @@ int Jidac::test()
 			}
 			color_restore();
 		}
-#endif /// NOSFTPEND
 #endif
 
 	for (unsigned i= 0; i < block.size(); ++i)
@@ -194525,6 +204788,28 @@ int Jidac::testbackup()
 	else
 		return 2;
 }
+/// 65.18f: the archive must be the name of a file, not a folder: true (and said, 00597) when it is a folder.
+/// "a z:\pippo\ *.cpp" made z:/pippo/.zpaq (the parser puts .zpaq after a name with no dot: there was no name
+/// at all), "backup z:\pippo\" its parts z:/pippo/_00000001.zpaq; a folder that exists ("a z:\old.dir") would be
+/// taken as the archive. For add (testparametriadd) and backup, before anything is written
+bool archivio_cartella(const string &i_archive)
+{
+	if (i_archive == "")
+		return false;
+	string nome= i_archive;
+	for (size_t k= 0; k < nome.size(); k++)
+		if (nome[k] == '\\')
+			nome[k]= '/';
+	const string solo	  = extractfilename(nome);
+	const bool	 senzanome= (solo == "") || (solo == ".zpaq") || (solo == ".") || (solo == "..");
+	if (!senzanome && !direxists(i_archive))
+		return false;
+	const string cartella= (solo == ".zpaq") ? extractfilepath(nome) : nome;
+	const string esempio = cartella + (((cartella != "") && (cartella[cartella.size() - 1] == '/')) ? "" : "/") + "archive.zpaq";
+	myprintf("00597! <<%Z>> is a folder, not the name of an archive (something like %Z): nothing done\n", cartella.c_str(), esempio.c_str());
+	return true;
+}
+
 int Jidac::backup()
 {
 	/// 65.11l: -franzen (with or without -key): the parts and the index are franzen files, see add
@@ -194538,6 +204823,8 @@ int Jidac::backup()
 		myprintf("02796! Backup is for managed multipart, do not use ?\n");
 		return 2;
 	}
+	if (archivio_cartella(archive)) /// 65.18f: "backup z:\pippo\" made z:/pippo/_00000001.zpaq
+		return 2;
 
 	archive= format_datetime(archive);
 
@@ -196699,7 +206986,7 @@ int Jidac::addhome()
 
 /// static const int64_t LIST_HT_BAD=   -0x7FFFFFFFFFFFFFFALL;  // no such frag
 
-/////////////////////////////// -fast ///////////////////////////////
+/////////////////////////////// -lfast ///////////////////////////////
 /// The history of the archive (everything l shows, every version) stored
 /// inside the archive at each add: l can skip the index blocks of all the
 /// versions, one by one, that is slow for very big archives.
@@ -196849,7 +207136,7 @@ static string vinfo_pulito(const string &i_valore)
 
 /*
 	The a command: the version that is going to be written gets a VFILE-info record (see
-	ZPAQINFO_TAG) when it gets the -fast history: the same switch (-nofast: neither) and the
+	ZPAQINFO_TAG) when it gets the -lfast history: the same switch (-nolfast: neither) and the
 	same limits (not with -index, -chunk, streaming, the two passes of -append, -715). Here,
 	before anything is written, what is known now: the number of the version, where it begins,
 	its first fragment. The record is made at the end (vinfo_riga, called by buildindexchunks)
@@ -197287,7 +207574,7 @@ int Jidac::vinfo_controlla(const vector<std::pair<int, string> > &i_record)
 }
 /// 65.15z1: can a file be missing from the archive read (ver)? Not if every version has its VFILE-info record and
 /// its number (v), the files and folders (iu) and the deletions (id) of its index are as written: the index is whole.
-/// Any version without it (-nofast, zpaq 7.15, its record lost with its block), or not as written: it can
+/// Any version without it (-nolfast, zpaq 7.15, its record lost with its block), or not as written: it can
 bool Jidac::vinfo_indicecompleto(const vector<std::pair<int, string> > &i_record)
 {
 	if (ver.size() < 2)
@@ -197512,7 +207799,7 @@ void Jidac::fl_iblock(const char *i_s, const char *i_end, int64_t i_fdate)
 }
 
 /// 1 the block at i_pos is the pointer, 0 it is a good block but not the
-/// pointer (no usable -fast), -1 not a block (a tag inside some data)
+/// pointer (no usable -lfast), -1 not a block (a tag inside some data)
 int Jidac::fl_parsepointer(InputArchive &i_in, int64_t i_pos, string &o_payload)
 {
 	try
@@ -197645,7 +207932,7 @@ bool Jidac::fl_decompressblock(InputArchive &i_in, int64_t i_offset, libzpaq::St
 			if (cosa != "")
 			{
 				if (flagverbose)
-					myprintf("65401: -fast history: the block @ %s: %s\n", migliaia(i_offset), cosa.c_str());
+					myprintf("65401: -lfast history: the block @ %s: %s\n", migliaia(i_offset), cosa.c_str());
 				return false;
 			}
 		}
@@ -197654,7 +207941,7 @@ bool Jidac::fl_decompressblock(InputArchive &i_in, int64_t i_offset, libzpaq::St
 	catch (std::exception &e)
 	{
 		if (flagverbose)
-			myprintf("65400: -fast history: cannot decompress the block @ %s: %s\n", migliaia(i_offset), e.what());
+			myprintf("65400: -lfast history: cannot decompress the block @ %s: %s\n", migliaia(i_offset), e.what());
 		return false;
 	}
 }
@@ -197823,7 +208110,7 @@ int64_t Jidac::fl_readarchive(const char *i_arc)
 	if (!fl_findpointer(in, payload))
 	{
 		if (flagverbose)
-			myprintf("65401: No -fast history in the archive, reading all of it\n");
+			myprintf("65401: No -lfast history in the archive, reading all of it\n");
 		return -1;
 	}
 	fl_t[0]= mtime() - tempo;
@@ -197925,7 +208212,7 @@ int64_t Jidac::fl_readarchive(const char *i_arc)
 	if (bin2hex_64(myhash.hash()) != thehash)
 	{
 		if (flagverbose)
-			myprintf("65402: -fast history: hash mismatch, reading all the archive\n");
+			myprintf("65402: -lfast history: hash mismatch, reading all the archive\n");
 		return -1;
 	}
 	if ((blob.size() < 5) || (memcmp(blob.data(), "ZPFL\x01", 5) != 0))
@@ -198165,7 +208452,7 @@ int64_t Jidac::fl_readarchive(const char *i_arc)
 	}
 	if (broken || ((!stopped) && ((int64_t)ver.size() - 1 != versioni)))
 	{
-		myprintf("65403$ -fast history broken, reading all the archive\n");
+		myprintf("65403$ -lfast history broken, reading all the archive\n");
 		jidacreset();
 		return -1;
 	}
@@ -198191,9 +208478,9 @@ int64_t Jidac::fl_readarchive(const char *i_arc)
 				{
 					color_cyan();
 					if (flagverbose)
-						myprintf("65404: -fast: %s versions, history %s bytes in %s blocks, %s ms\n", migliaia(versioni), migliaia2(blobsize), migliaia3(boffset.size()), migliaia4(mtime() - startfl));
+						myprintf("65404: -lfast: %s versions, history %s bytes in %s blocks, %s ms\n", migliaia(versioni), migliaia2(blobsize), migliaia3(boffset.size()), migliaia4(mtime() - startfl));
 					else
-						myprintf("65404: Fast list by -fast (-nofast to read everything)\n");
+						myprintf("65404: Fast list by -lfast (-nolfast to read everything)\n");
 					color_restore();
 				}
 			}
@@ -198216,7 +208503,7 @@ int64_t Jidac::fl_readarchive(const char *i_arc)
 	return archivesize;
 }
 
-/// 65.15t: the -fast history of i_arc (its pointer at the end), read as l reads it, but only to see if it is as it was
+/// 65.15t: the -lfast history of i_arc (its pointer at the end), read as l reads it, but only to see if it is as it was
 /// written (its blocks, its size, its hash): dt and ver are not touched. 0 no history, 1 good, 2 there but damaged
 int Jidac::fl_controllastoria(const char *i_arc)
 {
@@ -198239,7 +208526,7 @@ int Jidac::fl_controllastoria(const char *i_arc)
 		return 2;
 	return 1;
 }
-/// 65.15y: every -fast history of i_arc, not only the last one (fl_controllastoria): the pointer at the end of each
+/// 65.15y: every -lfast history of i_arc, not only the last one (fl_controllastoria): the pointer at the end of each
 /// version (ver, read_archive before), and every block it says, decompressed once with its SHA-1. The history of
 /// version 1 damaged (its d block, not used any more) was seen by p only (work probe). 0 no history, 1 good, 2 a
 /// block of it damaged (o_cosa: which one)
@@ -198284,7 +208571,7 @@ int Jidac::fl_controllastorie(const char *i_arc, string &o_cosa)
 	}
 	return (trovate > 0) ? 1 : 0;
 }
-/// 65.15t: the end of a test (t, tw, pp) of archive: its -fast history damaged (the files can be all good: l reads
+/// 65.15t: the end of a test (t, tw, pp) of archive: its -lfast history damaged (the files can be all good: l reads
 /// the whole archive) is a WARNING, rc 1 at least. The rule: OK only if all is really OK, something that can be
 /// recovered WARNING, else ERROR. Found by work probe (512 zeros in a d block of the history: all the tests OK)
 /// 65.15x: and the VFILE-info of the versions, as t (archive alone) does, for the tests that did not (t with a folder,
@@ -198336,7 +208623,7 @@ int Jidac::conlastoria(int i_rc)
 	if (storia == 2)
 	{
 		color_yellow();
-		myprintf("03739$ WARNING: the -fast history of the archive is damaged (its blocks or its hash): the files can be good, l reads the whole archive\n");
+		myprintf("03739$ WARNING: the -lfast history of the archive is damaged (its blocks or its hash): the files can be good, l reads the whole archive\n");
 		color_restore();
 		return (rc < 1) ? 1 : rc;
 	}
@@ -198344,13 +208631,13 @@ int Jidac::conlastoria(int i_rc)
 	if ((storia == 1) && (fl_controllastorie(archive.c_str(), cosa) == 2)) /// 65.15y: the ones before the last too
 	{
 		color_yellow();
-		myprintf("03746$ WARNING: a -fast history before the last one is damaged (%s): the files can be good, l reads the last one\n", cosa.c_str());
+		myprintf("03746$ WARNING: a -lfast history before the last one is damaged (%s): the files can be good, l reads the last one\n", cosa.c_str());
 		color_restore();
 		return (rc < 1) ? 1 : rc;
 	}
 	return rc;
 }
-/// 65.15a: the bytes of the -fast history, from its pointer: "ZPFL1|versions|bytes|hash|..." (fl_head). -1 if not
+/// 65.15a: the bytes of the -lfast history, from its pointer: "ZPFL1|versions|bytes|hash|..." (fl_head). -1 if not
 static int64_t fl_dimensionepuntatore(const string &i_payload)
 {
 	if (i_payload.compare(0, 6, "ZPFL1|") != 0)
@@ -198363,8 +208650,8 @@ static int64_t fl_dimensionepuntatore(const string &i_payload)
 		return -1;
 	return atoll(i_payload.substr(uno + 1, due - uno - 1).c_str());
 }
-/// 65.15a: the history of -fast takes about FL_RAMPERBYTE bytes of RAM for each of its bytes while it is made (the
-/// map of all the names, the history in a string, its fragments). Measured (peak with it - peak with -nofast):
+/// 65.15a: the history of -lfast takes about FL_RAMPERBYTE bytes of RAM for each of its bytes while it is made (the
+/// map of all the names, the history in a string, its fragments). Measured (peak with it - peak with -nolfast):
 /// 11 on 100,601 short names (the first version), 6.8 on 248,058 files (the first), 3.7-4.1 on the next 12
 /// versions of them, about 5 on 3,480,314 files: the worst is taken (a backup that fails is worse than an l that
 /// reads all). More than a share of the free RAM (1/i_parti): not made (03686). The free RAM not known: kept
@@ -198380,15 +208667,15 @@ static bool fl_troppogrande(int64_t i_storia, const char *i_cosa, int i_parti= 3
 	if (serve <= libera / i_parti)
 	{
 		if (flagverbose && i_dire)
-			myprintf("03687: -fast: the history %s (%s) takes ~%s of RAM, %s free: kept\n", i_cosa, tohuman(i_storia), tohuman2(serve), tohuman3(libera));
+			myprintf("03687: -lfast: the history %s (%s) takes ~%s of RAM, %s free: kept\n", i_cosa, tohuman(i_storia), tohuman2(serve), tohuman3(libera));
 		return false;
 	}
-	myprintf("03686$ -fast: the history %s (%s) would take ~%s of RAM, %s free: it stops here (l reads the whole archive, as zpaq)\n", i_cosa, tohuman(i_storia), tohuman2(serve), tohuman3(libera));
+	myprintf("03686$ -lfast: the history %s (%s) would take ~%s of RAM, %s free: it stops here (l reads the whole archive, as zpaq)\n", i_cosa, tohuman(i_storia), tohuman2(serve), tohuman3(libera));
 	return true;
 }
-/// 65.15a: the history made again while the archive is read (-fast on, and an archive without its pointer: say the
+/// 65.15a: the history made again while the archive is read (-lfast on, and an archive without its pointer: say the
 /// version before turned it off): checked as it grows, every 4 MB. Too big for the RAM: stopped at once, its RAM
-/// given back, this add goes on as with -nofast. Without this, a NAS that turned it off once made it again at the
+/// given back, this add goes on as with -nolfast. Without this, a NAS that turned it off once made it again at the
 /// next add, and the add died (std::bad_alloc in the compression)
 void Jidac::fl_controllacattura()
 {
@@ -198405,8 +208692,8 @@ void Jidac::fl_controllacattura()
 	fl_vnames= "";
 	fl_vrecs = "";
 }
-/// read_archive() for add(): collect the history when -fast is on, or
-/// when the archive already has one (and then -fast turns on by itself)
+/// read_archive() for add(): collect the history when -lfast is on, or
+/// when the archive already has one (and then -lfast turns on by itself)
 int64_t Jidac::read_archive_add(const char *i_arc)
 {
 	fl_seen				= false;
@@ -198421,9 +208708,9 @@ int64_t Jidac::read_archive_add(const char *i_arc)
 		{
 			if ((!flagfilelist) && (!flagnofilelist))
 			{
-				flagfilelist= true; /// as below: the archive has a -fast history
+				flagfilelist= true; /// as below: the archive has a -lfast history
 				color_cyan();
-				myprintf("65406: This archive has a -fast history, keep going (-nofast to stop)\n");
+				myprintf("65406: This archive has a -lfast history, keep going (-nolfast to stop)\n");
 				color_restore();
 			}
 			return risultato;
@@ -198438,7 +208725,7 @@ int64_t Jidac::read_archive_add(const char *i_arc)
 		{
 			string payload;
 			fl_attail= fl_findpointer(in, payload);
-			/// 65.15a: a history too big for the RAM is not made again in RAM: it stops here, as with -nofast (a
+			/// 65.15a: a history too big for the RAM is not made again in RAM: it stops here, as with -nolfast (a
 			/// backup that fails is worse than an l that reads all, as zpaq). Its size is in the pointer
 			if (fl_attail && fl_troppogrande(fl_dimensionepuntatore(payload), "of this archive"))
 			{
@@ -198453,9 +208740,9 @@ int64_t Jidac::read_archive_add(const char *i_arc)
 	int64_t risultato= read_archive(NULL, i_arc, &errors);
 	if (fl_seen && (!fl_capture) && (!flagnofilelist))
 	{
-		/// a -fast, but not at the end (something else did an add): again, collecting
+		/// a -lfast, but not at the end (something else did an add): again, collecting
 		if (flagverbose)
-			myprintf("65405: -fast history not in the last block, reading the archive again\n");
+			myprintf("65405: -lfast history not in the last block, reading the archive again\n");
 		jidacreset();
 		fl_capture= true;
 		fl_clear();
@@ -198468,7 +208755,7 @@ int64_t Jidac::read_archive_add(const char *i_arc)
 	{
 		flagfilelist= true;
 		color_cyan();
-		myprintf("65406: This archive has a -fast history, keep going (-nofast to stop)\n");
+		myprintf("65406: This archive has a -lfast history, keep going (-nolfast to stop)\n");
 		color_restore();
 	}
 	return risultato;
@@ -198689,7 +208976,7 @@ void Jidac::buildindexchunks(vector<string> &o_chunks)
 				///	puti(is, 0, 4);  // no attributes
 				///	puti(is, 0, 4);  // list of frag pointers
 			}
-			/// -fast: what this version is and did, in a fake file too (see vinfo_prima). Only if
+			/// -lfast: what this version is and did, in a fake file too (see vinfo_prima). Only if
 			/// the version has something else in it: nothing changed, no version
 			if (m_vinfook && (method[0] != 's') && (method[0] != 'i') && ((is.size() > 0) || (o_chunks.size() > 0)))
 			{
@@ -198772,10 +209059,10 @@ bool Jidac::filelist_store(OutputArchive &i_out, CompressJob &io_job, vector<uns
 	fl_writestop= false;
 	if (flagnofilelist)
 	{
-		/// the archive had a -fast: write down that it is over, or the next add turns it on again
+		/// the archive had a -lfast: write down that it is over, or the next add turns it on again
 		if (fl_seen && (!i_chunks.empty()) && (!index) && (g_chunk_size == 0) && (!g_fakewrite))
 		{
-			myprintf("65412: -nofast: the stored history stops here\n");
+			myprintf("65412: -nolfast: the stored history stops here\n");
 			fl_writestop= true;
 			return true;
 		}
@@ -198786,7 +209073,7 @@ bool Jidac::filelist_store(OutputArchive &i_out, CompressJob &io_job, vector<uns
 	if (index || (g_chunk_size > 0) || g_fakewrite || (method[0] == 's') || (method[0] == 'i'))
 	{
 		if (flagverbose)
-			myprintf("65407: -fast not with index, chunks, streaming or fake write\n");
+			myprintf("65407: -lfast not with index, chunks, streaming or fake write\n");
 		return false;
 	}
 	if (i_chunks.empty())
@@ -198795,18 +209082,18 @@ bool Jidac::filelist_store(OutputArchive &i_out, CompressJob &io_job, vector<uns
 	{
 		if (ver.size() != 1)
 		{
-			myprintf("65408$ -fast: the history of the archive is not available, not stored\n");
+			myprintf("65408$ -lfast: the history of the archive is not available, not stored\n");
 			return false;
 		}
 		fl_clear(); /// new archive
 	}
 	if (fl_lastv != int64_t(ver.size()) - 1)
 	{
-		myprintf("65409$ -fast: history incomplete (%s of %s versions), not stored\n", migliaia(fl_lastv), migliaia2(ver.size() - 1));
+		myprintf("65409$ -lfast: history incomplete (%s of %s versions), not stored\n", migliaia(fl_lastv), migliaia2(ver.size() - 1));
 		return false;
 	}
 	/// 65.15a: the history with this version, too big for the RAM (the files are scanned, the data written: half of
-	/// what is free): not made, its RAM given back. An archive with a history gets the stop, as with -nofast
+	/// what is free): not made, its RAM given back. An archive with a history gets the stop, as with -nolfast
 	{
 		int64_t nuovi= 0;
 		for (unsigned i= 0; i < i_chunks.size(); ++i)
@@ -198926,7 +209213,7 @@ bool Jidac::filelist_store(OutputArchive &i_out, CompressJob &io_job, vector<uns
 		vector<unsigned>::iterator u= std::upper_bound(tuttistart.begin(), tuttistart.end(), ptr[i]);
 		if (u == tuttistart.begin())
 		{
-			myprintf("65410$ -fast: fragment %s without a block, not stored\n", migliaia(ptr[i]));
+			myprintf("65410$ -lfast: fragment %s without a block, not stored\n", migliaia(ptr[i]));
 			return false;
 		}
 		usati.insert((unsigned)(u - tuttistart.begin()) - 1);
@@ -198959,7 +209246,7 @@ bool Jidac::filelist_store(OutputArchive &i_out, CompressJob &io_job, vector<uns
 	{
 		color_cyan();
 		if (flagverbose)
-			myprintf("65411: -fast history %s bytes, %s new in %d blocks (%s fragments, %s blocks to read) %s ms\n", migliaia(len), migliaia2(newbytes), newblocks, migliaia3(ptr.size()), migliaia4(usati.size()), migliaia5(mtime() - startfl));
+			myprintf("65411: -lfast history %s bytes, %s new in %d blocks (%s fragments, %s blocks to read) %s ms\n", migliaia(len), migliaia2(newbytes), newblocks, migliaia3(ptr.size()), migliaia4(usati.size()), migliaia5(mtime() - startfl));
 		else
 			myprintf("65412: stored %s versions in %s\n", migliaia(ver.size()), tohuman(newbytes));
 		color_restore();
@@ -199470,7 +209757,7 @@ static bool scantroppolunghi()
 /////////////////////////// read_archive //////////////////////////////
 // Read arc up to -date into ht, dt, ver. Return place to
 // append. If errors is not NULL then set it to number of errors found.
-/// The -fast pointer, its pieces joined: the last field lists the fragments of the history
+/// The -lfast pointer, its pieces joined: the last field lists the fragments of the history
 /// ("a-b,c,..."), that no file uses. Mark them as used
 static void seq_segnastoria(vector<bool> &io_usato, size_t i_htsize, const string &i_payload)
 {
@@ -199690,7 +209977,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 	bool	seq_qualchesalto= false; // a block was skipped, anywhere
 	int		seq_segnalati	= 0;	 // holes already reported
 	int64_t seq_fuori		= 0;	 // file pointers to fragments no h block declared
-	vector<bool> seq_usato;				 // fragments used by a file (or by the -fast history)
+	vector<bool> seq_usato;				 // fragments used by a file (or by the -lfast history)
 	vector<bool> seq_usatofile;			 // 65.15z9: by a file only (not VFILE-): g_frammentifile at the end
 	g_frammentifile.clear();
 	g_frammentifile_validi= false;
@@ -200094,7 +210381,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 								fl_iblock(s, end, fdate);
 								fl_controllacattura(); /// 65.15a: too big for the RAM, stopped here
 							}
-							string seq_storia; /// the pieces of a -fast pointer in this i block
+							string seq_storia; /// the pieces of a -lfast pointer in this i block
 							while (s + 9 <= end)
 							{
 								/// 65.12e: the DT of a record is light: no hash objects (only add needs them, for the files
@@ -200122,7 +210409,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 								const int64_t len= strlen(s);
 								if (len > 65535)
 									error("filename too long");
-								/// the -fast pointer (and the old filelistpointer: record): not a file
+								/// the -lfast pointer (and the old filelistpointer: record): not a file
 								if ((dtr.date == 0) && (fl_ispointer(s) || (strncmp(s, "filelistpointer:", 16) == 0)))
 								{
 									--ver.back().deletes;
@@ -200130,7 +210417,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 										seq_nonverificabile= true; /// the old filelistpointer: record: where its data are is not known
 									else if ((strcmp(s, ZPAQFILELIST_TAG "stop") != 0) && (len > (int64_t)(sizeof(ZPAQFILELIST_TAG) - 1 + 7)))
 										seq_storia.append(s + sizeof(ZPAQFILELIST_TAG) - 1 + 7); /// NNNNNN:piece
-									if (fl_ispointer(s)) /// the last one says: on, or stopped by -nofast
+									if (fl_ispointer(s)) /// the last one says: on, or stopped by -nolfast
 										fl_seen= (strcmp(s, ZPAQFILELIST_TAG "stop") != 0);
 									s+= len + 1;
 									continue;
@@ -200619,9 +210906,9 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 			if (++versioniorfane > 10)
 				continue;
 			if (i_quiet) /// -stdout: the data go to stdout
-				fprintf(stderr, "72414$ Version %d: %s fragments (%s bytes) used by no file: a lost i block? (files missing from this version, or its -fast history)\n", int(v), migliaia(n), migliaia2(byte));
+				fprintf(stderr, "72414$ Version %d: %s fragments (%s bytes) used by no file: a lost i block? (files missing from this version, or its -lfast history)\n", int(v), migliaia(n), migliaia2(byte));
 			else
-				myprintf("72414$ Version %d: %s fragments (%s bytes) used by no file: a lost i block? (files missing from this version, or its -fast history)\n", int(v), migliaia(n), migliaia2(byte));
+				myprintf("72414$ Version %d: %s fragments (%s bytes) used by no file: a lost i block? (files missing from this version, or its -lfast history)\n", int(v), migliaia(n), migliaia2(byte));
 		}
 		if (versioniorfane > 10)
 		{
@@ -200876,19 +211163,19 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 /*
 	65.12f: -fastadd. An add reads all the index of the archive (read_archive) before it adds
 	anything: with millions of records that is most of the time. Here
-	the add stores, in its own d blocks (deduplicated, as the -fast history), the state read_archive
+	the add stores, in its own d blocks (deduplicated, as the -lfast history), the state read_archive
 	gave at the start of its version: the versions, the blocks, the fragments (SHA-1 and size), the
 	files alive (name, date, attributes, franz block, fragments). Where that state is goes in the
 	VFILE-info record of the version (key sc, unknown to the others: skipped). The next add with
-	-fastadd: the last block is the pointer of the -fast history, the block before it has the
+	-fastadd: the last block is the pointer of the -lfast history, the block before it has the
 	VFILE-info with sc. That state is loaded (the archive up to the start of its version), then
-	read_archive reads only from there to the end: the last version. The -fast history is taken
+	read_archive reads only from there to the end: the last version. The -lfast history is taken
 	from the archive as it is (not collected again). Anything strange: the usual way
 	-fastaddtest (not in the help): the same, then the archive is read all again, and the two states
 	are compared byte by byte (the autotest does it)
 	What it costs: the first add with -fastadd reads all of it (to make the state); then some tens of KB
 	for every version (the parts of the state that changed). What it does not do: a damage in the
-	versions before the last one is not seen any more (as the l of -fast does not). zpaqfranz up to
+	versions before the last one is not seen any more (as the l of -lfast does not). zpaqfranz up to
 	65.12e does not know the key sc: the fragments of the state are "used by no file" for it (72414)
 	The state: "ZPSC" 1, then LEB128 numbers (zigzag where they can be < 0)
 	  x files dcsize dhsize nver nblock nht ndt
@@ -201207,7 +211494,7 @@ bool Jidac::sc_caricablob(const char *i_arc, const string &i_blocchi, const stri
 	return true;
 }
 
-/// The -fast history of the archive into fl_blob and fl_names, as if read_archive had collected it
+/// The -lfast history of the archive into fl_blob and fl_names, as if read_archive had collected it
 /// (the pointer of the last block, its payload already read). The last version of the history has
 /// jmp and dhsize 0 (they are in the pointer, see filelist_pointer): put back
 bool Jidac::sc_storia(const char *i_arc, const string &i_payload)
@@ -201441,7 +211728,7 @@ int64_t Jidac::sc_readarchive_add(const char *i_arc)
 			return -1;
 		if (!sc_trovapuntatore(in, payload, dove))
 		{
-			myprintf("65450: -fastadd: the archive does not end with the -fast history, read all of it\n");
+			myprintf("65450: -fastadd: the archive does not end with the -lfast history, read all of it\n");
 			return -1;
 		}
 		info= sc_infoprima(in, dove);
@@ -201484,7 +211771,7 @@ int64_t Jidac::sc_readarchive_add(const char *i_arc)
 	const double caricato= sc_adesso();
 	if (!sc_storia(i_arc, payload))
 	{
-		myprintf("65455! -fastadd: the -fast history cannot be read, read all of it\n");
+		myprintf("65455! -fastadd: the -lfast history cannot be read, read all of it\n");
 		jidacreset();
 		fl_clear();
 		fl_seen	 = false;
@@ -201685,7 +211972,7 @@ bool Jidac::sc_salva(OutputArchive &i_out, CompressJob &io_job, vector<unsigned>
 	return true;
 }
 
-/// 65.12g: the comments of the versions from the -fast history, without reading the archive. false:
+/// 65.12g: the comments of the versions from the -lfast history, without reading the archive. false:
 /// no history at the end of the archive (the archive is read)
 bool Jidac::fl_commenti(const char *i_arc, MAPPACOMMENTI &o_commenti)
 {
@@ -201745,7 +212032,7 @@ bool Jidac::fl_commenti(const char *i_arc, MAPPACOMMENTI &o_commenti)
 }
 
 /// 65.12g: the version with comment i_testo (the case does not matter), before the archive is read for the
-/// command: from the -fast history if there is one, else reading the archive (as it was, every time).
+/// command: from the -lfast history if there is one, else reading the archive (as it was, every time).
 /// >0 the version, 0 none, -1 more than one
 int Jidac::versionedicommento(const string &i_testo)
 {
@@ -201772,7 +212059,7 @@ int Jidac::versionedicommento(const string &i_testo)
 	return versione;
 }
 
-/// 65.12g: l -comment (no text): the comments of the versions, from the -fast history if there is one
+/// 65.12g: l -comment (no text): the comments of the versions, from the -lfast history if there is one
 int Jidac::elencocommenti()
 {
 	MAPPACOMMENTI commenti;
@@ -202527,7 +212814,6 @@ class pakka_Archive : public libzpaq::Reader
 	bool open(const char *i_arc)
 	{
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		const string nome		= i_arc;
 		const string nomefranzen= isfranzen(nome) ? nome : nome + ".franzen";
 		/// a Franzen archive: named .franzen, or a .zpaq that is not there while its .franzen is
@@ -202564,7 +212850,6 @@ class pakka_Archive : public libzpaq::Reader
 			list_g_dimensione= franzen->totalsize(); /// the total of the @SPK@ progress lines
 			return true;
 		}
-#endif /// NOSFTPEND
 #endif
 		return classico.open(false, i_arc, g_password);
 	}
@@ -202963,7 +213248,7 @@ int64_t Jidac::pakka_read_archive(const char *arc)
 						while (s <= end - 9)
 						{
 							const char *fp = s + 8; // filename
-							if (fl_ispointer(fp) || vinfo_isinfo(fp)) /// -fast pointer, VFILE-info record (deletions): not files
+							if (fl_ispointer(fp) || vinfo_isinfo(fp)) /// -lfast pointer, VFILE-info record (deletions): not files
 							{
 								const char *datep= s;
 								if (list_btol(datep) == 0)
@@ -209029,6 +219314,242 @@ int Jidac::work()
 		return risultato;
 	}
 #ifndef NOFRANZEN
+
+	if ((mycommand == "encode") || (mycommand == "decode"))
+	{
+		bool   flagencode = (mycommand == "encode");
+		string myencode	  = "decode";
+		string myencrypted= "decrypted";
+
+		if (flagencode)
+		{
+			myencode   = "encode";
+			myencrypted= "encrypted";
+		}
+		if (flagdebug)
+			for (unsigned int i= 0; i < files.size(); i++)
+				myprintf("85465: %03d %s\n", i, files[i].c_str());
+
+		if ((files.size() != 4))
+		{
+			myprintf("83418! for %s you need 1) source file 2) dest %s file 3) password (the longer the better)\n", myencode.c_str(), myencrypted.c_str());
+			return 2;
+		}
+
+		string input_filename = files[1];
+		string output_filename= files[2];
+		string thepassword	  = files[3];
+
+		/// 65.17n: a file on itself: encode destroyed it, decode DELETED it (the error removes the output)
+		if (stessofile(input_filename, output_filename))
+		{
+			myprintf("83419! <<%Z>> is the source itself\n", output_filename.c_str());
+			return 2;
+		}
+		if ((!flagforce) && fileexists(output_filename)) /// 65.17o: as work zip: what is there is not overwritten in silence
+		{
+			myprintf("83421! <<%Z>> already exists (use -force to overwrite)\n", output_filename.c_str());
+			return 2;
+		}
+
+		int threads= howmanythreads;
+		if (threads <= 0)
+			threads= 1;
+		if (!flagssd)
+			threads= 1;
+
+		int64_t dimensione= prendidimensionefile(input_filename.c_str());
+		int64_t startenc  = mtime();
+		bool	success	  = false;
+
+		franzcri fc(thepassword.c_str(), thepassword.length());
+
+		if (flagencode)
+		{
+			if (threads == 1)
+				myprintf("86083: Single thread encrypting <<%s>> to <<%s>>\n", input_filename.c_str(), output_filename.c_str());
+			else
+				myprintf("86083: Multi thread encrypting <<%s>> to <<%s>> with %d...\n", input_filename.c_str(), output_filename.c_str(), threads);
+			success= fc.encode_parallela(input_filename.c_str(), output_filename.c_str(), threads);
+		}
+		else
+		{
+			if (threads == 1)
+				myprintf("86083: Single thread decrypting <<%s>> to <<%s>>\n", input_filename.c_str(), output_filename.c_str());
+			else
+				myprintf("86083: Multi thread decrypting <<%s>> to <<%s>> with %d...\n", input_filename.c_str(), output_filename.c_str(), threads);
+			success= fc.decode_parallela(input_filename.c_str(), output_filename.c_str(), threads);
+		}
+
+		double tempo= (mtime() - startenc) / 1000.0;
+
+		eol();
+		if (success)
+		{
+			color_green();
+			myprintf("OK %s (%s) in %f @ %s/s\n", migliaia(dimensione), tohuman(dimensione), tempo, tohuman2((int64_t)(dimensione / tempo)));
+			color_restore();
+			return 0;
+		}
+		else
+		{
+			color_red();
+			myprintf("!FAILED!\n");
+			color_restore();
+			return 2;
+		}
+		return 2;
+
+		/*
+		franz_do_hash dummy("CRC-32");
+		string crc32_reloaded=dummy.filehash(128,output_filename,false,0,prendidimensionefile(output_filename.c_str()));
+		myprintf("CRC32 reloaded %s\n",crc32_reloaded.c_str());
+		*/
+	}
+
+	if ((mycommand == "test"))
+	{
+		if (flagdebug)
+			for (unsigned int i= 0; i < files.size(); i++)
+				myprintf("85465: %03d %s\n", i, files[i].c_str());
+
+		if ((files.size() != 3))
+		{
+			myprintf("83218! for encodetest you need 1) source file 2) password\n");
+			return 2;
+		}
+
+		string input_filename= files[1];
+		string thepassword	 = files[2];
+
+		int threads= howmanythreads;
+		if (threads <= 0)
+			threads= 1;
+		if (!flagssd)
+			threads= 1;
+
+		int64_t dimensione= prendidimensionefile(input_filename.c_str());
+		int64_t startenc  = mtime();
+		bool	success	  = false;
+
+		franzcri fc(thepassword.c_str(), thepassword.length());
+		if (threads == 1)
+			myprintf("86183: Single thread test <<%s>>\n", input_filename.c_str());
+		else
+			myprintf("86083: Multi thread test <<%s>> with %d...\n", input_filename.c_str(), threads);
+		success= fc.decode_parallela(input_filename.c_str(), NULL, threads);
+
+		double tempo= (mtime() - startenc) / 1000.0;
+
+		eol();
+		if (success)
+		{
+			color_green();
+			myprintf("OK %s (%s) in %f @ %s/s\n", migliaia(dimensione), tohuman(dimensione), tempo, tohuman2((int64_t)(dimensione / tempo)));
+			color_restore();
+			return 0;
+		}
+		else
+		{
+			color_red();
+			myprintf("!FAILED!\n");
+			color_restore();
+			return 2;
+		}
+		return 2;
+	}
+
+	if ((mycommand == "fulltest"))
+	{
+		if ((files.size() != 4))
+		{
+			myprintf("88160! for fulltest you need 1) source file 2) dest file base 3) password (the longer the better)\n");
+			return 2;
+		}
+
+		string input_filename = files[1];
+		string output_filename= files[2];
+		string thepassword	  = files[3];
+
+		int threads= howmanythreads;
+		if (threads <= 0)
+			threads= 1;
+		if (!flagssd)
+			threads= 1;
+
+		if (threads == 1)
+			myprintf("84083: Single thread full test <<%s>> to <<%s>>\n", input_filename.c_str(), output_filename.c_str());
+		else
+			myprintf("82083: Multi thread full test <<%s>> to <<%s>> with %d...\n", input_filename.c_str(), output_filename.c_str(), threads);
+
+		franzcri fc(thepassword.c_str(), thepassword.length());
+		bool	 success= fc.fulltest(input_filename.c_str(), output_filename.c_str(), thepassword, threads);
+		eol();
+		if (success)
+			return 0;
+		return 2;
+	}
+
+	if (mycommand == "autotest")
+	{
+		franzcri fc("password123", strlen("password12"));
+		return fc.criautotest() ? 0 : 2;
+	}
+
+	if (mycommand == "ispasswordok")
+	{
+		if (flagdebug)
+			for (size_t i= 0; i < files.size(); ++i)
+				myprintf("85465: %03d %s\n", (int)i, files[i].c_str());
+
+		if (files.size() != 3)
+		{
+			myprintf("83218! For ispasswordok you need 1) source file 2) password\n");
+			return 2;
+		}
+		const std::string &input_filename= files[1];
+		string			   thepassword	 = files[2];
+
+		if (!fileexists(input_filename)) /// 65.17n: it said PASSWORD NOT GOOD of a file that is not there
+		{
+			myprintf("90481! <<%Z>> does not exist\n", input_filename.c_str());
+			return 2;
+		}
+
+		franzcri fc(thepassword.c_str(), thepassword.length());
+		if (fc.is_password_ok(input_filename.c_str()))
+		{
+			color_green();
+			myprintf("90474: PASSWORD IS GOOD\n");
+			color_restore();
+			return 0;
+		}
+
+		color_red();
+		myprintf("90480: PASSWORD NOT GOOD\n");
+		color_restore();
+
+		return 2;
+	}
+
+#ifdef _WIN32
+	if (mycommand == "vss")
+	{
+		vssmenu();
+		return 0;
+	}
+	
+	if (mycommand == "frugal")
+	{
+		flagverbose=true; //get the output
+		/// 65.17n: it returned the bytes: rc 170 for a good run, "with errors". Files that cannot be deleted (a browser
+		/// that is open, normal for a cache) are a warning
+		g_spazfalliti= 0;
+		(void)gestiscispaz(false);
+		return (g_spazfalliti > 0) ? 1 : 0;
+	}
+#endif
+
 #endif
 
 
@@ -209703,17 +220224,13 @@ int Jidac::repackfunction(int64_t i_size)
 			myprintf("00927: writejidacheader 2\n");
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		/// 65.11r //FIX-FRANZEN: with -franzen the C block goes back to its place in the franzen file too (see myfwrite)
 		g_franzen_jidacheader= cstart;
-#endif /// NOSFTPEND
 #endif
 		writeJidacHeader(&out, ver[1].date, csize, 1);
 		out.close();
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		g_franzen_jidacheader= -1;
-#endif /// NOSFTPEND
 #endif
 		return 0;
 }
@@ -210972,6 +221489,1856 @@ bool zipwriteat(int64_t i_offset, const string &i_buffer)
 		return false;
 	return (myfwrite(i_buffer.c_str(), 1, i_buffer.size(), g_zipfp) == i_buffer.size());
 }
+#ifdef ZPAQFULL ///NOSFTPSTART
+/*
+	65.17p: work proxmox audit, the "last resort handbook" of a Proxmox VE node. Before an upgrade (a 7 to bring up
+	to date...) what it takes to rebuild the node from an empty ISO, in two archives (and a zip):
+	private_<node>.zpaq  everything, a version per run. In clear, unless -key / -franzen (this one only)
+	public_<node>.zpaq   the reports and the configuration files, sanitized: no passwords, private keys, tokens,
+	public_<node>.zip    hashes; IP, MAC, names, UUID stay (it is for an AI: "the instructions to reinstall")
+	The work is done by a bash script (g_auditscript, -script writes it) that runs on the node as root, READ ONLY,
+	and gives ONE tar on stdout: zpaqaudit/ (reports, public/ the files for the public part, secret/, disks/,
+	lvm/, meta/) and then etc/ (with /etc/pve) root/ usr/local/ opt/ home/ srv/ boot/ var/lib/pve-cluster...
+	Three ways to run it: by SSH from anywhere (root, host key checked: libssh, -DSFTP builds), on the node itself
+	(localhost: fork + bash, no SSH), from the tar of the script run by hand (bash audit.sh > audit.tar).
+	Here: the tar is files.tar (as it came, owners and modes inside), zpaqaudit/ is taken out of it into a folder
+	of ours (zpaqaudit_<time>_<pid>, next to the archives: control-C deletes it too), the public part is sanitized
+	in C++ (audit_purga), then two add() and the zip. Nothing of the private part goes to public_ but sanitized
+*/
+#if !defined(ANCIENT)
+#ifndef _WIN32
+#include <sys/select.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <fcntl.h>
+#endif
+static const char *g_auditscript= R"zpaqauditfine(#!/bin/bash
+# zpaqfranz work proxmox audit: what it takes to rebuild this Proxmox VE node from scratch.
+# READ ONLY: no service is stopped, no setting is changed; it writes only in one mktemp folder, removed at the end.
+# Everything goes to stdout as ONE tar (numeric owners, permissions, ACL, xattr):
+#   zpaqaudit/reports/  the output of the commands (zpaqfranz sanitizes it for public_<node>)
+#   zpaqaudit/public/   copies of the configuration files for public_<node> (sanitized there too)
+#   zpaqaudit/secret/   config.db, WireGuard keys, LUKS headers, ZFS key files (private only)
+#   zpaqaudit/disks/    partition tables, the first MiB of every disk (private only)
+#   zpaqaudit/lvm/      vgcfgbackup of every VG (private only)
+#   zpaqaudit/meta/     info.txt; secret-values.txt (private only: zpaqfranz scrubs them from public)
+#   etc/ root/ usr/local/ opt/ home/ srv/ boot/ var/...   the files themselves
+# By hand: bash audit.sh > audit.tar   then, anywhere:   zpaqfranz work proxmox audit audit.tar
+# $1 $2...: left out of the tar (what zpaqfranz writes, when it runs on this node: its work folder, the archives)
+set -u
+umask 077
+export LC_ALL=C
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin
+say() { echo "ZPAQAUDIT $*" >&2; }
+die() { echo "ZPAQAUDIT! $*" >&2; exit 3; }
+[ "$(id -u)" = 0 ] || die "it wants root"
+{ [ -d /etc/pve ] && command -v pveversion >/dev/null 2>&1; } || die "this is not a Proxmox VE node (no /etc/pve, no pveversion)"
+[ -t 1 ] && die "stdout is a terminal: bash audit.sh > audit.tar"
+command -v tar >/dev/null 2>&1 || die "no tar here"
+W=$(mktemp -d /tmp/zpaqaudit.XXXXXXXXXX) || die "mktemp failed"
+case "$W" in /tmp/zpaqaudit.??????????) ;; *) die "strange temporary folder <$W>" ;; esac
+pulisci() { case "$W" in /tmp/zpaqaudit.??????????) [ -d "$W" ] && rm -rf -- "$W" ;; esac; }
+trap pulisci EXIT
+trap 'exit 4' INT TERM HUP PIPE
+A="$W/zpaqaudit"; R="$A/reports"; S="$A/secret"; P="$A/public"; D="$A/disks"; L="$A/lvm"; M="$A/meta"
+mkdir -p "$R" "$S" "$P" "$D" "$L" "$M" || die "mkdir in $W"
+NODE=$(hostname -s 2>/dev/null || hostname)
+export NODE ZS="$S" ZA="$A"
+N=0
+# one command: its line, its output (errors too), its exit code
+cap() {
+	local n="$1"; shift
+	N=$((N+1)); say "$N $n"
+	{
+		echo "# $*"
+		if command -v "$1" >/dev/null 2>&1; then
+			timeout 600 "$@" </dev/null
+			echo "# exit code $?"
+		else
+			echo "# not on this node: $1"
+		fi
+	} > "$R/$n.txt" 2>&1
+}
+# a piece of shell
+capsh() {
+	local n="$1"; shift
+	N=$((N+1)); say "$N $n"
+	{ echo "# $1"; timeout 900 bash -c "$1" </dev/null; echo "# exit code $?"; } > "$R/$n.txt" 2>&1
+}
+# a piece of shell, its output in the private part only
+segreto() {
+	local n="$1"; shift
+	N=$((N+1)); say "$N $n"
+	{ echo "# $1"; timeout 900 bash -c "$1" </dev/null; echo "# exit code $?"; } > "$S/$n.txt" 2>&1
+}
+
+# ------------------------------------------------------------------ the system
+cap pveversion pveversion -v
+cap uname uname -a
+capsh os-release 'cat /etc/os-release; echo; cat /etc/debian_version'
+capsh hostname 'hostname; hostname -f; hostname -I; echo; echo "=== /etc/hostname"; cat /etc/hostname; echo "=== /etc/hosts"; cat /etc/hosts; echo "=== /etc/resolv.conf"; cat /etc/resolv.conf'
+cap hostnamectl hostnamectl
+capsh time 'date -R; date -u; uptime; echo; timedatectl; echo; chronyc -n sources 2>&1; chronyc tracking 2>&1'
+cap cmdline cat /proc/cmdline
+capsh boot '[ -d /sys/firmware/efi ] && echo "boot: UEFI" || echo "boot: BIOS (legacy)"
+echo; efibootmgr -v 2>&1
+echo; proxmox-boot-tool status 2>&1
+echo; proxmox-boot-tool kernel list 2>&1
+for f in /etc/kernel/cmdline /etc/kernel/proxmox-boot-uuids /etc/default/grub /etc/default/grub.d/*; do [ -f "$f" ] && { echo; echo "=== $f"; cat "$f"; }; done
+echo; ls -la /boot /boot/efi 2>&1'
+capsh kernels 'dpkg -l "pve-kernel-*" "proxmox-kernel-*" "linux-image-*" "pve-headers-*" "proxmox-headers-*" 2>/dev/null | grep "^[hi]i"'
+cap dkms dkms status
+capsh upgrade-check 'for c in pve6to7 pve7to8 pve8to9 pve9to10; do command -v $c >/dev/null 2>&1 && { echo "### $c --full"; $c --full 2>&1 | sed "s/\x1b\[[0-9;]*m//g"; echo; }; done'
+cap pvereport pvereport
+cap packages dpkg-query -W -f '${db:Status-Abbrev} ${Package} ${Version} ${Architecture}\n'
+cap apt-manual apt-mark showmanual
+cap apt-held apt-mark showhold
+cap apt-policy apt-cache policy
+capsh apt-upgradable 'apt list --upgradable 2>/dev/null; echo "(from the cache of apt: no apt update was run)"'
+capsh apt-sources 'for f in /etc/apt/sources.list /etc/apt/sources.list.d/* /etc/apt/preferences /etc/apt/preferences.d/* /etc/apt/apt.conf /etc/apt/apt.conf.d/*; do [ -f "$f" ] && { echo "=== $f"; cat "$f"; echo; }; done; ls -la /etc/apt/trusted.gpg.d /etc/apt/keyrings 2>&1'
+cap lscpu lscpu
+capsh memory 'free -h; echo; swapon --show; echo; cat /proc/meminfo'
+cap lspci lspci -nnk
+cap lsusb lsusb
+cap lsmod lsmod
+cap dmidecode dmidecode -t system -t baseboard -t bios -t processor -t memory
+capsh iommu 'for g in /sys/kernel/iommu_groups/*; do [ -d "$g" ] || continue; for d in "$g"/devices/*; do echo "group ${g##*/}: $(lspci -nns "${d##*/}" 2>/dev/null)"; done; done | sort -V; [ -d /sys/kernel/iommu_groups ] || echo "no IOMMU groups"'
+cap services-enabled systemctl list-unit-files --state=enabled --no-pager
+cap services-running systemctl list-units --type=service --state=running --no-pager
+cap services-failed systemctl --failed --no-pager
+cap timers systemctl list-timers --all --no-pager
+capsh systemd-custom 'ls -la /etc/systemd/system /etc/systemd/network 2>&1; echo; find /etc/systemd/system /etc/systemd/network -type f 2>/dev/null | sort'
+cap ports ss -tulpn
+cap sysctl sysctl -a
+capsh dmesg 'dmesg -T 2>/dev/null || dmesg'
+capsh journal 'journalctl -b -p warning --no-pager 2>&1 | tail -n 3000'
+capsh journal-previous 'journalctl -b -1 -p err --no-pager 2>&1 | tail -n 500'
+
+# ------------------------------------------------------------------ Proxmox
+cap pvesm pvesm status
+cap qm-list qm list
+cap pct-list pct list
+cap pvecm pvecm status
+cap pvecm-nodes pvecm nodes
+cap ha-manager ha-manager status
+cap pve-firewall pve-firewall status
+capsh pve-firewall-rules 'pve-firewall compile 2>&1 | head -n 5000'
+capsh pveum 'for x in user group role acl realm; do echo "### pveum $x list"; pveum $x list 2>&1; echo; done; echo "### /pools"; pvesh get /pools --output-format json-pretty 2>&1'
+capsh api-node 'for p in status version dns hosts time config subscription network certificates/info hardware/pci disks/list disks/zfs disks/lvm disks/lvmthin disks/directory apt/repositories storage vzdump/defaults "tasks --limit 300"; do echo "### /nodes/$NODE/$p"; pvesh get /nodes/$NODE/$p --output-format json-pretty 2>&1; echo; done'
+capsh api-cluster 'for p in status options backup backup-info/not-backed-up replication ha/resources ha/groups ha/rules firewall/options firewall/rules firewall/groups firewall/aliases firewall/ipset sdn/zones sdn/vnets sdn/controllers sdn/ipams sdn/dns mapping/pci mapping/usb mapping/dir notifications/endpoints/sendmail notifications/endpoints/smtp notifications/endpoints/gotify notifications/endpoints/webhook notifications/matchers metrics/server jobs/realm-sync acme/account acme/plugins config/nodes; do echo "### /cluster/$p"; pvesh get /cluster/$p --output-format json-pretty 2>&1; echo; done'
+capsh guests 'for id in $(qm list 2>/dev/null | awk "NR>1 {print \$1}"); do
+	echo "######## VM $id"; qm config $id 2>&1; echo "--- pending"; qm pending $id 2>&1; echo "--- snapshots"; qm listsnapshot $id 2>&1
+	if qm status $id 2>/dev/null | grep -q running && qm config $id 2>/dev/null | grep -qE "^agent: *(1|enabled=1)"; then
+		echo "--- agent: network"; timeout 10 qm guest cmd $id network-get-interfaces 2>&1
+		echo "--- agent: os"; timeout 10 qm guest cmd $id get-osinfo 2>&1
+	fi
+	echo
+done
+for id in $(pct list 2>/dev/null | awk "NR>1 {print \$1}"); do
+	echo "######## CT $id"; pct config $id 2>&1; echo "--- pending"; pct pending $id 2>&1; echo "--- snapshots"; pct listsnapshot $id 2>&1; echo
+done'
+capsh storage-content 'for s in $(pvesm status 2>/dev/null | awk "NR>1 {print \$1}"); do echo "### $s"; timeout 120 pvesm list "$s" 2>&1; echo; done'
+capsh pve-files 'find /etc/pve \( -type f -o -type l \) -printf "%M %u %g %10s %TY-%Tm-%Td %TH:%TM %p\n" 2>/dev/null | sort -k7'
+capsh pve-secrets 'echo "The secrets of Proxmox, names only (the files: private archive, files.tar, etc/pve/priv/)"; find /etc/pve/priv /etc/pve/nodes/*/priv -type f -printf "%M %10s %p\n" 2>/dev/null | sort -k3
+if ls /etc/pve/priv/storage/*.enc >/dev/null 2>&1; then echo; echo "PBS ENCRYPTION KEYS (.enc): without them the encrypted PBS backups cannot be read"; ls -la /etc/pve/priv/storage/*.enc; fi'
+capsh vz-dirs 'ls -laR /var/lib/vz/dump /var/lib/vz/template /var/lib/vz/snippets 2>&1 | head -n 3000'
+capsh hookscripts 'grep -hE "^(hookscript|cicustom):" /etc/pve/nodes/*/qemu-server/*.conf /etc/pve/nodes/*/lxc/*.conf 2>/dev/null | sed "s/^[a-z]*: *//" | tr "," "\n" | sed "s/^[a-z]*=//" | sort -u | while read -r v; do
+	p=$(pvesm path "$v" 2>/dev/null); echo "$v => $p"
+	if [ -n "$p" ] && [ -f "$p" ]; then mkdir -p "$ZA/snippets"; cp -p "$p" "$ZA/snippets/$(echo "$v" | tr ":/" "__")" && echo "   copied (private archive, snippets/)"; fi
+done'
+
+# ------------------------------------------------------------------ disks
+cap lsblk lsblk -a
+cap lsblk-detail lsblk -o NAME,KNAME,SIZE,TYPE,ROTA,PHY-SEC,LOG-SEC,MODEL,SERIAL,WWN,TRAN,FSTYPE,LABEL,UUID,PARTUUID,PARTLABEL,MOUNTPOINT
+cap blkid blkid
+cap findmnt findmnt
+cap df df -hT
+capsh disk-ids 'for d in by-id by-uuid by-partuuid by-path by-label; do echo "### /dev/disk/$d"; ls -l /dev/disk/$d 2>&1; echo; done'
+cap fstab cat /etc/fstab
+cap mdstat cat /proc/mdstat
+cap mdadm-scan mdadm --detail --scan
+capsh mdadm-detail 'for md in /dev/md*; do [ -b "$md" ] && { echo "### mdadm --detail $md"; mdadm --detail "$md" 2>&1; echo; }; done
+for d in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk "\$2==\"linux_raid_member\" {print \$1}"); do echo "### mdadm --examine $d"; mdadm --examine "$d" 2>&1; echo; done; cat /etc/mdadm/mdadm.conf 2>&1'
+capsh lvm 'pvs -a -o +pv_uuid 2>&1; echo; vgs -o +vg_uuid 2>&1; echo; lvs -a -o +devices,lv_uuid,metadata_percent,data_percent 2>&1; echo; pvdisplay 2>&1; vgdisplay 2>&1; lvdisplay 2>&1'
+cap zpool-status zpool status -v
+cap zpool-list zpool list -v
+cap zpool-get zpool get all
+capsh zpool-history 'zpool history 2>&1 | grep -vE "^[0-9-]+\.[0-9:]+ zfs (snapshot|destroy|send|recv|receive|rollback|hold|release) " | head -n 20000'
+capsh zfs-list 'zfs list -t filesystem,volume -o name,used,avail,refer,mountpoint,canmount,compression,recordsize,volsize,volblocksize,encryption,keylocation 2>&1; echo; echo "snapshots: $(zfs list -H -t snapshot -o name 2>/dev/null | wc -l)"; zfs list -t snapshot -o name,used,creation 2>/dev/null | tail -n 3000'
+capsh zfs-props 'zfs get -s local,received all 2>&1 | head -n 20000'
+capsh zfs-keys 'zfs get -H -o name,value keylocation 2>/dev/null | awk "\$2 ~ /^file:/ {print}" | while read -r n k; do
+	f=${k#file://}; echo "$n $k"
+	if [ -f "$f" ]; then mkdir -p "$ZS/zfs-keys"; cp -p "$f" "$ZS/zfs-keys/$(echo "$n" | tr "/" "_").key" && echo "   copied (private archive, secret/zfs-keys/)"; fi
+done; echo "(encrypted datasets with keylocation=prompt: their passphrase is not on this node)"'
+capsh luks 'for d in $(lsblk -lnpo NAME,FSTYPE 2>/dev/null | awk "\$2==\"crypto_LUKS\" {print \$1}"); do
+	echo "### $d"; cryptsetup luksDump "$d" 2>&1 | grep -vE "^[[:space:]]*(Salt|Digest|MK digest|MK salt):"
+	n=$(echo "$d" | tr "/" "_"); cryptsetup luksHeaderBackup "$d" --header-backup-file "$ZS/luks$n.header" 2>&1 && echo "   header: private archive, secret/luks$n.header"
+done; [ -f /etc/crypttab ] && { echo "=== /etc/crypttab"; cat /etc/crypttab; }; true'
+capsh iscsi-multipath 'cat /etc/iscsi/initiatorname.iscsi 2>&1; iscsiadm -m node 2>&1; iscsiadm -m session 2>&1; echo; multipath -ll 2>&1; cat /etc/multipath.conf /etc/multipath/wwids /etc/multipath/bindings 2>&1; true'
+capsh ceph 'if command -v ceph >/dev/null 2>&1 && { [ -e /etc/pve/ceph.conf ] || [ -e /etc/ceph/ceph.conf ]; }; then
+	for c in "-s" "health detail" "versions" "osd tree" "osd df" "df" "mon dump" "osd pool ls detail" "config dump" "fs ls" "mgr services"; do echo "### ceph $c"; timeout 20 ceph $c 2>&1; echo; done; cat /etc/pve/ceph.conf 2>&1
+else echo "no Ceph on this node"; fi'
+capsh raid-controllers 'for t in storcli64 storcli perccli64 perccli; do command -v $t >/dev/null 2>&1 && { echo "### $t /call show all"; timeout 120 $t /call show all 2>&1; }; done
+command -v ssacli >/dev/null 2>&1 && { echo "### ssacli"; timeout 120 ssacli ctrl all show config detail 2>&1; }
+command -v arcconf >/dev/null 2>&1 && { echo "### arcconf"; timeout 120 arcconf getconfig 1 2>&1; }
+for t in megacli MegaCli64 MegaCli; do command -v $t >/dev/null 2>&1 && { echo "### $t"; timeout 120 $t -AdpAllInfo -aALL 2>&1; timeout 120 $t -LDInfo -Lall -aALL 2>&1; timeout 120 $t -PDList -aALL 2>&1; break; }; done; echo "(none found: no hardware RAID tool here)"'
+N=$((N+1)); say "$N partitions-smart"
+: > "$R/partitions.txt"
+lsblk -dn -o NAME,TYPE 2>/dev/null | while read -r nome tipo; do
+	[ "$tipo" = disk ] || continue
+	case "$nome" in zd*|nbd*|ram*|loop*|rbd*|drbd*) continue ;; esac
+	dev="/dev/$nome"
+	{ echo "### sfdisk --dump $dev"; sfdisk --dump "$dev" 2>&1; echo; } >> "$R/partitions.txt"
+	sfdisk --dump "$dev" > "$D/$nome.sfdisk" 2>&1
+	command -v sgdisk >/dev/null 2>&1 && sgdisk --backup="$D/$nome.sgdisk" "$dev" > /dev/null 2>&1
+	dd if="$dev" of="$D/$nome-first-1MiB.bin" bs=512 count=2048 status=none 2>/dev/null
+	command -v smartctl >/dev/null 2>&1 && timeout 120 smartctl -x "$dev" > "$R/smart-$nome.txt" 2>&1
+done
+N=$((N+1)); say "$N vgcfgbackup"
+{ for vg in $(vgs --noheadings -o vg_name 2>/dev/null); do vgcfgbackup -f "$L/$vg.vg" "$vg" >/dev/null 2>&1 && echo "$vg: lvm/$vg.vg" || echo "$vg: FAILED"; done; } > "$R/vgcfgbackup.txt" 2>&1
+
+# ------------------------------------------------------------------ network
+capsh network 'echo "### ip -d addr"; ip -d addr show
+echo; echo "### ip -d link"; ip -d link show
+echo; echo "### routes"; ip route show table all; echo; ip -6 route show table all
+echo; echo "### rules"; ip rule show; ip -6 rule show
+echo; echo "### neighbours"; ip neigh show
+echo; echo "### bridges"; bridge link show; bridge vlan show; command -v brctl >/dev/null 2>&1 && brctl show
+for b in /proc/net/bonding/*; do [ -f "$b" ] && { echo; echo "=== $b"; cat "$b"; }; done
+echo; echo "### forwarding"; sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding net.ipv4.conf.all.rp_filter net.ipv4.conf.all.proxy_arp 2>&1
+echo; echo "=== /etc/network/interfaces"; cat /etc/network/interfaces
+for f in /etc/network/interfaces.d/*; do [ -f "$f" ] && { echo "=== $f"; cat "$f"; }; done
+echo; ls -la /etc/network/if-*.d /etc/systemd/network 2>&1'
+capsh nic-names 'echo "Physical interfaces: name, MAC, PCI path, driver, names udev would give (a new kernel or systemd can rename them)"
+for i in /sys/class/net/*; do n=${i##*/}; [ "$n" = lo ] && continue; [ -e "$i/device" ] || continue
+	echo; echo "=== $n"; echo "mac      $(cat $i/address)"
+	command -v ethtool >/dev/null 2>&1 && echo "permaddr $(ethtool -P $n 2>/dev/null | awk "{print \$NF}")"
+	echo "device   $(readlink -f $i/device)"; echo "driver   $(basename "$(readlink -f $i/device/driver)" 2>/dev/null)"
+	ip -d link show $n | grep -E "altname"
+	udevadm info -q property -p $i 2>/dev/null | grep -E "^ID_(NET_NAME|PATH|NET_DRIVER|NET_LINK_FILE|NET_NAMING_SCHEME|VENDOR_FROM|MODEL_FROM)"
+	command -v ethtool >/dev/null 2>&1 && ethtool $n 2>/dev/null | grep -E "Speed|Duplex|Link detected"
+done
+for f in /etc/systemd/network/*.link; do [ -f "$f" ] && { echo; echo "=== $f"; cat "$f"; }; done
+command -v pve-network-interface-pinning >/dev/null 2>&1 && { echo; echo "pve-network-interface-pinning is here (it pins the names of the interfaces)"; }; true'
+cap iptables iptables-save
+cap ip6tables ip6tables-save
+capsh iptables-list 'iptables -L -n -v --line-numbers; echo; iptables -t nat -L -n -v --line-numbers; echo; iptables --version; update-alternatives --display iptables'
+cap nftables nft list ruleset
+cap ipset ipset save
+cap ebtables ebtables-save
+capsh conntrack 'conntrack -L 2>/dev/null | head -n 300; true'
+capsh nat-search 'timeout 300 grep -RInIE --exclude-dir=.cache --exclude-dir=.git "iptables|ip6tables|nft |MASQUERADE|SNAT|DNAT|post-up|pre-up|PostUp|PreUp" /etc /usr/local /opt /root 2>/dev/null | head -n 5000'
+capsh wireguard 'wg show interfaces 2>&1; echo; wg show 2>&1; echo; ip -d link show type wireguard 2>&1; echo; systemctl list-units "wg-quick@*" --all --no-pager 2>&1; systemctl list-unit-files "wg-quick@*" --no-pager 2>&1; echo; ls -la /etc/wireguard 2>&1'
+segreto wireguard-showconf 'for i in $(wg show interfaces 2>/dev/null); do echo "### $i"; wg showconf "$i"; echo; done'
+
+# ------------------------------------------------------------------ the rest
+capsh postfix 'postconf -n 2>&1; echo; cat /etc/aliases 2>&1; echo; mailq 2>&1 | tail -n 30'
+cap root-crontab crontab -l
+capsh crontabs 'cat /etc/crontab; echo; for u in $(cut -d: -f1 /etc/passwd); do c=$(crontab -l -u "$u" 2>/dev/null) && { echo "=== crontab of $u"; echo "$c"; echo; }; done
+ls -la /etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.weekly /etc/cron.monthly 2>&1
+for f in /etc/cron.d/*; do [ -f "$f" ] && { echo "=== $f"; cat "$f"; }; done'
+capsh dpkg-verify 'dpkg --verify 2>&1'
+capsh custom-files 'find /usr/local /opt /root /home /srv -maxdepth 3 ! -path "*/.cache/*" -printf "%M %u %g %12s %TY-%Tm-%Td %p\n" 2>/dev/null | head -n 20000'
+capsh sizes 'du -sh /etc /var/lib/pve-cluster /usr/local /opt /root /home /srv /boot /var/lib/vz 2>/dev/null'
+capsh users 'getent passwd; echo; getent group; echo; ls -la /root/.ssh /etc/ssh 2>&1; echo; last -n 20 2>&1'
+capsh ssh 'for k in /etc/ssh/ssh_host_*_key.pub; do [ -f "$k" ] && ssh-keygen -lf "$k"; done
+for h in $(getent passwd | cut -d: -f6 | sort -u); do [ -d "$h/.ssh" ] || continue; echo; echo "### $h/.ssh"; ls -la "$h/.ssh"; for k in "$h"/.ssh/*.pub "$h"/.ssh/authorized_keys; do [ -f "$k" ] && ssh-keygen -lf "$k" 2>&1; done; done
+[ -f /etc/pve/priv/authorized_keys ] && { echo; echo "### /etc/pve/priv/authorized_keys"; ssh-keygen -lf /etc/pve/priv/authorized_keys; }
+echo; echo "### sshd -T"; sshd -T 2>&1 | sort'
+
+# ------------------------------------------------------------------ private only
+N=$((N+1)); say "$N config.db"
+if command -v sqlite3 >/dev/null 2>&1; then
+	sqlite3 -readonly /var/lib/pve-cluster/config.db ".backup '$S/config.db'" 2> "$S/config.db.txt" || cp -a /var/lib/pve-cluster/config.db* "$S/" 2>> "$S/config.db.txt"
+else
+	cp -a /var/lib/pve-cluster/config.db* "$S/" 2> "$S/config.db.txt"
+fi
+N=$((N+1)); say "$N secret-values"
+{
+	{ for i in $(wg show interfaces 2>/dev/null); do wg showconf "$i" 2>/dev/null; done; cat /etc/wireguard/*.conf 2>/dev/null; } | awk '/^[[:space:]]*(PrivateKey|PresharedKey)[[:space:]]*=/ {v=$0; sub(/^[^=]*=[[:space:]]*/, "", v); print v}'
+	for f in /etc/wireguard/* /etc/wireguard/*/*; do [ -f "$f" ] && grep -qxE '[A-Za-z0-9+/]{42,43}=' "$f" 2>/dev/null && cat "$f"; done
+	for f in $(find /etc/pve/priv -name "*.pw" 2>/dev/null); do cat "$f"; echo; done
+	awk 'NF>=2 {print $2}' /etc/pve/priv/token.cfg 2>/dev/null
+	awk 'NF>=2 && $1 !~ /:$/ {print $2}' /etc/pve/priv/notifications.cfg /etc/pve/priv/acme/plugins.cfg 2>/dev/null
+	grep -ohE '[A-Za-z0-9+/=_.-]{16,}' /etc/pve/priv/storage/*.enc 2>/dev/null
+	awk 'NF>=2 {i=index($2, ":"); if (i>0) print substr($2, i+1)}' /etc/postfix/sasl_passwd 2>/dev/null
+	cat /etc/pve/priv/*.keyring /etc/pve/priv/ceph/*.keyring /etc/ceph/*.keyring 2>/dev/null | grep -oE 'AQ[A-Za-z0-9+/]{30,}={0,2}'
+	cat /root/.my.cnf /etc/mysql/debian.cnf 2>/dev/null | awk '/^[[:space:]]*(password|pass)[[:space:]]*=/ {v=$0; sub(/^[^=]*=[[:space:]]*/, "", v); print v}'
+	awk -F: '$2 ~ /^\$/ {print $2}' /etc/shadow 2>/dev/null
+} | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | awk 'length($0) >= 6' | sort -u > "$M/secret-values.txt"
+N=$((N+1)); say "$N public-files"
+cat /var/lib/dpkg/info/*.list 2>/dev/null | grep '^/etc/' | sort -u > "$W/owned"
+find /etc -xdev -type f 2>/dev/null | sort > "$W/etc-all"
+{
+	comm -23 "$W/etc-all" "$W/owned"
+	awk '{print $NF}' "$R/dpkg-verify.txt" | grep '^/etc/'
+	find /etc/pve \( -path /etc/pve/priv -o -path "/etc/pve/nodes/*/priv" \) -prune -o -type f -print 2>/dev/null
+	find /var/spool/cron/crontabs -type f 2>/dev/null
+} | sort -u | grep -vE '^/etc/(ssl/certs/|ld\.so\.cache$|\.pwd\.lock$|apparmor\.d/cache/|lvm/archive/|alternatives/|pve/\.)' \
+  | grep -viE '(shadow|passwd-|group-|subuid-|subgid-|priv|secret|token|credential|password|\.key$|_key$|-key$|keyring|keytab|\.pw$|\.enc$|\.p12$|\.pfx$|\.jks$|\.pem$|\.crt$|\.csr$|\.der$|id_rsa|id_dsa|id_ecdsa|id_ed25519|\.keys$|\.rnd$|htpasswd|sasl_passwd|netrc|pgpass|\.my\.cnf)' > "$W/public-list"
+QUANTI=0
+while IFS= read -r f; do
+	{ [ -f "$f" ] && [ ! -L "$f" ]; } || continue
+	s=$(stat -c %s "$f" 2>/dev/null) || continue
+	{ [ "$s" -gt 0 ] && [ "$s" -le 1048576 ]; } || continue
+	grep -Iq . "$f" 2>/dev/null || continue
+	grep -q "PRIVATE KEY" "$f" 2>/dev/null && continue
+	mkdir -p "$P$(dirname "$f")" && cp -p "$f" "$P$f" && QUANTI=$((QUANTI+1))
+done < "$W/public-list"
+PERCORSI=""
+for p in etc var/lib/pve-cluster var/spool/cron var/lib/apt/extended_states var/lib/vz/snippets usr/local opt root home srv boot/grub boot/efi; do
+	[ -e "/$p" ] && PERCORSI="$PERCORSI $p"
+done
+{
+	echo "node=$NODE"
+	echo "fqdn=$(hostname -f 2>/dev/null)"
+	echo "pveversion=$(pveversion 2>/dev/null)"
+	echo "kernel=$(uname -r)"
+	echo "debian=$(cat /etc/debian_version 2>/dev/null)"
+	echo "date=$(date '+%Y-%m-%d %H:%M:%S %z')"
+	[ -d /sys/firmware/efi ] && echo "boot=UEFI" || echo "boot=BIOS"
+	echo "publicfiles=$QUANTI"
+	echo "paths=$PERCORSI"
+	echo "excluded=$*"
+	echo "script=${ZVER:-?}"
+} > "$M/info.txt"
+echo "$NODE" > "$M/node.txt"
+
+# ------------------------------------------------------------------ the files
+ESC=()
+for x in "$@"; do e="${x#/}"; e="${e%/}"; [ -n "$e" ] && ESC+=("--exclude=$e"); done
+# how big the tar will be, more or less (for the ETA of who reads it)
+GRANDE=$(cd / && du -sbc ${ESC[@]+"${ESC[@]}"} $PERCORSI 2>/dev/null | tail -n 1 | cut -f1)
+NOSTRO=$(du -sb "$W" 2>/dev/null | cut -f1)
+case "$GRANDE" in ''|*[!0-9]*) GRANDE=0 ;; esac
+case "$NOSTRO" in ''|*[!0-9]*) NOSTRO=0 ;; esac
+say "SIZE $(( GRANDE + NOSTRO ))"
+[ ${#ESC[@]} -gt 0 ] && ESC=(--anchored "${ESC[@]}")
+N=$((N+1)); say "$N tar$PERCORSI"
+# /etc/pve (FUSE) has no xattr: tar says so for each file, that line only is left out
+{ tar -cf - --numeric-owner --xattrs --acls --sort=name --format=posix \
+	--pax-option='exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime' \
+	--ignore-failed-read --warning=no-file-ignored ${ESC[@]+"${ESC[@]}"} \
+	-C "$W" zpaqaudit -C / $PERCORSI 2>&1 1>&3 3>&- | grep -vE 'Cannot [a-z]*xattr[a-z]*: Operation not supported' >&2; RC=${PIPESTATUS[0]}; } 3>&1
+say "END $RC"
+exit $RC
+)zpaqauditfine";
+
+/// the script, with the version of who runs it (info.txt) after its #!. No \r: the source can have CRLF, the raw string too
+static string audit_script()
+{
+	string testo;
+	for (const char *p= g_auditscript; *p; p++)
+		if (*p != '\r')
+			testo+= *p;
+	const string versione= string("ZVER='") + ZPAQ_VERSION + "'\n";
+	const size_t primariga= testo.find('\n');
+	if ((testo.compare(0, 2, "#!") == 0) && (primariga != string::npos))
+		return testo.substr(0, primariga + 1) + versione + testo.substr(primariga + 1);
+	return versione + testo;
+}
+/// 65.18b: the steps of the script, for N/total: its lines (at the start of a line, not inside a function) that
+/// begin with cap, capsh, segreto or N=$((N+1)); say. Every one of them runs once (no step inside an if)
+static int audit_passi(const string &i_script)
+{
+	static const char *inizi[]= {"cap ", "capsh ", "segreto ", "N=$((N+1)); say ", NULL};
+	int				   passi  = 0;
+	size_t			   p	  = 0;
+	while (p < i_script.size())
+	{
+		for (int i= 0; inizi[i]; i++)
+			if (i_script.compare(p, strlen(inizi[i]), inizi[i]) == 0)
+			{
+				passi++;
+				break;
+			}
+		const size_t fine= i_script.find('\n', p);
+		if (fine == string::npos)
+			break;
+		p= fine + 1;
+	}
+	return passi;
+}
+/// tar headers: an octal field, or base-256 (GNU, big numbers). -1: neither
+static int64_t audit_ottale(const char *i_campo, int i_lunghezza)
+{
+	if (((unsigned char)i_campo[0]) & 0x80)
+	{
+		int64_t valore= (unsigned char)i_campo[0] & 0x7F;
+		for (int i= 1; i < i_lunghezza; i++)
+			valore= (valore << 8) | (unsigned char)i_campo[i];
+		return valore;
+	}
+	int64_t valore= 0;
+	bool	cifre = false;
+	for (int i= 0; i < i_lunghezza; i++)
+	{
+		const char c= i_campo[i];
+		if ((c >= '0') && (c <= '7'))
+		{
+			valore= valore * 8 + (c - '0');
+			cifre = true;
+		}
+		else if ((c == ' ') && (!cifre))
+			continue;
+		else if ((c == 0) || (c == ' '))
+			break;
+		else
+			return -1;
+	}
+	return valore;
+}
+static string audit_campo(const char *i_campo, size_t i_massimo)
+{
+	size_t lunghezza= 0;
+	while ((lunghezza < i_massimo) && (i_campo[lunghezza] != 0))
+		lunghezza++;
+	return string(i_campo, lunghezza);
+}
+/// a name of the tar made safe for here: relative, no .., no empty parts; on Windows what it refuses becomes _
+static string audit_nomesicuro(const string &i_nome)
+{
+	if ((i_nome == "") || (i_nome[0] == '/'))
+		return "";
+	string risultato;
+	string parte;
+	for (size_t i= 0; i <= i_nome.size(); i++)
+	{
+		if ((i < i_nome.size()) && (i_nome[i] != '/'))
+		{
+			parte+= i_nome[i];
+			continue;
+		}
+		if (parte == "")
+		{
+			if (i == i_nome.size())
+				break;
+			return "";
+		}
+		if ((parte == ".") || (parte == ".."))
+			return "";
+#ifdef _WIN32
+		for (size_t k= 0; k < parte.size(); k++)
+			if ((strchr("<>:\"|?*\\", parte[k]) != NULL) || ((unsigned char)parte[k] < 32))
+				parte[k]= '_';
+		if ((parte[parte.size() - 1] == '.') || (parte[parte.size() - 1] == ' '))
+			parte+= '_';
+		string base= parte.substr(0, parte.find('.'));
+		for (size_t k= 0; k < base.size(); k++)
+			base[k]= toupper(base[k]);
+		for (size_t k= 0; k < forbiddenstringsize; k++)
+			if (base == forbiddenstring[k])
+			{
+				parte= "_" + parte;
+				break;
+			}
+#endif
+		risultato+= (risultato == "") ? parte : "/" + parte;
+		parte= "";
+	}
+	return risultato;
+}
+/// the stream of the script: all of it into files.tar, the members zpaqaudit/... into a folder, stderr = progress
+class franz_auditricevi
+{
+  public:
+	string		   cartella; /// where zpaqaudit/ goes, with its final /
+	FP			   tar;		 /// files.tar
+	int64_t		   ricevuti;
+	bool		   finetar; /// the two blocks of zeros
+	bool		   rotto;	/// writing failed, or not a tar
+	string		   perche;
+	int			   uscita;	 /// "ZPAQAUDIT END n" of the script (-1: never said)
+	vector<string> avvisi;	 /// what tar said: changed, unreadable
+	vector<string> fatali;	 /// ZPAQAUDIT! of the script
+	vector<string> estratti; /// the files of zpaqaudit/, relative: reports/x.txt
+	vector<string> saltati;	 /// the ones that could not be written here (they are in files.tar)
+	int			   totale;	 /// 65.18b: the steps of the script (0: a tar of a file, no steps)
+	int64_t		   dimensione; /// how big the tar will be ("ZPAQAUDIT SIZE n", or the size of the file): the ETA
+	franz_auditricevi(): tar(FPNULL), ricevuti(0), finetar(false), rotto(false), uscita(-1), totale(0), dimensione(0), nelblocco(0), restano(0), riempi(0), tipo(0), uscitafile(FPNULL), zeri(0), inizio(mtime()), ultimastampa(0), passo(0), intar(false), iniziotar(0) {}
+	~franz_auditricevi() { chiudi(); }
+	void chiudi()
+	{
+		if (uscitafile != FPNULL)
+			myfclose(&uscitafile);
+		if (tar != FPNULL)
+			myfclose(&tar);
+	}
+	bool dati(const char *i_buffer, size_t i_quanti)
+	{
+		if (rotto)
+			return false;
+		if (i_quanti == 0)
+			return true;
+		if (myfwrite(i_buffer, 1, i_quanti, tar) != i_quanti)
+		{
+			rotto = true;
+			perche= "cannot write files.tar (disk full?)";
+			return false;
+		}
+		ricevuti+= i_quanti;
+		mostra(false);
+		size_t i= 0;
+		while ((i < i_quanti) && (!finetar))
+		{
+			const int64_t qui= (int64_t)(i_quanti - i);
+			if (restano > 0)
+			{
+				const size_t pezzo= (size_t)((restano < qui) ? restano : qui);
+				if (tipo == 'f')
+				{
+					if (myfwrite(i_buffer + i, 1, pezzo, uscitafile) != pezzo)
+					{
+						rotto = true;
+						perche= "cannot write in " + cartella;
+						return false;
+					}
+				}
+				else if (((tipo == 'x') || (tipo == 'L')) && (estesa.size() < 1048576))
+					estesa.append(i_buffer + i, pezzo);
+				i+= pezzo;
+				restano-= pezzo;
+				if (restano == 0)
+					finemembro();
+				continue;
+			}
+			if (riempi > 0)
+			{
+				const size_t pezzo= (size_t)((riempi < qui) ? riempi : qui);
+				i+= pezzo;
+				riempi-= pezzo;
+				continue;
+			}
+			const size_t pezzo= ((512 - nelblocco) < (size_t)qui) ? (512 - nelblocco) : (size_t)qui;
+			memcpy(blocco + nelblocco, i_buffer + i, pezzo);
+			nelblocco+= pezzo;
+			i+= pezzo;
+			if (nelblocco == 512)
+			{
+				nelblocco= 0;
+				if (!testata())
+					return false;
+			}
+		}
+		return true;
+	}
+	void errori(const char *i_buffer, size_t i_quanti)
+	{
+		for (size_t i= 0; i < i_quanti; i++)
+			if (i_buffer[i] == '\n')
+			{
+				rigaerrore(riga);
+				riga= "";
+			}
+			else if ((i_buffer[i] != '\r') && (riga.size() < 4096))
+				riga+= i_buffer[i];
+	}
+	void fine()
+	{
+		if (riga != "")
+			rigaerrore(riga);
+		riga= "";
+		mostra(true);
+		myprintf("\n");
+	}
+
+  private:
+	char	blocco[512];
+	size_t	nelblocco;
+	int64_t restano;
+	int64_t riempi;
+	char	tipo; /// 'x' pax, 'L' GNU long name, 'f' a file of ours, 's' skipped
+	string	estesa;
+	string	nomelungo; /// the name given by the 'x' or 'L' before
+	FP		uscitafile;
+	string	riga;
+	int		zeri;
+	int64_t inizio;
+	int64_t ultimastampa;
+	int		passo;
+	string	nomepasso;
+	bool	intar;
+	int64_t iniziotar; /// when the tar began: its speed
+	bool	testata()
+	{
+		bool vuoto= true;
+		for (int i= 0; (i < 512) && vuoto; i++)
+			vuoto= (blocco[i] == 0);
+		if (vuoto)
+		{
+			if (++zeri >= 2)
+				finetar= true;
+			return true;
+		}
+		zeri		 = 0;
+		int64_t somma= 0;
+		for (int i= 0; i < 512; i++)
+			somma+= ((i >= 148) && (i < 156)) ? 32 : (unsigned char)blocco[i];
+		const int64_t dimensione= audit_ottale(blocco + 124, 12);
+		if ((audit_ottale(blocco + 148, 8) != somma) || (dimensione < 0))
+		{
+			rotto = true;
+			perche= "this is not a tar (a header is wrong)";
+			return false;
+		}
+		const char t= blocco[156];
+		string	   nome;
+		if ((t != 'x') && (t != 'L') && (nomelungo != ""))
+		{
+			nome	 = nomelungo;
+			nomelungo= "";
+		}
+		else
+		{
+			nome= audit_campo(blocco, 100);
+			if ((memcmp(blocco + 257, "ustar", 5) == 0) && (blocco[345] != 0))
+				nome= audit_campo(blocco + 345, 155) + "/" + nome;
+		}
+		restano= dimensione;
+		riempi = (512 - (dimensione % 512)) % 512;
+		estesa = "";
+		tipo   = 's';
+		if ((t == 'x') || (t == 'L'))
+			tipo= t;
+		else if (((t == '0') || (t == 0) || (t == '7')) && (nome.compare(0, 10, "zpaqaudit/") == 0))
+		{
+			const string relativo= audit_nomesicuro(nome.substr(10));
+			if (relativo != "")
+			{
+				const string percorso= cartella + relativo;
+				/// one that cannot be written here (Windows: a path over MAX_PATH) is still in files.tar: said, not taken out
+#ifdef _WIN32
+				if (percorso.size() < 250)
+#endif
+				{
+					makepath(percorso);
+					uscitafile= myfopen(percorso.c_str(), WB);
+				}
+				if (uscitafile == FPNULL)
+					saltati.push_back(relativo);
+				else
+				{
+					estratti.push_back(relativo);
+					tipo= 'f';
+				}
+			}
+		}
+		if (restano == 0)
+			finemembro();
+		return true;
+	}
+	void finemembro()
+	{
+		if (tipo == 'f')
+		{
+			if (uscitafile != FPNULL)
+				myfclose(&uscitafile);
+		}
+		else if (tipo == 'L')
+			nomelungo= estesa.c_str(); /// up to its 0
+		else if (tipo == 'x')		   /// records "length key=value\n": path= is the name of the next one
+		{
+			size_t p= 0;
+			while (p < estesa.size())
+			{
+				size_t	k		 = p;
+				int64_t lunghezza= 0;
+				while ((k < estesa.size()) && (estesa[k] >= '0') && (estesa[k] <= '9'))
+					lunghezza= lunghezza * 10 + (estesa[k++] - '0');
+				if ((k >= estesa.size()) || (estesa[k] != ' ') || (lunghezza <= 0) || (p + (size_t)lunghezza > estesa.size()) || (p + (size_t)lunghezza < k + 2))
+					break;
+				const string record= estesa.substr(k + 1, p + (size_t)lunghezza - k - 2);
+				if (record.compare(0, 5, "path=") == 0)
+					nomelungo= record.substr(5);
+				p+= (size_t)lunghezza;
+			}
+		}
+		tipo= 0;
+	}
+	void rigaerrore(const string &i_riga)
+	{
+		if (i_riga.compare(0, 11, "ZPAQAUDIT! ") == 0)
+			fatali.push_back(i_riga.substr(11));
+		else if (i_riga.compare(0, 14, "ZPAQAUDIT END ") == 0)
+			uscita= atoi(i_riga.c_str() + 14);
+		else if (i_riga.compare(0, 15, "ZPAQAUDIT SIZE ") == 0)
+			dimensione= myatoll(i_riga.c_str() + 15);
+		else if (i_riga.compare(0, 10, "ZPAQAUDIT ") == 0)
+		{
+			const string resto = i_riga.substr(10);
+			passo			   = atoi(resto.c_str());
+			const size_t spazio= resto.find(' ');
+			nomepasso		   = (spazio == string::npos) ? resto : resto.substr(spazio + 1);
+			if ((nomepasso.compare(0, 3, "tar") == 0) && (!intar))
+			{
+				intar	 = true;
+				iniziotar= mtime();
+			}
+			mostra(true);
+		}
+		else if (i_riga != "")
+			avvisi.push_back(i_riga);
+	}
+	static string tempo(double i_secondi)
+	{
+		if (i_secondi < 0)
+			return "--:--:--";
+		const int64_t s= (int64_t)(i_secondi + 0.5);
+		char		  buffer[32];
+		snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", (int)(s / 3600), (int)((s / 60) % 60), (int)(s % 60));
+		return buffer;
+	}
+	/*
+		65.18b: step N/total and an ETA (a guess: the steps are not alike, dpkg --verify alone takes half a minute).
+		Before the tar: the mean time of a step so far; in the tar: the bytes still to come, at the speed so far.
+		The \r at the end (as every progress line here): with it in front myprintf would print its code too
+	*/
+	void mostra(bool i_sempre)
+	{
+		const int64_t adesso= mtime();
+		if ((!i_sempre) && (adesso - ultimastampa < 1000))
+			return;
+		ultimastampa		  = adesso;
+		const double secondi= (adesso - inizio) / 1000.0;
+		double		 resta	= -1;
+		if (intar || (totale == 0))
+		{
+			const double neltar	 = (adesso - (intar ? iniziotar : inizio)) / 1000.0;
+			const double velocita= (neltar > 0.5) ? ricevuti / neltar : 0;
+			if ((dimensione > 0) && (velocita > 0))
+				resta= (dimensione > ricevuti) ? (dimensione - ricevuti) / velocita : 0;
+			char passi[32]= "";
+			if (totale > 0)
+				snprintf(passi, sizeof(passi), "%3d/%d ", passo, totale);
+			myprintf("79801: %star: %s of ~%s (%s/s), %s ETA %s     \r", passi, tohuman(ricevuti), tohuman(dimensione), tohuman((int64_t)velocita), tempo(secondi).c_str(), tempo(resta).c_str());
+		}
+		else
+		{
+			if ((passo > 1) && (totale >= passo))
+				resta= secondi / (passo - 1) * (totale - passo + 1);
+			myprintf("79801: %3d/%d %-24s %s ETA %s     \r", passo, totale, nomepasso.substr(0, 24).c_str(), tempo(secondi).c_str(), tempo(resta).c_str());
+		}
+		fflush(stdout);
+	}
+};
+/// what is under way: a control-C closes it and deletes the folder of ours (secrets in clear inside)
+static franz_auditricevi *g_auditricevitore= NULL;
+static string			  g_auditlavoro;
+/// only a folder made here: <somewhere>/zpaqaudit_<time>_<pid>/
+static bool audit_lavorobuono(const string &i_percorso)
+{
+	string percorso= i_percorso;
+	while ((percorso.size() > 1) && ((percorso[percorso.size() - 1] == '/') || (percorso[percorso.size() - 1] == '\\')))
+		percorso.erase(percorso.size() - 1);
+	const size_t barra= percorso.find_last_of("/\\");
+	if ((barra == string::npos) || (barra == 0))
+		return false;
+	const string nome= percorso.substr(barra + 1);
+	if ((nome.size() < 20) || (nome.compare(0, 10, "zpaqaudit_") != 0))
+		return false;
+	return percorso.substr(0, barra).find_first_not_of("/\\.:") != string::npos;
+}
+static void audit_pulisci()
+{
+	if (g_auditricevitore != NULL)
+		g_auditricevitore->chiudi();
+	if ((g_auditlavoro != "") && audit_lavorobuono(g_auditlavoro) && direxists(g_auditlavoro))
+	{
+		if (stermina(g_auditlavoro))
+			myprintf("79802: the work folder <<%Z>> is gone\n", g_auditlavoro.c_str());
+		else
+			myprintf("79803! cannot delete <<%Z>> (it has secrets in clear: delete it)\n", g_auditlavoro.c_str());
+	}
+	g_auditlavoro= "";
+}
+static string audit_leggi(const string &i_file)
+{
+	string risultato;
+	FP	   f= myfopen(i_file.c_str(), RB);
+	if (f == FPNULL)
+		return risultato;
+	char   buffer[65536];
+	size_t letti;
+	while ((letti= fread(buffer, 1, sizeof(buffer), f)) > 0)
+		risultato.append(buffer, letti);
+	myfclose(&f);
+	return risultato;
+}
+static bool audit_scrivi(const string &i_file, const string &i_testo)
+{
+	makepath(i_file);
+	FP f= myfopen(i_file.c_str(), WB);
+	if (f == FPNULL)
+		return false;
+	const bool fatto= (i_testo.empty() || (myfwrite(i_testo.data(), 1, i_testo.size(), f) == i_testo.size()));
+	myfclose(&f);
+	return fatto;
+}
+static string audit_minuscolo(const string &i_testo)
+{
+	string risultato= i_testo;
+	for (size_t i= 0; i < risultato.size(); i++)
+		if ((risultato[i] >= 'A') && (risultato[i] <= 'Z'))
+			risultato[i]= risultato[i] - 'A' + 'a';
+	return risultato;
+}
+static bool audit_identificatore(char c)
+{
+	return isalnum((unsigned char)c) || (c == '_') || (c == '-') || (c == '.');
+}
+/*
+	the name of a setting that holds a secret: password, passwd, secret, token, psk, apikey, privatekey, credential,
+	bindpw, passphrase, "key" alone, or a name ending in key (accesskey, tcp_fastopen_key...). Not the ones that
+	only talk about it (PasswordAuthentication, tokenid, PublicKey)
+*/
+static bool audit_chiavesegreta(const string &i_nome)
+{
+	string k;
+	for (size_t i= 0; i < i_nome.size(); i++)
+		if (isalnum((unsigned char)i_nome[i]))
+			k+= (char)tolower((unsigned char)i_nome[i]);
+	if (k == "")
+		return false;
+	static const char *mai[]= {"passwordauthentication", "permitemptypasswords", "kbdinteractiveauthentication", "tokenid", "tokens", "publickey", "pubkey", "sshkey", "sshkeys", "hostkey", "keyboard", "secretsdir", NULL};
+	for (int i= 0; mai[i]; i++)
+		if (k == mai[i])
+			return false;
+	static const char *esatte[]= {"key", "pass", "pw", "pwd", "community", NULL};
+	for (int i= 0; esatte[i]; i++)
+		if (k == esatte[i])
+			return true;
+	static const char *dentro[]= {"password", "passwd", "passphrase", "secret", "token", "privatekey", "privkey", "presharedkey", "psk", "apikey", "credential", "bindpw", "cipassword", NULL};
+	for (int i= 0; dentro[i]; i++)
+		if (k.find(dentro[i]) != string::npos)
+			return true;
+	return (k.size() > 3) && (k.compare(k.size() - 3, 3, "key") == 0);
+}
+/// a value that says nothing secret: yes, no, a number 0 1, a path, a placeholder
+static bool audit_valoresicuro(const string &i_valore)
+{
+	string v= i_valore;
+	while ((v != "") && ((v[0] == '"') || (v[0] == '\'') || (v[0] == ' ') || (v[0] == '\t')))
+		v.erase(0, 1);
+	while ((v != "") && ((v[v.size() - 1] == '"') || (v[v.size() - 1] == '\'') || (v[v.size() - 1] == ' ') || (v[v.size() - 1] == '\t') || (v[v.size() - 1] == ',') || (v[v.size() - 1] == ';')))
+		v.erase(v.size() - 1);
+	if (v == "")
+		return true;
+	const string m= audit_minuscolo(v);
+	static const char *sicuri[]= {"yes", "no", "true", "false", "on", "off", "0", "1", "none", "null", "(hidden)", "without-password", "prohibit-password", "forced-commands-only", "<secret>", "<hash>", "*", "!", "x", "required", "optional", "auto", NULL};
+	for (int i= 0; sicuri[i]; i++)
+		if (m == sicuri[i])
+			return true;
+	if ((v[0] == '/') || (v[0] == '~') || (v[0] == '$') || (v[0] == '<'))
+		return true;
+	/// file:/... hash:/etc/... texthash:/...: a map, not the secret
+	const size_t duepunti= v.find(":/");
+	if ((duepunti != string::npos) && (duepunti > 0) && (duepunti < 12))
+	{
+		bool lettere= true;
+		for (size_t i= 0; i < duepunti; i++)
+			lettere= lettere && isalpha((unsigned char)v[i]);
+		if (lettere && (v.find('@') == string::npos))
+			return true;
+	}
+	return false;
+}
+/// the end of a value from i_da: up to the quote that opened it, else to a space or a separator
+static size_t audit_finevalore(const string &i_riga, size_t i_da)
+{
+	if (i_da >= i_riga.size())
+		return i_da;
+	const char virgolette= i_riga[i_da];
+	if ((virgolette == '"') || (virgolette == '\''))
+	{
+		const size_t chiusa= i_riga.find(virgolette, i_da + 1);
+		return (chiusa == string::npos) ? i_riga.size() : chiusa + 1;
+	}
+	size_t i= i_da;
+	while ((i < i_riga.size()) && (strchr(" \t&,;}])|", i_riga[i]) == NULL))
+		i++;
+	return i;
+}
+/// one line, sanitized. o_cambi: how many values went away
+static string audit_purgariga(const string &i_riga, int &o_cambi)
+{
+	string riga= i_riga;
+	/// 1. name=value, name: value, "name" : "value", --name=value, wherever they are
+	for (size_t p= 0; p < riga.size(); p++)
+	{
+		const char c= riga[p];
+		if ((c != '=') && (c != ':'))
+			continue;
+		if ((c == ':') && (p + 1 < riga.size()) && ((riga[p + 1] == ':') || (riga[p + 1] == '/')))
+		{
+			p++;
+			continue;
+		}
+		if ((c == ':') && (p > 0) && (riga[p - 1] == ':'))
+			continue;
+		size_t j= p;
+		while ((j > 0) && ((riga[j - 1] == ' ') || (riga[j - 1] == '\t')))
+			j--;
+		if ((j > 0) && ((riga[j - 1] == '"') || (riga[j - 1] == '\'')))
+			j--;
+		const size_t fine= j;
+		while ((j > 0) && audit_identificatore(riga[j - 1]))
+			j--;
+		if ((fine == j) || (!audit_chiavesegreta(riga.substr(j, fine - j))))
+			continue;
+		size_t v= p + 1;
+		while ((v < riga.size()) && ((riga[v] == ' ') || (riga[v] == '\t')))
+			v++;
+		const size_t finevalore= audit_finevalore(riga, v);
+		if ((finevalore <= v) || audit_valoresicuro(riga.substr(v, finevalore - v)))
+			continue;
+		riga.replace(v, finevalore - v, "<secret>");
+		o_cambi++;
+		p= v + 7;
+	}
+	/// 2. "name value" at the start of the line (sshd, postfix, storage.cfg, smb...), and --name value anywhere
+	{
+		size_t i= 0;
+		while ((i < riga.size()) && ((riga[i] == ' ') || (riga[i] == '\t')))
+			i++;
+		size_t k= i;
+		while ((k < riga.size()) && audit_identificatore(riga[k]))
+			k++;
+		if ((k > i) && (k < riga.size()) && ((riga[k] == ' ') || (riga[k] == '\t')) && audit_chiavesegreta(riga.substr(i, k - i)))
+		{
+			size_t v= k;
+			while ((v < riga.size()) && ((riga[v] == ' ') || (riga[v] == '\t')))
+				v++;
+			if ((v < riga.size()) && (riga[v] != '=') && (riga[v] != ':') && (!audit_valoresicuro(riga.substr(v))))
+			{
+				riga.replace(v, riga.size() - v, "<secret>");
+				o_cambi++;
+			}
+		}
+	}
+	for (size_t p= riga.find(" -"); p != string::npos; p= riga.find(" -", p + 1))
+	{
+		size_t k= p + 1;
+		while ((k < riga.size()) && (riga[k] == '-'))
+			k++;
+		const size_t inizio= k;
+		while ((k < riga.size()) && audit_identificatore(riga[k]))
+			k++;
+		if ((k == inizio) || (k >= riga.size()) || (riga[k] != ' ') || (!audit_chiavesegreta(riga.substr(inizio, k - inizio))))
+			continue;
+		size_t v= k + 1;
+		while ((v < riga.size()) && (riga[v] == ' '))
+			v++;
+		if ((v >= riga.size()) || (riga[v] == '-'))
+			continue;
+		const size_t finevalore= audit_finevalore(riga, v);
+		if ((finevalore > v) && (!audit_valoresicuro(riga.substr(v, finevalore - v))))
+		{
+			riga.replace(v, finevalore - v, "<secret>");
+			o_cambi++;
+		}
+	}
+	const string minuscola= audit_minuscolo(riga);
+	/// 3. scheme://user:password@host
+	for (size_t p= riga.find("://"); p != string::npos; p= riga.find("://", p + 3))
+	{
+		const size_t chiocciola= riga.find('@', p + 3);
+		if (chiocciola == string::npos)
+			break;
+		const size_t barra= riga.find_first_of("/ \t\"'", p + 3);
+		if ((barra != string::npos) && (barra < chiocciola))
+			continue;
+		const size_t duepunti= riga.find(':', p + 3);
+		if ((duepunti != string::npos) && (duepunti < chiocciola) && (riga.compare(duepunti + 1, chiocciola - duepunti - 1, "<secret>") != 0))
+		{
+			riga.replace(duepunti + 1, chiocciola - duepunti - 1, "<secret>");
+			o_cambi++;
+		}
+	}
+	/// 4. password hashes: $1$ $2b$ $5$ $6$ $y$ $apr1$...
+	for (size_t p= riga.find('$'); p != string::npos; p= riga.find('$', p + 1))
+	{
+		static const char *tipi[]= {"$1$", "$2a$", "$2b$", "$2y$", "$5$", "$6$", "$y$", "$gy$", "$7$", "$apr1$", "$sha1$", "$md5$", NULL};
+		size_t			   dopo	 = 0;
+		for (int t= 0; tipi[t] && (dopo == 0); t++)
+			if (riga.compare(p, strlen(tipi[t]), tipi[t]) == 0)
+				dopo= p + strlen(tipi[t]);
+		if (dopo == 0)
+			continue;
+		size_t k= dopo;
+		while ((k < riga.size()) && (isalnum((unsigned char)riga[k]) || (strchr("./$=", riga[k]) != NULL)))
+			k++;
+		if (k - dopo < 8)
+			continue;
+		riga.replace(p, k - p, "<hash>");
+		o_cambi++;
+	}
+	/// 5. the command lines that give a password in their own way: mysql -pX, sshpass -p X, curl -u u:X,
+	/// smbclient -U u%X, Authorization: Basic X / Bearer X
+	if ((minuscola.find("mysql") != string::npos) || (minuscola.find("mariadb") != string::npos))
+		for (size_t p= riga.find(" -p"); p != string::npos; p= riga.find(" -p", p + 1))
+			if ((p + 3 < riga.size()) && (riga[p + 3] != ' ') && (riga[p + 3] != '-') && (riga.compare(p + 3, 8, "<secret>") != 0))
+			{
+				const size_t fine= audit_finevalore(riga, p + 3);
+				riga.replace(p + 3, fine - p - 3, "<secret>");
+				o_cambi++;
+			}
+	static const char *marcatori[]= {"sshpass -p ", " -u ", "--user ", " -U ", "Basic ", "Bearer ", "basic ", "bearer ", NULL};
+	for (int t= 0; marcatori[t]; t++)
+	{
+		const string cosa= marcatori[t];
+		if ((cosa == " -u ") || (cosa == "--user "))
+			if ((minuscola.find("curl") == string::npos) && (minuscola.find("wget") == string::npos))
+				continue;
+		if ((cosa == " -U ") && (minuscola.find("smbclient") == string::npos) && (minuscola.find("rpcclient") == string::npos))
+			continue;
+		for (size_t p= riga.find(cosa); p != string::npos; p= riga.find(cosa, p + 1))
+		{
+			size_t		 v	 = p + cosa.size();
+			const size_t fine= audit_finevalore(riga, v);
+			if (fine <= v)
+				continue;
+			if ((cosa == " -u ") || (cosa == "--user ") || (cosa == " -U "))
+			{
+				const size_t separa= riga.find_first_of((cosa == " -U ") ? "%" : ":", v);
+				if ((separa == string::npos) || (separa >= fine))
+					continue;
+				v= separa + 1;
+			}
+			if ((fine > v) && (riga.compare(v, fine - v, "<secret>") != 0))
+			{
+				riga.replace(v, fine - v, "<secret>");
+				o_cambi++;
+			}
+		}
+	}
+	/// 6. a WireGuard-like key (32 bytes in base64) on a line that talks of a private or preshared one
+	if ((minuscola.find("priv") != string::npos) || (minuscola.find("psk") != string::npos) || (minuscola.find("preshared") != string::npos))
+		for (size_t p= 0; p + 44 <= riga.size(); p++)
+		{
+			if (((p > 0) && (isalnum((unsigned char)riga[p - 1]) || (riga[p - 1] == '+') || (riga[p - 1] == '/'))) || (riga[p + 43] != '='))
+				continue;
+			bool base64= true;
+			for (size_t k= p; (k < p + 43) && base64; k++)
+				base64= isalnum((unsigned char)riga[k]) || (riga[k] == '+') || (riga[k] == '/');
+			if (base64)
+			{
+				riga.replace(p, 44, "<secret>");
+				o_cambi++;
+			}
+		}
+	return riga;
+}
+/*
+	a text, sanitized: first the secret values known by name (WireGuard keys, passwords of storages and realms,
+	token secrets... from meta/secret-values.txt), everywhere; then the PEM blocks of private keys; then line by
+	line (audit_purgariga). o_cambi: how many replaced
+*/
+static string audit_purga(const string &i_testo, const vector<string> &i_segreti, int &o_cambi)
+{
+	string testo= i_testo;
+	for (size_t s= 0; s < i_segreti.size(); s++)
+		for (size_t p= testo.find(i_segreti[s]); p != string::npos; p= testo.find(i_segreti[s], p + 8))
+		{
+			testo.replace(p, i_segreti[s].size(), "<secret>");
+			o_cambi++;
+		}
+	for (size_t p= testo.find("-----BEGIN "); p != string::npos; p= testo.find("-----BEGIN ", p + 1))
+	{
+		const size_t finetesta= testo.find("-----", p + 11);
+		if ((finetesta == string::npos) || (testo.substr(p, finetesta - p).find("PRIVATE KEY") == string::npos))
+			continue;
+		const size_t fine= testo.find("-----END ", finetesta + 5);
+		const size_t chiudi= (fine == string::npos) ? string::npos : testo.find("-----", fine + 9);
+		const size_t ultimo= (chiudi == string::npos) ? testo.size() : chiudi + 5;
+		testo.replace(p, ultimo - p, "<private key removed>");
+		o_cambi++;
+	}
+	string risultato;
+	risultato.reserve(testo.size() + 1024);
+	size_t inizio= 0;
+	while (inizio < testo.size())
+	{
+		size_t fine= testo.find('\n', inizio);
+		if (fine == string::npos)
+			fine= testo.size();
+		risultato+= audit_purgariga(testo.substr(inizio, fine - inizio), o_cambi);
+		if (fine < testo.size())
+			risultato+= '\n';
+		inizio= fine + 1;
+	}
+	return risultato;
+}
+static string audit_cartellacorrente()
+{
+#ifdef _WIN32
+	wchar_t buffer[32768];
+	const DWORD lunghezza= GetCurrentDirectoryW(32768, buffer);
+	if ((lunghezza == 0) || (lunghezza >= 32768))
+		return "./";
+	string risultato= wtou(buffer);
+#else
+	char buffer[8192];
+	if (getcwd(buffer, sizeof(buffer)) == NULL)
+		return "./";
+	string risultato= buffer;
+#endif
+	myreplaceall(risultato, "\\", "/");
+	if ((risultato == "") || (risultato[risultato.size() - 1] != '/'))
+		risultato+= '/';
+	return risultato;
+}
+/// a line from the keyboard. false: the end of stdin
+static bool audit_riga(string &o_riga)
+{
+	char buffer[512];
+	fflush(stdout);
+	if (fgets(buffer, sizeof(buffer), stdin) == NULL)
+		return false;
+	o_riga= mytrim2(buffer);
+	return true;
+}
+#ifndef _WIN32
+/// on the node itself: bash -c script zpaqaudit <left out...>, its stdout and stderr read together
+static bool audit_locale(const string &i_script, const vector<string> &i_escludi, franz_auditricevi &io_r, int &o_uscita)
+{
+	vector<const char *> argomenti;
+	argomenti.push_back("bash");
+	argomenti.push_back("-c");
+	argomenti.push_back(i_script.c_str());
+	argomenti.push_back("zpaqaudit");
+	for (size_t i= 0; i < i_escludi.size(); i++)
+		argomenti.push_back(i_escludi[i].c_str());
+	argomenti.push_back(NULL);
+	o_uscita= -1;
+	int fuori[2];
+	int errori[2];
+	if (pipe(fuori) != 0)
+		return false;
+	if (pipe(errori) != 0)
+	{
+		close(fuori[0]);
+		close(fuori[1]);
+		return false;
+	}
+	const pid_t figlio= fork();
+	if (figlio < 0)
+	{
+		close(fuori[0]);
+		close(fuori[1]);
+		close(errori[0]);
+		close(errori[1]);
+		return false;
+	}
+	if (figlio == 0)
+	{
+		const int nulla= open("/dev/null", O_RDONLY);
+		if (nulla >= 0)
+			dup2(nulla, 0);
+		dup2(fuori[1], 1);
+		dup2(errori[1], 2);
+		close(fuori[0]);
+		close(fuori[1]);
+		close(errori[0]);
+		close(errori[1]);
+		execvp("bash", (char *const *)&argomenti[0]);
+		_exit(127);
+	}
+	close(fuori[1]);
+	close(errori[1]);
+	vector<char> buffer(262144);
+	bool		 aperto[2]= {true, true};
+	bool		 buono	  = true;
+	while (aperto[0] || aperto[1])
+	{
+		fd_set leggi;
+		FD_ZERO(&leggi);
+		int massimo= -1;
+		if (aperto[0])
+		{
+			FD_SET(fuori[0], &leggi);
+			massimo= fuori[0];
+		}
+		if (aperto[1])
+		{
+			FD_SET(errori[0], &leggi);
+			if (errori[0] > massimo)
+				massimo= errori[0];
+		}
+		struct timeval attesa;
+		attesa.tv_sec = 1;
+		attesa.tv_usec= 0;
+		const int pronti= select(massimo + 1, &leggi, NULL, NULL, &attesa);
+		if (pronti < 0)
+		{
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+		for (int k= 0; k < 2; k++)
+		{
+			const int fd= (k == 0) ? fuori[0] : errori[0];
+			if ((!aperto[k]) || (!FD_ISSET(fd, &leggi)))
+				continue;
+			const ssize_t letti= read(fd, &buffer[0], buffer.size());
+			if (letti > 0)
+			{
+				if (k == 1)
+					io_r.errori(&buffer[0], (size_t)letti);
+				else if (buono && (!io_r.dati(&buffer[0], (size_t)letti)))
+				{
+					buono= false;
+					kill(figlio, SIGTERM);
+				}
+			}
+			else if ((letti == 0) || (errno != EINTR))
+				aperto[k]= false;
+		}
+	}
+	close(fuori[0]);
+	close(errori[0]);
+	int stato= 0;
+	while ((waitpid(figlio, &stato, 0) < 0) && (errno == EINTR))
+		;
+	o_uscita= WIFEXITED(stato) ? WEXITSTATUS(stato) : 128 + (WIFSIGNALED(stato) ? WTERMSIG(stato) : 0);
+	return buono;
+}
+#endif
+/// the tar of the script run by hand
+static bool audit_dafile(const string &i_file, franz_auditricevi &io_r)
+{
+	FP f= myfopen(i_file.c_str(), RB);
+	if (f == FPNULL)
+	{
+		myprintf("79804! cannot open <<%Z>>\n", i_file.c_str());
+		return false;
+	}
+	vector<char> buffer(1048576);
+	size_t		 letti;
+	bool		 buono= true;
+	while (buono && ((letti= fread(&buffer[0], 1, buffer.size(), f)) > 0))
+		buono= io_r.dati(&buffer[0], letti);
+	myfclose(&f);
+	return buono;
+}
+#ifdef SFTP
+bool audit_ssh(const string &i_host, int i_porta, string &io_password, const string &i_chiave, const string &i_impronta, const string &i_script, franz_auditricevi &io_r, int &o_uscita); /// with the other SSH code
+#endif
+/// an archive of audit: one add(), in clear for the public one whatever -key -franzen say
+int Jidac::audit_add(const string &i_archivio, const vector<string> &i_da, const vector<string> &i_a, const string &i_commento, bool i_inchiaro)
+{
+	char  *vecchiapassword= g_password;
+	string vecchiofranzen = g_franzen;
+	string vecchiachiaro  = plainpassword;
+	if (i_inchiaro)
+	{
+		g_password	 = NULL;
+		g_franzen	 = "";
+		plainpassword= "";
+	}
+	g_franzen_filename= "";
+	jidacreset();
+	files		  = i_da;
+	tofiles		  = i_a;
+	archive		  = i_archivio;
+	versioncomment= i_commento;
+	command		  = 'a';
+	int esito	  = 2;
+	try /// an error() inside add() is an exception
+	{
+		esito= add();
+	}
+	catch (std::exception &e)
+	{
+		myprintf("79805! %s: %s\n", i_archivio.c_str(), e.what());
+		esito= 2;
+	}
+	g_password		  = vecchiapassword;
+	g_franzen		  = vecchiofranzen;
+	plainpassword	  = vecchiachiaro;
+	g_franzen_filename= "";
+	return esito;
+}
+/// the zip of the public part: STORED, the names as in public_<node>.zpaq
+static bool audit_zip(const string &i_zip, const vector<std::pair<string, string> > &i_file, int64_t i_data)
+{
+	const string temporaneo= i_zip + ".tmp";
+	FP			 f		   = myfopen(temporaneo.c_str(), WB);
+	if (f == FPNULL)
+		return false;
+	vector<s_zipentry> voci;
+	int64_t			   dove = 0;
+	bool			   buono= true;
+	for (size_t i= 0; (i < i_file.size()) && buono; i++)
+	{
+		s_zipentry v;
+		v.name		 = i_file[i].first;
+		v.size		 = (int64_t)i_file[i].second.size();
+		v.method	 = 0;
+		v.date		 = i_data;
+		v.attr		 = 'u' + ((int64_t)0100644 << 8);
+		v.crc		 = crc32_16bytes(i_file[i].second.data(), i_file[i].second.size(), 0);
+		v.localoffset= dove;
+		string testa;
+		zipbuildlocal(v, testa);
+		buono= (myfwrite(testa.data(), 1, testa.size(), f) == testa.size()) && (i_file[i].second.empty() || (myfwrite(i_file[i].second.data(), 1, i_file[i].second.size(), f) == i_file[i].second.size()));
+		dove+= (int64_t)testa.size() + v.size;
+		voci.push_back(v);
+	}
+	const int64_t centrale= dove;
+	for (size_t i= 0; (i < voci.size()) && buono; i++)
+	{
+		string riga;
+		zipbuildcentral(voci[i], riga);
+		buono= (myfwrite(riga.data(), 1, riga.size(), f) == riga.size());
+		dove+= (int64_t)riga.size();
+	}
+	string coda;
+	zipbuildend(centrale, dove - centrale, (int64_t)voci.size(), coda);
+	buono= buono && (myfwrite(coda.data(), 1, coda.size(), f) == coda.size());
+	myfclose(&f);
+	if (buono)
+	{
+#ifdef _WIN32
+		buono= (MoveFileExW(utow(temporaneo.c_str()).c_str(), utow(i_zip.c_str()).c_str(), MOVEFILE_REPLACE_EXISTING) != 0);
+#else
+		buono= (::rename(temporaneo.c_str(), i_zip.c_str()) == 0);
+#endif
+	}
+	if (!buono)
+		delete_file(temporaneo.c_str());
+	return buono;
+}
+static string audit_info(const std::map<string, string> &i_info, const char *i_chiave)
+{
+	const std::map<string, string>::const_iterator p= i_info.find(i_chiave);
+	return (p == i_info.end()) ? string("?") : p->second;
+}
+/// README.md: for the one who rebuilds, and for the AI it is given to
+static string audit_leggimi(const string &i_nodo, const std::map<string, string> &i_info, const string &i_commento, const string &i_privato, bool i_pubblico)
+{
+	string t;
+	t+= "# " + i_nodo + ": Proxmox VE rebuild package (zpaqfranz work proxmox audit)\n\n";
+	t+= "Node " + i_nodo + " (" + audit_info(i_info, "fqdn") + "), " + audit_info(i_info, "pveversion") + ",\n";
+	t+= "kernel " + audit_info(i_info, "kernel") + ", Debian " + audit_info(i_info, "debian") + ", boot " + audit_info(i_info, "boot") + ".\n";
+	t+= "Taken " + audit_info(i_info, "date") + " by zpaqfranz " + ZPAQ_VERSION + ": the version of the archives with the comment\n\"" + i_commento + "\".\n\n";
+	t+= "## What this is\n\n";
+	if (i_pubblico)
+	{
+		t+= "The configuration of the node, to rebuild it from an empty Proxmox VE ISO. This is the PUBLIC part:\n";
+		t+= "every password, private key, token, password hash and the like is replaced by <secret>, <hash> or\n";
+		t+= "<private key removed>. IP and MAC addresses, names, serials, UUIDs are the real ones.\n";
+		t+= "The PRIVATE part, " + i_privato + ", has everything as it is, secrets included.\n\n";
+		t+= "## Ask\n\n";
+		t+= "\"This is the audit of my Proxmox VE node " + i_nodo + ". Give me the step-by-step instructions to reinstall it\n";
+		t+= "from scratch and bring back its configuration; when a file or a secret is needed, tell me which one to take\n";
+		t+= "from " + i_privato + " and the zpaqfranz command to extract it.\"\n\n";
+		t+= "## Here\n\n";
+		t+= "- reports/      the output of ~100 commands; reports/INDEX.txt lists them with their command line\n";
+		t+= "- files/        the configuration files that differ from a fresh install, same paths as on the node:\n";
+		t+= "                the /etc files no package owns, the conffiles changed (dpkg --verify), /etc/pve\n";
+		t+= "                without priv/, the crontabs\n";
+		t+= "- SANITIZE.txt  what was replaced, file by file, and what was left out\n\n";
+		t+= "Start from reports/: pveversion, upgrade-check (pve7to8 / pve8to9), boot, lsblk-detail, partitions,\n";
+		t+= "zpool-history, zfs-list, lvm, network, nic-names, pvesm, guests, api-cluster, pvereport\n\n";
+	}
+	else
+	{
+		t+= "The PRIVATE part: everything as it was, secrets in clear. Keep it as such. public_" + i_nodo + ".zpaq\n";
+		t+= "(and .zip) has the same reports and configuration files, sanitized.\n\n";
+	}
+	t+= "## " + i_privato + " (one version per run)\n\n";
+	t+= "- files.tar     the files, numeric owners, permissions, ACL, xattr:" + audit_info(i_info, "paths") + "\n";
+	t+= "                (/etc/pve too); and zpaqaudit/, all of what follows\n";
+	t+= "- reports/ public/ meta/   the reports and the files for the public part, not sanitized\n";
+	t+= "- secret/       config.db (the database of /etc/pve), wireguard-showconf.txt, luks*.header, zfs-keys/\n";
+	t+= "- disks/        each disk: <disk>.sfdisk, <disk>.sgdisk (GPT), <disk>-first-1MiB.bin (boot code)\n";
+	t+= "- lvm/          vgcfgbackup of each volume group (vgcfgrestore -f)\n";
+	t+= "- snippets/     the hookscripts and cloud-init files of the guests (if any)\n\n";
+	t+= "    zpaqfranz i " + i_privato + "                     the versions, with their comment\n";
+	t+= "    zpaqfranz x " + i_privato + " -to /root/restore   all of the last version (-until N: version N)\n";
+	t+= "    zpaqfranz x " + i_privato + " secret/config.db -to /root/restore/config.db   one file: its name after -to\n";
+	t+= "    mkdir /root/restore/fs\n";
+	t+= "    tar -xpf /root/restore/files.tar --numeric-owner --xattrs --acls -C /root/restore/fs\n\n";
+	t+= "Never extract files.tar on /: take from /root/restore/fs what is needed.\n\n";
+	t+= "## Proxmox notes\n\n";
+	t+= "- Same hostname: the node name is in /etc/pve/nodes/" + i_nodo + "/ (and in its certificates).\n";
+	t+= "- /etc/pve is pmxcfs, its database is secret/config.db. With pve-cluster running copy the files into\n";
+	t+= "  /etc/pve one by one: storage.cfg, datacenter.cfg, user.cfg, domains.cfg, jobs.cfg, firewall/, sdn/,\n";
+	t+= "  mapping/, notifications.cfg, priv/storage/ (passwords of the storages; *.enc = the keys of encrypted\n";
+	t+= "  PBS backups), the guests (nodes/" + i_nodo + "/qemu-server/*.conf, lxc/*.conf). Not priv/authkey.*,\n";
+	t+= "  priv/pve-root-ca.*, nodes/*/pve-ssl.*: pvecm updatecerts --force makes new ones. config.db as a whole\n";
+	t+= "  only on the same major version, with pve-cluster stopped.\n";
+	t+= "- Network: the names of the interfaces can change (another kernel, systemd, Proxmox VE 9):\n";
+	t+= "  reports/nic-names.txt has name, MAC and PCI path of each; pin them (/etc/systemd/network/*.link or\n";
+	t+= "  pve-network-interface-pinning) before copying /etc/network/interfaces.\n";
+	t+= "- SSH: etc/ssh/ssh_host_* of files.tar keep the identity of the server.\n";
+	t+= "- The disks of the guests are not here.\n";
+	return t;
+}
+/// the folder for the archives: -to, or here
+static string audit_destinazione(const vector<string> &i_tofiles)
+{
+	string cartella= (i_tofiles.size() > 0) ? i_tofiles[0] : audit_cartellacorrente();
+	myreplaceall(cartella, "\\", "/");
+	if ((cartella != "") && (cartella[cartella.size() - 1] != '/'))
+		cartella+= '/';
+	return cartella;
+}
+/*
+	the run of audit, the same for every way: i_modo 0 SSH (i_bersaglio = host), 1 on this node, 2 the tar of a file.
+	The work folder: <archives>/zpaqaudit_<time>_<pid>/ files.tar z/ (zpaqaudit/) pub/ (the public part)
+*/
+int Jidac::proxaudit(int i_modo, const string &i_bersaglio, int i_porta, string i_password, const string &i_impronta, const string &i_cartella)
+{
+	const int64_t inizio  = mtime();
+	const string  cartella= i_cartella;
+	if ((cartella == "") || (!direxists(cartella)))
+	{
+		myprintf("79806! the folder for the archives <<%Z>> is not there\n", cartella.c_str());
+		return 2;
+	}
+	if (!saggiascrivibilitacartella(cartella))
+	{
+		myprintf("79807! cannot write in <<%Z>>\n", cartella.c_str());
+		return 2;
+	}
+	char	   quando[32];
+	time_t	   adesso= time(NULL);
+	struct tm *t	 = localtime(&adesso);
+	if ((t == NULL) || (strftime(quando, sizeof(quando), "%Y%m%d_%H%M%S", t) == 0))
+		snprintf(quando, sizeof(quando), "%lld", (long long)adesso);
+	char ora[32];
+	if ((t == NULL) || (strftime(ora, sizeof(ora), "%Y-%m-%d %H:%M:%S", t) == 0))
+		snprintf(ora, sizeof(ora), "%lld", (long long)adesso);
+	int64_t datazip= 0;
+	if (t != NULL)
+		datazip= (int64_t)(t->tm_year + 1900) * 10000000000LL + (int64_t)(t->tm_mon + 1) * 100000000LL + t->tm_mday * 1000000LL + t->tm_hour * 10000LL + t->tm_min * 100LL + t->tm_sec;
+#ifdef _WIN32
+	const unsigned int pid= (unsigned int)GetCurrentProcessId();
+#else
+	const unsigned int pid= (unsigned int)getpid();
+#endif
+	char nome[64];
+	snprintf(nome, sizeof(nome), "zpaqaudit_%s_%u", quando, pid);
+	const string lavoro= cartella + nome + "/";
+	if (direxists(lavoro) || fileexists(lavoro) || (!audit_lavorobuono(lavoro)))
+	{
+		myprintf("79808! the work folder <<%Z>> is there already\n", lavoro.c_str());
+		return 2;
+	}
+	makepath(lavoro + "z/");
+	if (!direxists(lavoro + "z/"))
+	{
+		myprintf("79807! cannot make <<%Z>>\n", lavoro.c_str());
+		return 2;
+	}
+#ifndef _WIN32
+	chmod(lavoro.c_str(), 0700); /// secrets in clear inside, while it works
+#endif
+	franz_auditricevi r;
+	r.cartella		 = lavoro + "z/";
+	r.totale		 = (i_modo == 2) ? 0 : audit_passi(audit_script());
+	g_auditlavoro	 = lavoro;
+	g_auditricevitore= &r;
+	g_auditpulisci	 = audit_pulisci; /// the control-C
+	r.tar			 = myfopen((lavoro + "files.tar").c_str(), WB);
+	if (r.tar == FPNULL)
+	{
+		myprintf("79807! cannot write <<%Z>>\n", (lavoro + "files.tar").c_str());
+		audit_pulisci();
+		g_auditricevitore= NULL;
+		return 2;
+	}
+	/// the run
+	int	 uscita	   = -1;
+	bool trasporto = false;
+	if (i_modo == 2)
+	{
+		myprintf("79809: audit from the tar <<%Z>>\n", i_bersaglio.c_str());
+		r.dimensione= prendidimensionefile(i_bersaglio.c_str());
+		trasporto	= audit_dafile(i_bersaglio, r);
+		uscita	 = r.finetar ? 0 : 2;
+	}
+	else if (i_modo == 1)
+	{
+#ifdef _WIN32
+		myprintf("79810! localhost is for the node itself (Proxmox, Linux): from here give its address\n");
+#else
+		myprintf("79809: audit of this node (no SSH), the archives in <<%Z>>\n", cartella.c_str());
+		/// what is written here stays out of the tar (else private_ would hold itself)
+		string base= my_realpath(cartella);
+		while ((base.size() > 1) && (base[base.size() - 1] == '/'))
+			base.erase(base.size() - 1);
+		vector<string> escludi;
+		escludi.push_back(base + "/" + nome);
+		static const char *nomi[]= {"private_*.zpaq", "private_*.zpaq.franzen", "public_*.zpaq", "public_*.zip", "public_*.zip.tmp", NULL};
+		for (int i= 0; nomi[i]; i++)
+			escludi.push_back(base + "/" + nomi[i]);
+		trasporto= audit_locale(audit_script(), escludi, r, uscita);
+#endif
+	}
+	else
+	{
+#ifdef SFTP
+		myprintf("79809: audit of root@%s:%d by SSH, the archives in <<%Z>>\n", i_bersaglio.c_str(), i_porta, cartella.c_str());
+		trasporto= audit_ssh(i_bersaglio, i_porta, i_password, g_sftp_key, i_impronta, audit_script(), r, uscita);
+#else
+		(void)i_porta;
+		(void)i_impronta;
+		myprintf("79810! this build has no SSH (-DSFTP): run it on the node (localhost), or bash the script of -script\n");
+#endif
+	}
+	r.fine();
+	r.chiudi();
+	for (size_t i= 0; i < r.fatali.size(); i++)
+	{
+		color_red();
+		myprintf("79811! on the node: %s\n", r.fatali[i].c_str());
+		color_restore();
+	}
+	string guasto;
+	if (r.rotto)
+		guasto= r.perche;
+	else if (!trasporto)
+		guasto= "it did not run to the end";
+	else if (!r.finetar)
+		guasto= "the tar did not end";
+	else if ((uscita < 0) || (uscita >= 2))
+	{
+		char numero[64];
+		snprintf(numero, sizeof(numero), "the script ended with %d", uscita);
+		guasto= numero;
+	}
+	if ((guasto == "") && r.fatali.size())
+		guasto= "the script said no";
+	if (guasto != "")
+	{
+		color_red();
+		myprintf("79812! audit failed: %s. Nothing written\n", guasto.c_str());
+		color_restore();
+		audit_pulisci();
+		g_auditricevitore= NULL;
+		return 2;
+	}
+	/// what it says of itself
+	std::map<string, string> info;
+	{
+		const string testo= audit_leggi(r.cartella + "meta/info.txt");
+		size_t		 p	  = 0;
+		while (p < testo.size())
+		{
+			size_t fine= testo.find('\n', p);
+			if (fine == string::npos)
+				fine= testo.size();
+			const string riga  = testo.substr(p, fine - p);
+			const size_t uguale= riga.find('=');
+			if (uguale != string::npos)
+				info[riga.substr(0, uguale)]= riga.substr(uguale + 1);
+			p= fine + 1;
+		}
+	}
+	string nodo;
+	{
+		const string letto= info.count("node") ? info["node"] : mytrim2(audit_leggi(r.cartella + "meta/node.txt"));
+		for (size_t i= 0; (i < letto.size()) && (nodo.size() < 64); i++)
+			if (isalnum((unsigned char)letto[i]) || (letto[i] == '-') || (letto[i] == '_') || (letto[i] == '.'))
+				nodo+= letto[i];
+		if ((nodo == "") || (nodo[0] == '.'))
+			nodo= "node";
+	}
+	if (r.avvisi.size())
+	{
+		string testo;
+		for (size_t i= 0; i < r.avvisi.size(); i++)
+			testo+= r.avvisi[i] + "\n";
+		audit_scrivi(r.cartella + "meta/tar-warnings.txt", testo);
+	}
+	const string privato  = "private_" + nodo + ".zpaq";
+	const string commento = string("work proxmox audit ") + nodo + " " + ora;
+	const string pubblico = cartella + "public_" + nodo + ".zpaq";
+	const string zip	  = cartella + "public_" + nodo + ".zip";
+	const string fisico	  = (g_franzen != "") ? franzenname(cartella + privato) : cartella + privato;
+	audit_scrivi(lavoro + "README.md", audit_leggimi(nodo, info, commento, privato, false));
+	/// the public part: the reports and the files, sanitized
+	vector<string> segreti;
+	{
+		const string testo= audit_leggi(r.cartella + "meta/secret-values.txt");
+		size_t		 p	  = 0;
+		while (p < testo.size())
+		{
+			size_t fine= testo.find('\n', p);
+			if (fine == string::npos)
+				fine= testo.size();
+			const string riga= mytrim2(testo.substr(p, fine - p));
+			if (riga.size() >= 6)
+				segreti.push_back(riga);
+			p= fine + 1;
+		}
+		/// the longest first (one inside another)
+		for (size_t i= 1; i < segreti.size(); i++)
+			for (size_t k= i; (k > 0) && (segreti[k - 1].size() < segreti[k].size()); k--)
+				std::swap(segreti[k - 1], segreti[k]);
+	}
+	vector<std::pair<string, string> > pubblici;
+	string							   resoconto;
+	string							   fuori;
+	string							   indice;
+	int								   cambitotali= 0;
+	int								   filecambiati= 0;
+	vector<string>					   ordinati	   = r.estratti;
+	std::sort(ordinati.begin(), ordinati.end());
+	for (size_t i= 0; i < ordinati.size(); i++)
+	{
+		const string &nome= ordinati[i];
+		string		  dove;
+		if (nome.compare(0, 8, "reports/") == 0)
+			dove= nome;
+		else if (nome.compare(0, 7, "public/") == 0)
+			dove= "files/" + nome.substr(7);
+		else
+			continue;
+		const string testo= audit_leggi(r.cartella + nome);
+		if (testo.find('\0') != string::npos)
+		{
+			fuori+= "   " + dove + ": not text\n";
+			continue;
+		}
+		int			 cambi	= 0;
+		const string pulito = audit_purga(testo, segreti, cambi);
+		if (pulito.find("PRIVATE KEY-----") != string::npos)
+		{
+			fuori+= "   " + dove + ": a private key\n";
+			continue;
+		}
+		if (cambi > 0)
+		{
+			char riga[64];
+			snprintf(riga, sizeof(riga), "%6d  ", cambi);
+			resoconto+= riga + dove + "\n";
+			cambitotali+= cambi;
+			filecambiati++;
+		}
+		if ((dove.compare(0, 8, "reports/") == 0) && (dove != "reports/INDEX.txt"))
+		{
+			string prima= pulito.substr(0, pulito.find('\n'));
+			if (prima.size() > 160)
+				prima= prima.substr(0, 157) + "...";
+			string riga= dove.substr(8);
+			while (riga.size() < 28)
+				riga+= ' ';
+			indice+= riga + " " + prima + "\n";
+		}
+		pubblici.push_back(std::make_pair(dove, pulito));
+	}
+	for (size_t i= 0; i < r.saltati.size(); i++)
+		fuori+= "   zpaqaudit/" + r.saltati[i] + ": could not be written here (it is in files.tar of the private part)\n";
+	{
+		string sanifica= string("Sanitized by zpaqfranz ") + ZPAQ_VERSION + " work proxmox audit, " + ora + "\n";
+		sanifica+= "<secret>: a password, token, key or similar value; <hash>: a password hash; <private key removed>.\n";
+		sanifica+= "The secret values known on the node (WireGuard keys, passwords of storages and realms, API token\n";
+		sanifica+= "secrets, keyrings, password hashes...) are replaced wherever they are.\n\n";
+		char riga[128];
+		snprintf(riga, sizeof(riga), "%d replaced in %d files of %d:\n", cambitotali, filecambiati, (int)pubblici.size());
+		sanifica+= riga + resoconto;
+		sanifica+= "\nLeft out:\n" + ((fuori == "") ? string("   nothing\n") : fuori);
+		pubblici.push_back(std::make_pair(string("SANITIZE.txt"), sanifica));
+		pubblici.push_back(std::make_pair(string("reports/INDEX.txt"), "The reports and the command each one comes from\n\n" + indice));
+		pubblici.push_back(std::make_pair(string("README.md"), audit_leggimi(nodo, info, commento, privato, true)));
+	}
+	bool scritti= true;
+	for (size_t i= 0; (i < pubblici.size()) && scritti; i++)
+		scritti= audit_scrivi(lavoro + "pub/" + pubblici[i].first, pubblici[i].second);
+	if (!scritti)
+	{
+		myprintf("79813! cannot write the public part in <<%Z>>\n", lavoro.c_str());
+		audit_pulisci();
+		g_auditricevitore= NULL;
+		return 2;
+	}
+	/// the archives
+	const vector<string> vecchieto= tofiles;
+	int					 risultato= (r.avvisi.size() || r.saltati.size() || (uscita == 1)) ? 1 : 0;
+	vector<string>		 da;
+	vector<string>		 a;
+	da.push_back(lavoro + "files.tar");
+	a.push_back("files.tar");
+	da.push_back(lavoro + "README.md");
+	a.push_back("README.md");
+	static const char *cartelle[]= {"reports", "public", "secret", "disks", "lvm", "meta", "snippets", NULL};
+	for (int i= 0; cartelle[i]; i++)
+		if (direxists(r.cartella + cartelle[i] + "/"))
+		{
+			da.push_back(r.cartella + cartelle[i] + "/");
+			a.push_back(string(cartelle[i]) + "/");
+		}
+	const int64_t primaprivato= fileexists(fisico) ? prendidimensionefile(fisico.c_str()) : 0;
+	printbar('-');
+	myprintf("79814: private part: %s\n", fisico.c_str());
+	const int esitoprivato= audit_add(cartella + privato, da, a, commento, false);
+#ifndef _WIN32
+	chmod(fisico.c_str(), 0600); /// the private part: for root only
+#endif
+	da.clear();
+	a.clear();
+	static const char *pubbliche[]= {"README.md", "SANITIZE.txt", "reports/", "files/", NULL};
+	for (int i= 0; pubbliche[i]; i++)
+		if (fileexists(lavoro + "pub/" + pubbliche[i]) || direxists(lavoro + "pub/" + pubbliche[i]))
+		{
+			da.push_back(lavoro + "pub/" + pubbliche[i]);
+			a.push_back(pubbliche[i]);
+		}
+	const int64_t primapubblico= fileexists(pubblico) ? prendidimensionefile(pubblico.c_str()) : 0;
+	printbar('-');
+	myprintf("79814: public part: %s\n", pubblico.c_str());
+	const int  esitopubblico= audit_add(pubblico, da, a, commento, true);
+	const bool zipfatto		= audit_zip(zip, pubblici, datazip);
+	tofiles					= vecchieto;
+	audit_pulisci();
+	g_auditricevitore= NULL;
+	/// how it went
+	printbar('=');
+	if (esitoprivato > risultato)
+		risultato= esitoprivato;
+	if (esitopubblico > risultato)
+		risultato= esitopubblico;
+	if ((!zipfatto) && (risultato < 2))
+		risultato= 2;
+	myprintf("79815: node %s, %s, %s of files and reports\n", nodo.c_str(), audit_info(info, "pveversion").c_str(), tohuman(r.ricevuti));
+	myprintf("79816: %-44s %s (+%s) %s\n", privato.c_str(), tohuman(prendidimensionefile(fisico.c_str())), tohuman2(prendidimensionefile(fisico.c_str()) - primaprivato), (esitoprivato == 0) ? "OK" : ((esitoprivato == 1) ? "WARNING" : "ERROR"));
+	myprintf("79816: %-44s %s (+%s) %s\n", ("public_" + nodo + ".zpaq").c_str(), tohuman(prendidimensionefile(pubblico.c_str())), tohuman2(prendidimensionefile(pubblico.c_str()) - primapubblico), (esitopubblico == 0) ? "OK" : ((esitopubblico == 1) ? "WARNING" : "ERROR"));
+	myprintf("79816: %-44s %s %s\n", ("public_" + nodo + ".zip").c_str(), zipfatto ? tohuman(prendidimensionefile(zip.c_str())) : "", zipfatto ? "OK" : "ERROR");
+	myprintf("79817: public: %d files, %d values replaced in %d of them%s\n", (int)pubblici.size(), cambitotali, filecambiati, (fuori == "") ? "" : ", some left out (SANITIZE.txt)");
+	if (r.avvisi.size())
+	{
+		color_yellow();
+		myprintf("79818$ tar said %d thing(s) (meta/tar-warnings.txt of the private part):\n", (int)r.avvisi.size());
+		for (size_t i= 0; (i < r.avvisi.size()) && (i < 10); i++)
+			myprintf("        %s\n", r.avvisi[i].c_str());
+		color_restore();
+	}
+	if (r.saltati.size())
+	{
+		color_yellow();
+		myprintf("79824$ %d file(s) of the reports could not be written here (path too long?): only in files.tar\n", (int)r.saltati.size());
+		color_restore();
+	}
+	myprintf("79819: %s in %.1f s\n", (risultato == 0) ? "OK" : ((risultato == 1) ? "WARNING" : "ERROR"), (mtime() - inizio) / 1000.0);
+	return risultato;
+}
+/*
+	work proxmox audit host[:port] [password [SHA256 of the host key]]   by SSH, as root
+	work proxmox audit localhost                                          on the node itself, as root
+	work proxmox audit file.tar                                           the tar of the script run by hand
+	work proxmox audit -script audit.sh                                   writes the script, runs nothing
+	-to the folder of the archives (default: here); -key -franzen: the private one only
+*/
+int Jidac::workproxmoxaudit()
+{
+	if (g_script != "")
+	{
+		if (fileexists(g_script) && (!flagforce))
+		{
+			myprintf("79820! <<%Z>> is there: -force to write it again\n", g_script.c_str());
+			return 2;
+		}
+		if (!audit_scrivi(g_script, audit_script()))
+		{
+			myprintf("79807! cannot write <<%Z>>\n", g_script.c_str());
+			return 2;
+		}
+		myprintf("79821: the script is <<%Z>>: on the node, as root, bash it > audit.tar; then work proxmox audit audit.tar\n", g_script.c_str());
+		return 0;
+	}
+	if ((files.size() < 3) || (files.size() > 5))
+	{
+		myprintf("79822! work proxmox audit host[:port] [password [sha256]] | localhost | file.tar | -script file\n");
+		return 2;
+	}
+	const string cartella= audit_destinazione(tofiles);
+	const string bersaglio= files[2];
+	if ((bersaglio == "localhost") || (bersaglio == "127.0.0.1") || (bersaglio == "::1"))
+	{
+#ifndef _WIN32
+		if (geteuid() != 0)
+		{
+			myprintf("79823! localhost: it wants root\n");
+			return 2;
+		}
+		if (!direxists("/etc/pve/"))
+		{
+			myprintf("79823! localhost: this is not a Proxmox VE node (no /etc/pve)\n");
+			return 2;
+		}
+#endif
+		return proxaudit(1, bersaglio, 0, "", "", cartella);
+	}
+	if ((files.size() == 3) && fileexists(bersaglio) && (!direxists(bersaglio)))
+		return proxaudit(2, bersaglio, 0, "", "", cartella);
+	string		 host = bersaglio;
+	int			 porta= 22;
+	const size_t due  = host.find(':');
+	if ((due != string::npos) && (due == host.rfind(':'))) /// more than one: an IPv6, no port
+	{
+		porta= atoi(host.c_str() + due + 1);
+		host = host.substr(0, due);
+	}
+	if ((host == "") || (porta <= 0) || (porta > 65535))
+	{
+		myprintf("79822! <<%s>> is not host[:port]\n", bersaglio.c_str());
+		return 2;
+	}
+	return proxaudit(0, host, porta, (files.size() >= 4) ? files[3] : "", (files.size() >= 5) ? files[4] : "", cartella);
+}
+/// 17 of the menu of work proxmox: by SSH to the same host, as root (the password of root@pam is the one of root)
+int Jidac::proxauditdalmenu(const string &i_host, const string &i_utente, const string &i_password)
+{
+	string cartella= audit_destinazione(tofiles);
+	myprintf("Folder for the archives (ENTER = %s): ", cartella.c_str());
+	string risposta;
+	if (!audit_riga(risposta))
+		return 2;
+	if (risposta != "")
+	{
+		cartella= risposta;
+		myreplaceall(cartella, "\\", "/");
+		if (cartella[cartella.size() - 1] != '/')
+			cartella+= '/';
+	}
+#ifndef _WIN32
+	if (((i_host == "localhost") || (i_host == "127.0.0.1") || (i_host == "::1")) && (geteuid() == 0) && direxists("/etc/pve/"))
+		return proxaudit(1, i_host, 0, "", "", cartella);
+#endif
+	/// 65.18b: the port of SSH asked, ENTER = the usual one
+	int porta= 22;
+	myprintf("SSH port of %s (ENTER = %d): ", i_host.c_str(), porta);
+	if (!audit_riga(risposta))
+		return 2;
+	if (risposta != "")
+	{
+		porta= atoi(risposta.c_str());
+		if ((stringtosomething(risposta, isdigit) != risposta) || (porta <= 0) || (porta > 65535))
+		{
+			myprintf("79825! <<%s>> is not a port (1-65535): nothing done\n", risposta.c_str());
+			return 2;
+		}
+	}
+	return proxaudit(0, i_host, porta, (i_utente == "root@pam") ? i_password : "", "", cartella);
+}
+#else
+int Jidac::workproxmoxaudit()
+{
+	myprintf("79810! work proxmox audit is not in this build (ANCIENT)\n");
+	return 2;
+}
+int Jidac::proxauditdalmenu(const string &i_host, const string &i_utente, const string &i_password)
+{
+	(void)i_host;
+	(void)i_utente;
+	(void)i_password;
+	return workproxmoxaudit();
+}
+#endif
+#endif ///NOSFTPEND
 /*
 	section: zip -all
 
@@ -211589,7 +223956,7 @@ int Jidac::extract()
 		if (versioncomment.length() > 0)
 		{
 			// try to find the comment, but be careful: 1, and only 1, allowed
-			const int versione= versionedicommento(versioncomment); /// 65.12g: from the -fast history, if there is
+			const int versione= versionedicommento(versioncomment); /// 65.12g: from the -lfast history, if there is
 			if (versione > 0)
 			{
 				myprintf("85368: -comment 'something' with -range => extracting single version\n");
@@ -211884,7 +224251,7 @@ int Jidac::extract()
 		g_rangefrom= 0;
 		g_rangeto  = 0;
 	}
-	/// 65.12g: -comment text: the version before reading, from the -fast history if there is one (it was a
+	/// 65.12g: -comment text: the version before reading, from the -lfast history if there is one (it was a
 	/// whole read, then a second one up to the version found)
 	if (flagcomment && (versioncomment.length() > 0) && (!flagrange))
 	{
@@ -213958,7 +226325,7 @@ bool Jidac::is_incomplete_trans(const char *arc)
 						while (s <= end - 9)
 						{
 							const char *fp = s + 8; // filename
-							if (fl_ispointer(fp) || vinfo_isinfo(fp)) /// -fast pointer, VFILE-info record (deletions): not files
+							if (fl_ispointer(fp) || vinfo_isinfo(fp)) /// -lfast pointer, VFILE-info record (deletions): not files
 							{
 								const char *datep= s;
 								if (list_btol(datep) == 0)
@@ -229657,7 +242024,7 @@ bool cp_paranoica(const string &i_sorgente, const string &i_destinazione, bool i
 	they are written (a d block has 0 as its first fragment: movable, see add); a fragment goes into the
 	first version taken whose files use it (every fragment of a version is used by a file of it, as
 	read_archive -until wants), and a d block of the old archive that no version taken uses is never
-	read. Not carried: VFILE-info, the -fast history and the state of -fastadd (they
+	read. Not carried: VFILE-info, the -lfast history and the state of -fastadd (they
 	speak of the versions of the old archive: the next add starts them again). VCOMMENT goes with its
 	version, renumbered.
 	Apart from the rest of the program: its own reader of the index (c h i blocks; strict: what does not
@@ -229712,7 +242079,7 @@ struct rp_versione
 	vector<rp_record> record;	/// files and deletions, as in its i blocks
 	bool			  commento; /// it has a VCOMMENT...
 	string			  testo;	/// ...with this text
-	int				  scartati; /// VFILE-info and -fast pointers (not carried)
+	int				  scartati; /// VFILE-info and -lfast pointers (not carried)
 	rp_versione() : data(0), primo(0), commento(false), scartati(0)
 	{
 	}
@@ -230653,7 +243020,7 @@ static string rp_leggi(const string &i_nome, rp_archivio &o_arc, rp_cruscotto *i
 					s= zero + 1;
 					if (r.data == 0)
 					{
-						/// not files: what this version said of itself (-fast, VFILE-info), its comment
+						/// not files: what this version said of itself (-lfast, VFILE-info), its comment
 						if (fl_ispointer(r.nome.c_str()) || (strncmp(r.nome.c_str(), "filelistpointer:", 16) == 0) || vinfo_isinfo(r.nome.c_str()))
 						{
 							++ver.scartati;
@@ -231203,7 +243570,7 @@ static string rp_controllo(const string &i_nome, const string &i_titolo, int64_t
 		if ((vn.commento != vv.commento) || (vn.testo != vv.testo))
 			return chi + "its comment";
 		if (vn.scartati != 0)
-			return chi + "VFILE-info or -fast records in it";
+			return chi + "VFILE-info or -lfast records in it";
 		for (; v <= i_prese[j - 1]; ++v)
 			rp_applica(i_vecchio.versioni[v], vecchiostato, toccati);
 		rp_applica(vn, nuovostato, toccati);
@@ -231451,16 +243818,12 @@ static string rp_scrivi(OutputArchive *out, const rp_archivio &i_vecchio, const 
 			rp_indice(*out, vv.data, (int)j, vv, i_tolti[j], i_scritti[j], nuovo, io_cr);
 			out->seek(cpos, SEEK_SET);
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_jidacheader= cpos; /// 65.16c: as add: the header goes to its place in the franzen file (writeat)
-#endif /// NOSFTPEND
 #endif
 			writeJidacHeader(out, vv.data, dfine - dinizio, primo);
 			out->flush();
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_jidacheader= -1;
-#endif /// NOSFTPEND
 #endif
 			out->seek(0, SEEK_END);
 			rp_conto conto;
@@ -231480,9 +243843,7 @@ static string rp_scrivi(OutputArchive *out, const rp_archivio &i_vecchio, const 
 			errore= "error";
 	}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	g_franzen_jidacheader= -1; /// (an error while the header was written: what comes after is not the header)
-#endif /// NOSFTPEND
 #endif
 	if (comp != NULL)
 	{
@@ -231740,9 +244101,7 @@ int Jidac::repackversions()
 		fuori.franzen= g_franzen;
 	bool franzenqui= false; /// a build with Franzen
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	franzenqui= true;
-#endif /// NOSFTPEND
 #endif
 	const bool franzenfuori= (fuori.franzen != "");
 	if (franzenfuori && (!franzenqui))
@@ -231769,18 +244128,14 @@ int Jidac::repackversions()
 	OutputArchive *out= NULL;
 	rp_guardia	   guardia(temporaneo); /// 65.16g: from here a control-C deletes it
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	const int64_t rottiprima= g_franzen_scrittirotti;
-#endif /// NOSFTPEND
 #endif
 	if (!anteprima) /// 65.16g: -test writes nothing
 		try
 		{
 			fuori.usa();
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_zpaq_nowrite= franzenfuori; /// its .franzen only: never a .zpaq beside it
-#endif /// NOSFTPEND
 #endif
 			char sale[32]= {0};
 			if (fuori.aes)
@@ -231991,10 +244346,8 @@ int Jidac::repackversions()
 			errore= e.what();
 		}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if ((errore == "") && (g_franzen_scrittirotti != rottiprima))
 			errore= "cannot write the franzen file";
-#endif /// NOSFTPEND
 #endif
 		delete out;
 		out= NULL;
@@ -233356,9 +245709,7 @@ int Jidac::workpoke()
 static int64_t franzenrotti()
 {
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	return g_franzen_lettirotti;
-#endif /// NOSFTPEND
 #endif
 	return 0;
 }
@@ -233801,13 +246152,13 @@ static wstring faultgen_lungo(const string &i_nome)
 /// same with _w in the name and -whirlpool (other franz blocks). Every a is zpaqfranz itself, one after the other,
 /// killed after RAFFICA_TIMEOUT_MS. The first a not OK stops all (said which, and what it wrote). An archive
 /// already there: nothing done. o_archivi: the archives made, full path (franzen ones always .zpaq.franzen); o_chiavi,
-/// for each one the switches to read it (the passwords: " -key pippo"...; not -nofast -whirlpool, of a only), empty for
+/// for each one the switches to read it (the passwords: " -key pippo"...; not -nolfast -whirlpool, of a only), empty for
 /// a plain one
 /// 65.15j: the formats of raffica, here (work probe needs the passwords of each one too): name, extension, switches
 /// of a only, passwords (of a and of every check). 65.15o: first phase on the plain archives only: the
 /// encrypted ones commented out, to put back when the plain ones are done
 static const char *faultgen_formati[][4]= {{"plain_fast", ".zpaq", "", ""},
-											 {"plain_nofast", ".zpaq", " -nofast", ""}};
+											 {"plain_nofast", ".zpaq", " -nolfast", ""}};
 ///											 {"plain_a", ".zpaq", "", " -key pippo"},
 ///											 {"plain_e", ".zpaq.franzen", "", " -key pippo -franzen pluto"},
 ///											 {"plain_f", ".zpaq.franzen", "", " -franzen pluto"}};
@@ -240673,7 +253024,6 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (is_file_franzen(archive))
 			if (flagssd)
 			{
@@ -240687,7 +253037,6 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 				}
 				color_restore();
 			}
-#endif /// NOSFTPEND
 #endif
 	}
 
@@ -241090,6 +253439,8 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 					ctx.pending_jobs.insert(current_needed_block);
 					pthread_cond_signal(&cond_new_job);
 				}
+				else
+					coda_in_testa(ctx.job_queue, current_needed_block); /// 65.18f: before the blocks read ahead
 				pthread_mutex_unlock(&queue_mutex);
 
 				ctx.priority_block= current_needed_block;
@@ -241713,7 +254064,7 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 		risultato= 1;
 	/// 65.15z9: a bad fragment no file of this version uses, but a file of another version does (the one before a
 	/// change): its data are lost for x -all. pp said WARNING (66407), t and tw ERROR: an ERROR. The
-	/// fragments of the -fast history only (VFILE-) stay a WARNING; where read_archive could not say, as before
+	/// fragments of the -lfast history only (VFILE-) stay a WARNING; where read_archive could not say, as before
 	if ((ctx.frag_stato != NULL) && g_frammentifile_validi && (risultato < 2))
 	{
 		int64_t persi= 0;
@@ -241979,9 +254330,9 @@ string incolonna(const string &filename, int lunghezza)
 
 /*
 	65.12d dump, what is new:
-	- the "virtual files": the records of zpaqfranz that are not files (the -fast history and its
+	- the "virtual files": the records of zpaqfranz that are not files (the -lfast history and its
 	  pointers, VFILE-info, the version comments, the VFILE-l-* files...), kind by kind: how many, how
-	  big, the first and the last version with one. And the -fast history itself: its blocks, its bytes
+	  big, the first and the last version with one. And the -lfast history itself: its blocks, its bytes
 	- the blocks of every version, in sequence: c, then d and h in pairs (same number), i from 1.
 	  What is missing is said, version by version (read_archive does the same, without the d blocks)
 	- a block that cannot be read does not end the dump: it goes on from the next block found (it was
@@ -242022,11 +254373,11 @@ static string dump_tipovirtuale(const char *i_nome, int64_t i_data)
 	if (i_data == 0)
 	{
 		if (fl_ispointer(i_nome))
-			return (strcmp(i_nome, ZPAQFILELIST_TAG "stop") == 0) ? "-fast history: stop (-nofast)" : "-fast history: pointer";
+			return (strcmp(i_nome, ZPAQFILELIST_TAG "stop") == 0) ? "-lfast history: stop (-nolfast)" : "-lfast history: pointer";
 		if (vinfo_isinfo(i_nome))
 			return (strstr(i_nome, "|sc=") != NULL) ? "VFILE-info, with -fastadd state" : "VFILE-info";
 		if (strncmp(i_nome, "filelistpointer:", 16) == 0)
-			return "filelistpointer: (older -fast)";
+			return "filelistpointer: (older -lfast)";
 	}
 	if (strncmp(i_nome, "VCOMMENT ", 9) == 0)
 		return "VCOMMENT (version comment)";
@@ -242129,7 +254480,7 @@ int Jidac::dump()
 
 	std::map<string, dump_virtuale> virtuali;
 	vector<dump_versione>			versioni(1);  /// 0: what comes before the first c block
-	std::map<int, string>			storie;		  /// the -fast pointer of every version, its pieces joined
+	std::map<int, string>			storie;		  /// the -lfast pointer of every version, its pieces joined
 	std::map<string, string>		tipihash;	  /// the bytes that tell the hash of a franz block -> its name (decoded once)
 	int64_t							franzblocchi= 0; /// records with a franz block (hash, CRC-32...)
 	int64_t							posix		= 0; /// ...with the posix part of -tar
@@ -242724,7 +255075,7 @@ int Jidac::dump()
 		for (std::map<string, dump_virtuale>::const_iterator p= virtuali.begin(); p != virtuali.end(); ++p)
 			myprintf("03103: %-34s %12s %17s %10s %10s\n", p->first.c_str(), migliaia(p->second.record), migliaia2(p->second.byte), migliaia3(p->second.prima), migliaia4(p->second.ultima));
 	}
-	/// the -fast history: the last pointer says how big it is; the fragments of all the pointers are its blocks
+	/// the -lfast history: the last pointer says how big it is; the fragments of all the pointers are its blocks
 	int64_t storiablocchi= 0;
 	if (!storie.empty())
 	{
@@ -242775,10 +255126,10 @@ int Jidac::dump()
 				compresso+= block[k].bsize;
 			}
 		if (ultima > 0)
-			myprintf("03104: -fast history: the last one (version %s) is of %s versions, %s bytes\n", migliaia(ultima), migliaia2(versioni_s), migliaia3(grandezza));
-		myprintf("03105: -fast history: %s fragments (%s bytes, deduplicated) in %s d blocks, %s bytes in the archive (%1.3f%%)\n", migliaia(frammenti), migliaia2(espanso), migliaia3(storiablocchi), migliaia4(compresso), (block_offset > 0) ? (100.0 * compresso / block_offset) : 0.0);
+			myprintf("03104: -lfast history: the last one (version %s) is of %s versions, %s bytes\n", migliaia(ultima), migliaia2(versioni_s), migliaia3(grandezza));
+		myprintf("03105: -lfast history: %s fragments (%s bytes, deduplicated) in %s d blocks, %s bytes in the archive (%1.3f%%)\n", migliaia(frammenti), migliaia2(espanso), migliaia3(storiablocchi), migliaia4(compresso), (block_offset > 0) ? (100.0 * compresso / block_offset) : 0.0);
 		if (rotte > 0)
-			myprintf("03106$ -fast history: %s pointer(s) not understood (damaged, or a newer zpaqfranz?)\n", migliaia(rotte));
+			myprintf("03106$ -lfast history: %s pointer(s) not understood (damaged, or a newer zpaqfranz?)\n", migliaia(rotte));
 	}
 
 	/// the blocks of every version, in sequence
@@ -243434,6 +255785,8 @@ int Jidac::testparametriadd()
 		(x_001.zpaq.franzen), and the index of a backup too. Not yet: -index (the parts
 		elsewhere; -chunk yes, since 65.13e). All franzen or all plain: decided by the first part
 	*/
+	if (archivio_cartella(archive)) /// 65.18f: "a z:\pippo\ *.cpp" made z:/pippo/.zpaq
+		return 2;
 #if defined(unix) && (defined(ESX) || defined(OPEN))
 	/// 65.16h: -tar where the metadata are never saved (ESXi, OPEN: see TAR_SECONDS): one line now, before anything
 	/// is written, instead of a "79531!" for every file and an archive without them
@@ -243473,7 +255826,6 @@ int Jidac::testparametriadd()
 	{
 		bool franzenisok= false;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		if (strrchr(archive.c_str(), '?'))
 		{
 			myprintf("02709! Sorry, franzen not supported (yet) for multipart\n");
@@ -243510,7 +255862,6 @@ int Jidac::testparametriadd()
 				return 2;
 			}
 		franzenisok= true;
-#endif /// NOSFTPEND
 #endif
 		if (!franzenisok)
 		{
@@ -244009,7 +256360,6 @@ void Jidac::handlemultiparttrim()
 						}
 					}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	/*
 		65.11l: the same when the part and the index are franzen files (backup -franzen): a part with the
 		header only is removed, and the index is cut back to what it was. A franzen file grows by
@@ -244040,7 +256390,6 @@ void Jidac::handlemultiparttrim()
 				myprintf("72146: Cannot delete_file <<%Z>>\n", parte.c_str());
 		}
 	}
-#endif /// NOSFTPEND
 #endif
 }
 #if defined(_WIN32) && !defined(ANCIENT)
@@ -248659,6 +261008,10 @@ int Jidac::gestisciflagimage()
 		}
 
 #endif // corresponds to #ifdef (#ifdef _WIN32)
+		/// 65.18r (issue 352): -noattributes for -stdin and -image too (the file was stored with 'w' + ARCHIVE, "A....",
+		/// on Windows, 0644 on *nix), as for the files added from the disk
+		if (flagnoattributes)
+			d.attr= 0;
 		d.data	 = 16777215;
 		d.written= -1;
 		if (flagdebug3)
@@ -248813,7 +261166,6 @@ int Jidac::gestiscisingleormultipart()
 			if (fp == FPNULL)
 			{
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 				/// 65.11l: a part that is a franzen file only: its size is the one of the data inside
 				const int64_t dentro= (g_franzen != "") ? franzcri::leggi_dimensione(franzenname(partname).c_str()) : -1;
 				if (dentro >= 0)
@@ -248822,7 +261174,6 @@ int Jidac::gestiscisingleormultipart()
 					offset+= dentro;
 					continue;
 				}
-#endif /// NOSFTPEND
 #endif
 				break;
 			}
@@ -248974,7 +261325,6 @@ int Jidac::gestiscisingleormultipart()
 		if (fp == FPNULL)
 		{
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			if (isfranzenonly(subpart(archive, 1)))
 			{
 				// franzen-only AES archive: the salt lives at decoded offset 0 of the .franzen
@@ -248990,7 +261340,6 @@ int Jidac::gestiscisingleormultipart()
 				fc.close();
 			}
 			else
-#endif /// NOSFTPEND
 #endif
 			{
 				if (header_pos > 32)
@@ -249088,13 +261437,22 @@ void Jidac::gestiscimultipart()
 
 	(void)getfileinfo(arcname, g_starting_zpaqsize, g_starting_zpaqdate, g_starting_zpaqattr);
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (isfranzenonly(arcname))
 		(void)getfileinfo(franzenname(arcname), g_starting_zpaqsize, g_starting_zpaqdate, g_starting_zpaqattr);
-#endif /// NOSFTPEND
 #endif
 	g_starting_indexsize= 0;
 #ifndef NOFRANZEN
+	if (g_franzen_filename!="")
+	{
+		if (fileexists(g_franzen_filename))
+			g_starting_franzenfile=prendidimensionefile(g_franzen_filename.c_str());
+		if (flagverbose)
+		{
+			color_magenta();
+			myprintf("Franzen start size %s\n",migliaia(g_starting_franzenfile));
+			color_restore();
+		}	
+	}
 #endif
 	if (!flagnotrim)
 		if (index)
@@ -249123,11 +261481,9 @@ int Jidac::gestiscitxt()
 		{
 			string fasttarget= g_archive;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			// franzen-only: the fasttxt tracks the physical .zpaq.franzen
 			if ((g_franzen != "") && (!exists(g_archive)) && (g_chunk_size == 0))
 				fasttarget= g_archive + ".franzen";
-#endif /// NOSFTPEND
 #endif
 			int resultzpaq= makecrc32txt(fasttarget, initialquickhash, initialzpaqsize, initialzpaqquick, initialzpaqcrc32, prezpaqcrc32, prezpaqsize, fasttxt);
 			if (resultzpaq != 0)
@@ -249231,13 +261587,11 @@ int Jidac::gestisciwrite()
 			g_flagcreating= false;
 		}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 		else if ((g_chunk_size == 0) && isfranzenonly(arcname))
 		{
 			myprintf("02046: Updating (franzen-only) %Z at offset %s + %s\n", franzenname(arcname).c_str(), migliaia(header_pos), migliaia2(offset));
 			g_flagcreating= false;
 		}
-#endif /// NOSFTPEND
 #endif
 		else
 		{
@@ -249283,7 +261637,6 @@ int Jidac::gestisciwrite()
 int Jidac::aggiornafasttxt()
 {
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (fasttxt != "")
 		if ((g_franzen != "") && (!fileexists(g_archive)) && (g_chunk_size == 0))
 		{
@@ -249313,7 +261666,6 @@ int Jidac::aggiornafasttxt()
 			}
 			return 0;
 		}
-#endif /// NOSFTPEND
 #endif
 	if (fasttxt != "")
 		if (fileexists(g_archive))
@@ -249772,10 +262124,8 @@ int Jidac::gestiscicalcolifinali()
 	}
 	string thephysical= g_archive;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (isfranzenonly(g_archive))
 		thephysical= franzenname(g_archive); // franzen-only: hash the real file on disk
-#endif /// NOSFTPEND
 #endif
 	return calcolifinali(thephysical);
 }
@@ -251907,7 +264257,6 @@ int Jidac::add()
 
 	const bool archive_exists= exists(subpart(archive, 1).c_str());
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	// "automagic" check: distinguish .zpaq exists / only .zpaq.franzen exists / nothing exists.
 	// If the .zpaq is missing but a valid .zpaq.franzen is there, this is a franzen-only archive:
 	// never fork a fresh cleartext .zpaq beside it.
@@ -251945,7 +264294,6 @@ int Jidac::add()
 					}
 				}
 			}
-#endif /// NOSFTPEND
 #endif
 	/// not with -index: there the parts can be elsewhere, by design
 	if ((!index) && multipartbucato(archive))
@@ -251963,13 +264311,11 @@ int Jidac::add()
 	if (exists(subpart(arcname, 1).c_str()))
 		header_pos= read_archive_add(arcname.c_str());
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	else if (isfranzenonly(subpart(arcname, 1))) /// 65.13e: -chunk too
 	{
 		// no cleartext .zpaq: load the index from the .zpaq.franzen (decrypted on the fly)
 		header_pos= read_archive_add(arcname.c_str());
 	}
-#endif /// NOSFTPEND
 #endif
 
 	/// the last block was read (x extracts its content) but it is damaged at its very end:
@@ -252046,7 +264392,7 @@ int Jidac::add()
 
 	if (gestiscitxt() != 0)
 		return 2;
-	vinfo_prima(); /// -fast: the VFILE-info record of the version to be written
+	vinfo_prima(); /// -lfast: the VFILE-info record of the version to be written
 
 	//////////////////////////////////////////////////
 	/// the magic start here
@@ -252283,7 +264629,7 @@ int Jidac::add()
 
 	gestisciorderbyemenoenne();
 
-	if (((total_size == 0) && (flagimage == false)) && (vf.size() == 0) && (folders == 0) && (removedcount == 0)) /// nothing to do: no version, not even for the history (-fast)
+	if (((total_size == 0) && (flagimage == false)) && (vf.size() == 0) && (folders == 0) && (removedcount == 0)) /// nothing to do: no version, not even for the history (-lfast)
 	{
 		myprintf("\n");
 		myprintf("02021: QUIT: total size,file/folder count == zero. Already archived/wrong/inaccessible source?\n");
@@ -252321,7 +264667,6 @@ int Jidac::add()
 		return 2;
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	// -franzen alone (no -key, no -debug): write only the .zpaq.franzen, no cleartext .zpaq
 	// (covers both creation and incremental append on a franzen-only archive).
 	// -debug writes both files only on CREATION: an existing franzen-only archive stays
@@ -252332,7 +264677,6 @@ int Jidac::add()
 	/// 65.11l: with an index too (backup): the index is then a franzen file as well (see OutputArchive)
 	/// 65.13e: -chunk -franzen: always the franzen file only (also with -debug), every part a franzen file
 	g_franzen_zpaq_nowrite= (g_franzen != "") && (isfranzen(arcname) || ((!exists(arcname)) && ((!flagdebug) || (g_chunk_size > 0) || is_file_franzen(arcname + ".franzen")))) && (!g_fakewrite);
-#endif /// NOSFTPEND
 #endif
 
 	if (flagdebug2)
@@ -252350,11 +264694,9 @@ int Jidac::add()
 	/// 65.13e: -chunk -franzen: offset is the sum of the parts there (the data in them, see gestiscisingleormultipart): the
 	/// first franzen part of this run is already there, empty, and an InputArchive cannot read it
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if ((g_chunk_size > 0) && g_franzen_zpaq_nowrite)
 		initial_archive_size= offset;
 	else
-#endif /// NOSFTPEND
 #endif
 	if ((g_chunk_size > 0) && (!((g_fakewrite || flagtmp) && (!exists(subpart(archive, 1)))))) // we have multiple output,maybe multiple in too: => sum the filesizes
 	{
@@ -253422,7 +265764,7 @@ int Jidac::add()
 		join(wid);
 	}
 
-	/// the index is built here, before the fragment tables: -fast
+	/// the index is built here, before the fragment tables: -lfast
 	/// needs the records of this version to store the history
 	vector<string> indexchunks;
 
@@ -253553,18 +265895,14 @@ int Jidac::add()
 			}
 			out.seek(header_pos, SEEK_SET);
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_jidacheader= header_pos;
-#endif /// NOSFTPEND
 #endif
 			writeJidacHeader(&out, date, cdatasize, htsize);
 			if (flagdebug3)
 				myprintf("02131: preflush\n");
 			out.flush(); // this is fundamental!
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_jidacheader= -1; /// 65.11r //FIX-FRANZEN: the header is written: what comes after is not the header
-#endif /// NOSFTPEND
 #endif
 			if (flagdebug3)
 				myprintf("02132: postflush\n");
@@ -253697,7 +266035,6 @@ int Jidac::add()
 							myprintf("02144$ WARNING trouble in touching\n");
 					}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART					
 					if (g_franzen_filename!="")
 					{
 						if (fileexists(g_franzen_filename))
@@ -253730,7 +266067,6 @@ int Jidac::add()
 							}
 						}
 					}
-#endif /// NOSFTPEND
 #endif
 
 				}
@@ -253864,10 +266200,8 @@ int Jidac::add()
 		{
 			string tobecopied= g_archive;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			if (isfranzenonly(g_archive))
 				tobecopied= g_archive + ".franzen"; // franzen-only: the .franzen is the archive
-#endif /// NOSFTPEND
 #endif
 			/// 65.11p: -chunk: every chunk of this run (it was the first one only)
 			std::vector<string> dacopiare;
@@ -253923,11 +266257,9 @@ int Jidac::add()
 
 	dimensione_garchive= prendidimensionefile(g_archive.c_str());
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (dimensione_garchive <= 0)
 		if (isfranzenonly(g_archive))
 			dimensione_garchive= prendidimensionefile((g_archive + ".franzen").c_str());
-#endif /// NOSFTPEND
 #endif
 
 ///	myprintf("dimensione g_archive %s\n",migliaia(dimensione_garchive));
@@ -254320,7 +266652,6 @@ int Jidac::add2()
 
 	const bool archive_exists= exists(subpart(archive, 1).c_str());
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	// "automagic" check: distinguish .zpaq exists / only .zpaq.franzen exists / nothing exists.
 	// If the .zpaq is missing but a valid .zpaq.franzen is there, this is a franzen-only archive:
 	// never fork a fresh cleartext .zpaq beside it.
@@ -254358,7 +266689,6 @@ int Jidac::add2()
 					}
 				}
 			}
-#endif /// NOSFTPEND
 #endif
 	/// not with -index: there the parts can be elsewhere, by design
 	if ((!index) && multipartbucato(archive))
@@ -254381,13 +266711,11 @@ int Jidac::add2()
 	if (exists(subpart(arcname, 1).c_str()))
 		header_pos= read_archive_add(arcname.c_str());
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	else if (isfranzenonly(subpart(arcname, 1))) /// 65.13e: -chunk too
 	{
 		// no cleartext .zpaq: load the index from the .zpaq.franzen (decrypted on the fly)
 		header_pos= read_archive_add(arcname.c_str());
 	}
-#endif /// NOSFTPEND
 #endif
 	if (sc_attivo)
 	{
@@ -254500,7 +266828,7 @@ int Jidac::add2()
 
 	if (gestiscitxt() != 0)
 		return 2;
-	vinfo_prima(); /// -fast: the VFILE-info record of the version to be written
+	vinfo_prima(); /// -lfast: the VFILE-info record of the version to be written
 
 	//////////////////////////////////////////////////
 	/// the magic start here
@@ -254738,7 +267066,7 @@ int Jidac::add2()
 
 	gestisciorderbyemenoenne();
 
-	if (((total_size == 0) && (flagimage == false)) && (vf.size() == 0) && (folders == 0) && (removedcount == 0)) /// nothing to do: no version, not even for the history (-fast)
+	if (((total_size == 0) && (flagimage == false)) && (vf.size() == 0) && (folders == 0) && (removedcount == 0)) /// nothing to do: no version, not even for the history (-lfast)
 	{
 		myprintf("\n");
 		myprintf("02021: QUIT: total size,file/folder count == zero. Already archived/wrong/inaccessible source?\n");
@@ -254776,7 +267104,6 @@ int Jidac::add2()
 		return 2;
 
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	// -franzen alone (no -key, no -debug): write only the .zpaq.franzen, no cleartext .zpaq
 	// (covers both creation and incremental append on a franzen-only archive).
 	// -debug writes both files only on CREATION: an existing franzen-only archive stays
@@ -254787,7 +267114,6 @@ int Jidac::add2()
 	/// 65.11l: with an index too (backup): the index is then a franzen file as well (see OutputArchive)
 	/// 65.13e: -chunk -franzen: always the franzen file only (also with -debug), every part a franzen file
 	g_franzen_zpaq_nowrite= (g_franzen != "") && (isfranzen(arcname) || ((!exists(arcname)) && ((!flagdebug) || (g_chunk_size > 0) || is_file_franzen(arcname + ".franzen")))) && (!g_fakewrite);
-#endif /// NOSFTPEND
 #endif
 
 	if (flagdebug2)
@@ -254805,11 +267131,9 @@ int Jidac::add2()
 	/// 65.13e: -chunk -franzen: offset is the sum of the parts there (the data in them, see gestiscisingleormultipart): the
 	/// first franzen part of this run is already there, empty, and an InputArchive cannot read it
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if ((g_chunk_size > 0) && g_franzen_zpaq_nowrite)
 		initial_archive_size= offset;
 	else
-#endif /// NOSFTPEND
 #endif
 	if ((g_chunk_size > 0) && (!((g_fakewrite || flagtmp) && (!exists(subpart(archive, 1)))))) // we have multiple output,maybe multiple in too: => sum the filesizes
 	{
@@ -255123,7 +267447,26 @@ int Jidac::add2()
 	/// -turbo (add2): two batches of a plain file (one is read while the other
 	/// is worked), each one after room for the fragment that is still open at
 	/// the end of the previous batch (less than MAX_FRAGMENT)
-	const int64_t		 TURBOCHUNK= (int64_t)64 << 20;
+	/// 65.18l: a batch is at most half of the queue of the compressors, in bytes ((2T-1) blocks), up to 64 MB:
+	/// with small blocks (-m82, -m80) a batch of 64 MB did not fit in the queue, the main thread waited for the
+	/// compressors while the threads of the fragmenter stood still (-m82 -t4: 634 MB/s, -m8 -t4: 965), and the
+	/// two buffers took 128 MB anyway. -m8 with 16 threads: 64 MB, as before. The archive is the same: the cuts
+	/// depend on the data, not on the batch. At least 4 MB (an image: turboimg wants g_ioBUFSIZE at most)
+	int64_t turbochunk= (int64_t)blocksize * (int64_t)(howmanythreads * 2 - 1) / 2;
+	if (turbochunk > ((int64_t)64 << 20))
+		turbochunk= (int64_t)64 << 20;
+	turbochunk&= ~(((int64_t)1 << 20) - 1); /// whole MB
+	if (turbochunk < ((int64_t)4 << 20))
+		turbochunk= (int64_t)4 << 20;
+	if (g_turbochunk > 0) /// -turbochunk X, not in the help: for the tests (1 MB .. 1 GB)
+	{
+		turbochunk= (int64_t)g_turbochunk;
+		if (turbochunk < ((int64_t)1 << 20))
+			turbochunk= (int64_t)1 << 20;
+		if (turbochunk > ((int64_t)1 << 30))
+			turbochunk= (int64_t)1 << 30;
+	}
+	const int64_t		 TURBOCHUNK= turbochunk;
 	const int64_t		 TURBOROOM = (int64_t)MAX_FRAGMENT + 64;
 	std::vector<char>	 turbobuf[2]; /// allocated at the first big file only
 	std::vector<s_add2frag> turbofrags;
@@ -255140,7 +267483,12 @@ int Jidac::add2()
 	if (turbothreads > 32)
 		turbothreads= 32;
 	if (flagverbose)
-		myprintf("65392: -turbo with %d thread(s)%s\n", turbothreads, (g_turbothreads > 0) ? "" : " (as -t)");
+	{
+		if (turbothreads > 1)
+			myprintf("65392: -turbo with %d thread(s)%s, batches of %s%s\n", turbothreads, (g_turbothreads > 0) ? "" : " (as -t)", tohuman(TURBOCHUNK), (g_turbochunk > 0) ? " (-turbochunk)" : "");
+		else
+			myprintf("65392: -turbo with %d thread(s)%s\n", turbothreads, (g_turbothreads > 0) ? "" : " (as -t)");
+	}
 	std::vector<std::vector<s_add2frag> > turbolists((size_t)turbothreads);
 	/// -sa, stage 4.3: the JPEGs one next to the other by their header (sa_chiave_jpeg), in the
 	/// places they had: the other files keep theirs. Two equal keys keep zpaq's order between them
@@ -256723,7 +269071,7 @@ int Jidac::add2()
 		join(wid);
 	}
 
-	/// the index is built here, before the fragment tables: -fast
+	/// the index is built here, before the fragment tables: -lfast
 	/// needs the records of this version to store the history
 	vector<string> indexchunks;
 	buildindexchunks(indexchunks);
@@ -256859,18 +269207,14 @@ int Jidac::add2()
 			}
 			out.seek(header_pos, SEEK_SET);
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_jidacheader= header_pos;
-#endif /// NOSFTPEND
 #endif
 			writeJidacHeader(&out, date, cdatasize, htsize);
 			if (flagdebug3)
 				myprintf("02131: preflush\n");
 			out.flush(); // this is fundamental!
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			g_franzen_jidacheader= -1; /// 65.11r //FIX-FRANZEN: the header is written: what comes after is not the header
-#endif /// NOSFTPEND
 #endif
 			if (flagdebug3)
 				myprintf("02132: postflush\n");
@@ -257003,7 +269347,6 @@ int Jidac::add2()
 							myprintf("02144$ WARNING trouble in touching\n");
 					}
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART					
 					if (g_franzen_filename!="")
 					{
 						if (fileexists(g_franzen_filename))
@@ -257036,7 +269379,6 @@ int Jidac::add2()
 							}
 						}
 					}
-#endif /// NOSFTPEND
 #endif
 
 				}
@@ -257170,10 +269512,8 @@ int Jidac::add2()
 		{
 			string tobecopied= g_archive;
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 			if (isfranzenonly(g_archive))
 				tobecopied= g_archive + ".franzen"; // franzen-only: the .franzen is the archive
-#endif /// NOSFTPEND
 #endif
 			/// 65.11p: -chunk: every chunk of this run (it was the first one only)
 			std::vector<string> dacopiare;
@@ -257229,11 +269569,9 @@ int Jidac::add2()
 
 	dimensione_garchive= prendidimensionefile(g_archive.c_str());
 #ifndef NOFRANZEN
-#ifdef ZPAQFULL /// NOSFTPSTART
 	if (dimensione_garchive <= 0)
 		if (isfranzenonly(g_archive))
 			dimensione_garchive= prendidimensionefile((g_archive + ".franzen").c_str());
-#endif /// NOSFTPEND
 #endif
 
 ///	myprintf("dimensione g_archive %s\n",migliaia(dimensione_garchive));
@@ -259369,6 +271707,298 @@ int Jidac::restoreimage()
 
 
 #ifndef NOFRANZEN
+int Jidac::franzencommand()
+{
+    if (files.size() < 1)
+    {
+        myprintf("03432! No parameter, sorry\n");
+        return 2;
+    }
+
+    string mycommand = files[0];
+    
+	
+		
+	if (mycommand == "compare")
+    {
+        if (files.size() != 3)
+        {
+            myprintf("83218! For compare you need: franzen compare <file1> <file2>\n");
+            return 2;
+        }
+		bool risultato=headcompare(files[1],files[2]);
+		if (risultato)
+		{
+			color_green();
+			myprintf("20936: Equal\n");
+			color_restore();
+			return 0;
+		}
+		else
+		{
+			color_yellow();
+			myprintf("20932: DIFFERENT\n");
+			color_restore();
+			return 1;
+		}
+		return 0;
+	}
+	if (mycommand == "dump")
+    {
+        if (files.size() != 2)
+        {
+            myprintf("83218! For dump you need: franzen test <source_file>\n");
+            return 2;
+        }
+        if (g_franzen == "")
+        {
+            myprintf("16662! You need to specify -franzen <password>\n");
+            return 2;
+        }
+
+        string input_filename = files[1];
+        
+        if (!fileexists(input_filename))
+        {
+            myprintf("83220! File not found: %s\n", input_filename.c_str());
+            return 2;
+        }
+        
+        if (!is_file_franzen(input_filename))
+        {
+            myprintf("83221! File is not a valid Franzen file: %s\n", input_filename.c_str());
+            return 2;
+        }
+
+		franzcri fc(g_franzen.c_str(), g_franzen.length());
+		if (!fc.open(input_filename.c_str(), false))
+		{
+			myprintf("16958: cannot open file\n");
+			return 2;
+		}
+		fc.dumpa(all,menoenne);
+		fc.close();
+		
+		return 0;
+    }
+
+    if (mycommand == "test")
+    {
+        if (files.size() != 2)
+        {
+            myprintf("83218! For test you need: franzen test <source_file>\n");
+            return 2;
+        }
+        if (g_franzen == "")
+        {
+            myprintf("16662! You need to specify -franzen <password>\n");
+            return 2;
+        }
+
+        string input_filename = files[1];
+        
+        if (!fileexists(input_filename))
+        {
+            myprintf("83220! File not found: %s\n", input_filename.c_str());
+            return 2;
+        }
+        
+        if (!is_file_franzen(input_filename))
+        {
+            myprintf("83221! File is not a valid Franzen file: %s\n", input_filename.c_str());
+            return 2;
+        }
+
+        return do_franzen_operation(input_filename, "", false, true);  // decode, test_only=true
+    }
+
+   
+
+	if (mycommand == "autotest")
+	{
+		franzcri fc("password123", strlen("password12"));
+		return fc.criautotest() ? 0 : 2;
+	}
+
+
+    if (mycommand == "ispasswordok")
+    {
+        if (files.size() != 2)
+        {
+            myprintf("83218! For ispasswordok you need: franzen ispasswordok <source_file>\n");
+            return 2;
+        }
+        if (g_franzen == "")
+        {
+            myprintf("16662! You need to specify -franzen <password>\n");
+            return 2;
+        }
+        
+        const string& input_filename = files[1];
+        
+        if (!fileexists(input_filename))
+        {
+            myprintf("83220! File not found: %s\n", input_filename.c_str());
+            return 2;
+        }
+
+        franzcri fc(g_franzen.c_str(), g_franzen.length());
+        if (fc.is_password_ok(input_filename.c_str()))
+        {
+            color_green();
+            myprintf("90474: Password is correct\n");
+            color_restore();
+            return 0;
+        }
+
+        color_red();
+        myprintf("90480! Password is incorrect\n");
+        color_restore();
+        return 2;
+    }
+
+    // Auto-detect: encode o decode in base al magic del file
+    
+    // Se mycommand non è un comando noto, è il file sorgente
+    string input_filename = mycommand;
+    
+    if (!fileexists(input_filename))
+    {
+        myprintf("83230! File not found: %s\n", input_filename.c_str());
+        return 2;
+    }
+    
+    if (g_franzen == "")
+    {
+        myprintf("16662! You need to specify -franzen <password>\n");
+        return 2;
+    }
+    
+    // Determina operazione in base al magic
+    bool is_franzen = is_file_franzen(input_filename);
+    bool is_encode = !is_franzen;  // Se non è franzen, lo criptiamo
+    
+    // Determine output file
+    string output_filename = "";
+    
+    if (tofiles.size() > 1)
+    {
+        myprintf("15634! You can specify at most one -to destination\n");
+        return 2;
+    }
+    
+    if (tofiles.size() == 1)
+    {
+        output_filename = tofiles[0];
+    }
+    else
+    {
+        // Generate automatic name
+        if (is_encode)
+        {
+            // Encryption: add .franzen
+            output_filename = input_filename + ".franzen";
+        }
+        else
+        {
+            // Decryption: remove .franzen if present
+            if (isfranzen(input_filename))
+                output_filename = input_filename.substr(0, input_filename.length() - 8);
+            else
+                output_filename = input_filename + ".decrypted";
+        }
+        
+        // Se il nome generato esiste già, prova con suffisso .decrypted / .encrypted
+        if (fileexists(output_filename))
+        {
+            if (is_encode)
+                output_filename = input_filename + ".encrypted.franzen";
+            else
+                output_filename = input_filename + ".decrypted";
+        }
+    }
+    
+    // Controlla che il file di output non esista già
+    if (fileexists(output_filename))
+    {
+        myprintf("83240! Output file already exists: %s\n", output_filename.c_str());
+        myprintf("       Use -to to specify a different destination, or delete the existing file\n");
+        return 2;
+    }
+    
+    return do_franzen_operation(input_filename, output_filename, is_encode, false);
+}
+
+// Helper function per eseguire encode/decode
+
+int Jidac::do_franzen_operation(const string& input_filename, const string& output_filename, 
+                                 bool is_encode, bool test_only)
+{
+    int threads = howmanythreads;
+    if (threads <= 0)
+        threads = 1;
+    if (!flagssd)
+        threads = 1;
+
+    int64_t dimensione = prendidimensionefile(input_filename.c_str());
+    int64_t startenc = mtime();
+    bool success = false;
+
+    franzcri fc(g_franzen.c_str(), g_franzen.length());
+
+    // Messaggi
+    const char* op_name = is_encode ? "Encrypting" : "Decrypting";
+    const char* thread_mode = (threads == 1) ? "Single thread" : "Multi thread";
+    const char* ssd_hint = (threads == 1) ? " (use -ssd for multi-thread)" : "";
+    
+    if (test_only)
+    {
+        myprintf("86183: %s %s testing%s: %s\n", 
+                 thread_mode, op_name, ssd_hint, input_filename.c_str());
+        success = fc.decode_parallela(input_filename.c_str(), NULL, threads);
+    }
+    else
+    {
+        myprintf("86183: %s %s%s: %s -> %s\n", 
+                 thread_mode, op_name, ssd_hint, input_filename.c_str(), output_filename.c_str());
+        
+        if (is_encode)
+            success = fc.encode_parallela(input_filename.c_str(), output_filename.c_str(), threads);
+        else
+            success = fc.decode_parallela(input_filename.c_str(), output_filename.c_str(), threads);
+    }
+
+    double tempo = (mtime() - startenc) / 1000.0;
+    if (tempo < 0.001) 
+        tempo = 0.001;  // Evita divisione per zero
+
+    eol();
+    
+    if (success)
+    {
+        color_green();
+        myprintf("OK: %s (%s) in %.2fs @ %s/s\n", 
+                 migliaia(dimensione), tohuman(dimensione), tempo, tohuman2((int64_t)(dimensione / tempo)));
+        color_restore();
+        return 0;
+    }
+    else
+    {
+        color_red();
+        myprintf("FAILED!\n");
+        color_restore();
+        
+        // Se encode fallito, rimuovi il file parziale
+        if (is_encode && !test_only && fileexists(output_filename))
+        {
+            myprintf("83250: Removing partial output file: %s\n", output_filename.c_str());
+            remove(output_filename.c_str());
+        }
+        
+        return 2;
+    }
+}
+
 #endif
 
 
