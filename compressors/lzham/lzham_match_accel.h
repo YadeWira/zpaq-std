@@ -60,7 +60,7 @@ namespace lzham
             
       uint get_max_add_bytes() const;
       bool add_bytes_begin(uint num_bytes, const uint8* pBytes);
-      inline atomic32_t get_num_completed_helper_threads() const { return m_num_completed_helper_threads; }
+      inline atomic32_t get_num_completed_helper_threads() const { return atomic_load32(&m_num_completed_helper_threads); }
       void add_bytes_end();
 
       // Returns the lookahead's raw position/size/dict_size at the time add_bytes_begin() is called.

@@ -159,6 +159,14 @@ namespace lzham
    typedef LONG atomic32_t;
    typedef LONGLONG atomic64_t;
 
+   // Returns the current value. Used by spin loops that read a counter another thread updates.
+   inline atomic32_t atomic_load32(atomic32_t const volatile *pDest)
+   {
+      LZHAM_ASSERT((reinterpret_cast<ptr_bits_t>(pDest) & 3) == 0);
+      // x86/x64 does not reorder loads with loads, and volatile keeps the compiler from caching it.
+      return *(atomic32_t const volatile *)pDest;
+   }
+
    // Returns the original value.
    inline atomic32_t atomic_compare_exchange32(atomic32_t volatile *pDest, atomic32_t exchange, atomic32_t comparand)
    {
@@ -210,6 +218,18 @@ namespace lzham
 #elif LZHAM_USE_GCC_ATOMIC_BUILTINS
    typedef long atomic32_t;
    typedef long long atomic64_t;
+
+   // Returns the current value with acquire semantics. Plain reads of a counter another thread updates are not
+   // safe: the compiler may hoist them out of the spin loop, and ARM needs the barrier.
+   inline atomic32_t atomic_load32(atomic32_t const volatile *pDest)
+   {
+      LZHAM_ASSERT((reinterpret_cast<ptr_bits_t>(pDest) & 3) == 0);
+#if defined(__ATOMIC_ACQUIRE)
+      return __atomic_load_n((atomic32_t const *)pDest, __ATOMIC_ACQUIRE);
+#else
+      return __sync_val_compare_and_swap((atomic32_t *)pDest, 0, 0);
+#endif
+   }
 
    // Returns the original value.
    inline atomic32_t atomic_compare_exchange32(atomic32_t volatile *pDest, atomic32_t exchange, atomic32_t comparand)
@@ -265,6 +285,12 @@ namespace lzham
    // Atomic ops not supported - but try to do something reasonable. Assumes no threading at all.
    typedef long atomic32_t;
    typedef long long atomic64_t;
+
+   inline atomic32_t atomic_load32(atomic32_t const volatile *pDest)
+   {
+      LZHAM_ASSERT((reinterpret_cast<ptr_bits_t>(pDest) & 3) == 0);
+      return *pDest;
+   }
 
    inline atomic32_t atomic_compare_exchange32(atomic32_t volatile *pDest, atomic32_t exchange, atomic32_t comparand)
    {

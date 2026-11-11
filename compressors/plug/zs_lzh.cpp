@@ -34,4 +34,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return (long long)len;
 }
 
-ZS_DEFINE_CODEC(lzh, "lzham-ex 1.1.0", 1, 4, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(lzh, "lzham-ex 1.1.1", 1, 4, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

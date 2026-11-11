@@ -106148,7 +106148,7 @@ static const zs_info_row ZS_INFO[]=
 	 "LGPL-3.0-or-later", "release 1.5.5", "bzip3 blocks", ""},
 	{"bsc", false, 1, 9, 3, "ZPAQBSC", "libbsc 3.4.0", "Ilya Grebnov", "https://github.com/IlyaGrebnov/libbsc",
 	 "Apache-2.0", "release v3.4.0", "bsc block", "the level picks the block sorter (ST3 to ST5)"},
-	{"lzh", false, 1, 4, 4, "ZPAQLZHAM10", "lzham-ex 1.1.0", "Richard Geldreich, Jr.; maintained by YadeWira", "https://github.com/YadeWira/lzham-ex",
+	{"lzh", false, 1, 4, 4, "ZPAQLZHAM10", "lzham-ex 1.1.1", "Richard Geldreich, Jr.; maintained by YadeWira", "https://github.com/YadeWira/lzham-ex",
 	 "public domain", "v1.1.0, commit 3421b10", "LZHAM 1.0 stream (0x1010)", "1..4 are LZHAM's fastest..better levels; archives from 1.5.1 and earlier hold the older alpha format (ZPAQLZHAM), still read"},
 	{"ppmd", false, 2, 32, 6, "ZPAQPPMD", "PPMd var.H (Ppmd7)", "Dmitry Shkarin, Igor Pavlov", "https://www.7-zip.org/sdk.html",
 	 "public domain", "7-Zip / LZMA SDK", "PPMd7 (var.H) with 7-Zip's range coder", "the level is the model order"},

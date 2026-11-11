@@ -75,6 +75,7 @@ namespace lzham
       
       uint m_dst_ofs;
       uint m_dst_highwater_ofs;
+      uint64 m_total_dst_bytes;
 
       uint m_step;
       uint m_block_step;
@@ -219,6 +220,7 @@ namespace lzham
             
       m_dst_ofs = 0;
       m_dst_highwater_ofs = 0;
+      m_total_dst_bytes = m_params.m_num_seed_bytes;
 
       m_pIn_buf = NULL;
       m_pIn_buf_size = NULL;
@@ -617,6 +619,7 @@ namespace lzham
                codec.decode_set_input_buffer(m_pIn_buf, *m_pIn_buf_size, m_pIn_buf + in_buf_ofs, m_no_more_input_bytes_flag);
 
                dst_ofs += num_bytes_to_copy;
+               m_total_dst_bytes += num_bytes_to_copy;
 
                if ((!unbuffered) && (dst_ofs > dict_size_mask))
                {
@@ -751,6 +754,7 @@ namespace lzham
                   cur_state = s_literal_next_state[cur_state];
 
                   dst_ofs++;
+                  m_total_dst_bytes++;
                   if ((!unbuffered) && (LZHAM_BUILTIN_EXPECT(dst_ofs > dict_size_mask, 0)))
                   {
                      LZHAM_SYMBOL_CODEC_DECODE_END(codec);
@@ -968,13 +972,19 @@ namespace lzham
                   m_debug_match_dist = (m_debug_match_dist << 4) | d;
                   LZHAM_VERIFY((uint)match_hist0 == m_debug_match_dist);
 #endif
-                  if ( (unbuffered) && LZHAM_BUILTIN_EXPECT((((size_t)match_hist0 > dst_ofs) || ((dst_ofs + match_len) > out_buf_size)), 0) )
+                  // A distance of zero, one outside the dictionary, or one that reaches back before the data
+                  // produced so far, can only come from a corrupt stream. Reject it: the ring-buffer mask would
+                  // otherwise map it onto a bogus (possibly uninitialised, possibly overlapping) position.
+                  if ( LZHAM_BUILTIN_EXPECT((match_hist0 == 0) || ((uint)match_hist0 >= dict_size) || ((uint64)match_hist0 > m_total_dst_bytes), 0) ||
+                       ((unbuffered) && LZHAM_BUILTIN_EXPECT((((size_t)match_hist0 > dst_ofs) || ((dst_ofs + match_len) > out_buf_size)), 0)) )
                   {
                      LZHAM_SYMBOL_CODEC_DECODE_END(codec);
                      *m_pIn_buf_size = static_cast<size_t>(codec.decode_get_bytes_consumed());
                      *m_pOut_buf_size = 0;
                      for ( ; ; ) { LZHAM_CR_RETURN(m_state, LZHAM_DECOMP_STATUS_FAILED_BAD_CODE); }
                   }
+
+                  m_total_dst_bytes += match_len;
 
                   uint src_ofs;
                   const uint8* pCopy_src;
@@ -1184,6 +1194,9 @@ namespace lzham
          }
          pState->m_raw_decomp_buf_size = decomp_buf_size;
          pState->m_pDecomp_buf = math::align_up_pointer(pState->m_pRaw_decomp_buf, 16);
+         // The dictionary starts as zeros: a corrupt stream can reference bytes that were never written, and
+         // handing out uninitialised heap memory would be an information leak.
+         memset(pState->m_pDecomp_buf, 0, decomp_buf_size);
       }
 
       pState->init();
@@ -1228,6 +1241,7 @@ namespace lzham
             pState->m_pRaw_decomp_buf = pNew_dict;
             pState->m_raw_decomp_buf_size = new_dict_size;
             pState->m_pDecomp_buf = math::align_up_pointer(pState->m_pRaw_decomp_buf, 16);
+            memset(pState->m_pDecomp_buf, 0, new_dict_size);
          }
       }
       

@@ -83,7 +83,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.2 | 0–2 | 1 |
 | `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 |
 | `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 | 1–9 | 3 |
-| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.1.0 (LZHAM 1.0) | 1–4 | 4 |
+| `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.1.1 (LZHAM 1.0) | 1–4 | 4 |
 | `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 | 6 |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 0.15.0 | 1–7 | 3 |

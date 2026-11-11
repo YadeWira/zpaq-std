@@ -332,19 +332,25 @@ namespace lzham
          fill_dict_size++;
       }
 
-      while (fill_lookahead_size)
+      // Finalize the last one or two lookahead bytes (the main loop only handles runs of >= 3). Every helper
+      // sees the same remaining positions, so only one of them does it: the writes are idempotent, but doing
+      // them from several threads is undefined behaviour and wasted work.
+      if (!thread_index)
       {
-         uint insert_pos = fill_lookahead_pos & m_max_dict_size_mask;
-         m_nodes[insert_pos].m_left = 0;
-         m_nodes[insert_pos].m_right = 0;
+         while (fill_lookahead_size)
+         {
+            uint insert_pos = fill_lookahead_pos & m_max_dict_size_mask;
+            m_nodes[insert_pos].m_left = 0;
+            m_nodes[insert_pos].m_right = 0;
 
-         atomic_exchange32((atomic32_t*)&m_match_refs[static_cast<uint>(fill_lookahead_pos - m_fill_lookahead_pos)], -2);
+            atomic_exchange32((atomic32_t*)&m_match_refs[static_cast<uint>(fill_lookahead_pos - m_fill_lookahead_pos)], -2);
 
-         fill_lookahead_pos++;
-         fill_lookahead_size--;
-         fill_dict_size++;
+            fill_lookahead_pos++;
+            fill_lookahead_size--;
+            fill_dict_size++;
+         }
       }
-      
+
       atomic_increment32(&m_num_completed_helper_threads);
    }
 
@@ -517,7 +523,7 @@ namespace lzham
       // This may spin until the match finder job(s) catch up to the caller's lookahead position.
       for ( ; ; )
       {
-         match_ref = static_cast<int>(m_match_refs[match_ref_ofs]);
+         match_ref = static_cast<int>(atomic_load32(&m_match_refs[match_ref_ofs]));
          if (match_ref == -2)
             return NULL;
          else if (match_ref != -1)

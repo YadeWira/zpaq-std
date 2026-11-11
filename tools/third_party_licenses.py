@@ -50,7 +50,7 @@ BUNDLED = [
      'Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed\n'
      'with either. Modified by zpaq-std (bounds checks in the decoder): every change\n'
      'is marked ZPAQSTD-PATCH in the sources, listed in compressors/bsc/PATCHES.'),
-    ('lzham-ex (LZHAM 1.0)', '1.1.0', 'Public domain', 'Richard Geldreich, Jr.; maintained by YadeWira',
+    ('lzham-ex (LZHAM 1.0)', '1.1.1', 'Public domain', 'Richard Geldreich, Jr.; maintained by YadeWira',
      ['compressors/lzham/LICENSE'], ''),
     ('PPMd var.H (Ppmd7)', '7-Zip / LZMA SDK', 'Public domain', 'Dmitry Shkarin, Igor Pavlov',
      ['compressors/ppmd/LICENSE-PPMD.txt'], ''),

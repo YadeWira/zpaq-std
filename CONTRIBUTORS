@@ -57,7 +57,7 @@ folder under compressors/.
                           (heatshrink-ex)
   bzip3 1.5.5             Kamila Szewczyk                         LGPL-3.0-or-later
   libbsc 3.4.0, patched   Ilya Grebnov                            Apache-2.0
-  lzham-ex (LZHAM 1.0) 1.1.0
+  lzham-ex (LZHAM 1.0) 1.1.1
                           Richard Geldreich, Jr.; maintained by   Public domain
                           YadeWira
   PPMd var.H (Ppmd7) 7-Zip / LZMA SDK
