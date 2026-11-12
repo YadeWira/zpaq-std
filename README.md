@@ -156,6 +156,30 @@ block is decoded back by the plugin before it is written (`-sat` also runs the Z
 The plugin comes in the `extra-codecs` download. More:
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#specific-algorithms--sa).
 
+#### `+rcmd`: the codec recommends the method of the files it does not take
+
+```bash
+zpaq-std a photos.zpaq /photos -sa:pja+rcmd      # for PJA's codecs (also -sa:pja+2+rcmd)
+zpaq-std a photos.zpaq /photos -sa -rcmd -m5     # -rcmd: for every codec of -sa
+```
+
+Since 2.9.0, and only when asked for. A codec knows its format: a JPEG that PJA
+does not take (damaged, or of a kind it does not handle) is still a JPEG, and
+PJA says which method suits it best. With `+rcmd` the files of a codec's format
+that it does not take go to blocks of their own, with the first method of the
+codec's list that this zpaq-std has: an `-ma` codec first, else an `-m` level
+(`codecinfoex` shows both lists). So do the files it would take that are partly
+in the archive already, and a group it takes that gives no gain. Every other
+file keeps the `-m`/`-ma` of the command.
+
+The recommendation holds even when the command has `-m` or `-ma`. A recommended
+`-ma` is used only if its output and its ZPAQL decoder together are smaller than
+the block; else the block goes as the command says. With a strong `-m` it may
+trade size for time: on a 127 MB mix with PNGs that are not taken, `-m5` with
+`+rcmd` was 0.4% bigger and took 87 s instead of 197 s; with no `-m`, 0.6% smaller.
+Whoever wants the smallest archive with `-m5` leaves it out. `-sat` says what
+each file and each block got.
+
 ---
 
 ## Build

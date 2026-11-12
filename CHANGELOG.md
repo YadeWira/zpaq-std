@@ -1,3 +1,18 @@
+### [2.9.0] - unreleased
+
+**`+rcmd`: a `-sa` codec recommends the method of the files of its format that it does not take. PJA 0.9.9.**
+
+- **`-sa:<codec>+rcmd`, and `-rcmd` for every codec** (also with `-sae` and `-sat`). Only when asked for. The files of a codec's format that it does not take, those it would take that are partly in the archive already, and a group it takes that gives no gain go with the method the codec recommends: the first `-ma` codec of its list that this zpaq-std has, else the first `-m` level. Every other file keeps the `-m`/`-ma` of the command. The recommendation holds even when the command has `-m` or `-ma`.
+  - A recommended `-ma` must pay for its ZPAQL decoder: its output and the decoder together have to be smaller than the block, else the block goes as the command says (and the command's `-ma` has to pay for its own too).
+  - Those files are written after everything the codecs take, and deduplicate against it.
+  - `-sat` says, file by file and block by block, what each got.
+- **For plugin authors** (`compressors/plug/zs_codec.h`, `tools/plugin_example/zs_example.c`):
+  - `zpaqstd_detect_v1` may answer **2**: "of my format, but I do not take it". Without `+rcmd`, and in older versions, 2 is 0.
+  - The card (`ZS_DATA_INFO`) may have `fallback_ma=<codec>[:<level>],...` and `fallback_m=<n>,...`, up to five each, the best first; an entry this zpaq-std does not know is skipped.
+  - **A cap on the weight of a group**: `ZS_QUERY_GROUP_WEIGHT` (5), the most "weight" a group of the codec's files may hold, and `ZS_QUERY_WEIGHT` (4), the weight of one file, in the codec's own measure. For a codec whose ZPAQL decoder takes time by something that is not the bytes of the files (the pixels of an image). The group is closed before the file that would pass the cap; a heavier file goes alone. A codec that gives no cap groups as before.
+- **PJA 0.9.9** (`-sa`): its codecs answer 2 and carry their lists. The 31 codecs, streams and ZPAQL decoders are 0.9.8's: without `+rcmd` the archives are the same, byte for byte.
+- Without `+rcmd` nothing changes: the archives are those of 2.8.0.
+
 ### [2.8.0] - 2026-11-11
 
 **zpaqfranz 65.18: Franzen encryption and the levels by name; nine codecs up to date.**
