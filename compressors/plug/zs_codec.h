@@ -132,7 +132,7 @@ typedef struct zs_codec {
                                  license, commit, format, notes (and any other key).
                                  Since zpaq-std 2.9.0, for +rcmd / -rcmd, two more:
                                  fallback_ma=<codec>[:<level>],... (-ma codecs) and
-                                 fallback_m=<n>,... (-m<n>), up to five each, the best
+                                 fallback_m=<n>,... (-m<n>, n from 0 to 9), up to five each (more are ignored), the best
                                  first: the method for the files of the codec's format
                                  that it does not take, or that give no gain. zpaq-std
                                  uses the first of fallback_ma it has, else the first of

@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.9.0-rc1"
+#define ZPAQSTD_VERSION "2.9.0-rc2"
 #define ZPAQSTD_DATE "(2026-11-11)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -263445,6 +263445,43 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 }
 static void ma_comprimir_con(StringBuffer& sb, string& m, string& ma_comment, const std::string& i_ma_algorithm, int i_ma_level);
 static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comment, const string& i_block);
+/// +rcmd with a -ma codec: the block with the codec that i_sc recommends. A -ma block carries its
+/// ZPAQL decoder (some KB), which a small block does not pay for (2.9.0-rc1: a 1,325 byte file became
+/// 5,635 bytes instead of 3,404; found by ppa): the codec's output plus its decoder must be smaller than
+/// the block, or the block stays as it was, for -m. o_fuera: its bytes then (with the decoder), 0 if
+/// the codec did not gain by itself. True if the block is the codec's now
+static bool sa_rcmd_ma(StringBuffer& sb, string& m, string& ma_comment, const zs_sa_codec& i_sc, int64_t* o_fuera)
+{
+	if (o_fuera)
+		*o_fuera=0;
+	const int64_t orig=(int64_t)sb.size();
+	int64_t dec=0;
+	std::vector<std::pair<std::string, const std::string*> > bc;
+	zs_info_bytecodes(i_sc.rc_ma, bc);
+	for (size_t i=0; i<bc.size(); i++)
+		if (bc[i].second && (int64_t)bc[i].second->size()>dec)
+			dec=(int64_t)bc[i].second->size();
+	/// the copy, to go back: only where the decoder can matter
+	const bool chico=orig<dec*256;
+	std::string copia;
+	if (chico)
+		copia.assign((const char*)sb.data(), (size_t)orig);
+	const string m0=m;
+	ma_comprimir_con(sb, m, ma_comment, i_sc.rc_ma, i_sc.rc_level);
+	if (m==m0)
+		return false;
+	if (chico && (int64_t)sb.size()+dec>=orig-16)
+	{
+		if (o_fuera)
+			*o_fuera=(int64_t)sb.size()+dec;
+		sb.reset();
+		sb.write(copia.data(), (int)copia.size());
+		m=m0;
+		ma_comment="";
+		return false;
+	}
+	return true;
+}
 /// 2.9.0, +rcmd: "R:" before the method that stays if the codec does not take the block: then the
 /// -ma codec that the codec recommends compresses it, here, in the compressing thread
 void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const string& i_block)
@@ -263456,12 +263493,31 @@ void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const str
 		m.erase(r+1, 2);
 	const bool letto=(sscanf(m.c_str(), "zsapend:%d:%n", &idx, &used)==1) && used>0 && idx>=0 && idx<(int)g_sa.size();
 	sa_comprimir_bloque_codec(sb, m, comment, i_block);
-	if (rcma && letto && g_sa[idx].rc_ok && !g_sa[idx].rc_ma.empty() && comment.find("zpaqstd-s")==string::npos && m.compare(0, 8, "zsapend:")!=0)
+	/// the codec did not take the block (no gain, or it failed): what stays is its +rcmd method
+	if (letto && g_sa[idx].rc_ok && comment.find("zpaqstd-s")==string::npos && m.compare(0, 8, "zsapend:")!=0)
 	{
-		string mc;
-		ma_comprimir_con(sb, m, mc, g_sa[idx].rc_ma, g_sa[idx].rc_level);
-		if (!mc.empty())
-			comment=mc+" "+comment;
+		const int64_t orig=(int64_t)sb.size();
+		int64_t fuera=0;
+		bool suyo=false;
+		if (rcma && !g_sa[idx].rc_ma.empty())
+		{
+			string mc;
+			suyo=sa_rcmd_ma(sb, m, mc, g_sa[idx], &fuera);
+			if (!mc.empty())
+				comment=mc+" "+comment;
+		}
+		if (g_sa_mode=='t')
+		{
+			g_ext_print().enter();
+			if (g_sa[idx].rc_ma.empty())
+				myprintf("00734: +rcmd (%s): that block, %s bytes, goes with %s, not as -m says\n", g_sa[idx].algo.c_str(), migliaia(orig), sa_rcmd_nombre(g_sa[idx]).c_str());
+			else if (suyo)
+				myprintf("00734: +rcmd (%s): that block goes with %s, not as -m says: %s -> %s bytes\n", g_sa[idx].algo.c_str(), sa_rcmd_nombre(g_sa[idx]).c_str(), migliaia(orig), migliaia2((int64_t)sb.size()));
+			else
+				myprintf("00734: +rcmd (%s): %s does not gain on that block either (%s bytes%s): as -m says\n", g_sa[idx].algo.c_str(), sa_rcmd_nombre(g_sa[idx]).c_str(), migliaia(orig),
+				         fuera ? ", its decoder counted" : "");
+			g_ext_print().leave();
+		}
 	}
 }
 static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comment, const string& i_block)
@@ -268216,8 +268272,21 @@ int Jidac::add2()
 					if (sa_blk_fi >= 0 && sa_blk_ok && g_sa[sa_blk_codec].rcmd_de >= 0)
 					{
 						/// +rcmd: files of a codec's format that it does not take. A -ma codec runs here, as -ma does
-						if (sa_rc_ma)
-							ma_comprimir_con(sb, m, ma_comment, g_sa[sa_rc].rc_ma, g_sa[sa_rc].rc_level);
+						const int64_t rc_orig= (int64_t)sb.size();
+						int64_t		  rc_fuera= 0;
+						const bool	  rc_suyo= sa_rc_ma && sa_rcmd_ma(sb, m, ma_comment, g_sa[sa_rc], &rc_fuera);
+						if (g_sa_mode == 't')
+						{
+							if (!sa_rc_ma)
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: compressed with %s\n", g_sa[sa_rc].algo.c_str(),
+										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str());
+							else if (rc_suyo)
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
+										 (int)sa_cuts.size() + 1, sa_rcmd_nombre(g_sa[sa_rc]).c_str(), migliaia(rc_orig), migliaia2((int64_t)sb.size()));
+							else
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m says\n", g_sa[sa_rc].algo.c_str(),
+										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str(), rc_fuera ? " (its decoder counted)" : "");
+						}
 					}
 					else if (sa_blk_fi >= 0 && sa_blk_ok)
 					{
@@ -268328,8 +268397,8 @@ int Jidac::add2()
 						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
 								 sa_join ? ", in the same block as the previous file" : "");
 					else if (g_sa_mode == 't')
-						myprintf("00734: %s: +rcmd (%s does not take it): compressed with %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
-								 sa_rcmd_nombre(g_sa[g_sa[sa_file].rcmd_de]).c_str(), sa_join ? ", in the same block as the previous file" : "");
+						myprintf("00734: %s: +rcmd (%s does not take it): to a block for %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+								 sa_rcmd_nombre(g_sa[g_sa[sa_file].rcmd_de]).c_str(), sa_join ? ", the one of the previous file" : "");
 				}
 				assert(sz == 0 || fi < vf.size());
 				sb.write(dati, sz);
@@ -269227,8 +269296,21 @@ int Jidac::add2()
 					if (sa_blk_fi >= 0 && sa_blk_ok && g_sa[sa_blk_codec].rcmd_de >= 0)
 					{
 						/// +rcmd: files of a codec's format that it does not take. A -ma codec runs here, as -ma does
-						if (sa_rc_ma)
-							ma_comprimir_con(sb, m, ma_comment, g_sa[sa_rc].rc_ma, g_sa[sa_rc].rc_level);
+						const int64_t rc_orig= (int64_t)sb.size();
+						int64_t		  rc_fuera= 0;
+						const bool	  rc_suyo= sa_rc_ma && sa_rcmd_ma(sb, m, ma_comment, g_sa[sa_rc], &rc_fuera);
+						if (g_sa_mode == 't')
+						{
+							if (!sa_rc_ma)
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: compressed with %s\n", g_sa[sa_rc].algo.c_str(),
+										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str());
+							else if (rc_suyo)
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
+										 (int)sa_cuts.size() + 1, sa_rcmd_nombre(g_sa[sa_rc]).c_str(), migliaia(rc_orig), migliaia2((int64_t)sb.size()));
+							else
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m says\n", g_sa[sa_rc].algo.c_str(),
+										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str(), rc_fuera ? " (its decoder counted)" : "");
+						}
 					}
 					else if (sa_blk_fi >= 0 && sa_blk_ok)
 					{
@@ -269339,8 +269421,8 @@ int Jidac::add2()
 						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
 								 sa_join ? ", in the same block as the previous file" : "");
 					else if (g_sa_mode == 't')
-						myprintf("00734: %s: +rcmd (%s does not take it): compressed with %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
-								 sa_rcmd_nombre(g_sa[g_sa[sa_file].rcmd_de]).c_str(), sa_join ? ", in the same block as the previous file" : "");
+						myprintf("00734: %s: +rcmd (%s does not take it): to a block for %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+								 sa_rcmd_nombre(g_sa[g_sa[sa_file].rcmd_de]).c_str(), sa_join ? ", the one of the previous file" : "");
 				}
 				assert(sz == 0 || fi < vf.size());
 				sb.write(&fragbuf[0], sz);
