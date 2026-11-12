@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.9.0-rc2"
+#define ZPAQSTD_VERSION "2.9.0-rc3"
 #define ZPAQSTD_DATE "(2026-11-11)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -267894,6 +267894,11 @@ int Jidac::add2()
 	/// took, the last one sa_blk_fi; sa_cuts: where each file after the first starts
 	int					sa_blk_fi= -1, sa_blk_codec= -1;
 	bool				sa_blk_ok= false;
+	/// +rcmd: the file whose block of "not taken" has started. A file a codec takes starts at its first
+	/// fragment (every one of them is new); one it does not take is deduplicated, so it starts at its
+	/// first NEW fragment (2.9.0-rc3: a file whose first fragment was already there never started, and
+	/// went as -m says)
+	const DT		   *sa_ini= NULL; /// (the file itself, not its place in vf: the files that waited are moved)
 	std::vector<size_t> sa_cuts;
 	std::string			sa_names;
 	/// -sa (2.3.0): while a block of codec C is being filled, a file C does not take (another codec
@@ -267927,6 +267932,8 @@ int Jidac::add2()
 			for (size_t k= 0; k < sa_dopo_cod.size(); ++k)
 				if (sa_dopo_cod[k] >= 0 && std::find(codici.begin(), codici.end(), sa_dopo_cod[k]) == codici.end())
 					codici.push_back(sa_dopo_cod[k]);
+			/// the real codecs first, then the +rcmd ones (what the codecs do not take), then the rest
+			std::stable_partition(codici.begin(), codici.end(), [](int i_c) { return g_sa[i_c].rcmd_de < 0; });
 			codici.push_back(-1);
 			for (size_t c= 0; c < codici.size(); ++c)
 				for (size_t k= 0; k < sa_dopo.size(); ++k)
@@ -268071,8 +268078,14 @@ int Jidac::add2()
 		/// -sa: a block of another codec is being filled: this file waits (see sa_dopo). Not with
 		/// -tar, where the order of the files decides which one of hard links holds the data
 		if (g_sa_mode && !sa_secondo && !flagtar && (fi < vf.size()) && (in != FPNULL) && (!flagstdin) && (!flagmemfile)
-			&& (!flagimage) && (!flagtarspecial) && sa_blk_fi >= 0 && sa_file != sa_blk_codec)
+			&& (!flagimage) && (!flagtarspecial)
+			&& ((sa_blk_fi >= 0 && sa_file != sa_blk_codec) || (sa_file >= 0 && g_sa[sa_file].rcmd_de >= 0)))
 		{
+			/// 2.9.0-rc3, +rcmd: a file of a codec's format that it does not take always waits, to go
+			/// after every file the codecs take. Written first, a cut copy of a photo (a download that
+			/// stopped, next to the whole one) took the photo's first fragments, and the photo, which goes
+			/// whole into its codec's block, stored them again: 2.7 MB more on PJA's test (found by pja).
+			/// After it, the copy finds them already there
 			sa_dopo.push_back(vf[fi]);
 			sa_dopo_cod.push_back(sa_file);
 			myfclose(&in);
@@ -268225,7 +268238,9 @@ int Jidac::add2()
 				/// ZS_SA_MAXFILE); so a new block before it and after it. Unless the same codec took
 				/// the files of the block being filled and its ZPAQL handles several segments
 				/// (sa_join): then the file joins them, if the whole of it fits
-				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				const bool sa_start= (sa_file >= 0 && fi < vf.size() && (fj == 0 || (g_sa[sa_file].rcmd_de >= 0 && sa_ini != &vf[fi]->second)));
+				if (sa_start)
+					sa_ini= &vf[fi]->second;
 				/// since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
 				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3:
 				/// 2.3.0 measured 8 and 16 MB: a set of photos saved again lost 14% and 8%)
@@ -269249,7 +269264,9 @@ int Jidac::add2()
 				/// ZS_SA_MAXFILE); so a new block before it and after it. Unless the same codec took
 				/// the files of the block being filled and its ZPAQL handles several segments
 				/// (sa_join): then the file joins them, if the whole of it fits
-				const bool sa_start= (sa_file >= 0 && fj == 0 && fi < vf.size());
+				const bool sa_start= (sa_file >= 0 && fi < vf.size() && (fj == 0 || (g_sa[sa_file].rcmd_de >= 0 && sa_ini != &vf[fi]->second)));
+				if (sa_start)
+					sa_ini= &vf[fi]->second;
 				/// since 2.0.0 such a block holds up to ZS_SA_GROUP, whatever -m's block size: the codec
 				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3:
 				/// 2.3.0 measured 8 and 16 MB: a set of photos saved again lost 14% and 8%)
