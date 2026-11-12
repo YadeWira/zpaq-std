@@ -37,7 +37,10 @@
   Codecs for specific formats (-sae and -sat) add one more export:
         int zpaqstd_detect_v1(const char* codec, const void* src, size_t n);
   zpaq-std calls it with each whole file (n bytes) and the name of one of the
-  plugin's codecs; it returns 1 if that codec takes the file, else 0. The
+  plugin's codecs; it returns 1 if that codec takes the file, else 0 (or, since
+  zpaq-std 2.9.0, 2: "a file of my format, but I do not take it": with +rcmd or
+  -rcmd such a file is compressed with the method the codec recommends, the keys
+  fallback_ma and fallback_m of its card; without them 2 is as 0). The
   answer must depend only on the bytes (never on a name, the time or the
   machine), and it must never read outside src: it runs on whatever the user
   archives, damaged or hostile files included. A file the codec takes goes
@@ -126,7 +129,14 @@ typedef struct zs_codec {
                                  zpaq-std, which cannot fill $3..$5, does not use it */
 #define ZS_DATA_INFO       3  /* optional: the codec's card for codecinfoex, as
                                  "key=value" lines: name, version, author, repo,
-                                 license, commit, format, notes (and any other key) */
+                                 license, commit, format, notes (and any other key).
+                                 Since zpaq-std 2.9.0, for +rcmd / -rcmd, two more:
+                                 fallback_ma=<codec>[:<level>],... (-ma codecs) and
+                                 fallback_m=<n>,... (-m<n>), up to five each, the best
+                                 first: the method for the files of the codec's format
+                                 that it does not take, or that give no gain. zpaq-std
+                                 uses the first of fallback_ma it has, else the first of
+                                 fallback_m; an entry it does not know is skipped */
 
 typedef const zs_codec* (*zs_codec_entry)(void);
 

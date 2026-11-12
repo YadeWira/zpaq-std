@@ -92,7 +92,13 @@ static const char ex_info[] =
 	"license=MIT\n"
 	"version=1.0\n"
 	"format=byte run-length: control byte c < 128: c+1 literals; c >= 128: next byte c-125 times\n"
-	"notes=an example plugin, as small as it gets\n";
+	"notes=an example plugin, as small as it gets\n"
+	/* +rcmd / -rcmd (zpaq-std 2.9.0): the methods this codec recommends for the files of its
+	   format that it does not take, the best first, up to five of each. zpaq-std uses the first
+	   of fallback_ma that it has (the first two here are there to show that an unknown codec
+	   and a level out of range are skipped), and if none, the first of fallback_m. */
+	"fallback_ma=nosuchcodec:3,zstd:99,lz6:9,zstd:19,lzma:6\n"
+	"fallback_m=5,1\n";
 
 static const void* ex_data(int what, size_t* size)
 {
@@ -138,7 +144,12 @@ ZS_CODEC_EXPORT const zs_codec* zpaqstd_codecs_v1(int i)
 }
 
 /* -sae/-sat: a "format" for the example: a file where at least half of the bytes
-   are in runs of 3 or more, so that RLE pays. It looks only at the bytes. */
+   are in runs of 3 or more, so that RLE pays. It looks only at the bytes.
+   Since zpaq-std 2.9.0 the answer may also be 2: "of my format, but I do not take it".
+   Here the "format" has a signature too, "RLEX": a file that starts with it and has too
+   few runs is of the format and not taken. With +rcmd (or -rcmd) zpaq-std compresses such
+   files with the method the codec recommends (fallback_ma, fallback_m in its card);
+   without it, and in older versions, 2 is the same as 0. */
 ZS_CODEC_EXPORT int zpaqstd_detect_v1(const char* codec, const void* src, size_t n)
 {
 	const unsigned char* s = (const unsigned char*)src;
@@ -150,5 +161,6 @@ ZS_CODEC_EXPORT int zpaqstd_detect_v1(const char* codec, const void* src, size_t
 		if (run >= 3) inrun += run;
 		i += run;
 	}
-	return n > 0 && inrun * 2 >= n;
+	if (n > 0 && inrun * 2 >= n) return 1;
+	return (n >= 4 && memcmp(s, "RLEX", 4) == 0) ? 2 : 0;
 }
