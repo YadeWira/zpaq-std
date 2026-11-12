@@ -159897,11 +159897,11 @@ static const franz_helpriga g_helprighetutte[]=
 	HRU(9855, 0xAEF8F79C, "Сжатие встроенной библиотекой: zstd, brotli, lzma, bzip2, kanzi...|  любой zpaq извлечёт архив; все кодеки и уровни: codecinfo"),
 	HES(9855, 0xAEF8F79C, "Comprime con biblioteca interna: zstd, brotli, lzma, bzip2, kanzi...|  cualquier zpaq extrae el archivo; cada códec y nivel: codecinfo"),
 	HPT(9855, 0xAEF8F79C, "Compacta com biblioteca inclusa: zstd, brotli, lzma, bzip2, kanzi...|  qualquer zpaq extrai o arquivo; cada codec e nível: codecinfo"),
-	HU(9856, "a", "-sa", "JPEG, lossless JPEG, JPEG-LS and JPEG 2000 by their contents, with PJA|  (codecs/pja of the extra-codecs download), the rest as -m/-ma say"),
-	HIT(9856, 0x8717BE4C, "JPEG, JPEG lossless, JPEG-LS e JPEG 2000 in base al contenuto, con PJA|  (codecs/pja del download extra-codecs), il resto come -m/-ma"),
-	HRU(9856, 0x8717BE4C, "JPEG, JPEG без потерь, JPEG-LS и JPEG 2000 по содержимому, через PJA|  (codecs/pja из загрузки extra-codecs), остальное по -m/-ma"),
-	HES(9856, 0x8717BE4C, "JPEG, JPEG sin pérdida, JPEG-LS y JPEG 2000 por su contenido, con PJA|  (codecs/pja de la descarga extra-codecs), el resto según -m/-ma"),
-	HPT(9856, 0x8717BE4C, "JPEG, JPEG sem perdas, JPEG-LS e JPEG 2000 pelo conteúdo, com PJA|  (codecs/pja do download extra-codecs), o resto conforme -m/-ma"),
+	HU(9856, "a", "-sa", "JPEG, lossless JPEG, JPEG-LS and JPEG 2000 by their contents, with PJA,|  and PNG with PPA (experimental): codecs/pja and codecs/ppa of the|  extra-codecs download; the rest as -m/-ma say"),
+	HIT(9856, 0x3E10A718, "JPEG, JPEG lossless, JPEG-LS e JPEG 2000 in base al contenuto, con PJA,|  e PNG con PPA (sperimentale): codecs/pja e codecs/ppa del download|  extra-codecs; il resto come -m/-ma"),
+	HRU(9856, 0x3E10A718, "JPEG, JPEG без потерь, JPEG-LS и JPEG 2000 по содержимому, через PJA,|  и PNG через PPA (экспериментально): codecs/pja и codecs/ppa из загрузки|  extra-codecs; остальное по -m/-ma"),
+	HES(9856, 0x3E10A718, "JPEG, JPEG sin pérdida, JPEG-LS y JPEG 2000 por su contenido, con PJA,|  y PNG con PPA (experimental): codecs/pja y codecs/ppa de la descarga|  extra-codecs; el resto según -m/-ma"),
+	HPT(9856, 0x3E10A718, "JPEG, JPEG sem perdas, JPEG-LS e JPEG 2000 pelo conteúdo, com PJA,|  e PNG com PPA (experimental): codecs/pja e codecs/ppa do download|  extra-codecs; o resto conforme -m/-ma"),
 	HU(9886, "a", "-rcmd", "With -sa: what a codec does not take of its own format goes with the|  method the codec recommends (-sa:codec+rcmd: only that codec)"),
 	HIT(9886, 0xDA3C6084, "Con -sa: cio' che un codec non prende del suo formato va col metodo|  che il codec consiglia (-sa:codec+rcmd: solo quel codec)"),
 	HRU(9886, 0xDA3C6084, "С -sa: то, что кодек не берёт из своего формата, сжимается методом,|  который советует кодек (-sa:кодек+rcmd: только этот кодек)"),
@@ -160077,11 +160077,11 @@ losetup -d /dev/loop0
 	HRU(9860, 0x0DF34221, "Добавить с lzma, блоки по 64 MB"),
 	HES(9860, 0x0DF34221, "Agrega con lzma, bloques de 64 MB"),
 	HPT(9860, 0x0DF34221, "Adiciona com lzma, blocos de 64 MB"),
-	HE(9861, "a", "Add photos, the JPEGs by PJA", "a z:\\1.zpaq c:\\photos -sa"),
-	HIT(9861, 0x6E4508BD, "Aggiunge foto, i JPEG con PJA"),
-	HRU(9861, 0x6E4508BD, "Добавить фото, JPEG через PJA"),
-	HES(9861, 0x6E4508BD, "Agrega fotos, los JPEG con PJA"),
-	HPT(9861, 0x6E4508BD, "Adiciona fotos, os JPEG com PJA"),
+	HE(9861, "a", "Add photos, the JPEGs by PJA and the PNGs by PPA", "a z:\\1.zpaq c:\\photos -sa"),
+	HIT(9861, 0x74CA3E69, "Aggiunge foto, i JPEG con PJA e i PNG con PPA"),
+	HRU(9861, 0x74CA3E69, "Добавить фото, JPEG через PJA и PNG через PPA"),
+	HES(9861, 0x74CA3E69, "Agrega fotos, los JPEG con PJA y los PNG con PPA"),
+	HPT(9861, 0x74CA3E69, "Adiciona fotos, os JPEG com PJA e os PNG com PPA"),
 	HE(586, "a", "Store SHA-256 of unchanged files", "a z:\\1.zpaq c:\\nz\\ -touch -sha256"),
 	HIT(586, 0xEC31409F, "Salva lo SHA-256 dei file invariati"),
 	HRU(586, 0xEC31409F, "Сохранить SHA-256 неизменённых файлов"),
@@ -171468,6 +171468,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 		/// -sae:<file>:<codec>[+<level>][:<codec>[+<level>]...] (external) and -sat:...
 		/// (test): codecs for specific formats from codecs/<file>.dll|.so; checked
 		/// once the command is known (see "-sae / -sat" below)
+		else if (opt=="-sae" || opt=="-sat")
+		{
+			/// 2.9.0: it was "00562! Unknown option ignored", and the archive was written without it (found by ppa)
+			myprintf("00730! %s needs a plugin and its codecs: %s:<file>:<codec>[+<level>][:<codec>...]\n"
+			         "       (zpaq-std's own codecs go with -sa)\n", opt.c_str(), opt.c_str());
+			seppuku(2);
+		}
 		else if (opt.rfind("-sae:",0)==0 || opt.rfind("-sat:",0)==0)
 		{
 			if (g_sa_mode)
@@ -172796,6 +172803,21 @@ int Jidac::loadparameters(int argc, const char** argv)
 				         sc.level, sc.algo.c_str(), c->min_level, c->max_level);
 				seppuku(2);
 			}
+			/// 2.2.1: once for all the experimental codecs of the command (it was once for each);
+			/// 2.9.0: before the first codec's lines (its weight cap, what +rcmd uses)
+			if (g_sa_official && (q==0))
+			{
+				std::string sperimentali;
+				for (size_t j=0; j<g_sa.size(); j++)
+					for (size_t k=0; k<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); k++)
+						if (g_sa[j].algo==ZS_SA_OFFICIAL[k].algo && ZS_SA_OFFICIAL[k].experimental)
+							sperimentali+=(sperimentali.empty() ? "" : " ")+g_sa[j].algo;
+				if (!sperimentali.empty())
+					myprintf("00737! -sa (%s): EXPERIMENTAL, not recommended yet:\n"
+					         "       keep another copy of what you archive with it. Its blocks carry their\n"
+					         "       ZPAQL decoder and open in any zpaq\n",
+					         sperimentali.c_str());
+			}
 			/// 2.9.0, +rcmd / -rcmd: what the codec recommends for its files that it does not take
 			if (sc.rcmd || flagrcmd)
 			{
@@ -172850,20 +172872,6 @@ int Jidac::loadparameters(int argc, const char** argv)
 				if (g_sa_mode=='t' && !sc.zcfg.empty())
 					myprintf("00733: -sat:%s:%s: and %s, LZ77 over each group's segments, where it takes fewer bytes\n",
 					         sc.file.c_str(), sc.algo.c_str(), sa_zname(sc.file, sc.algo).c_str());
-			}
-			/// 2.2.1: once for all the experimental codecs of the command (it was once for each)
-			if (g_sa_official && (q==0))
-			{
-				std::string sperimentali;
-				for (size_t j=0; j<g_sa.size(); j++)
-					for (size_t k=0; k<sizeof(ZS_SA_OFFICIAL)/sizeof(ZS_SA_OFFICIAL[0]); k++)
-						if (g_sa[j].algo==ZS_SA_OFFICIAL[k].algo && ZS_SA_OFFICIAL[k].experimental)
-							sperimentali+=(sperimentali.empty() ? "" : " ")+g_sa[j].algo;
-				if (!sperimentali.empty())
-					myprintf("00737! -sa (%s): EXPERIMENTAL, not recommended yet:\n"
-					         "       keep another copy of what you archive with it. Its blocks carry their\n"
-					         "       ZPAQL decoder and open in any zpaq\n",
-					         sperimentali.c_str());
 			}
 			if (g_sa_mode=='e' && !g_sa_official)
 				myprintf("00732! -sae:%s:%s is NOT an official zpaq-std codec: zpaq-std does not guarantee\n"
