@@ -68,6 +68,11 @@ BUNDLED = [
      'pja2k (JPEG 2000). Free Pascal and C, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'
      'the full program. NOTICE has the third-party notes (IJG, CharLS, OpenJPH).'),
+    ('PPA', '0.2.0', 'MIT; parts ported from zlib (zlib license); a copy of PJA', 'Yade Bravo (YadeWira)',
+     ['compressors/ppa/LICENSE', 'compressors/ppa/NOTICE'],
+     'The -sa codec ppa1 (PNG, APNG, MNG). Free Pascal and C, built only as a plugin\n'
+     '(codecs/ppa.dll or ppa.so): it is in the extra-codecs and plugins downloads, not in\n'
+     'the full program. NOTICE has the third-party notes (zlib; its own copy of PJA in vendor/pja).'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],
      'The ZPAQL program that decodes -ma:lzma blocks in any zpaq.'),
 ]

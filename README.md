@@ -124,7 +124,8 @@ shows its card (author, repository, version, hashes).
 `-sa` stands for *specific algorithms*: zpaq-std's codecs for specific formats.
 
 ```bash
-zpaq-std a photos.zpaq /photos -sa                   # PJA's family: pjax78, pja78, pjall8, pjals8, pjalsx8, pja2k
+zpaq-std a photos.zpaq /photos -sa                   # every codec: PJA's family (JPEG...) and PPA's ppa1 (PNG)
+zpaq-std a photos.zpaq /photos -sa:pja               # PJA's family: pjax78, pja78, pjall8, pjals8, pjalsx8, pja2k
 zpaq-std a photos.zpaq /photos -sa:pjals8 -ma:zstd   # only JPEG-LS; the rest with zstd
 ```
 
@@ -141,6 +142,19 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 | `-sa:pjals8+N` | the same plugin | JPEG-LS | 2 | 2 |
 | `-sa:pjalsx8+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
 | `-sa:pja2k+N` | the same plugin | JPEG 2000: JP2, JPX, JPM, Motion JPEG 2000 and codestreams (HTJ2K stays as bytes) | 2 | 2 |
+
+#### Experimental
+
+| Switch | Library | Takes | Levels | Default |
+|---|---|---|---|---|
+| `-sa:ppa` or `-sa:ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.2.0, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
+
+`ppa1` rebuilds the file's deflate streams, so the PNG comes back byte for byte
+(20 photos as PNG: 65.6% of their size, against 100% with `-m1` and 96.3% with
+`-m5`). Its format and ZPAQL decoder are frozen. Without the plugin any zpaq runs
+its ZPAQL decoder, slowly, so a group of its files is kept to 7 MiB of image.
+`-sa` alone uses every codec whose plugin is in `codecs/`, and says which plugin
+is not there; a codec that is written (`-sa:ppa`) needs its plugin.
 
 Files are chosen by their contents, never by name; the rest is compressed as
 `-m`/`-ma` say. The files a codec takes share a block, whatever lies between them:

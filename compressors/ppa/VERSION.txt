@@ -1,0 +1,18 @@
+PPA 0.2.0 (tag v0.2.0, commit eaf0b4a), https://github.com/YadeWira/PPA,
+from the vendor tarball ppa-v0.2.0-zpaqstd.tar.gz (sha256
+5eefd6096e184df3b204f4cbc5b65e86ace0537f2ce675bc3990678ba5f463b3), copied unmodified
+(SHA256SUMS lists each file). Files: the sources of its zpaq-std plugin, with PPA's own
+copy of PJA in vendor/pja (linked for a JNG's JPEG, which ppa1 does not use), LICENSE (MIT),
+NOTICE (zlib's choices, ported; PJA) and VENDOR.md (what it is and how it builds).
+
+In zpaq-std since 2.9.0, experimental.
+zpaq-std's codec for PNG, -sa:ppa (or -sa:ppa1), tried after PJA's codecs: PNG, APNG and MNG
+whose images are 8-bit gray, gray+alpha, RGB or RGBA, up to 7 MiB of filtered image a file.
+ppa1 is frozen: its stream (PPA's codec stream v2, static model), what it takes and its ZPAQL
+decoder (pas/plugin/ppa1zpaql.inc, 19,264 bytes, comp 0 0 $3 $4 0, both from the query), so
+any zpaq extracts its blocks without the plugin. It caps the weight of a group of its files
+(ZS_QUERY_WEIGHT, ZS_QUERY_GROUP_WEIGHT: 7 MiB of image), since its ZPAQL decoder takes time
+by the pixels, and carries +rcmd's lists (fallback_ma=bzip3:9,..., fallback_m=4,...).
+Free Pascal and C: by the project's rule, built only as a plugin (codecs/ppa.dll or ppa.so,
+in the extra-codecs download), never linked into zpaq-std itself.
+Do not patch these files here: send changes to the PPA repository.

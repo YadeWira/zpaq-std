@@ -47,7 +47,7 @@ jobs:
         with:
           name: zpaq-std-${{ matrix.name }}
           path: zpaq-std
-      # the Free Pascal plugins (sylz with sylzec, pja), with the platform's own fpc
+      # the Free Pascal plugins (sylz with sylzec, pja, ppa), with the platform's own fpc
       - name: Free Pascal
         if: matrix.fpc
         run: |
@@ -65,6 +65,7 @@ jobs:
           path: |
             plugins/codecs/sylz.so
             plugins/codecs/pja.so
+            plugins/codecs/ppa.so
             plughashes-${{ matrix.name }}.txt
 
   windows-build:

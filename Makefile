@@ -539,7 +539,7 @@ plugins:
 #   Linux AArch64 FPC=.../ppca64 FPCUNITS=-Fu.../aarch64-linux (CROSS_COMPILE=aarch64-linux-gnu-)
 FPC ?= fpc
 FPCUNITS ?=
-FPC_PLUGIN_CODECS := sylz pja
+FPC_PLUGIN_CODECS := sylz pja ppa
 FPC_PLUGIN_FILES := $(addprefix plugins/codecs/,$(addsuffix $(PLUGEXT),$(FPC_PLUGIN_CODECS)))
 ifneq (,$(findstring x86_64-w64-mingw32,$(CROSS_COMPILE)))
   FPCTARGET := -Twin64
@@ -585,6 +585,18 @@ plugins/codecs/pja$(PLUGEXT): $(PJASRC)
 	PJA_COMMIT=62bf00c $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
 	  -Fucompressors/pja/pas/plugin -Ficompressors/pja/pas/plugin -FUplugins/fpc-pja -Foplugins/fpc-pja -oplugins/fpc-pja/pja$(PLUGEXT) compressors/pja/pas/plugin/pja_zpaqstd.pas
 	mv -f plugins/fpc-pja/pja$(PLUGEXT) $@
+
+# PPA (-sa: ppa1, PNG/APNG/MNG), as its compressors/ppa/VENDOR.md builds it (pas/plugin/build.sh): its C part and
+# PJA's from its own vendor/pja (pas/build_c.sh calls it), then fpc. PPA_COMMIT is what its card shows
+PPASRC := $(wildcard compressors/ppa/pas/*.pas compressors/ppa/pas/*.inc compressors/ppa/pas/*.c compressors/ppa/pas/plugin/*.pas \
+  compressors/ppa/pas/plugin/*.inc compressors/ppa/vendor/pja/pas/*.pas compressors/ppa/vendor/pja/pas/*.c compressors/ppa/vendor/pja/pas/*.h)
+plugins/codecs/ppa$(PLUGEXT): $(PPASRC)
+	@mkdir -p plugins/codecs plugins/fpc-ppa
+	CC="$(SYLZC_CC) $(filter -m32,$(CFLAGS))" sh compressors/ppa/pas/build_c.sh plugins/fpc-ppa $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
+	PPA_COMMIT=eaf0b4a $(FPC) -O3 -dPPA_FAST -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/ppa/pas -Ficompressors/ppa/pas \
+	  -Fucompressors/ppa/pas/plugin -Ficompressors/ppa/pas/plugin -Fucompressors/ppa/vendor/pja/pas -Ficompressors/ppa/vendor/pja/pas \
+	  -FUplugins/fpc-ppa -Foplugins/fpc-ppa -oplugins/fpc-ppa/ppa$(PLUGEXT) compressors/ppa/pas/plugin/ppa_zpaqstd.pas
+	mv -f plugins/fpc-ppa/ppa$(PLUGEXT) $@
 
 compressors/plug/zs_%.o: compressors/plug/zs_%.cpp compressors/plug/zs_codec.h compressors/plug/zs_plugin.h
 	$(CXX) $(ZPAQ_CXXFLAGS) $(PLUGINC_$*) -c $< -o $@

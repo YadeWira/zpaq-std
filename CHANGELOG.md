@@ -1,6 +1,11 @@
 ### [2.9.0] - unreleased
 
-**`+rcmd`: a `-sa` codec recommends the method of the files of its format that it does not take. PJA 0.9.9.**
+**PNG in `-sa`: PPA's `ppa1` (experimental). `+rcmd`: a `-sa` codec recommends the method of the files of its format that it does not take. PJA 0.9.9.**
+
+- **`-sa:ppa` (or `-sa:ppa1`): PNG, APNG and MNG, with [PPA](https://github.com/YadeWira/PPA) 0.2.0**, a second plugin (`codecs/ppa.dll` or `.so`, in the extra-codecs download). EXPERIMENTAL in this release (00737). It takes the files whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file, rebuilds their deflate streams and gives the file back byte for byte. `ppa1` is frozen (stream, what it takes, its 19 KB ZPAQL decoder), so any zpaq extracts its blocks without the plugin.
+  - `-sa` alone now means every codec whose plugin is in `codecs/`: PJA's six, then `ppa1`. A plugin that is not there is named and its codecs are left out (00788); a codec that is written needs its plugin, as before. `-sa:pja` is what `-sa` was.
+  - A group of its files is kept to 7 MiB of image (the weight cap below): without the plugin its ZPAQL decoder takes time by the pixels.
+  - `scanfiles` shows `ppa1` for PNG and MNG.
 
 - **`-sa:<codec>+rcmd`, and `-rcmd` for every codec** (also with `-sae` and `-sat`). Only when asked for. The files of a codec's format that it does not take, those it would take that are partly in the archive already, and a group it takes that gives no gain go with the method the codec recommends: the first `-ma` codec of its list that this zpaq-std has, else the first `-m` level. Every other file keeps the `-m`/`-ma` of the command. The recommendation holds even when the command has `-m` or `-ma`.
   - A recommended `-ma` must pay for its ZPAQL decoder: its output and the decoder together have to be smaller than the block, else the block goes as the command says (and the command's `-ma` has to pay for its own too).

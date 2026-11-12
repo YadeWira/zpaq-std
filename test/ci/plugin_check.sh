@@ -9,6 +9,7 @@ set -u
 Z=$1; C=$2; PLAT=$3
 W=ci-plug; rm -rf "$W"; mkdir -p "$W/codecs" "$W/data/sub"
 cp "$Z" "$W/zpaq-std"; cp "$C"/sylz.* "$W/codecs/"; [ -n "${NOPJA:-}" ] || cp "$C"/pja.* "$W/codecs/"
+cp "$C"/ppa.* "$W/codecs/"
 cp README.md CHANGELOG.md LICENSE "$W/data/"; cp compressors/bsc/PATCHES "$W/data/sub/"
 head -c 300000 THIRD-PARTY-LICENSES.txt > "$W/data/sub/tpl.txt"
 find "$W/data" -exec touch -d '2026-01-01T12:00:00Z' {} +
@@ -75,5 +76,20 @@ PY
     cmp -s jpg/pat.jpg x/jpg/pat.jpg && echo "-sa with pja: $(wc -c < jpg/pat.jpg) bytes back identical" || { echo "FAIL -sa x"; bad=$((bad+1)); }
   else echo "no JPEG tool: -sa with pja not checked"; fi
 fi
+# ppa: a PNG written here (zlib's deflate, as most PNGs have), -sat compresses it with ppa1,
+# its ZPAQL gives it back, and so does extracting
+echo "$info" | grep -qE "^ +ppa:ppa1 +ppa1: PPA stream" || { echo "FAIL ppa:ppa1 not loaded"; bad=$((bad+1)); }
+python3 - <<'PY'
+import struct, zlib, math, os
+w, h = 640, 480
+rows = b''.join(b'\x00' + bytes(v for x in range(w) for v in (int(127+120*math.sin(x/23.0)), int(127+120*math.cos(y/17.0)), (x*y) & 255)) for y in range(h))
+def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+os.makedirs('png', exist_ok=True)
+open('png/pat.png', 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows, 6)) + chunk(b'IEND', b''))
+PY
+./zpaq-std a g.zpaq png -sat:ppa:ppa1 -nomore >ppa.log 2>&1
+grep -qE "png/pat.png: ppa1,.*plugin decode .* OK; ZPAQL OK" ppa.log || { echo "FAIL -sa: no ppa1 block for the PNG"; grep -i "pat.png\|ppa" ppa.log | head -5; bad=$((bad+1)); }
+rm -rf x; ./zpaq-std x g.zpaq -to x -nomore >/dev/null 2>&1
+cmp -s png/pat.png x/png/pat.png && echo "-sa with ppa1: $(wc -c < png/pat.png) bytes back identical" || { echo "FAIL -sa x (ppa)"; bad=$((bad+1)); }
 echo "$PLAT plugins: $n methods, $bad failures"
 [ $bad = 0 ]
