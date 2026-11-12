@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.9.0-rc3"
+#define ZPAQSTD_VERSION "2.9.0-rc4"
 #define ZPAQSTD_DATE "(2026-11-11)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -268063,8 +268063,12 @@ int Jidac::add2()
 						if (g_sa_mode == 't')
 						{
 							if (ps >= 0)
-								myprintf("00734: %s: %s would take it, but part of it is already in the archive: +rcmd, compressed with %s\n",
-										 vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(), sa_rcmd_nombre(g_sa[sa_file]).c_str());
+							{
+								/// (once: such a file waits, and is looked at again when its turn comes)
+								if (sa_secondo || flagtar)
+									myprintf("00734: %s: %s would take it, but part of it is already in the archive: what is new of it, as +rcmd says\n",
+											 vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
+							}
 							else
 								myprintf("00734: %s: %s would take it, but part of it is already in the archive: compressed as -m says\n",
 										 vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str());
@@ -268287,9 +268291,13 @@ int Jidac::add2()
 					if (sa_blk_fi >= 0 && sa_blk_ok && g_sa[sa_blk_codec].rcmd_de >= 0)
 					{
 						/// +rcmd: files of a codec's format that it does not take. A -ma codec runs here, as -ma does
-						const int64_t rc_orig= (int64_t)sb.size();
+						const int64_t rc_orig= (int64_t)sb.size() - 8 - 4 * (int64_t)frags; /// the files' bytes (not the list of fragments)
 						int64_t		  rc_fuera= 0;
 						const bool	  rc_suyo= sa_rc_ma && sa_rcmd_ma(sb, m, ma_comment, g_sa[sa_rc], &rc_fuera);
+						/// rc4: the recommended -ma does not gain: the block is the user's again, his -ma too
+						/// (it stayed for -m alone; found by ppa)
+						if (sa_rc_ma && !rc_suyo)
+							ma_comprimir_bloque(sb, m, ma_comment);
 						if (g_sa_mode == 't')
 						{
 							if (!sa_rc_ma)
@@ -268299,7 +268307,7 @@ int Jidac::add2()
 								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, sa_rcmd_nombre(g_sa[sa_rc]).c_str(), migliaia(rc_orig), migliaia2((int64_t)sb.size()));
 							else
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m says\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m/-ma say\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str(), rc_fuera ? " (its decoder counted)" : "");
 						}
 					}
@@ -268412,7 +268420,7 @@ int Jidac::add2()
 						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
 								 sa_join ? ", in the same block as the previous file" : "");
 					else if (g_sa_mode == 't')
-						myprintf("00734: %s: +rcmd (%s does not take it): to a block for %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+						myprintf("00734: %s: +rcmd (%s): to a block for %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
 								 sa_rcmd_nombre(g_sa[g_sa[sa_file].rcmd_de]).c_str(), sa_join ? ", the one of the previous file" : "");
 				}
 				assert(sz == 0 || fi < vf.size());
@@ -269313,9 +269321,13 @@ int Jidac::add2()
 					if (sa_blk_fi >= 0 && sa_blk_ok && g_sa[sa_blk_codec].rcmd_de >= 0)
 					{
 						/// +rcmd: files of a codec's format that it does not take. A -ma codec runs here, as -ma does
-						const int64_t rc_orig= (int64_t)sb.size();
+						const int64_t rc_orig= (int64_t)sb.size() - 8 - 4 * (int64_t)frags; /// the files' bytes (not the list of fragments)
 						int64_t		  rc_fuera= 0;
 						const bool	  rc_suyo= sa_rc_ma && sa_rcmd_ma(sb, m, ma_comment, g_sa[sa_rc], &rc_fuera);
+						/// rc4: the recommended -ma does not gain: the block is the user's again, his -ma too
+						/// (it stayed for -m alone; found by ppa)
+						if (sa_rc_ma && !rc_suyo)
+							ma_comprimir_bloque(sb, m, ma_comment);
 						if (g_sa_mode == 't')
 						{
 							if (!sa_rc_ma)
@@ -269325,7 +269337,7 @@ int Jidac::add2()
 								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, sa_rcmd_nombre(g_sa[sa_rc]).c_str(), migliaia(rc_orig), migliaia2((int64_t)sb.size()));
 							else
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m says\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m/-ma say\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str(), rc_fuera ? " (its decoder counted)" : "");
 						}
 					}
@@ -269438,7 +269450,7 @@ int Jidac::add2()
 						myprintf("00734: %s: %s takes it%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
 								 sa_join ? ", in the same block as the previous file" : "");
 					else if (g_sa_mode == 't')
-						myprintf("00734: %s: +rcmd (%s does not take it): to a block for %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
+						myprintf("00734: %s: +rcmd (%s): to a block for %s%s\n", vf[fi]->first.c_str(), g_sa[sa_file].algo.c_str(),
 								 sa_rcmd_nombre(g_sa[g_sa[sa_file].rcmd_de]).c_str(), sa_join ? ", the one of the previous file" : "");
 				}
 				assert(sz == 0 || fi < vf.size());
