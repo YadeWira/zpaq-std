@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.9.0-rc4"
+#define ZPAQSTD_VERSION "2.9.0-rc5"
 #define ZPAQSTD_DATE "(2026-11-11)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -263450,14 +263450,22 @@ static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comme
 /// 5,635 bytes instead of 3,404; found by ppa): the codec's output plus its decoder must be smaller than
 /// the block, or the block stays as it was, for -m. o_fuera: its bytes then (with the decoder), 0 if
 /// the codec did not gain by itself. True if the block is the codec's now
+static bool sa_ma_paga(StringBuffer& sb, string& m, string& ma_comment, const std::string& i_ma, int i_nivel, int64_t* o_fuera);
 static bool sa_rcmd_ma(StringBuffer& sb, string& m, string& ma_comment, const zs_sa_codec& i_sc, int64_t* o_fuera)
+{
+	return sa_ma_paga(sb, m, ma_comment, i_sc.rc_ma, i_sc.rc_level, o_fuera);
+}
+/// A block with the -ma codec i_ma, only if its output plus its decoder is smaller than the block
+/// (rc5: also for the user's own -ma on a +rcmd block that the recommended codec did not gain on: a
+/// block of its own with zstd cost 7 KB of decoder on 6 KB of files; found by ppa)
+static bool sa_ma_paga(StringBuffer& sb, string& m, string& ma_comment, const std::string& i_ma, int i_nivel, int64_t* o_fuera)
 {
 	if (o_fuera)
 		*o_fuera=0;
 	const int64_t orig=(int64_t)sb.size();
 	int64_t dec=0;
 	std::vector<std::pair<std::string, const std::string*> > bc;
-	zs_info_bytecodes(i_sc.rc_ma, bc);
+	zs_info_bytecodes(i_ma, bc);
 	for (size_t i=0; i<bc.size(); i++)
 		if (bc[i].second && (int64_t)bc[i].second->size()>dec)
 			dec=(int64_t)bc[i].second->size();
@@ -263467,7 +263475,7 @@ static bool sa_rcmd_ma(StringBuffer& sb, string& m, string& ma_comment, const zs
 	if (chico)
 		copia.assign((const char*)sb.data(), (size_t)orig);
 	const string m0=m;
-	ma_comprimir_con(sb, m, ma_comment, i_sc.rc_ma, i_sc.rc_level);
+	ma_comprimir_con(sb, m, ma_comment, i_ma, i_nivel);
 	if (m==m0)
 		return false;
 	if (chico && (int64_t)sb.size()+dec>=orig-16)
@@ -268296,18 +268304,18 @@ int Jidac::add2()
 						const bool	  rc_suyo= sa_rc_ma && sa_rcmd_ma(sb, m, ma_comment, g_sa[sa_rc], &rc_fuera);
 						/// rc4: the recommended -ma does not gain: the block is the user's again, his -ma too
 						/// (it stayed for -m alone; found by ppa)
-						if (sa_rc_ma && !rc_suyo)
-							ma_comprimir_bloque(sb, m, ma_comment);
+						if (sa_rc_ma && !rc_suyo && !g_ext_mode && !g_ma_algorithm.empty())
+							sa_ma_paga(sb, m, ma_comment, g_ma_algorithm, g_ma_level, NULL);
 						if (g_sa_mode == 't')
 						{
 							if (!sa_rc_ma)
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: compressed with %s\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) that go as +rcmd says, %s bytes: compressed with %s\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str());
 							else if (rc_suyo)
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) that go as +rcmd says, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, sa_rcmd_nombre(g_sa[sa_rc]).c_str(), migliaia(rc_orig), migliaia2((int64_t)sb.size()));
 							else
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m/-ma say\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) that go as +rcmd says, %s bytes: %s does not gain%s, compressed as -m/-ma say\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str(), rc_fuera ? " (its decoder counted)" : "");
 						}
 					}
@@ -269326,18 +269334,18 @@ int Jidac::add2()
 						const bool	  rc_suyo= sa_rc_ma && sa_rcmd_ma(sb, m, ma_comment, g_sa[sa_rc], &rc_fuera);
 						/// rc4: the recommended -ma does not gain: the block is the user's again, his -ma too
 						/// (it stayed for -m alone; found by ppa)
-						if (sa_rc_ma && !rc_suyo)
-							ma_comprimir_bloque(sb, m, ma_comment);
+						if (sa_rc_ma && !rc_suyo && !g_ext_mode && !g_ma_algorithm.empty())
+							sa_ma_paga(sb, m, ma_comment, g_ma_algorithm, g_ma_level, NULL);
 						if (g_sa_mode == 't')
 						{
 							if (!sa_rc_ma)
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: compressed with %s\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) that go as +rcmd says, %s bytes: compressed with %s\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str());
 							else if (rc_suyo)
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) that go as +rcmd says, with %s: %s -> %s bytes\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, sa_rcmd_nombre(g_sa[sa_rc]).c_str(), migliaia(rc_orig), migliaia2((int64_t)sb.size()));
 							else
-								myprintf("00734: +rcmd (%s): a block of %d file(s) it does not take, %s bytes: %s does not gain%s, compressed as -m/-ma say\n", g_sa[sa_rc].algo.c_str(),
+								myprintf("00734: +rcmd (%s): a block of %d file(s) that go as +rcmd says, %s bytes: %s does not gain%s, compressed as -m/-ma say\n", g_sa[sa_rc].algo.c_str(),
 										 (int)sa_cuts.size() + 1, migliaia(rc_orig), sa_rcmd_nombre(g_sa[sa_rc]).c_str(), rc_fuera ? " (its decoder counted)" : "");
 						}
 					}
