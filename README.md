@@ -110,8 +110,8 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default |
 |---|---|---|---|
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) 517948e | 1–9 | 9 |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.5.4), plugin only | 0–10 | 1 |
-| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.5.4, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
+| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.6.0), plugin only | 0–10 | 1 |
+| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.6.0, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
 
 What each codec's levels mean, and notes on some of them (kanzi, lzh, bz2):
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#codec-notes). `codecinfo` lists them all; `codecinfo <codec>`

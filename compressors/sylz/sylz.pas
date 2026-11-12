@@ -42,7 +42,37 @@
   a branch the decoder can't predict. The 210 exact pairs are the most
   frequent ones (bench/sylztable.pas, over Silesia and a mixed corpus at
   levels 1 and 9), and leave 8-12% of sequences extended. Exact pairs fit
-  fixed 16-byte literal and 32-byte match copies. }
+  fixed 16-byte literal and 32-byte match copies.
+
+  Formats v4 and v5 (SYLZ_V4; provisional until frozen): three streams,
+  tokens, offsets and literals, so that a token is one byte and a
+  sequence takes two offset bytes only when it needs them; v5 is v4 with
+  the literals in v3's chunks. Bit 30 of the first u32 tells them from v2
+  and v3:
+
+    block    := hdr:u32le  offLen:u32le  tokens[tokLen]  offsets[offLen]
+                litsection
+    hdr      := tokLen | (bit 30) | (bit 31: literals entropy-coded, v5)
+    tokens   := chunk*
+    chunk    := chdr:u32le  [table: 256 x u16le]  token-bytes[n]
+    chdr     := n | (bit 31: a table follows)
+    offsets  := (distance - 1):u16le *
+    token    := index into the chunk's table (SYLZ_TOKENS4 without one of
+                its own), whose entry gives a literal length (0..16, or
+                extended), a match length (0..32, or extended) and
+                whether the match is at a new offset (the next two offset
+                bytes) or at the previous sequence's
+    ext      := as in v2, in the token bytes; the match extension counts
+                from 4 at a new offset, from 2 at the previous one
+
+  A match at the previous sequence's offset costs a token and no offset
+  bytes: in structured data a fifth to a half of the matches are such.
+  A token with match length 0 is literals only, and one with no literals
+  at the previous offset continues a match, so what has no code of its
+  own is written as two or three plain tokens, which the decoder's loop
+  takes without a branch, instead of an escape and an extension; only
+  literal runs over 32 and matches over 64 are extended. Each chunk of
+  the token stream can bring a table made from the pairs it uses most. }
 unit sylz;
 
 {$mode objfpc}{$H+}
@@ -118,6 +148,9 @@ type
     opt: PByte;          { optimal parser: nodes, candidates, path }
     bt: PUInt32;         { optimal parser: binary-tree match finder }
     flags: Integer;      { of the current call }
+    offs: PByte;         { format v4: the offset stream's scratch buffer }
+    offsSize: SizeInt;
+    recs: PUInt16;       { format v4: a chunk's sequences }
   end;
 
 
@@ -161,6 +194,51 @@ const
     literal priced by its Huffman code (CompressOptEC). }
   SYLZ_EC_SHIFT = 2;
   SYLZ_EC_MAXLEVEL = SYLZ_MAXLEVEL;   { 9 and 10: entropy-aware prices }
+  SYLZ_V4 = 2;        { format v4; with SYLZ_ENTROPY, v5 }
+
+  { Format v4's token table (bench/sylztable.pas). Entry: bits 0..7
+    literal length (base), 8..15 match length (base), 16..23 the bytes the
+    sequence takes from the offset stream (2: a new offset, 0: the previous
+    sequence's), bit 24 literal length extended, bit 25 match length
+    extended. }
+  SYLZ_TOK4_OFF   = $20000;
+  SYLZ_TOK4_LLEXT = $1000000;
+  SYLZ_TOK4_MLEXT = $2000000;
+  SYLZ_MINREP = 2;    { shortest match at the previous offset }
+  SYLZ_TOKENS4: array[0..255] of UInt32 = (
+    $0020400, $0020500, $0020600, $0020700, $0020800, $0020900, $0020A00, $0020B00,
+    $0020C00, $0020D00, $0020E00, $0020F00, $0021000, $0021100, $0021200, $0021300,
+    $0021400, $0021500, $0021600, $0021700, $0021800, $0021900, $0021A00, $0021B00,
+    $0021C00, $0021D00, $0021E00, $0021F00, $0022000, $0020401, $0020501, $0020601,
+    $0020701, $0020801, $0020901, $0020A01, $0020B01, $0020C01, $0020D01, $0020E01,
+    $0020F01, $0021001, $0021101, $0021201, $0021301, $0021401, $0021501, $0021701,
+    $0021B01, $0021E01, $0021F01, $0022001, $0020402, $0020502, $0020602, $0020702,
+    $0020802, $0020902, $0020A02, $0020B02, $0020C02, $0020D02, $0020E02, $0020F02,
+    $0021002, $0021202, $0021502, $0021E02, $0022002, $0020403, $0020503, $0020603,
+    $0020703, $0020803, $0020903, $0020A03, $0020B03, $0020C03, $0020D03, $0020E03,
+    $0022003, $0020404, $0020504, $0020604, $0020704, $0020804, $0020904, $0020A04,
+    $0020B04, $0020C04, $0022004, $0020405, $0020505, $0020605, $0020705, $0020805,
+    $0020905, $0020A05, $0020B05, $0020D05, $0020406, $0020506, $0020606, $0020706,
+    $0020806, $0020906, $0020A06, $0020C06, $0020407, $0020507, $0020607, $0020707,
+    $0020807, $0020907, $0020408, $0020508, $0020608, $0020708, $0020808, $0020409,
+    $0020509, $0020609, $0020709, $0020809, $002040A, $002050A, $002060A, $002070A,
+    $002080A, $002040B, $002050B, $002060B, $002070B, $002140B, $002040C, $002060C,
+    $002070C, $002140C, $002040D, $002050D, $002060D, $002070D, $002040E, $002060E,
+    $002040F, $002050F, $002060F, $002070F, $002080F, $0020410, $0020610, $0000200,
+    $0000300, $0000400, $0000500, $0000600, $0000700, $0000800, $0000900, $0000A00,
+    $0000B00, $0000C00, $0000D00, $0000E00, $0000F00, $0001000, $0001100, $0001200,
+    $0001300, $0001400, $0001500, $0001600, $0001700, $0001800, $0001900, $0001A00,
+    $0001B00, $0001C00, $0001D00, $0001E00, $0001F00, $0002000, $0000001, $0000401,
+    $0000501, $0000601, $0000701, $0000801, $0000901, $0000A01, $0000B01, $0000C01,
+    $0000D01, $0000E01, $0000F01, $0001001, $0001101, $0001301, $0001401, $0001501,
+    $0001701, $0001B01, $0002001, $0000002, $0000402, $0000502, $0000602, $0000702,
+    $0000802, $0000A02, $0000E02, $0001202, $0001602, $0001E02, $0002002, $0000003,
+    $0000403, $0000503, $0000903, $0000D03, $0000004, $0000404, $0000504, $0000005,
+    $0000405, $0000605, $0000705, $0000B05, $0000006, $0000406, $0000606, $0000A06,
+    $0000007, $0000407, $0000507, $0000607, $0000008, $0000009, $000000A, $000000B,
+    $000050B, $000000C, $000040C, $000000D, $000000E, $000000F, $0000010, $1020500,
+    $1020600, $1020700, $1020800, $1020900, $1000000, $1020400, $2020400, $2000200
+  );
 
 { SylzCompressCtx with flags. Without SYLZ_ENTROPY the output is format v2
   (what SylzCompress writes); with it, format v3 if that is smaller, else
@@ -174,6 +252,14 @@ function SylzCompressEx(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   Returns dstLen, or -1 on corrupt input. A v3 block with coded literals
   takes a temporary buffer of its literal count. }
 function SylzDecompress(src: PByte; n: SizeInt; dst: PByte; dstLen: SizeInt): SizeInt;
+
+{ The format of the block at src, by its header: 2 .. 5, or 0 if it is too
+  short to tell. }
+function SylzBlockFormat(src: PByte; n: SizeInt): Integer;
+
+{ The format SylzCompressEx writes with these flags, 2 .. 5 (with
+  SYLZ_ENTROPY a block may also come out as the format below it). }
+function SylzFlagsFormat(flags: Integer): Integer;
 
 { SylzDecompress with a caller-kept context; same results. }
 function SylzDecompressCtx(var dctx: TSylzDCtx; src: PByte; n: SizeInt; dst: PByte;
@@ -207,6 +293,9 @@ uses
 
 const
   HEADER_SIZE  = 4;
+  HEADER4_SIZE = 8;                   { v4: + the offset stream's length }
+  HDR_V4       = UInt32($40000000);   { v4 layout: tokens, offsets, literals }
+  HDR_TOKMASK  = UInt32($3FFFFFFF);
   HDR_ENTROPY  = UInt32($80000000);   { v3: literals entropy-coded }
   HDR_CTRLMASK = UInt32($7FFFFFFF);
   LIT_CHUNK    = 65536;               { v3 literal chunk }
@@ -227,6 +316,8 @@ const
   HC_CHAINMASK = HC_CHAINSIZE - 1;
   { hash chain depth of levels 4..8 }
   HC_ATTEMPTS: array[4..8] of Integer = (2, 4, 8, 16, 64);
+  HC_REP_ENOUGH = 16;   { format v4, levels 4..8: see CompressHCCore }
+  HC_REP_GAIN  = 2;
   { levels 2-3: two hash tables, one keyed on 6 bytes (long matches), one
     on 4; 2^15 entries each at level 2, 2^16 at level 3 }
   MID_MAXLOG   = 16;
@@ -240,7 +331,7 @@ const
 
 function SylzBound(n: SizeInt): SizeInt;
 begin
-  Result := HEADER_SIZE + n + n div 255 + 16;
+  Result := HEADER4_SIZE + n + n div 255 + 16;
 end;
 
 function Read32(p: PByte): UInt32; inline;
@@ -318,6 +409,53 @@ end;
 
 { ── encoder output ───────────────────────────────────────────────────────── }
 
+const
+  { format v4: exact codes cover literals 0..MAX_LL4 (one 16-byte copy) and
+    matches up to MAX_ML4 (one 32-byte copy). What has no code of its own
+    is split into tokens that do, so the decoder's fast loop takes it
+    without a branch: a literal-only token (match length 0, previous
+    offset) before the match, and the rest of a long match as tokens at
+    the previous offset with no literals. Only literal runs over
+    LIT_SPLIT4 and matches over ML_SPLIT4 take an escape (an extension). }
+  MAX_LL4    = 16;
+  MAX_ML4    = 32;
+  LIT_SPLIT4 = 32;
+  ML_SPLIT4  = 64;
+  { the shortest match of each kind: what a match extension counts from }
+  MINML4: array[0..1] of SizeInt = (SYLZ_MINMATCH, SYLZ_MINREP);
+  { The token stream comes in chunks of CHUNK4_SEQS sequences, each with
+    SYLZ_TOKENS4 or a table of its own (TABLE4_BYTES in the chunk), made
+    from that chunk's sequences: the pairs it uses most get the codes. }
+  CHUNK4_SEQS    = 131072;
+  TABLE4_BYTES   = 512;
+  CHUNK4_TABLE   = UInt32($80000000);   { chunk header: a table follows }
+  CHUNK4_LENMASK = UInt32($3FFFFFFF);
+  { table entry (u16): bits 0..4 literals (TAB4_EXT: extended), 5..10
+    match length (TAB4_EXT_ML: extended), bit 11 previous offset }
+  TAB4_EXT    = 31;
+  TAB4_EXT_ML = 63;
+  TAB4_REP    = $800;
+  { levels 0..3 count one sequence in this many for a chunk's table }
+  FAST_SAMPLE4 = 8;
+  { A recorded sequence: three u16, literals, match length, distance - 1;
+    literals = REC4_ESC: the lengths follow as two u32 (and 4 unused
+    bytes), REC4_LONG records in all. }
+  REC4_ESC  = $FFFF;
+  REC4_LONG = 3;
+
+type
+  { The codes of a token table; sylzc.c reads it by these offsets. exact:
+    [0 new offset / 1 previous offset, literals, match], 255 = no code;
+    the escapes: litx literals only, extended; llx[kind, match] literals
+    extended and that match; mlx[kind] match extended. }
+  TCodes4 = record
+    exact: array[0..1, 0..MAX_LL4, 0..MAX_ML4] of Byte;
+    llx: array[0..1, 0..MAX_ML4] of Byte;
+    litx: Byte;
+    mlx: array[0..1] of Byte;
+  end;
+  TTable4 = array[0..255] of UInt32;
+
 type
   { The control stream is written straight into dst (after the header);
     literals go to a scratch buffer and are appended when the block ends. }
@@ -326,15 +464,43 @@ type
     lits, lit: PByte;
     srcEnd: PByte;    { end of the input: bounds the wide literal reads }
     entropy: Boolean; { finish as format v3 when that is smaller }
+    v4: Boolean;      { format v4: ctrl holds tokens only, offsets go to offs }
+    offs, off: PByte;
+    rep: SizeInt;     { v4: the previous sequence's distance }
+    { v4: the sequences not yet written as tokens (PutRec4); the distance
+      before them; the last chunk's codes and a count of the chunks, for
+      the optimal parser's prices }
+    recs, rec, recEnd: PUInt16;
+    tokRep: SizeInt;
+    codes: TCodes4;
+    codesGen: SizeInt;
+    sample: SizeInt;  { chunk tables from one sequence in this many }
+    roomy: Boolean;   { dst holds SylzBound(n): no sequence can run out of room }
+    failed: Boolean;  { a flush called from C found no room }
   end;
+  PEmit = ^TEmit;
 
 procedure EmitInit(out e: TEmit; dst: PByte; cap: SizeInt; scratch, srcEnd: PByte;
-  flags: Integer);
+  flags: Integer; offs: PByte; recs: PUInt16);
 begin
+  e.v4 := flags and SYLZ_V4 <> 0;
+  e.offs := offs;
+  e.off := offs;
+  e.rep := 1;
+  e.recs := recs;
+  e.rec := recs;
+  e.recEnd := recs + 3 * (CHUNK4_SEQS - REC4_LONG);
+  e.roomy := False;
+  e.tokRep := 1;
+  e.codesGen := 0;
+  e.sample := 1;
+  e.failed := False;
   e.srcEnd := srcEnd;
   e.entropy := flags and SYLZ_ENTROPY <> 0;
   e.dst := dst;
   e.ctrl := dst + HEADER_SIZE;
+  if e.v4 then
+    e.ctrl := dst + HEADER4_SIZE;
   e.oend := dst + cap;
   e.lits := scratch;
   e.lit := scratch;
@@ -378,6 +544,542 @@ begin
   Inc(p);
 end;
 
+var
+  Codes4: TCodes4;   { SYLZ_TOKENS4's }
+
+{ The codes of a table an encoder can use, or false: every sequence needs
+  its codes (the four escapes, the literal-only tokens, each match length
+  at a new offset with no literals), and code 255, "none" in exact, must
+  be an escape. }
+function BuildCodes4(const t: TTable4; out c: TCodes4): Boolean;
+var
+  code, k, seen: Integer;
+  e, ll, ml: UInt32;
+begin
+  Result := False;
+  FillChar(c, SizeOf(c), 255);
+  seen := 0;
+  for code := 0 to 255 do
+  begin
+    e := t[code];
+    k := Ord(e and SYLZ_TOK4_OFF = 0);
+    ll := e and $FF;
+    ml := (e shr 8) and $FF;
+    if e and (SYLZ_TOK4_LLEXT or SYLZ_TOK4_MLEXT) = 0 then
+    begin
+      { a match, or literals only (then at the previous offset) }
+      if (ll > MAX_LL4) or (ml > MAX_ML4) or (c.exact[k, ll, ml] <> 255)
+         or ((ml = 0) and ((k = 0) or (ll = 0)))
+         or ((ml <> 0) and (ml < UInt32(MINML4[k]))) then
+        Exit;
+      c.exact[k, ll, ml] := Byte(code);
+    end
+    else if e = SYLZ_TOK4_LLEXT then
+    begin
+      c.litx := Byte(code);
+      seen := seen or 1;
+    end
+    else if (e and SYLZ_TOK4_MLEXT = 0) and (ll = 0) and (ml >= UInt32(MINML4[k]))
+            and (ml <= MAX_ML4) and (c.llx[k, ml] = 255) then
+    begin
+      c.llx[k, ml] := Byte(code);
+      if (k = 0) and (ml = SYLZ_MINMATCH) then
+        seen := seen or 2;
+    end
+    else if e = SYLZ_TOK4_MLEXT or SYLZ_TOK4_OFF or (SYLZ_MINMATCH shl 8) then
+    begin
+      c.mlx[0] := Byte(code);
+      seen := seen or 4;
+    end
+    else if e = SYLZ_TOK4_MLEXT or (SYLZ_MINREP shl 8) then
+    begin
+      c.mlx[1] := Byte(code);
+      seen := seen or 8;
+    end
+    else
+      Exit;
+  end;
+  if (seen <> 15) or (t[255] and (SYLZ_TOK4_LLEXT or SYLZ_TOK4_MLEXT) = 0) then
+    Exit;
+  for code := 1 to MAX_LL4 do
+    if c.exact[1, code, 0] = 255 then
+      Exit;
+  for code := SYLZ_MINMATCH to MAX_ML4 do
+    if c.exact[0, 0, code] = 255 then
+      Exit;
+  Result := True;
+end;
+
+{ A table entry as the block stores it, and back; false: not an entry. }
+function PackEntry4(e: UInt32): UInt16;
+begin
+  Result := UInt16(e and $FF) or UInt16(((e shr 8) and $FF) shl 5);
+  if e and SYLZ_TOK4_LLEXT <> 0 then
+    Result := (Result and not UInt16($1F)) or TAB4_EXT;
+  if e and SYLZ_TOK4_MLEXT <> 0 then
+    Result := (Result and not UInt16($7E0)) or (TAB4_EXT_ML shl 5);
+  if e and SYLZ_TOK4_OFF = 0 then
+    Result := Result or TAB4_REP;
+end;
+
+function UnpackEntry4(v: UInt16; out e: UInt32): Boolean;
+var
+  ll, ml: UInt32;
+begin
+  ll := v and $1F;
+  ml := (v shr 5) and $3F;
+  e := 0;
+  if v and TAB4_REP = 0 then
+    e := SYLZ_TOK4_OFF;
+  if ll = TAB4_EXT then
+    e := e or SYLZ_TOK4_LLEXT
+  else
+    e := e or ll;
+  if ml = TAB4_EXT_ML then
+  begin
+    if v and TAB4_REP = 0 then
+      e := e or SYLZ_TOK4_MLEXT or (SYLZ_MINMATCH shl 8)
+    else
+      e := e or SYLZ_TOK4_MLEXT or (SYLZ_MINREP shl 8);
+  end
+  else
+    e := e or (ml shl 8);
+  { what the decoder's copies allow: 16 literals and a 32-byte match
+    without an extension }
+  Result := (v shr 12 = 0) and ((ll <= MAX_LL4) or (ll = TAB4_EXT))
+    and ((ml <= MAX_ML4) or (ml = TAB4_EXT_ML));
+end;
+
+{ The code of (ll literals, a match of ml) of kind k, or a literal-only
+  token and the match's }
+procedure PutPair4(const c: TCodes4; var p: PByte; k, ll, ml: SizeInt);
+var
+  code: Byte;
+begin
+  code := c.exact[k, ll, ml];
+  if code = 255 then
+  begin
+    p^ := c.exact[1, ll, 0];
+    Inc(p);
+    code := c.exact[k, 0, ml];
+  end;
+  p^ := code;
+  Inc(p);
+end;
+
+{ What PutTokens4 looks up for a sequence: into row (literals 0..MAX_LL4,
+  MAX_LL4 + 1 for a run over LIT_SPLIT4, the extended-run codes) and col
+  (the match length); false when it looks nothing up. Chunk tables are
+  built from the counts of these. }
+function PairOf4(ll, ml: SizeInt; out row, col: SizeInt): Boolean; inline;
+begin
+  Result := True;
+  col := ml;
+  row := ll;
+  if ll > LIT_SPLIT4 then
+  begin
+    if ml <= MAX_ML4 then
+    begin
+      row := MAX_LL4 + 1;
+      Exit;
+    end;
+    row := 0;   { the run takes an escape of its own }
+  end
+  else if ll > MAX_LL4 then
+    Dec(row, MAX_LL4);
+  if ml > ML_SPLIT4 then
+    Exit(False);
+  if ml > MAX_ML4 then
+  begin
+    col := MAX_ML4;
+    if ml - col < SYLZ_MINREP then
+      col := ml - SYLZ_MINREP;
+  end;
+end;
+
+{ The tokens of one sequence (ll literals, a match of ml, kind k) at p;
+  returns where they end. }
+function PutTokens4(const c: TCodes4; p: PByte; k, ll, ml: SizeInt): PByte;
+var
+  part: SizeInt;
+begin
+  if (ll <= MAX_LL4) and (ml <= MAX_ML4) and (c.exact[k, ll, ml] <> 255) then
+  begin
+    p^ := c.exact[k, ll, ml];
+    Exit(p + 1);
+  end;
+  if (ml <= MAX_ML4) and (c.llx[k, ml] <> 255)
+     and ((ll > LIT_SPLIT4) or ((ll > MAX_LL4) and (k = 0) and (ml = SYLZ_MINMATCH))) then
+  begin
+    { a long run and this match in one token and its extension. (A 4-byte
+      match at a new offset always has that code and takes it from
+      MAX_LL4 literals on: split, it could cost more bytes than it saves,
+      and SylzBound would not hold.) }
+    p^ := c.llx[k, ml];
+    Inc(p);
+    PutExt(p, ll);
+    Exit(p);
+  end;
+  if ll > LIT_SPLIT4 then
+  begin
+    p^ := c.litx;
+    Inc(p);
+    PutExt(p, ll);
+    ll := 0;
+  end
+  else if ll > MAX_LL4 then
+  begin
+    p^ := c.exact[1, MAX_LL4, 0];
+    Inc(p);
+    Dec(ll, MAX_LL4);
+  end;
+  if ml > ML_SPLIT4 then
+  begin
+    if ll > 0 then
+    begin
+      p^ := c.exact[1, ll, 0];
+      Inc(p);
+    end;
+    p^ := c.mlx[k];
+    Inc(p);
+    PutExt(p, ml - MINML4[k]);
+  end
+  else if ml > MAX_ML4 then
+  begin
+    { MAX_ML4 bytes at a time, the rest at the previous offset (this
+      match's); no part shorter than SYLZ_MINREP }
+    part := MAX_ML4;
+    if ml - part < SYLZ_MINREP then
+      part := ml - SYLZ_MINREP;
+    PutPair4(c, p, k, ll, part);
+    Dec(ml, part);
+    while ml > 0 do
+    begin
+      part := ml;
+      if part > MAX_ML4 then
+      begin
+        part := MAX_ML4;
+        if ml - part < SYLZ_MINREP then
+          part := ml - SYLZ_MINREP;
+      end;
+      p^ := c.exact[1, 0, part];
+      Inc(p);
+      Dec(ml, part);
+    end;
+  end
+  else
+    PutPair4(c, p, k, ll, ml);
+  Result := p;
+end;
+
+const
+  ROWS4 = MAX_LL4 + 2;   { PairOf4's rows }
+
+type
+  TPairCounts4 = array[0..1, 0..ROWS4 - 1, 0..MAX_ML4] of UInt32;
+
+{ A table for the chunk whose lookups cnt counts, into t (and its codes
+  into c); returns how many lookups it leaves without a code of their own
+  (each costs a byte more), and in staticMiss how many SYLZ_TOKENS4
+  leaves. The codes PutTokens4 falls back on (literal-only tokens, every
+  match length with no literals), the short matches the chunk uses (they
+  must not cost two tokens: SylzBound), then the pairs looked up most,
+  ties by kind, literals, match. }
+function BuildTable4(const cnt: TPairCounts4; out t: TTable4; out c: TCodes4;
+  out staticMiss: SizeInt; out staticOk: Boolean): SizeInt;
+var
+  cand: array[0..2 * ROWS4 * (MAX_ML4 + 1) - 1] of UInt32;   { count shl 12 or key }
+  taken: array[0..1, 0..ROWS4 - 1, 0..MAX_ML4] of Boolean;
+  n, nc, k, row, ml, gap, i, j: SizeInt;
+  v: UInt32;
+
+  procedure Add(kind, r, m: SizeInt);
+  var
+    e: UInt32;
+  begin
+    if taken[kind, r, m] then
+      Exit;
+    taken[kind, r, m] := True;
+    e := UInt32(m) shl 8;
+    if kind = 0 then
+      e := e or SYLZ_TOK4_OFF;
+    if r = MAX_LL4 + 1 then
+      e := e or SYLZ_TOK4_LLEXT
+    else
+      e := e or UInt32(r);
+    t[n] := e;
+    Inc(n);
+  end;
+
+begin
+  FillChar(taken, SizeOf(taken), 0);
+  n := 0;
+  for i := 1 to MAX_LL4 do
+    Add(1, i, 0);
+  for i := SYLZ_MINMATCH to MAX_ML4 do
+    Add(0, 0, i);
+  for i := SYLZ_MINREP to MAX_ML4 do
+    Add(1, 0, i);
+  staticMiss := 0;
+  staticOk := True;
+  nc := 0;
+  for k := 0 to 1 do
+    for row := 0 to ROWS4 - 1 do
+      for ml := MINML4[k] to MAX_ML4 do
+      begin
+        v := cnt[k, row, ml];
+        if v = 0 then
+          Continue;
+        if row = MAX_LL4 + 1 then
+        begin
+          if Codes4.llx[k, ml] = 255 then
+            Inc(staticMiss, v);
+        end
+        else if Codes4.exact[k, row, ml] = 255 then
+        begin
+          Inc(staticMiss, v);
+          if ml < SYLZ_MINMATCH then
+            staticOk := False;
+        end;
+        if (row = 0) or ((k = 1) and (ml < SYLZ_MINMATCH) and (row <= MAX_LL4)) then
+          Add(k, row, ml)   { needed as it is }
+        else if (k = 0) and (row = MAX_LL4 + 1) and (ml = SYLZ_MINMATCH) then
+          { the fixed escape, below }
+        else
+        begin
+          if v > $FFFFF then
+            v := $FFFFF;
+          { larger first: the count, then the smaller key }
+          cand[nc] := (v shl 12) or UInt32(4095 - ((k * ROWS4 + row) * (MAX_ML4 + 1) + ml));
+          Inc(nc);
+        end;
+      end;
+  { Shell sort, descending }
+  gap := nc div 2;
+  while gap > 0 do
+  begin
+    for i := gap to nc - 1 do
+    begin
+      v := cand[i];
+      j := i;
+      while (j >= gap) and (cand[j - gap] < v) do
+      begin
+        cand[j] := cand[j - gap];
+        Dec(j, gap);
+      end;
+      cand[j] := v;
+    end;
+    gap := gap div 2;
+  end;
+  Result := 0;
+  for i := 0 to nc - 1 do
+  begin
+    j := 4095 - SizeInt(cand[i] and 4095);
+    if n < 256 - 4 then
+      Add(j div ((MAX_ML4 + 1) * ROWS4), (j div (MAX_ML4 + 1)) mod ROWS4, j mod (MAX_ML4 + 1))
+    else
+      Inc(Result, cand[i] shr 12);
+  end;
+  { unused room: any codes not taken yet (the table has 256 entries) }
+  for k := 0 to 1 do
+    for row := 0 to MAX_LL4 do
+      for ml := MINML4[k] to MAX_ML4 do
+        if n < 256 - 4 then
+          Add(k, row, ml);
+  t[252] := SYLZ_TOK4_LLEXT;
+  t[253] := SYLZ_TOK4_LLEXT or SYLZ_TOK4_OFF or (SYLZ_MINMATCH shl 8);
+  t[254] := SYLZ_TOK4_MLEXT or SYLZ_TOK4_OFF or (SYLZ_MINMATCH shl 8);
+  t[255] := SYLZ_TOK4_MLEXT or (SYLZ_MINREP shl 8);
+  if not BuildCodes4(t, c) then
+    RunError(201);
+end;
+
+{ The recorded sequences as a chunk of the token stream: its header, its
+  table if one of its own pays for itself, its tokens; their offsets to
+  the offset stream. False when dst has no room. }
+{ The record at r: its lengths and distance; r moves past it. }
+procedure GetRec4(var r: PUInt16; out ll, ml, dist: SizeInt); inline;
+begin
+  ll := r[0];
+  ml := r[1];
+  dist := SizeInt(r[2]) + 1;
+  Inc(r, 3);
+  if ll = REC4_ESC then
+  begin
+    ll := PUInt32(r)^;
+    ml := PUInt32(r + 2)^;
+    Inc(r, 6);
+  end;
+end;
+
+{$ifdef SYLZ_C}
+type
+  { sylzc_put4 in sylzc.c: fixed field order }
+  TPut4C = record
+    rec, rend: PUInt16;
+    p, off: PByte;             { in/out: token and offset write pointers }
+    prev: SizeInt;             { in/out: the distance before the records }
+    codes: Pointer;            { TCodes4 }
+  end;
+
+procedure sylzc_put_chunk4(st: Pointer); cdecl; external name 'sylzc_put_chunk4';
+{$endif}
+
+{ The recorded sequences as a chunk of the token stream: its header, its
+  table if one of its own pays for itself, its tokens; their offsets to
+  the offset stream. False when dst has no room. }
+function FlushChunk4(var e: TEmit): Boolean;
+var
+  cnt: TPairCounts4;
+  t: TTable4;
+  c: TCodes4;
+  r, rend: PUInt16;
+  head, p, limit, off: PByte;
+  prev, k, row, col, ll, ml, dist, miss, staticMiss, i, code: SizeInt;
+  staticOk, own: Boolean;
+{$ifdef SYLZ_C}
+  pc: TPut4C;
+{$endif}
+begin
+  Result := True;
+  if e.rec = e.recs then
+    Exit;
+  rend := e.rec;
+  e.rec := e.recs;
+  { what the sequences look up: all of them, or one record in e.sample
+    (the fast levels: the count costs as much as the search saves; a
+    record with its lengths in the next ones is then read as it is, and
+    so are those: a few stray counts) }
+  FillChar(cnt, SizeOf(cnt), 0);
+  r := e.recs;
+  prev := e.tokRep;
+  if e.sample = 1 then
+    while r < rend do
+    begin
+      GetRec4(r, ll, ml, dist);
+      if PairOf4(ll, ml, row, col) then
+        Inc(cnt[Ord(dist = prev), row, col]);
+      prev := dist;
+    end
+  else
+    while r < rend do
+    begin
+      if r > e.recs then
+        prev := SizeInt(r[-1]) + 1;
+      if PairOf4(r[0], r[1], row, col) then
+        Inc(cnt[Ord(SizeInt(r[2]) + 1 = prev), row, col]);
+      Inc(r, 3 * e.sample);
+    end;
+  miss := BuildTable4(cnt, t, c, staticMiss, staticOk);
+  own := not staticOk or ((miss - staticMiss) * e.sample + TABLE4_BYTES < 0);
+  { room: what is left of dst after the offsets and literals so far }
+  limit := e.oend - (e.off - e.offs) - (e.lit - e.lits);
+  head := e.ctrl;
+  p := head + 4;
+  if own then
+  begin
+    if p + TABLE4_BYTES > limit then
+      Exit(False);
+    for i := 0 to 255 do
+    begin
+      p[2 * i] := Byte(PackEntry4(t[i]));
+      p[2 * i + 1] := Byte(PackEntry4(t[i]) shr 8);
+    end;
+    Inc(p, TABLE4_BYTES);
+    e.codes := c;
+  end
+  else
+    e.codes := Codes4;
+  Inc(e.codesGen);
+  r := e.recs;
+  prev := e.tokRep;
+  off := e.off;
+{$ifdef SYLZ_C}
+  if SylzUseAsm and e.roomy then
+  begin
+    pc.rec := r;
+    pc.rend := rend;
+    pc.p := p;
+    pc.off := off;
+    pc.prev := prev;
+    pc.codes := @e.codes;
+    sylzc_put_chunk4(@pc);
+    p := pc.p;
+    off := pc.off;
+    prev := pc.prev;
+    r := rend;
+  end;
+{$endif}
+  while r < rend do
+  begin
+    GetRec4(r, ll, ml, dist);
+    k := Ord(dist = prev);
+    prev := dist;
+    { the tokens of a sequence, at most: 2 and a literal extension, 3 and
+      the rest of a split match or a match extension; and its offset }
+    if p + 8 + ll shr 8 + ml shr 8 + 2 > limit then
+      Exit(False);
+    code := 255;
+    if (ll <= MAX_LL4) and (ml <= MAX_ML4) then
+      code := e.codes.exact[k, ll, ml];
+    if code <> 255 then
+    begin
+      p^ := Byte(code);
+      Inc(p);
+    end
+    else
+      p := PutTokens4(e.codes, p, k, ll, ml);
+    { written either way, kept if the sequence takes it }
+    off[0] := Byte(dist - 1);
+    off[1] := Byte((dist - 1) shr 8);
+    Inc(off, 2 - 2 * k);
+    Dec(limit, 2 - 2 * k);
+  end;
+  e.off := off;
+  e.tokRep := prev;
+  i := p - head - 4;
+  if own then
+  begin
+    Dec(i, TABLE4_BYTES);
+    PUInt32(head)^ := UInt32(i) or CHUNK4_TABLE;
+  end
+  else
+    PUInt32(head)^ := UInt32(i);
+  e.ctrl := p;
+end;
+
+{ EmitSequence for format v4: the sequence is recorded, and its literals
+  copied; FlushChunk4 writes the tokens and offsets of a chunk of
+  sequences at a time. A match at the previous sequence's offset may be
+  as short as SYLZ_MINREP. }
+function EmitSequence4(var e: TEmit; lit: PByte; litLen, dist, matchLen: SizeInt): Boolean;
+begin
+  if (e.rec >= e.recEnd) and not FlushChunk4(e) then
+    Exit(False);
+  e.rec[2] := UInt16(dist - 1);
+  if (litLen < REC4_ESC) and (matchLen <= $FFFF) then
+  begin
+    e.rec[0] := UInt16(litLen);
+    e.rec[1] := UInt16(matchLen);
+    Inc(e.rec, 3);
+  end
+  else
+  begin
+    e.rec[0] := REC4_ESC;
+    e.rec[1] := 0;
+    PUInt32(e.rec + 3)^ := UInt32(litLen);
+    PUInt32(e.rec + 5)^ := UInt32(matchLen);
+    Inc(e.rec, 3 * REC4_LONG);
+  end;
+  e.rep := dist;
+  if (litLen <= 16) and (lit + 16 <= e.srcEnd) then
+    Copy16(e.lit, lit)
+  else
+    Move(lit^, e.lit^, litLen);
+  Inc(e.lit, litLen);
+  Result := True;
+end;
+
 { One sequence: litLen literals starting at lit, then a match. Returns false
   when the block would no longer fit in dst. }
 { Not inline on purpose: inlined, its locals and its Move call add to the
@@ -388,6 +1090,8 @@ var
   l, m: SizeInt;
   p: PByte;
 begin
+  if e.v4 then
+    Exit(EmitSequence4(e, lit, litLen, dist, matchLen));
   { control so far + this entry, worst case + all literals so far }
   if e.ctrl + 3 + litLen div 255 + 1 + matchLen div 255 + 1
      + (e.lit - e.lits) + litLen > e.oend then
@@ -458,8 +1162,36 @@ end;
 
 function EmitFinish(var e: TEmit; lit: PByte; litLen: SizeInt): SizeInt;
 var
-  ctrlLen, litTotal, v3: SizeInt;
+  ctrlLen, litTotal, v3, offLen: SizeInt;
 begin
+  if e.v4 then
+  begin
+    { the token chunks, the offsets, then the literals: raw, or v3's
+      chunks when smaller }
+    if e.failed or not FlushChunk4(e) then
+      Exit(-1);
+    ctrlLen := e.ctrl - (e.dst + HEADER4_SIZE);
+    offLen := e.off - e.offs;
+    litTotal := (e.lit - e.lits) + litLen;
+    if e.ctrl + offLen + litTotal > e.oend then
+      Exit(-1);
+    Move(e.offs^, e.ctrl^, offLen);
+    Inc(e.ctrl, offLen);
+    PUInt32(e.dst + 4)^ := UInt32(offLen);
+    Move(lit^, e.lit^, litLen);
+    if e.entropy and (litTotal > 0) then
+    begin
+      v3 := EncodeLiteralChunks(e.lits, litTotal, e.ctrl, e.oend - e.ctrl);
+      if (v3 >= 0) and (v3 < litTotal) then
+      begin
+        PUInt32(e.dst)^ := UInt32(ctrlLen) or HDR_V4 or HDR_ENTROPY;
+        Exit(HEADER4_SIZE + ctrlLen + offLen + v3);
+      end;
+    end;
+    PUInt32(e.dst)^ := UInt32(ctrlLen) or HDR_V4;
+    Move(e.lits^, e.ctrl^, litTotal);
+    Exit(HEADER4_SIZE + ctrlLen + offLen + litTotal);
+  end;
   ctrlLen := e.ctrl - (e.dst + HEADER_SIZE);
   litTotal := (e.lit - e.lits) + litLen;
   if e.ctrl + litTotal > e.oend then
@@ -553,6 +1285,84 @@ begin
         len := SYLZ_MINMATCH + CountMatch(ip + SYLZ_MINMATCH, ref + SYLZ_MINMATCH, iend);
         if not EmitSequence(e, anchor, ip - anchor, ip - ref, len) then
           Exit(-1);
+        Inc(ip, len);
+        anchor := ip;
+        if ip > mflimit then
+          Break;
+        table[HashFast(ip - 2, hashLog)] := UInt16(ip - 2 - src);
+        h := HashFast(ip, hashLog);
+        d := FastDist(ip - src, table[h]);
+        table[h] := UInt16(ip - src);
+        ref := ip - d;
+      until (d > ip - src) or (Read32(ref) <> Read32(ip));
+      if ip > mflimit then
+        Break;
+
+      Inc(ip);
+      fwdH := HashFast(ip, hashLog);
+    end;
+  end;
+  Result := EmitFinish(e, anchor, iend - anchor);
+end;
+
+{ CompressFastCore for format v4: at each probe the previous sequence's
+  offset is tried one byte on before the table's candidate (what zstd's
+  fast levels do); such a match costs a token and no offset. }
+function CompressFastCore4(src: PByte; n: SizeInt; var e: TEmit; table: PUInt16;
+  hashLog: Integer): SizeInt;
+var
+  ip, anchor, iend, mflimit, ref, fwd: PByte;
+  h, fwdH: UInt32;
+  len, probes, d, rep: SizeInt;
+begin
+  anchor := src;
+  iend := src + n;
+  ref := src;
+  rep := 1;
+  if n >= SEARCH_TAIL + 1 then
+  begin
+    mflimit := iend - SEARCH_TAIL;
+    ip := src + 1;
+    fwdH := HashFast(ip, hashLog);
+    while True do
+    begin
+      fwd := ip;
+      probes := 1 shl SKIP_STRENGTH;
+      while True do
+      begin
+        h := fwdH;
+        ip := fwd;
+        Inc(fwd, probes shr SKIP_STRENGTH);
+        Inc(probes);
+        if fwd > mflimit then
+          Break;
+        d := FastDist(ip - src, table[h]);
+        fwdH := HashFast(fwd, hashLog);
+        table[h] := UInt16(ip - src);
+        if (rep <= ip + 1 - src) and (Read32(ip + 1 - rep) = Read32(ip + 1)) then
+        begin
+          Inc(ip);
+          ref := ip - rep;
+          Break;
+        end;
+        ref := ip - d;
+        if (d <= ip - src) and (Read32(ref) = Read32(ip)) then
+          Break;
+      end;
+      if fwd > mflimit then
+        Break;
+
+      while (ip > anchor) and (ref > src) and (ip[-1] = ref[-1]) do
+      begin
+        Dec(ip);
+        Dec(ref);
+      end;
+
+      repeat
+        len := SYLZ_MINMATCH + CountMatch(ip + SYLZ_MINMATCH, ref + SYLZ_MINMATCH, iend);
+        if not EmitSequence4(e, anchor, ip - anchor, ip - ref, len) then
+          Exit(-1);
+        rep := ip - ref;
         Inc(ip, len);
         anchor := ip;
         if ip > mflimit then
@@ -862,6 +1672,288 @@ asm
   pop rbp
   pop rbx
 end;
+
+type
+  { In/out state of format v4's assembler fast compressor; fixed field
+    order. It returns with more = 1 when the records are full, at a match
+    it has found (ip, ref): the caller flushes them and calls again. }
+  TFast4EncState = record
+    src, iend, mflimit: PByte;   {  0,  8, 16: in }
+    table: PUInt16;              { 24: in }
+    rec: PUInt16;                { 32: in/out, where the next record goes }
+    lit: PByte;                  { 40: in/out, literal write pointer }
+    anchor: PByte;               { 48: in/out (first: src) }
+    recEnd: PUInt16;             { 56: in }
+    hashShift: Int64;            { 64: in, 64 - hash table log }
+    ip: PByte;                   { 72: in/out (first: src + 1) }
+    rep: SizeInt;                { 80: in/out, the previous distance (first: 1) }
+    ref: PByte;                  { 88: out, with more }
+    more: SizeInt;               { 96: in/out (first: 0) }
+  end;
+  PFast4EncState = ^TFast4EncState;
+
+{ CompressFastCore4 in x86_64 assembler: CompressFastX64 with the previous
+  distance tried one byte on at each probe, and each sequence recorded
+  (EmitSequence4) instead of written as a token. The same output byte for
+  byte (tests check it). The stack also holds the previous distance and
+  the records' end. }
+procedure CompressFast4X64(st: PFast4EncState); assembler; nostackframe;
+asm
+  push rbx
+  push rbp
+  push r12
+  push r13
+  push r14
+  push r15
+{$ifdef WIN64}
+  push rsi
+  push rdi
+  mov rax, rcx
+{$else}
+  mov rax, rdi
+{$endif}
+  push rax                        { [rsp+40]: state }
+  push qword ptr [rax + 80]       { [rsp+32]: the previous distance }
+  mov rcx, 889523592379
+  push rcx                        { [rsp+24]: hash multiplier }
+  push qword ptr [rax + 56]       { [rsp+16]: where the records end }
+  push qword ptr [rax + 64]       { [rsp+8]: hash shift }
+  push qword ptr [rax + 16]       { [rsp]: mflimit }
+  mov rcx, [rsp + 8]              { cl = hash shift, for the whole routine }
+  mov r10, [rax]
+  mov r13, [rax + 8]
+  mov r11, [rax + 24]
+  mov r14, [rax + 32]
+  mov r15, [rax + 40]
+  mov r9, [rax + 48]              { anchor }
+  mov r8, [rax + 72]              { ip }
+  cmp qword ptr [rax + 96], 0
+  je @fresh
+  mov rax, [rax + 88]             { back after a flush: the match it stopped at }
+  jmp @emit
+@fresh:
+  mov rdx, [r8]
+  shl rdx, 64 - 8 * FAST_HASH_BYTES
+  imul rdx, [rsp + 24]
+  shr rdx, cl
+  mov edi, edx                    { fwdH = hash(ip) }
+
+@search:
+  mov rbx, r8                     { fwd = ip }
+  mov ebp, 1 shl SKIP_STRENGTH    { probes; step = probes shr SKIP_STRENGTH }
+@probe:
+  mov esi, edi                    { h = fwdH }
+  mov r8, rbx                     { ip = fwd }
+  mov rdx, rbp
+  shr rdx, SKIP_STRENGTH
+  add rbx, rdx                    { fwd += step }
+  add rbp, 1
+  cmp rbx, [rsp]
+  ja @last
+  movzx eax, word ptr [r11 + rsi * 2]   { low 16 bits of the candidate's position }
+  mov rdx, [rbx]
+  shl rdx, 64 - 8 * FAST_HASH_BYTES
+  imul rdx, [rsp + 24]
+  shr rdx, cl
+  mov edi, edx                    { fwdH = hash(fwd) }
+  mov rdx, r8
+  sub rdx, r10                    { pos = ip - src }
+  mov [r11 + rsi * 2], dx         { table[h] = pos (low 16 bits) }
+  sub edx, eax
+  and edx, $FFFF                  { distance mod 2^16 ... }
+  mov r12d, 65536
+  test edx, edx
+  cmovz edx, r12d                 { ... with 0 meaning 65536 }
+  { the previous distance, one byte on }
+  lea rax, [r8 + 1]
+  sub rax, [rsp + 32]
+  cmp rax, r10
+  jb @noRep                       { it reaches before the start of the input }
+  mov r12d, [rax]
+  cmp r12d, [r8 + 1]
+  jne @noRep
+  add r8, 1
+  jmp @back
+@noRep:
+  mov rax, r8
+  sub rax, rdx                    { ref = ip - distance }
+  cmp rax, r10
+  jb @probe                       { before the start of the input }
+  mov edx, [rax]
+  cmp edx, [r8]
+  jne @probe
+
+@back:
+  { extend the match backwards over the pending literals }
+  cmp r8, r9
+  jbe @emit
+  cmp rax, r10
+  jbe @emit
+  movzx edx, byte ptr [r8 - 1]
+  cmp dl, [rax - 1]
+  jne @emit
+  sub r8, 1
+  sub rax, 1
+  jmp @back
+
+@emit:
+  cmp r14, [rsp + 16]
+  jae @full                       { no room for a record: flushed, then back here }
+  { match end -> r12 }
+  lea r12, [r8 + SYLZ_MINMATCH]
+  lea rdx, [rax + SYLZ_MINMATCH]
+@cm8:
+  lea rsi, [r12 + 8]
+  cmp rsi, r13
+  ja @cmTail
+  mov rsi, [r12]
+  xor rsi, [rdx]
+  jnz @cmDiff
+  add r12, 8
+  add rdx, 8
+  jmp @cm8
+@cmDiff:
+  bsf rsi, rsi
+  shr esi, 3
+  add r12, rsi
+  jmp @cmDone
+@cmTail:
+  cmp r12, r13
+  jae @cmDone
+  movzx esi, byte ptr [r12]
+  cmp sil, [rdx]
+  jne @cmDone
+  add r12, 1
+  add rdx, 1
+  jmp @cmTail
+@cmDone:
+  { the record, as EmitSequence4 writes it: literals, match length,
+    distance - 1 }
+  mov rbx, r8
+  sub rbx, r9
+  mov rbp, r12
+  sub rbp, r8
+  mov rdx, r8
+  sub rdx, rax
+  mov [rsp + 32], rdx             { the previous distance from here on }
+  sub rdx, 1
+  mov [r14 + 4], dx
+  cmp rbx, REC4_ESC
+  jae @recLong
+  cmp rbp, $FFFF
+  ja @recLong
+  mov [r14], bx
+  mov [r14 + 2], bp
+  add r14, 6
+  jmp @recDone
+@recLong:
+  mov word ptr [r14], REC4_ESC    { the lengths as two u32 after it }
+  mov word ptr [r14 + 2], 0
+  mov [r14 + 6], ebx
+  mov [r14 + 10], ebp
+  add r14, 18
+@recDone:
+  { literals to the scratch stream: 16-byte steps when the reads stay
+    inside the input, else byte by byte }
+  test rbx, rbx
+  jz @litDone
+  lea rdx, [r9 + rbx + 16]
+  cmp rdx, r13
+  ja @litBytes
+  mov rsi, r9
+  mov rdi, r15
+  mov rdx, rbx
+@lit16:
+  movdqu xmm0, [rsi]
+  movdqu [rdi], xmm0
+  add rsi, 16
+  add rdi, 16
+  sub rdx, 16
+  jg @lit16
+  jmp @litDone
+@litBytes:
+  xor edx, edx
+@litByte:
+  movzx esi, byte ptr [r9 + rdx]
+  mov [r15 + rdx], sil
+  add rdx, 1
+  cmp rdx, rbx
+  jb @litByte
+@litDone:
+  add r15, rbx
+  mov r8, r12                     { ip = match end }
+  mov r9, r12                     { anchor = ip }
+  cmp r8, [rsp]
+  ja @last
+  { table[hash(ip - 2)] = ip - 2 - src }
+  mov rdx, [r8 - 2]
+  shl rdx, 64 - 8 * FAST_HASH_BYTES
+  imul rdx, [rsp + 24]
+  shr rdx, cl
+  lea r12, [r8 - 2]
+  sub r12, r10
+  mov [r11 + rdx * 2], r12w
+  { a match right here needs no literals }
+  mov rdx, [r8]
+  shl rdx, 64 - 8 * FAST_HASH_BYTES
+  imul rdx, [rsp + 24]
+  shr rdx, cl
+  movzx eax, word ptr [r11 + rdx * 2]
+  mov r12, r8
+  sub r12, r10
+  mov [r11 + rdx * 2], r12w
+  sub r12d, eax
+  and r12d, $FFFF
+  mov edx, 65536
+  test r12d, r12d
+  cmovz r12d, edx
+  mov rax, r8
+  sub rax, r12
+  cmp rax, r10
+  jb @next
+  mov r12d, [rax]
+  cmp r12d, [r8]
+  je @emit
+@next:
+  add r8, 1
+  mov rdx, [r8]
+  shl rdx, 64 - 8 * FAST_HASH_BYTES
+  imul rdx, [rsp + 24]
+  shr rdx, cl
+  mov edi, edx
+  jmp @search
+
+@full:
+  mov rdx, [rsp + 40]
+  mov [rdx + 72], r8
+  mov [rdx + 88], rax
+  mov qword ptr [rdx + 96], 1
+  jmp @out
+@last:
+  mov rdx, [rsp + 40]
+  mov qword ptr [rdx + 96], 0
+@out:
+  pop rcx                         { mflimit }
+  pop rcx                         { hash shift }
+  pop rcx                         { the records' end }
+  pop rcx                         { multiplier }
+  pop rcx                         { the previous distance }
+  pop rax                         { state }
+  mov [rax + 80], rcx
+  mov [rax + 32], r14
+  mov [rax + 40], r15
+  mov [rax + 48], r9
+{$ifdef WIN64}
+  pop rdi
+  pop rsi
+{$endif}
+  pop r15
+  pop r14
+  pop r13
+  pop r12
+  pop rbp
+  pop rbx
+end;
 {$endif}
 
 {$ifdef SYLZ_C}
@@ -871,8 +1963,56 @@ type
     ctrl, lit: PByte;
     srcEnd: PByte;
     exact: PByte;              { ExactCode }
+    rep: SizeInt;              { format v4: the previous sequence's distance }
+    rec, recEnd: PUInt16;      { v4: where the next sequence is recorded }
+    flush: Pointer;            { v4: called with this record when rec = recEnd }
+    owner: Pointer;            { v4: the TEmit }
   end;
-  TFastCState = record
+  PEmitC = ^TEmitC;
+
+{ sylzc.c's emit_sequence4 calls this when its chunk of sequences is
+  full. The C compressors run only with room for SylzBound(n), so the
+  flush finds room; if it ever did not, the block fails at its end. }
+procedure Flush4FromC(c: PEmitC); cdecl;
+var
+  e: PEmit;
+begin
+  e := c^.owner;
+  e^.rec := c^.rec;
+  e^.lit := c^.lit;
+  if not FlushChunk4(e^) then
+  begin
+    e^.failed := True;
+    e^.rec := e^.recs;
+  end;
+  c^.rec := e^.rec;
+end;
+
+
+procedure EmitToC(var e: TEmit; out c: TEmitC; srcEnd: PByte);
+begin
+  c.ctrl := e.ctrl;
+  c.lit := e.lit;
+  c.srcEnd := srcEnd;
+  c.exact := @ExactCode[0, 0];
+  c.rep := e.rep;
+  c.rec := e.rec;
+  c.recEnd := e.recEnd;
+  c.flush := @Flush4FromC;
+  c.owner := @e;
+end;
+
+procedure EmitFromC(var e: TEmit; const c: TEmitC);
+begin
+  e.lit := c.lit;
+  if e.v4 then
+    e.rec := c.rec   { ctrl is the flushes' }
+  else
+    e.ctrl := c.ctrl;
+  e.rep := c.rep;
+end;
+
+type  TFastCState = record
     src: PByte;
     n: SizeInt;
     table: PUInt16;
@@ -882,6 +2022,7 @@ type
   end;
 
 procedure sylzc_compress_fast(st: Pointer); cdecl; external name 'sylzc_compress_fast';
+procedure sylzc_compress_fast4(st: Pointer); cdecl; external name 'sylzc_compress_fast4';
 {$endif}
 
 function CompressFast(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
@@ -892,6 +2033,7 @@ var
   hashLog: Integer;
 {$ifdef SYLZ_ASM_X64}
   st: TFastEncState;
+  s4: TFast4EncState;
 {$endif}
 {$ifdef SYLZ_C}
   sc: TFastCState;
@@ -903,9 +2045,11 @@ begin
   hashLog := FastHashLog(level);
   begin
     FillChar(table^, SizeOf(UInt16) shl hashLog, 0);
-    EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+    EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags, ctx.offs, ctx.recs);
+    e.roomy := cap >= SylzBound(n);
+    e.sample := FAST_SAMPLE4;
 {$ifdef SYLZ_ASM_X64}
-    if SylzUseAsm and not SylzPreferC and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+    if SylzUseAsm and not e.v4 and not SylzPreferC and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
     begin
       st.src := src;
       st.iend := src + n;
@@ -922,7 +2066,7 @@ begin
     end;
 {$endif}
 {$ifdef SYLZ_C}
-    if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+    if SylzUseAsm and not e.v4 and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
     begin
       sc.src := src;
       sc.n := n;
@@ -938,6 +2082,50 @@ begin
       Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
     end;
 {$endif}
+{$ifdef SYLZ_ASM_X64}
+    if SylzUseAsm and e.v4 and not SylzPreferC and (cap >= SylzBound(n))
+       and (n >= SEARCH_TAIL + 1) then
+    begin
+      s4.src := src;
+      s4.iend := src + n;
+      s4.mflimit := src + n - SEARCH_TAIL;
+      s4.table := table;
+      s4.lit := e.lit;
+      s4.anchor := src;
+      s4.recEnd := e.recEnd;
+      s4.hashShift := 64 - hashLog;
+      s4.ip := src + 1;
+      s4.rep := 1;
+      s4.more := 0;
+      repeat
+        s4.rec := e.rec;
+        CompressFast4X64(@s4);
+        e.rec := s4.rec;
+        e.lit := s4.lit;
+        if s4.more = 0 then
+          Break;
+        if not FlushChunk4(e) then   { the records were full }
+          Exit(-1);
+      until False;
+      e.rep := s4.rep;
+      Exit(EmitFinish(e, s4.anchor, src + n - s4.anchor));
+    end;
+{$endif}
+{$ifdef SYLZ_C}
+    if SylzUseAsm and e.v4 and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+    begin
+      sc.src := src;
+      sc.n := n;
+      sc.table := table;
+      sc.hashLog := hashLog;
+      EmitToC(e, sc.e, src + n);
+      sylzc_compress_fast4(@sc);
+      EmitFromC(e, sc.e);
+      Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
+    end;
+{$endif}
+    if e.v4 then
+      Exit(CompressFastCore4(src, n, e, table, hashLog));
     Result := CompressFastCore(src, n, e, table, hashLog);
   end;
 end;
@@ -983,16 +2171,29 @@ function CompressMidCore(src: PByte; n: SizeInt; var e: TEmit; tl, ts: PUInt16;
   hashLog: Integer; lazy: Boolean): SizeInt;
 var
   iend, mflimit: PByte;
-  pos, anchor, len, dist, len2, dist2, dshort, k, mend: SizeInt;
+  pos, anchor, len, dist, len2, dist2, dshort, k, mend, rep: SizeInt;
 begin
   iend := src + n;
   anchor := 0;
+  rep := 1;
   if n >= SEARCH_TAIL + 1 then
   begin
     mflimit := iend - SEARCH_TAIL;
     pos := 0;
     while src + pos < mflimit do
     begin
+      if e.v4 and (rep <= pos + 1) and (Read32(src + pos + 1 - rep) = Read32(src + pos + 1)) then
+      begin
+        { format v4: the previous offset, one byte on, taken as it is }
+        tl[MidHashLong(src + pos, hashLog)] := UInt16(pos);
+        ts[MidHashShort(src + pos, hashLog)] := UInt16(pos);
+        Inc(pos);
+        dist := rep;
+        len := SYLZ_MINMATCH + CountMatch(src + pos + SYLZ_MINMATCH,
+          src + pos - dist + SYLZ_MINMATCH, iend);
+      end
+      else
+      begin
       dist := MidCand(tl, MidHashLong(src + pos, hashLog), src, pos);
       if dist > 0 then
         ts[MidHashShort(src + pos, hashLog)] := UInt16(pos)
@@ -1045,6 +2246,8 @@ begin
         end;
       end;
 
+      end;
+
       while (pos > anchor) and (pos > dist) and (src[pos - 1] = src[pos - 1 - dist]) do
       begin
         Dec(pos);
@@ -1052,6 +2255,7 @@ begin
       end;
       if not EmitSequence(e, src + anchor, pos - anchor, dist, len) then
         Exit(-1);
+      rep := dist;
       mend := pos + len;
       if src + mend < mflimit then
       begin
@@ -1503,6 +2707,455 @@ asm
   pop rbp
   pop rbx
 end;
+
+type
+  { In/out state of format v4's assembler compressor of levels 2-3; fixed
+    field order. With more = 1 it stopped, the records full, at a match
+    (ip, mlen, dist): the caller flushes them and calls again. }
+  TMid4EncState = record
+    src, iend, mflimit: PByte;   {   0,   8,  16: in }
+    tl, ts: PUInt16;             {  24,  32: in, long and short tables }
+    rec: PUInt16;                {  40: in/out, where the next record goes }
+    lit: PByte;                  {  48: in/out }
+    anchor: PByte;               {  56: in/out (first: src) }
+    recEnd: PUInt16;             {  64: in }
+    hashShift: Int64;            {  72: in, 64 - table log }
+    lazy: Int64;                 {  80: in, 1 = level 3 }
+    ip: PByte;                   {  88: in/out (first: src) }
+    rep: SizeInt;                {  96: in/out, the previous distance (first: 1) }
+    mlen, dist: SizeInt;         { 104, 112: out, with more }
+    more: SizeInt;               { 120: in/out (first: 0) }
+  end;
+  PMid4EncState = ^TMid4EncState;
+
+{ CompressMidCore for format v4 in x86_64 assembler: CompressMidX64 with
+  the previous distance tried one byte on at each position, and each
+  sequence recorded (EmitSequence4) instead of written as a token. The
+  same output byte for byte (tests check it). }
+procedure CompressMid4X64(st: PMid4EncState); assembler; nostackframe;
+asm
+  push rbx
+  push rbp
+  push r12
+  push r13
+  push r14
+  push r15
+{$ifdef WIN64}
+  push rsi
+  push rdi
+  mov rax, rcx
+{$else}
+  mov rax, rdi
+{$endif}
+  sub rsp, 64
+  mov [rsp + 24], rax             { state }
+  mov rdx, [rax + 16]
+  mov [rsp], rdx                  { mflimit }
+  mov rdx, 889523592379
+  mov [rsp + 8], rdx              { long hash multiplier }
+  mov rdx, [rax + 64]
+  mov [rsp + 16], rdx             { where the records end }
+  mov rdx, [rax + 80]
+  mov [rsp + 32], rdx             { lazy }
+  mov rdx, [rax + 96]
+  mov [rsp + 48], rdx             { the previous distance }
+  mov rcx, [rax + 72]             { cl = hash shift, for the whole routine }
+  mov r10, [rax]
+  mov r13, [rax + 8]
+  mov r11, [rax + 24]
+  mov r12, [rax + 32]
+  mov r14, [rax + 40]
+  mov r15, [rax + 48]
+  mov r9, [rax + 56]              { anchor }
+  mov r8, [rax + 88]              { ip }
+  cmp qword ptr [rax + 120], 0
+  je @loop
+  mov rbp, [rax + 104]            { back after a flush: the match it stopped at }
+  mov rdi, [rax + 112]
+  jmp @emit
+
+@loop:
+  cmp r8, [rsp]
+  jae @last
+  mov rsi, r8
+  sub rsi, r10                    { pos }
+  { the previous distance, one byte on: taken as it is }
+  mov rdi, [rsp + 48]
+  lea rax, [r8 + 1]
+  sub rax, rdi
+  cmp rax, r10
+  jb @noRep                       { it reaches before the start of the input }
+  mov edx, [rax]
+  cmp edx, [r8 + 1]
+  jne @noRep
+  mov rdx, [r8]
+  shl rdx, 16
+  imul rdx, [rsp + 8]
+  shr rdx, cl
+  mov [r11 + rdx * 2], si         { pos into both tables }
+  mov edx, [r8]
+  imul edx, edx, -1640531535
+  shr edx, cl
+  mov [r12 + rdx * 2], si
+  add r8, 1
+  mov rbx, r8
+  mov [rsp + 40], rdi
+  call @count                     { rdx = match end at rbx, distance [rsp + 40] }
+  mov rbp, rdx
+  sub rbp, r8
+  jmp @back
+@noRep:
+  { long table }
+  mov rdx, [r8]
+  shl rdx, 16
+  imul rdx, [rsp + 8]
+  shr rdx, cl
+  movzx eax, word ptr [r11 + rdx * 2]
+  mov [r11 + rdx * 2], si
+  mov edi, esi
+  sub edi, eax
+  and edi, $FFFF
+  mov eax, 65536
+  test edi, edi
+  cmovz edi, eax                  { distance, 0 meaning 65536 }
+  cmp rdi, rsi
+  ja @short
+  mov rax, r8
+  sub rax, rdi
+  mov edx, [rax]
+  cmp edx, [r8]
+  jne @short
+  { long hit: ip goes into the short table too }
+  mov edx, [r8]
+  imul edx, edx, -1640531535
+  shr edx, cl
+  mov [r12 + rdx * 2], si
+  jmp @found
+@short:
+  mov edx, [r8]
+  imul edx, edx, -1640531535
+  shr edx, cl
+  movzx eax, word ptr [r12 + rdx * 2]
+  mov [r12 + rdx * 2], si
+  mov edi, esi
+  sub edi, eax
+  and edi, $FFFF
+  mov eax, 65536
+  test edi, edi
+  cmovz edi, eax
+  cmp rdi, rsi
+  ja @miss
+  mov rax, r8
+  sub rax, rdi
+  mov edx, [rax]
+  cmp edx, [r8]
+  je @found
+@miss:
+  mov rdx, r8
+  sub rdx, r9
+  shr rdx, MID_SKIP
+  lea r8, [r8 + rdx + 1]
+  jmp @loop
+
+@found:
+  { rbp = match length at ip, distance rdi }
+  lea rdx, [r8 + SYLZ_MINMATCH]
+  mov rsi, r8
+  sub rsi, rdi
+  add rsi, SYLZ_MINMATCH
+@cm1:
+  lea rax, [rdx + 8]
+  cmp rax, r13
+  ja @cm1Tail
+  mov rax, [rdx]
+  xor rax, [rsi]
+  jnz @cm1Diff
+  add rdx, 8
+  add rsi, 8
+  jmp @cm1
+@cm1Diff:
+  bsf rax, rax
+  shr eax, 3
+  add rdx, rax
+  jmp @cm1Done
+@cm1Tail:
+  cmp rdx, r13
+  jae @cm1Done
+  movzx eax, byte ptr [rdx]
+  cmp al, [rsi]
+  jne @cm1Done
+  add rdx, 1
+  add rsi, 1
+  jmp @cm1Tail
+@cm1Done:
+  mov rbp, rdx
+  sub rbp, r8
+
+  cmp qword ptr [rsp + 32], 0
+  jne @lazy
+  { level 2: a short match, and a long one a byte later? }
+  cmp rbp, MID_NEXT_BELOW
+  jae @back
+  lea rbx, [r8 + 1]
+  cmp rbx, [rsp]
+  jae @back
+  mov rsi, rbx
+  sub rsi, r10                    { pos + 1 }
+  mov rdx, [rbx]
+  shl rdx, 16
+  imul rdx, [rsp + 8]
+  shr rdx, cl
+  movzx eax, word ptr [r11 + rdx * 2]
+  mov [r11 + rdx * 2], si
+  mov edx, esi
+  sub edx, eax
+  and edx, $FFFF
+  mov eax, 65536
+  test edx, edx
+  cmovz edx, eax
+  cmp rdx, rsi
+  ja @back
+  mov rax, rbx
+  sub rax, rdx
+  mov esi, [rax]
+  cmp esi, [rbx]
+  jne @back
+  mov [rsp + 40], rdx
+  call @count                     { rdx = match end at rbx, distance [rsp + 40] }
+  sub rdx, rbx
+  cmp rdx, rbp
+  jbe @back
+  mov r8, rbx
+  mov rbp, rdx
+  mov rdi, [rsp + 40]
+  jmp @back
+
+@lazy:
+  { level 3: both tables a byte later, while that finds a longer match }
+  cmp rbp, MID_LAZY_ENOUGH
+  jae @back
+  lea rbx, [r8 + 1]
+  cmp rbx, [rsp]
+  jae @back
+  mov rsi, rbx
+  sub rsi, r10
+  mov rdx, [rbx]
+  shl rdx, 16
+  imul rdx, [rsp + 8]
+  shr rdx, cl
+  movzx eax, word ptr [r11 + rdx * 2]
+  mov [r11 + rdx * 2], si
+  mov edx, esi
+  sub edx, eax
+  and edx, $FFFF
+  mov eax, 65536
+  test edx, edx
+  cmovz edx, eax
+  cmp rdx, rsi
+  ja @lzNoLong
+  mov rax, rbx
+  sub rax, rdx
+  mov eax, [rax]
+  cmp eax, [rbx]
+  je @lzLong
+@lzNoLong:
+  xor edx, edx
+@lzLong:
+  mov [rsp + 40], rdx             { long candidate's distance, or 0 }
+  mov edx, [rbx]
+  imul edx, edx, -1640531535
+  shr edx, cl
+  movzx eax, word ptr [r12 + rdx * 2]
+  mov [r12 + rdx * 2], si
+  cmp qword ptr [rsp + 40], 0
+  jne @lzHave
+  mov edx, esi
+  sub edx, eax
+  and edx, $FFFF
+  mov eax, 65536
+  test edx, edx
+  cmovz edx, eax
+  cmp rdx, rsi
+  ja @back
+  mov rax, rbx
+  sub rax, rdx
+  mov eax, [rax]
+  cmp eax, [rbx]
+  jne @back
+  mov [rsp + 40], rdx
+@lzHave:
+  call @count
+  sub rdx, rbx
+  cmp rdx, rbp
+  jbe @back
+  mov r8, rbx
+  mov rbp, rdx
+  mov rdi, [rsp + 40]
+  jmp @lazy
+
+@count:
+  { rdx = end of the match at rbx with distance [rsp + 48] (one return
+    address pushed): prefix length from 4 on, reads before iend }
+  lea rdx, [rbx + SYLZ_MINMATCH]
+  mov rsi, rbx
+  sub rsi, [rsp + 48]
+  add rsi, SYLZ_MINMATCH
+@cm2:
+  lea rax, [rdx + 8]
+  cmp rax, r13
+  ja @cm2Tail
+  mov rax, [rdx]
+  xor rax, [rsi]
+  jnz @cm2Diff
+  add rdx, 8
+  add rsi, 8
+  jmp @cm2
+@cm2Diff:
+  bsf rax, rax
+  shr eax, 3
+  add rdx, rax
+  ret
+@cm2Tail:
+  cmp rdx, r13
+  jae @cm2Done
+  movzx eax, byte ptr [rdx]
+  cmp al, [rsi]
+  jne @cm2Done
+  add rdx, 1
+  add rsi, 1
+  jmp @cm2Tail
+@cm2Done:
+  ret
+
+@back:
+  { extend backwards over the pending literals }
+  cmp r8, r9
+  jbe @emit
+  mov rax, r8
+  sub rax, rdi
+  cmp rax, r10
+  jbe @emit
+  movzx edx, byte ptr [r8 - 1]
+  cmp dl, [rax - 1]
+  jne @emit
+  sub r8, 1
+  add rbp, 1
+  jmp @back
+
+@emit:
+  cmp r14, [rsp + 16]
+  jae @full                       { no room for a record: flushed, then back here }
+  lea rax, [r8 + rbp]             { match end, kept to the end of the emit }
+  mov rbx, r8
+  sub rbx, r9                     { literal length }
+  { the record, as EmitSequence4 writes it: literals, match length,
+    distance - 1 }
+  mov [rsp + 48], rdi             { the previous distance from here on }
+  lea rdx, [rdi - 1]
+  mov [r14 + 4], dx
+  cmp rbx, REC4_ESC
+  jae @recLong
+  cmp rbp, $FFFF
+  ja @recLong
+  mov [r14], bx
+  mov [r14 + 2], bp
+  add r14, 6
+  jmp @recDone
+@recLong:
+  mov word ptr [r14], REC4_ESC    { the lengths as two u32 after it }
+  mov word ptr [r14 + 2], 0
+  mov [r14 + 6], ebx
+  mov [r14 + 10], ebp
+  add r14, 18
+@recDone:
+  test rbx, rbx
+  jz @litDone
+  lea rdx, [r9 + rbx + 16]
+  cmp rdx, r13
+  ja @litBytes
+  mov rsi, r9
+  mov rdi, r15
+  mov rdx, rbx
+@lit16:
+  movdqu xmm0, [rsi]
+  movdqu [rdi], xmm0
+  add rsi, 16
+  add rdi, 16
+  sub rdx, 16
+  jg @lit16
+  jmp @litDone
+@litBytes:
+  xor edx, edx
+@litByte:
+  movzx esi, byte ptr [r9 + rdx]
+  mov [r15 + rdx], sil
+  add rdx, 1
+  cmp rdx, rbx
+  jb @litByte
+@litDone:
+  add r15, rbx
+  cmp rax, [rsp]
+  jae @noInsert
+  { insert the match's second and third, and the two before its end }
+  mov rsi, r8
+  sub rsi, r10
+  add rsi, 1
+  mov rdx, [r8 + 1]
+  shl rdx, 16
+  imul rdx, [rsp + 8]
+  shr rdx, cl
+  mov [r11 + rdx * 2], si
+  add rsi, 1
+  mov edx, [r8 + 2]
+  imul edx, edx, -1640531535
+  shr edx, cl
+  mov [r12 + rdx * 2], si
+  mov rsi, rax
+  sub rsi, r10
+  sub rsi, 2
+  mov rdx, [rax - 2]
+  shl rdx, 16
+  imul rdx, [rsp + 8]
+  shr rdx, cl
+  mov [r11 + rdx * 2], si
+  add rsi, 1
+  mov edx, [rax - 1]
+  imul edx, edx, -1640531535
+  shr edx, cl
+  mov [r12 + rdx * 2], si
+@noInsert:
+  mov r8, rax
+  mov r9, rax
+  jmp @loop
+
+@full:
+  mov rax, [rsp + 24]
+  mov [rax + 88], r8
+  mov [rax + 104], rbp
+  mov [rax + 112], rdi
+  mov qword ptr [rax + 120], 1
+  jmp @out
+@last:
+  mov rax, [rsp + 24]
+  mov qword ptr [rax + 120], 0
+@out:
+  mov rdx, [rsp + 48]
+  mov [rax + 96], rdx
+  mov [rax + 40], r14
+  mov [rax + 48], r15
+  mov [rax + 56], r9
+  add rsp, 64
+{$ifdef WIN64}
+  pop rdi
+  pop rsi
+{$endif}
+  pop r15
+  pop r14
+  pop r13
+  pop r12
+  pop rbp
+  pop rbx
+end;
 {$endif}
 
 {$ifdef SYLZ_C}
@@ -1519,6 +3172,7 @@ type
   end;
 
 procedure sylzc_compress_mid(st: Pointer); cdecl; external name 'sylzc_compress_mid';
+procedure sylzc_compress_mid4(st: Pointer); cdecl; external name 'sylzc_compress_mid4';
 {$endif}
 
 function CompressMid(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
@@ -1528,6 +3182,7 @@ var
   hashLog: Integer;
 {$ifdef SYLZ_ASM_X64}
   st: TMidEncState;
+  s4: TMid4EncState;
 {$endif}
 {$ifdef SYLZ_C}
   sc: TMidCState;
@@ -1540,9 +3195,11 @@ begin
   else
     hashLog := MID_MAXLOG;
   FillChar(ctx.table^, SizeOf(UInt16) shl (hashLog + 1), 0);
-  EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+  EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags, ctx.offs, ctx.recs);
+  e.roomy := cap >= SylzBound(n);
+  e.sample := FAST_SAMPLE4;
 {$ifdef SYLZ_ASM_X64}
-  if SylzUseAsm and not SylzPreferC and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
+  if SylzUseAsm and not e.v4 and not SylzPreferC and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
   begin
     st.src := src;
     st.iend := src + n;
@@ -1560,6 +3217,37 @@ begin
     Exit(EmitFinish(e, st.anchor, src + n - st.anchor));
   end;
 {$endif}
+{$ifdef SYLZ_ASM_X64}
+  if SylzUseAsm and e.v4 and not SylzPreferC and (cap >= SylzBound(n))
+     and (n >= SEARCH_TAIL + 1) then
+  begin
+    s4.src := src;
+    s4.iend := src + n;
+    s4.mflimit := src + n - SEARCH_TAIL;
+    s4.tl := ctx.table;
+    s4.ts := ctx.table + (1 shl hashLog);
+    s4.lit := e.lit;
+    s4.anchor := src;
+    s4.recEnd := e.recEnd;
+    s4.hashShift := 64 - hashLog;
+    s4.lazy := Ord(level = 3);
+    s4.ip := src;
+    s4.rep := 1;
+    s4.more := 0;
+    repeat
+      s4.rec := e.rec;
+      CompressMid4X64(@s4);
+      e.rec := s4.rec;
+      e.lit := s4.lit;
+      if s4.more = 0 then
+        Break;
+      if not FlushChunk4(e) then   { the records were full }
+        Exit(-1);
+    until False;
+    e.rep := s4.rep;
+    Exit(EmitFinish(e, s4.anchor, src + n - s4.anchor));
+  end;
+{$endif}
 {$ifdef SYLZ_C}
   if SylzUseAsm and (cap >= SylzBound(n)) and (n >= SEARCH_TAIL + 1) then
   begin
@@ -1572,13 +3260,12 @@ begin
     sc.skip := MID_SKIP;
     sc.lazyEnough := MID_LAZY_ENOUGH;
     sc.nextBelow := MID_NEXT_BELOW;
-    sc.e.ctrl := e.ctrl;
-    sc.e.lit := e.lit;
-    sc.e.srcEnd := src + n;
-    sc.e.exact := @ExactCode[0, 0];
-    sylzc_compress_mid(@sc);
-    e.ctrl := sc.e.ctrl;
-    e.lit := sc.e.lit;
+    EmitToC(e, sc.e, src + n);
+    if e.v4 then
+      sylzc_compress_mid4(@sc)
+    else
+      sylzc_compress_mid(@sc);
+    EmitFromC(e, sc.e);
     Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
   end;
 {$endif}
@@ -1881,7 +3568,7 @@ function CompressHCCore(src: PByte; n: SizeInt; var e: TEmit; var s: THcState;
 var
   iend: PByte;
   mfl, pos, anchor, ml, ref, ml0, ref0, start0, ml2, ref2, start2,
-    ml3, ref3, start3, newMl, corr: SizeInt;
+    ml3, ref3, start3, newMl, corr, rl: SizeInt;
   state: Integer;   { 0 search at pos, 2 / 3 lz4hc's _Search2 / _Search3 }
 
   function Emit(p, len, r: SizeInt): Boolean;
@@ -1911,7 +3598,27 @@ begin
     begin
       if state = 0 then
       begin
-        ml := HcSearch(s, pos, pos, SYLZ_MINMATCH - 1);
+        if e.v4 and (pos > anchor) and (e.rep <= pos)
+           and (Read32(src + pos - e.rep) = Read32(src + pos)) then
+        begin
+          { format v4: a match at the previous offset costs a token and no
+            offset: taken unless the chains have one over HC_REP_GAIN bytes
+            longer (not searched for past HC_REP_ENOUGH) }
+          rl := SYLZ_MINMATCH + CountMatch(src + pos + SYLZ_MINMATCH,
+            src + pos - e.rep + SYLZ_MINMATCH, iend);
+          ml := 0;
+          if rl < HC_REP_ENOUGH then
+            ml := HcSearch(s, pos, pos, SYLZ_MINMATCH - 1);
+          if rl + HC_REP_GAIN >= ml then
+          begin
+            if not Emit(pos, rl, pos - e.rep) then
+              Exit(-1);
+            pos := pos + rl;
+            Continue;
+          end;
+        end
+        else
+          ml := HcSearch(s, pos, pos, SYLZ_MINMATCH - 1);
         if ml < SYLZ_MINMATCH then
         begin
           Inc(pos);
@@ -2049,6 +3756,7 @@ type
   end;
 
 procedure sylzc_compress_hc(st: Pointer); cdecl; external name 'sylzc_compress_hc';
+procedure sylzc_compress_hc4(st: Pointer); cdecl; external name 'sylzc_compress_hc4';
 {$endif}
 
 function CompressHC(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
@@ -2069,7 +3777,8 @@ begin
   s.chain := ctx.chain;
   for i := 0 to (1 shl HC_HASHLOG) - 1 do
     s.head[i] := 0;
-  EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+  EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags, ctx.offs, ctx.recs);
+  e.roomy := cap >= SylzBound(n);
 {$ifdef SYLZ_C}
   { the parse in C (FPC kept its many live values on the stack), over the
     assembler chain search on x86_64 }
@@ -2085,13 +3794,12 @@ begin
     if not SylzPreferC then
       sc.search := @HcSearchX64;
 {$endif}
-    sc.e.ctrl := e.ctrl;
-    sc.e.lit := e.lit;
-    sc.e.srcEnd := src + n;
-    sc.e.exact := @ExactCode[0, 0];
-    sylzc_compress_hc(@sc);
-    e.ctrl := sc.e.ctrl;
-    e.lit := sc.e.lit;
+    EmitToC(e, sc.e, src + n);
+    if e.v4 then
+      sylzc_compress_hc4(@sc)
+    else
+      sylzc_compress_hc(@sc);
+    EmitFromC(e, sc.e);
     Exit(EmitFinish(e, src + sc.anchor, n - sc.anchor));
   end;
 {$endif}
@@ -2125,6 +3833,8 @@ type
                                   it, only each candidate's full length }
     skipLen: Integer;           { after a match this long, the positions it
                                   covers start no transitions of their own }
+    minRep: Integer;            { format v4: the shortest match tried at the
+                                  previous offset }
   end;
 
 const
@@ -2138,9 +3848,9 @@ const
     depth 128 and matches of 1024 the ratio stops improving; skipping
     inside long matches costs more ratio than it saves time. }
   OPT_LEVEL9: TSylzOptParams = (btCut: 32; btMaxLen: 256; sufficient: 128;
-    pSeq: 0.5; pEsc: 1.0; pShort: 0.5; subLen: 36; skipLen: OPT_NOSKIP);
+    pSeq: 0.5; pEsc: 1.0; pShort: 0.5; subLen: 36; skipLen: OPT_NOSKIP; minRep: 2);
   OPT_LEVEL10: TSylzOptParams = (btCut: 256; btMaxLen: 1024; sufficient: 512;
-    pSeq: 0.5; pEsc: 1.0; pShort: 0.5; subLen: 36; skipLen: OPT_NOSKIP);
+    pSeq: 0.5; pEsc: 1.0; pShort: 0.5; subLen: 36; skipLen: OPT_NOSKIP; minRep: 2);
 
 type
   TOptNode = record
@@ -2158,7 +3868,7 @@ const
   OPT_PATH_BYTES  = (OPT_WINDOW + 1) * 3 * SizeOf(Int32);
   OPT_INDEX_BYTES = (OPT_WINDOW + 1) * SizeOf(Int32);   { off, cnt }
   OPT_WORK_BYTES  = OPT_NODES_BYTES + OPT_CANDS_BYTES + OPT_PATH_BYTES
-                    + 2 * OPT_INDEX_BYTES;
+                    + 3 * OPT_INDEX_BYTES;   { off, cnt; format v4: each node's offset }
 
 { The optimal parser's match finder: a binary tree (LZMA's bt4 without
   its 2- and 3-byte hashes). Every position is inserted into a binary
@@ -2616,9 +4326,218 @@ begin
   end;
 end;
 
+{ ── format v4's prices ── }
+
+const
+  { mtab4: [kind, row, match length]: rows 0..MAX_LL4 by the literals the
+    match's token carries, row OPT4_ROW_LONG after a run over LIT_SPLIT4
+    (an extension: no literals left for the token) }
+  OPT4_ROW_LONG = MAX_LL4 + 1;
+  OPT4_ROWS = MAX_LL4 + 2;
+  OPT4_COLS = 2 * MAX_ML4 + 2;   { lengths 0 .. 2 * MAX_ML4 + 1 }
+  OPT4_NEVER = High(Int32) div 4;
+
+type
+  { What format v4's DP needs besides the window; fixed layout, the C
+    version (sylzc_dp4args in sylzc.c) reads it. }
+  TOptDp4Args = record
+    subLen, minRep: Int32;
+    seq, esc, short: Int32;     { penalties, bits }
+    scale: Int32;               { OPT_SCALE }
+    litPrice: PInt32;           { a literal's price by byte value, bits }
+    wsrc: PByte;                { the window's input }
+    before: SizeInt;            { input bytes before the window }
+    mtab: PInt32;               { mtab4 }
+    codes: Pointer;             { Codes4 }
+    reps: PInt32;               { each node's previous distance; reps[0] set }
+  end;
+  POptDp4Args = ^TOptDp4Args;
+
+{ The row of mtab4 for a pending run of ll literals. }
+function Opt4Row(ll: SizeInt): SizeInt; inline;
+begin
+  if ll <= MAX_LL4 then
+    Result := ll
+  else if ll <= LIT_SPLIT4 then
+    Result := ll - MAX_LL4
+  else
+    Result := OPT4_ROW_LONG;
+end;
+
+{ What growing a literal run from ll to ll + 1 costs beyond the byte: the
+  literal-only token of a run over MAX_LL4, then the extension that
+  replaces it past LIT_SPLIT4 (EmitSplit4). }
+function LitStep4(ll: SizeInt; const a: TOptDp4Args): Int32; inline;
+begin
+  if ll < LIT_SPLIT4 then
+  begin
+    if ll = MAX_LL4 then
+      Result := a.scale + a.seq
+    else
+      Result := 0;
+  end
+  else if ll = LIT_SPLIT4 then
+    Result := a.scale * ExtBytes(ll + 1) + a.esc
+  else
+    Result := a.scale * (ExtBytes(ll + 1) - ExtBytes(ll));
+end;
+
+{ The match's share of a sequence as EmitSplit4 codes it: its tokens,
+  its offset bytes (kind 0), its extension; row as Opt4Row gives it. A
+  match under SYLZ_MINMATCH at the previous offset is only worth a token
+  of its own: with none, never. }
+function MatchCost4(row, ml, kind: SizeInt; const a: TOptDp4Args): Int32;
+var
+  tok, first: Int32;
+  l: SizeInt;
+  c: ^TCodes4;
+begin
+  c := a.codes;
+  tok := a.scale + a.seq;
+  l := row;
+  if row = OPT4_ROW_LONG then
+    l := 0;
+  Result := 0;
+  if kind = 0 then
+    Result := 2 * a.scale;
+  if ml > ML_SPLIT4 then
+  begin
+    if l > 0 then
+      Inc(Result, tok);
+    Inc(Result, tok + a.scale * Int32(ExtBytes(ml - MINML4[kind])) + a.esc);
+    Exit;
+  end;
+  first := ml;
+  if ml > MAX_ML4 then
+  begin
+    first := MAX_ML4;
+    if ml - first < SYLZ_MINREP then
+      first := ml - SYLZ_MINREP;
+    Inc(Result, tok * Int32((ml - first + MAX_ML4 - 1) div MAX_ML4));
+  end;
+  if (row = OPT4_ROW_LONG) and (ml <= MAX_ML4) and (c^.llx[kind, ml] <> 255) then
+    { the run's token is the match's too }
+  else if c^.exact[kind, l, first] <> 255 then
+    Inc(Result, tok)
+  else if ml < SYLZ_MINMATCH then
+    Result := OPT4_NEVER
+  else
+    Inc(Result, 2 * tok);
+  if (row = OPT4_ROW_LONG) and (ml < SYLZ_MINMATCH) then
+    Result := OPT4_NEVER;   { an extended run and 2 or 3 bytes: SylzBound }
+end;
+
+{ OptDpPas for format v4. Each node also carries the distance of the last
+  match on its path (a.reps), which a match can take again for a token
+  and no offset bytes: tried first at every position, every length from
+  a.minRep. }
+procedure OptDp4Pas(nodes: POptNode; w: SizeInt; cands, off, cnt: PInt32;
+  const a: TOptDp4Args);
+var
+  i, j, k, c, ml, len, dist, prevLen, ll, r, rl, row: SizeInt;
+  cost, tc, base: Int32;
+  rowN, rowR, cp: PInt32;
+begin
+  for i := 0 to w - 1 do
+  begin
+    k := cnt[i];
+    if k < 0 then
+      Continue;
+    cost := nodes[i].cost;
+    ll := nodes[i].ll;
+    r := a.reps[i];
+    tc := cost + a.litPrice[a.wsrc[i]] + LitStep4(ll, a);
+    if tc < nodes[i + 1].cost then
+    begin
+      nodes[i + 1].cost := tc;
+      nodes[i + 1].ll := Int32(ll + 1);
+      nodes[i + 1].ml := 0;
+      a.reps[i + 1] := Int32(r);
+    end;
+    row := Opt4Row(ll);
+    rowN := a.mtab + row * OPT4_COLS;
+    rowR := rowN + OPT4_ROWS * OPT4_COLS;
+    { the previous distance }
+    if r <= a.before + i then
+    begin
+      rl := CountMatch(a.wsrc + i, a.wsrc + i - r, a.wsrc + w);
+      if rl >= a.minRep then
+      begin
+        base := cost;
+        if r < 16 then
+          Inc(base, a.short);
+        ml := a.minRep - 1;
+        while ml < rl do
+        begin
+          if ml < a.subLen then
+            Inc(ml)
+          else
+            ml := rl;
+          j := i + ml;
+          if ml < OPT4_COLS then
+            tc := base + rowR[ml]
+          else
+            tc := base + MatchCost4(row, ml, 1, a);
+          if tc < nodes[j].cost then
+          begin
+            nodes[j].cost := tc;
+            nodes[j].ll := 0;
+            nodes[j].ml := Int32(ml);
+            nodes[j].dist := Int32(r);
+            a.reps[j] := Int32(r);
+          end;
+        end;
+      end;
+    end;
+    if k = 0 then
+      Continue;
+    cp := cands + 2 * off[i];
+    prevLen := SYLZ_MINMATCH - 1;
+    for c := 0 to k - 1 do
+    begin
+      len := cp[2 * c];
+      dist := cp[2 * c + 1];
+      if dist = r then
+      begin
+        prevLen := len;   { priced above, at least as long }
+        Continue;
+      end;
+      base := cost;
+      if dist < 16 then
+        Inc(base, a.short);
+      ml := prevLen;
+      while ml < len do
+      begin
+        if ml < a.subLen then
+          Inc(ml)
+        else
+          ml := len;
+        j := i + ml;
+        if j > w then
+          Break;
+        if ml < OPT4_COLS then
+          tc := base + rowN[ml]
+        else
+          tc := base + MatchCost4(row, ml, 0, a);
+        if tc < nodes[j].cost then
+        begin
+          nodes[j].cost := tc;
+          nodes[j].ll := 0;
+          nodes[j].ml := Int32(ml);
+          nodes[j].dist := Int32(dist);
+          a.reps[j] := Int32(dist);
+        end;
+      end;
+      prevLen := len;
+    end;
+  end;
+end;
+
 {$ifdef SYLZ_C}
 procedure sylzc_opt_dp(nodes: POptNode; w: Int32; cands, off, cnt, mtab: PInt32;
   a: POptDpArgs); cdecl; external name 'sylzc_opt_dp';
+procedure sylzc_opt_dp4(nodes: POptNode; w: Int32; cands, off, cnt: PInt32;
+  a: POptDp4Args); cdecl; external name 'sylzc_opt_dp4';
 
 type
   { sylzc_optcands in sylzc.c: fixed field order }
@@ -2677,6 +4596,10 @@ var
   { match prices without the short-offset penalty, by pending run (row
     EXACT_LL + 1: any longer run) and length - MINMATCH }
   mtab: array[0..EXACT_LL + 1, 0..OPT_MTAB_COLS - 1] of Int32;
+  { format v4 }
+  a4: TOptDp4Args;
+  mtab4: array[0..1, 0..OPT4_ROWS - 1, 0..OPT4_COLS - 1] of Int32;
+  lastDist, mtabGen: SizeInt;
 begin
   q.seq := Round(p.pSeq * OPT_SCALE);
   q.esc := Round(p.pEsc * OPT_SCALE);
@@ -2700,6 +4623,29 @@ begin
   path := PInt32(work + OPT_NODES_BYTES + OPT_CANDS_BYTES);
   off := PInt32(work + OPT_NODES_BYTES + OPT_CANDS_BYTES + OPT_PATH_BYTES);
   cnt := off + (OPT_WINDOW + 1);
+  lastDist := 1;
+  if e.v4 then
+  begin
+    a4.subLen := p.subLen;
+    a4.minRep := p.minRep;
+    a4.seq := q.seq;
+    a4.esc := q.esc;
+    a4.short := q.short;
+    a4.scale := OPT_SCALE;
+    a4.litPrice := @flat[0];
+    e.codes := Codes4;
+    a4.codes := @e.codes;
+    mtabGen := 0;
+    a4.mtab := @mtab4[0, 0, 0];
+    a4.reps := cnt + (OPT_WINDOW + 1);
+    for k := 0 to 1 do
+      for i := 0 to OPT4_ROWS - 1 do
+        for j := 0 to OPT4_COLS - 1 do
+          if j < MINML4[k] then
+            mtab4[k, i, j] := OPT4_NEVER
+          else
+            mtab4[k, i, j] := MatchCost4(i, j, k, a4);
+  end;
 {$ifdef SYLZ_C}
   oc.b := @b;
   oc.insert := @sylzc_bt_insert;
@@ -2787,6 +4733,32 @@ begin
       nodes[0].ml := 0;
       for i := 1 to w do
         nodes[i].cost := High(Int32);
+      if e.v4 then
+      begin
+        if mtabGen <> e.codesGen then
+        begin
+          { a chunk went out with another table: its codes price the next }
+          mtabGen := e.codesGen;
+          for k := 0 to 1 do
+            for i := 0 to OPT4_ROWS - 1 do
+              for j := 0 to OPT4_COLS - 1 do
+                if j < MINML4[k] then
+                  mtab4[k, i, j] := OPT4_NEVER
+                else
+                  mtab4[k, i, j] := MatchCost4(i, j, k, a4);
+        end;
+        a4.wsrc := a.wsrc;
+        a4.litPrice := a.litPrice;
+        a4.before := start;
+        a4.reps[0] := Int32(lastDist);
+{$ifdef SYLZ_C}
+        if SylzUseAsm then
+          sylzc_opt_dp4(nodes, Int32(w), cands, off, cnt, @a4)
+        else
+{$endif}
+          OptDp4Pas(nodes, w, cands, off, cnt, a4);
+      end
+      else
 {$ifdef SYLZ_C}
       if SylzUseAsm then
         sylzc_opt_dp(nodes, Int32(w), cands, off, cnt, @mtab[0, 0], @a)
@@ -2815,6 +4787,7 @@ begin
           CountLiterals(src, anchor, pos, hist)
         else if not EmitSequence(e, src + anchor, pos - anchor, path[3 * t + 2], path[3 * t + 1]) then
           Exit(-1);
+        lastDist := path[3 * t + 2];
         anchor := pos + path[3 * t + 1];
       end;
       if forced then
@@ -2824,6 +4797,7 @@ begin
           CountLiterals(src, anchor, pos, hist)
         else if not EmitSequence(e, src + anchor, pos - anchor, forcedDist, forcedLen) then
           Exit(-1);
+        lastDist := forcedDist;
         anchor := pos + forcedLen;
         start := anchor;
       end
@@ -2857,7 +4831,8 @@ begin
   b.nextToInsert := 0;
   b.cut := p.btCut;
   b.maxLen := p.btMaxLen;
-  EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+  EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags, ctx.offs, ctx.recs);
+  e.roomy := cap >= SylzBound(n);
   Result := CompressOptCore(src, n, e, b, ctx.opt, p, nil, nil);
 end;
 
@@ -2938,10 +4913,14 @@ begin
   try
     FillChar(hist^, regions * 256 * SizeOf(UInt32), 0);
     ResetTree;
+    { nothing is emitted in this pass, but the parse depends on the format }
+    EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags, ctx.offs, ctx.recs);
+    e.roomy := cap >= SylzBound(n);
     CompressOptCore(src, n, e, b, ctx.opt, p, nil, hist);
     LiteralPrices(hist, regions, prices);
     ResetTree;
-    EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags);
+    EmitInit(e, dst, cap, ctx.scratch, src + n, ctx.flags, ctx.offs, ctx.recs);
+    e.roomy := cap >= SylzBound(n);
     Result := CompressOptCore(src, n, e, b, ctx.opt, p, prices, nil);
   finally
     FreeMem(prices);
@@ -2957,6 +4936,8 @@ end;
 procedure SylzCtxFree(var ctx: TSylzCtx);
 begin
   FreeMem(ctx.scratch);
+  FreeMem(ctx.offs);
+  FreeMem(ctx.recs);
   FreeMem(ctx.table);
   FreeMem(ctx.bt);
   FreeMem(ctx.head);
@@ -2975,8 +4956,17 @@ function SylzCompressEx(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   cap: SizeInt; level: Integer; flags: Integer): SizeInt;
 begin
   ctx.flags := flags;
-  if cap < HEADER_SIZE then
+  if cap < HEADER4_SIZE then
     Exit(-1);
+  { v4's offsets: 2 bytes for each match at a new offset, of 4 bytes or more }
+  if (flags and SYLZ_V4 <> 0) and (ctx.offsSize < n div 2 + SCRATCH_SLACK) then
+  begin
+    FreeMem(ctx.offs);
+    ctx.offsSize := n div 2 + SCRATCH_SLACK;
+    ctx.offs := GetMem(ctx.offsSize);
+  end;
+  if (flags and SYLZ_V4 <> 0) and (ctx.recs = nil) then
+    ctx.recs := GetMem(3 * SizeOf(UInt16) * CHUNK4_SEQS);
   if level < SYLZ_MINLEVEL then
     level := SYLZ_MINLEVEL;
   if flags and SYLZ_ENTROPY <> 0 then
@@ -3100,6 +5090,80 @@ begin
     Exit;
   Move(lit^, op^, lend - lit);
   Result := oend - dst;
+end;
+
+type
+  { Where format v4's decoding stands, in and out of each chunk's
+    decoders; fixed field order (the assembler and sylzc.c read it). }
+  TDecode4State = record
+    tok, offp, lit, op: PByte;               {  0,  8, 16, 24: in/out }
+    tend, offend, lend, oend, dst: PByte;    { 32, 40, 48, 56, 64: in }
+    rep: SizeInt;                            { 72: in/out, the previous distance }
+    status: SizeInt;                         { 80: out, 0 = stopped, -1 = corrupt }
+    tokens: PUInt32;                         { 88: in, the chunk's table }
+  end;
+  PDecode4State = ^TDecode4State;
+
+{ The rest of a chunk's sequences, exact and fully checked: tokens (with
+  their extensions) up to st.tend, 2-byte offsets from st.offp for those
+  that take one. False on corrupt input. }
+function DecodeSeqs4(var st: TDecode4State): Boolean;
+var
+  tok, offp, lit, op, m: PByte;
+  e: UInt32;
+  ll, ml, rep: SizeInt;
+begin
+  Result := False;
+  tok := st.tok;
+  offp := st.offp;
+  lit := st.lit;
+  op := st.op;
+  rep := st.rep;
+  while tok < st.tend do
+  begin
+    e := st.tokens[tok^];
+    Inc(tok);
+    ll := e and $FF;
+    ml := (e shr 8) and $FF;
+    if (e and SYLZ_TOK4_LLEXT <> 0) and not GetExt(tok, st.tend, ll) then
+      Exit;
+    if (e and SYLZ_TOK4_MLEXT <> 0) and not GetExt(tok, st.tend, ml) then
+      Exit;
+    if e and SYLZ_TOK4_OFF <> 0 then
+    begin
+      if st.offend - offp < 2 then
+        Exit;
+      rep := SizeInt(offp[0] or (UInt32(offp[1]) shl 8)) + 1;
+      Inc(offp, 2);
+    end;
+    if (ll > st.lend - lit) or (ll > st.oend - op) then
+      Exit;
+    Move(lit^, op^, ll);
+    Inc(op, ll);
+    Inc(lit, ll);
+    if (rep > op - st.dst) or (ml > st.oend - op) then
+      Exit;
+    m := op - rep;
+    if rep >= ml then
+    begin
+      Move(m^, op^, ml);
+      Inc(op, ml);
+    end
+    else
+      while ml > 0 do
+      begin
+        op^ := m^;
+        Inc(op);
+        Inc(m);
+        Dec(ml);
+      end;
+  end;
+  st.tok := tok;
+  st.offp := offp;
+  st.lit := lit;
+  st.op := op;
+  st.rep := rep;
+  Result := True;
 end;
 
 const
@@ -3643,6 +5707,507 @@ begin
   Result := DecodePas(ctrl, cend, lit, lend, dst, dstLen);
 end;
 
+{$ifdef SYLZ_ASM_X64}
+{ Format v4's fast loop: sequences with an exact code only. Such a
+  sequence takes one token, at most 2 offset bytes and 16 literals, and
+  writes inside 64 bytes of output, so k = min(tokens, offset bytes / 2,
+  literals / 16, output / 64) of them need no bounds check and the loop
+  counts k down, then counts again. It stops, with everything at the
+  token, at an escape (DecodeEscape4 does it) or when k = 0.
+
+  Two loops: until the output is SYLZ_MAXDIST bytes long every distance is
+  checked against it; after that none can reach before its start.
+
+  Registers: r8 tokens, r11 offsets, r9 literals, r10 op, r12 the previous
+  distance - 1, r13 the state, r14 dst, r15 k, rdi the token table, eax the
+  table entry, rcx distance - 1 (the -1 folded into the displacements),
+  rbx literal length, rbp match length, rsi match source, rdx scratch. }
+procedure DecodeFast4X64(st: PDecode4State); assembler; nostackframe;
+asm
+  push rbx
+  push rbp
+  push r12
+  push r13
+  push r14
+  push r15
+{$ifdef WIN64}
+  push rsi
+  push rdi
+  mov r13, rcx
+{$else}
+  mov r13, rdi
+{$endif}
+  mov r8, [r13]
+  mov r11, [r13 + 8]
+  mov r9, [r13 + 16]
+  mov r10, [r13 + 24]
+  mov r14, [r13 + 64]
+  mov r12, [r13 + 72]
+  sub r12, 1
+  mov rdi, [r13 + 88]
+  mov qword ptr [r13 + 80], 0
+
+@recount:
+  mov r15, [r13 + 32]
+  sub r15, r8
+  mov rdx, [r13 + 40]
+  sub rdx, r11
+  shr rdx, 1
+  cmp rdx, r15
+  cmovb r15, rdx
+  mov rdx, [r13 + 48]
+  sub rdx, r9
+  shr rdx, 4
+  cmp rdx, r15
+  cmovb r15, rdx
+  mov rdx, [r13 + 56]
+  sub rdx, r10
+  shr rdx, 6
+  cmp rdx, r15
+  cmovb r15, rdx
+  test r15, r15
+  jz @done
+  mov rdx, r10
+  sub rdx, r14
+  cmp rdx, 65536
+  jb @checked
+
+@counted:
+  movzx eax, byte ptr [r8]
+  movzx ecx, word ptr [r11]      { distance - 1, if the token takes one }
+  mov eax, [rdi + rax * 4]
+  cmp eax, $FFFFFF
+  ja @escape
+  add r8, 1
+  movzx ebx, al                  { literal length, 0..16 }
+  movdqu xmm0, [r9]
+  movdqu [r10], xmm0             { 16 literal bytes, unconditionally }
+  mov edx, eax
+  shr edx, 16                    { offset bytes taken: 2 or 0 }
+  cmovz rcx, r12                 { none (shr left ZF): the previous distance }
+  add r9, rbx
+  add r10, rbx
+  add r11, rdx
+  movzx ebp, ah                  { match length, 0..32 }
+  mov r12, rcx
+  mov rsi, r10
+  sub rsi, rcx                   { match source + 1 }
+  cmp rcx, 15
+  jb @short                      { distance < 16 }
+  movdqu xmm0, [rsi - 1]
+  movdqu [r10], xmm0
+  movdqu xmm1, [rsi + 15]
+  movdqu [r10 + 16], xmm1        { 32 match bytes, unconditionally }
+  add r10, rbp
+  sub r15, 1
+  jnz @counted
+  jmp @recount
+
+@checked:
+  movzx eax, byte ptr [r8]
+  movzx ecx, word ptr [r11]
+  mov eax, [rdi + rax * 4]
+  cmp eax, $FFFFFF
+  ja @escape
+  add r8, 1
+  movzx ebx, al
+  movdqu xmm0, [r9]
+  movdqu [r10], xmm0
+  mov edx, eax
+  shr edx, 16
+  cmovz rcx, r12
+  add r9, rbx
+  add r10, rbx
+  add r11, rdx
+  movzx ebp, ah
+  mov r12, rcx
+  mov rdx, r10
+  sub rdx, r14
+  cmp rcx, rdx
+  jae @corrupt                   { reaches before the start of the output }
+  mov rsi, r10
+  sub rsi, rcx
+  cmp rcx, 15
+  jb @short
+  movdqu xmm0, [rsi - 1]
+  movdqu [r10], xmm0
+  movdqu xmm1, [rsi + 15]
+  movdqu [r10 + 16], xmm1
+  add r10, rbp
+  sub r15, 1
+  jnz @checked
+  jmp @recount
+
+@short:
+  { distance < 16 (rcx = distance - 1, rsi = source + 1); the match length
+    may be 0: the bytes written past it are overwritten later }
+  sub rsi, 1
+  cmp rcx, 7
+  jb @tiny
+@short8:
+  mov rdx, [rsi]
+  mov [r10], rdx
+  add r10, 8
+  add rsi, 8
+  sub rbp, 8
+  jg @short8
+  add r10, rbp
+  jmp @recount
+
+@tiny:
+  { distance < 8: 8 bytes one at a time, then 8-byte steps from the nearest
+    multiple of the distance that is >= 8: 8,8,9,8,10,12,14 for 1..7 }
+  movzx edx, byte ptr [rsi]
+  mov [r10], dl
+  movzx edx, byte ptr [rsi + 1]
+  mov [r10 + 1], dl
+  movzx edx, byte ptr [rsi + 2]
+  mov [r10 + 2], dl
+  movzx edx, byte ptr [rsi + 3]
+  mov [r10 + 3], dl
+  movzx edx, byte ptr [rsi + 4]
+  mov [r10 + 4], dl
+  movzx edx, byte ptr [rsi + 5]
+  mov [r10 + 5], dl
+  movzx edx, byte ptr [rsi + 6]
+  mov [r10 + 6], dl
+  movzx edx, byte ptr [rsi + 7]
+  mov [r10 + 7], dl
+  add r10, 8
+  mov rdx, $000E0C0A08090808
+  shl ecx, 3                     { (distance - 1) * 8 }
+  shr rdx, cl
+  movzx edx, dl
+  mov rsi, r10
+  sub rsi, rdx
+  sub rbp, 8
+  jle @tinyDone
+@tiny8:
+  mov rdx, [rsi]
+  mov [r10], rdx
+  add r10, 8
+  add rsi, 8
+  sub rbp, 8
+  jg @tiny8
+@tinyDone:
+  add r10, rbp
+  jmp @recount
+
+@escape:
+  { eax = the entry, rcx = the offset stream's next 2 bytes (k > 0: they
+    are there). The extensions are read through rsi and nothing moves
+    until the sequence is known to fit the wide copies: 16 literal bytes
+    past the run, 64 output bytes past the sequence. If it does not, the
+    loop stops at the token. r15 is scratch: k is counted again. }
+  movzx ebx, al
+  movzx ebp, ah
+  lea rsi, [r8 + 1]
+  mov rdx, [r13 + 32]
+  test eax, $1000000
+  jz @escMl
+@escLlLoop:
+  cmp rsi, rdx
+  jae @done
+  movzx r15d, byte ptr [rsi]
+  add rsi, 1
+  add rbx, r15
+  cmp r15d, 255
+  je @escLlLoop
+@escMl:
+  test eax, $2000000
+  jz @escFits
+@escMlLoop:
+  cmp rsi, rdx
+  jae @done
+  movzx r15d, byte ptr [rsi]
+  add rsi, 1
+  add rbp, r15
+  cmp r15d, 255
+  je @escMlLoop
+@escFits:
+  mov rdx, [r13 + 48]
+  sub rdx, r9
+  sub rdx, 16
+  cmp rbx, rdx
+  jg @done
+  lea r15, [rbx + rbp]
+  mov rdx, [r13 + 56]
+  sub rdx, r10
+  sub rdx, 64
+  cmp r15, rdx
+  jg @done
+  mov r8, rsi
+  test eax, $20000
+  jz @escRep
+  add r11, 2
+  mov r12, rcx
+@escRep:
+  mov rcx, r12
+@escLit:
+  movdqu xmm0, [r9]
+  movdqu [r10], xmm0
+  add r9, 16
+  add r10, 16
+  sub rbx, 16
+  jg @escLit
+  add r9, rbx                    { rbx <= 0: take back the overshoot }
+  add r10, rbx
+  mov rdx, r10
+  sub rdx, r14
+  cmp rcx, rdx
+  jae @corrupt
+  mov rsi, r10
+  sub rsi, rcx
+  cmp rcx, 15
+  jb @short
+@escMatch:
+  movdqu xmm0, [rsi - 1]
+  movdqu [r10], xmm0
+  add rsi, 16
+  add r10, 16
+  sub rbp, 16
+  jg @escMatch
+  add r10, rbp
+  jmp @recount
+
+@corrupt:
+  mov qword ptr [r13 + 80], -1
+@done:
+  mov [r13], r8
+  mov [r13 + 8], r11
+  mov [r13 + 16], r9
+  mov [r13 + 24], r10
+  add r12, 1
+  mov [r13 + 72], r12
+{$ifdef WIN64}
+  pop rdi
+  pop rsi
+{$endif}
+  pop r15
+  pop r14
+  pop r13
+  pop r12
+  pop rbp
+  pop rbx
+end;
+
+{$endif}
+
+{ The sequence at st.tok if it is an escape and fits what is left of the
+  streams and the output, copied exactly; false (nothing done) otherwise:
+  DecodeSafe4 then finishes the block, or rejects it. }
+function DecodeEscape4(var st: TDecode4State): Boolean;
+var
+  p, m: PByte;
+  e: UInt32;
+  ll, ml, d: SizeInt;
+begin
+  Result := False;
+  if st.tok >= st.tend then
+    Exit;
+  e := st.tokens[st.tok^];
+  if e and (SYLZ_TOK4_LLEXT or SYLZ_TOK4_MLEXT) = 0 then
+    Exit;
+  p := st.tok + 1;
+  ll := e and $FF;
+  ml := (e shr 8) and $FF;
+  if (e and SYLZ_TOK4_LLEXT <> 0) and not GetExt(p, st.tend, ll) then
+    Exit;
+  if (e and SYLZ_TOK4_MLEXT <> 0) and not GetExt(p, st.tend, ml) then
+    Exit;
+  d := st.rep;
+  if e and SYLZ_TOK4_OFF <> 0 then
+  begin
+    if st.offend - st.offp < 2 then
+      Exit;
+    d := SizeInt(st.offp[0] or (UInt32(st.offp[1]) shl 8)) + 1;
+  end;
+  if (ll > st.lend - st.lit) or (ll > st.oend - st.op)
+     or (ml > st.oend - st.op - ll) or (d > st.op + ll - st.dst) then
+    Exit;
+  if e and SYLZ_TOK4_OFF <> 0 then
+    Inc(st.offp, 2);
+  st.rep := d;
+  st.tok := p;
+  Move(st.lit^, st.op^, ll);
+  Inc(st.op, ll);
+  Inc(st.lit, ll);
+  m := st.op - d;
+  if d >= ml then
+  begin
+    Move(m^, st.op^, ml);
+    Inc(st.op, ml);
+  end
+  else
+    while ml > 0 do
+    begin
+      st.op^ := m^;
+      Inc(st.op);
+      Inc(m);
+      Dec(ml);
+    end;
+  Result := True;
+end;
+
+{ DecodeFast4X64's loop in Pascal, same results: it stops, with
+  everything at the token, at an escape or when no sequence is sure to
+  fit (k = 0); st.status = -1 on corrupt input. }
+procedure DecodeFast4Pas(var st: TDecode4State);
+var
+  tok, offp, lit, op, m: PByte;
+  tokens: PUInt32;
+  e: UInt32;
+  k, c, ml, rep: SizeInt;
+begin
+  tok := st.tok;
+  offp := st.offp;
+  lit := st.lit;
+  op := st.op;
+  rep := st.rep;
+  tokens := st.tokens;
+  st.status := 0;
+  repeat
+    k := st.tend - tok;
+    c := (st.offend - offp) shr 1;
+    if c < k then
+      k := c;
+    c := (st.lend - lit) shr 4;
+    if c < k then
+      k := c;
+    c := (st.oend - op) shr 6;
+    if c < k then
+      k := c;
+    if k <= 0 then
+      Break;
+    repeat
+      e := tokens[tok^];
+      if e > $FFFFFF then
+        Break;   { an escape }
+      Inc(tok);
+      Copy16(op, lit);
+      Inc(op, e and $FF);
+      Inc(lit, e and $FF);
+      if e and SYLZ_TOK4_OFF <> 0 then
+      begin
+        rep := SizeInt(offp[0] or (UInt32(offp[1]) shl 8)) + 1;
+        Inc(offp, 2);
+      end;
+      if rep > op - st.dst then
+      begin
+        st.status := -1;
+        Exit;
+      end;
+      m := op - rep;
+      ml := (e shr 8) and $FF;
+      if rep >= 16 then
+      begin
+        Copy16(op, m);
+        Copy16(op + 16, m + 16);
+        Inc(op, ml);
+      end
+      else
+        while ml > 0 do
+        begin
+          op^ := m^;
+          Inc(op);
+          Inc(m);
+          Dec(ml);
+        end;
+      Dec(k);
+    until k = 0;
+  until k > 0;
+  st.tok := tok;
+  st.offp := offp;
+  st.lit := lit;
+  st.op := op;
+  st.rep := rep;
+end;
+
+{$ifdef SYLZ_C}
+function sylzc_decode4(st: PDecode4State): SizeInt; cdecl; external name 'sylzc_decode4';
+{$endif}
+
+{ One chunk of sequences: st.tok .. st.tend with the table st.tokens. }
+function DecodeChunk4(var st: TDecode4State): Boolean;
+begin
+{$ifdef SYLZ_ASM_X64}
+  if SylzUseAsm and not SylzPreferC then
+  begin
+    { the fast loop stops at an escape it has no room for, or at the
+      chunk's last sequences: DecodeEscape4, then DecodeSeqs4, exactly }
+    repeat
+      DecodeFast4X64(@st);
+      if st.status < 0 then
+        Exit(False);
+    until not DecodeEscape4(st);
+    Exit(DecodeSeqs4(st));
+  end;
+{$endif}
+{$ifdef SYLZ_C}
+  if SylzUseAsm then
+    Exit(sylzc_decode4(@st) = 0);
+{$endif}
+  repeat
+    DecodeFast4Pas(st);
+    if st.status < 0 then
+      Exit(False);
+  until not DecodeEscape4(st);
+  Result := DecodeSeqs4(st);
+end;
+
+{ A format v4 block's streams into dst: the token chunks at sec, each
+  with SYLZ_TOKENS4 or its own table, then the tail literals. }
+function DecodeStreams4(sec, secEnd, offp, offend, lit, lend, dst: PByte;
+  dstLen: SizeInt): SizeInt;
+var
+  st: TDecode4State;
+  own: TTable4;
+  w: UInt32;
+  i: Integer;
+begin
+  Result := -1;
+  st.offp := offp;
+  st.lit := lit;
+  st.op := dst;
+  st.offend := offend;
+  st.lend := lend;
+  st.oend := dst + dstLen;
+  st.dst := dst;
+  st.rep := 1;
+  while sec < secEnd do
+  begin
+    if secEnd - sec < 4 then
+      Exit;
+    w := PUInt32(sec)^;
+    Inc(sec, 4);
+    if w and not (CHUNK4_TABLE or CHUNK4_LENMASK) <> 0 then
+      Exit;
+    st.tokens := @SYLZ_TOKENS4[0];
+    if w and CHUNK4_TABLE <> 0 then
+    begin
+      if secEnd - sec < TABLE4_BYTES then
+        Exit;
+      for i := 0 to 255 do
+        if not UnpackEntry4(sec[2 * i] or (UInt16(sec[2 * i + 1]) shl 8), own[i]) then
+          Exit;
+      st.tokens := @own[0];
+      Inc(sec, TABLE4_BYTES);
+    end;
+    if SizeInt(w and CHUNK4_LENMASK) > secEnd - sec then
+      Exit;
+    st.tok := sec;
+    st.tend := sec + (w and CHUNK4_LENMASK);
+    if not DecodeChunk4(st) then
+      Exit;
+    sec := st.tend;
+  end;
+  { every offset used; the rest of the literals is the block's tail }
+  if (st.offp <> offend) or (lend - st.lit <> st.oend - st.op) then
+    Exit;
+  Move(st.lit^, st.op^, lend - st.lit);
+  Result := dstLen;
+end;
+
 procedure SylzDCtxInit(out dctx: TSylzDCtx);
 begin
   dctx.lits := nil;
@@ -3659,22 +6224,41 @@ function SylzDecompressCtx(var dctx: TSylzDCtx; src: PByte; n: SizeInt; dst: PBy
   dstLen: SizeInt): SizeInt;
 var
   hdr: UInt32;
-  ctrlLen, litCount, pos, c, r: SizeInt;
+  ctrlLen, offLen, litCount, pos, c, r: SizeInt;
   ctrl, cend, send, p: PByte;
 begin
   if n < HEADER_SIZE then
     Exit(-1);
   hdr := PUInt32(src)^;
-  ctrlLen := hdr and HDR_CTRLMASK;
-  if ctrlLen > n - HEADER_SIZE then
-    Exit(-1);
-  ctrl := src + HEADER_SIZE;
-  cend := ctrl + ctrlLen;
   send := src + n;
-  if hdr and HDR_ENTROPY = 0 then
-    Exit(DecodeStreams(ctrl, cend, cend, send, dst, dstLen));
+  offLen := -1;   { not v4 }
+  if hdr and HDR_V4 <> 0 then
+  begin
+    { v4: tokens, offsets, literals (raw, or v3's chunks with bit 31: v5) }
+    if n < HEADER4_SIZE then
+      Exit(-1);
+    ctrlLen := hdr and HDR_TOKMASK;
+    offLen := PUInt32(src + 4)^;
+    if (ctrlLen > n - HEADER4_SIZE) or (offLen > n - HEADER4_SIZE - ctrlLen)
+       or Odd(offLen) then
+      Exit(-1);
+    ctrl := src + HEADER4_SIZE;
+    cend := ctrl + ctrlLen + offLen;   { where the literal section starts }
+    if hdr and HDR_ENTROPY = 0 then
+      Exit(DecodeStreams4(ctrl, cend - offLen, cend - offLen, cend, cend, send, dst, dstLen));
+  end
+  else
+  begin
+    ctrlLen := hdr and HDR_CTRLMASK;
+    if ctrlLen > n - HEADER_SIZE then
+      Exit(-1);
+    ctrl := src + HEADER_SIZE;
+    cend := ctrl + ctrlLen;
+    if hdr and HDR_ENTROPY = 0 then
+      Exit(DecodeStreams(ctrl, cend, cend, send, dst, dstLen));
+  end;
 
-  { v3: decode the literal chunks first, then the sequences over them }
+  { v3 / v5: decode the literal chunks first, then the sequences over them }
   if send - cend < 4 then
     Exit(-1);
   litCount := PUInt32(cend)^;
@@ -3701,7 +6285,31 @@ begin
   end;
   if p <> send then   { the chunks must take the rest of the block exactly }
     Exit(-1);
-  Result := DecodeStreams(ctrl, cend, dctx.lits, dctx.lits + litCount, dst, dstLen);
+  if offLen >= 0 then
+    Result := DecodeStreams4(ctrl, cend - offLen, cend - offLen, cend,
+      dctx.lits, dctx.lits + litCount, dst, dstLen)
+  else
+    Result := DecodeStreams(ctrl, cend, dctx.lits, dctx.lits + litCount, dst, dstLen);
+end;
+
+function SylzBlockFormat(src: PByte; n: SizeInt): Integer;
+begin
+  if n < HEADER_SIZE then
+    Exit(0);
+  Result := 2;
+  if src[3] and $40 <> 0 then
+    Result := 4;
+  if src[3] and $80 <> 0 then
+    Inc(Result);
+end;
+
+function SylzFlagsFormat(flags: Integer): Integer;
+begin
+  Result := 2;
+  if flags and SYLZ_V4 <> 0 then
+    Result := 4;
+  if flags and SYLZ_ENTROPY <> 0 then
+    Inc(Result);
 end;
 
 function SylzDecompress(src: PByte; n: SizeInt; dst: PByte; dstLen: SizeInt): SizeInt;
@@ -3715,4 +6323,6 @@ end;
 
 initialization
   BuildExactCodes;
+  if not BuildCodes4(SYLZ_TOKENS4, Codes4) then
+    RunError(201);
 end.

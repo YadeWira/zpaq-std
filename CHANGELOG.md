@@ -17,6 +17,7 @@
   - **A cap on the weight of a group**: `ZS_QUERY_GROUP_WEIGHT` (5), the most "weight" a group of the codec's files may hold, and `ZS_QUERY_WEIGHT` (4), the weight of one file, in the codec's own measure. For a codec whose ZPAQL decoder takes time by something that is not the bytes of the files (the pixels of an image). The group is closed before the file that would pass the cap; a heavier file goes alone. A codec that gives no cap groups as before.
 - **PJA 0.9.9** (`-sa`): its codecs answer 2 and carry their lists. The 31 codecs, streams and ZPAQL decoders are 0.9.8's: without `+rcmd` the archives are the same, byte for byte.
 - **lz6 2.0.0** (`-ma:lz6`): lz6's new "format 2" is of its seq engine, which zpaq-std does not use. `-ma:lz6` keeps writing the LZ5 v1.5 portable profile: the same bytes as with 1.7.1 at its 16 levels, the same ZPAQL decoder.
+- **syc v0.6.0** (`-ma:sylz`, `-ma:sylzec`): the same bytes at every level; the decoders refuse the blocks of syc's new, still provisional formats instead of misreading them.
 - Without `+rcmd` nothing changes: the archives are those of 2.8.0.
 
 ### [2.8.0] - 2026-11-11
