@@ -12,6 +12,17 @@
   - **LZMA SDK 26.06** (`-ma:lzma`, `-ma:ppmd`), **LZ4 1.11.1**, **lz5-ex 1.5.5**, **LZAV 7.2**.
   - **zxc 1.0.0** (`-ma:zxc`): its format, 9, is frozen. Its C API changed and zpaq-std's code follows it.
 - The help of the new switches is in the five languages.
+- **A crash fixed before the release:** reading a Franzen archive with several threads (`x`, `t`) ended now and then with "double free or corruption" (about one run in ten with 16 threads). Every reading thread assigned the same global string, the name of the Franzen file; zpaqfranz has the same race, but it only shows with the reference-counted strings zpaq-std is built with. It is written under a mutex now. Found by ZF's battery.
+
+#### Checked
+
+- **Franzen:** `a`, `x`, `t` with `-franzen` and with `FRANZFRANZEN`, `-key` together with `-franzen`, the `franzen` command, a wrong password (exit code 2, nothing extracted), no password (00599, nothing written). zpaqfranz 65.18's open build reads zpaq-std's archives and zpaq-std reads its archives. After the fix: 300 extractions with the default threads, 100 with `-t8`, and 60 of `t`, 60 of `x` and 60 of `t` with AES and Franzen on a bigger archive, none failing; a new suite, `suite_franzen` (8/8; the build before the fix fails 12 of its 120 runs).
+- **ZF's battery** (the one kept for zpaqfranz): its 33 reproducers and 5 repack suites give what zpaqfranz 65.18 gives; its crash reproducer, 0 of 250 after the fix.
+- **The levels:** each writes what its `-m` writes; all seven extract identically, and the default archive with zpaq 7.15.
+- **Codecs:** each of the nine writes the archive of the version before to the byte: `-ma:lzh:1/4`, `flzma2:1/5/10`, `uflzma2:1/5/11`, `lzma:1/6/9`, `ppmd`, `lz4:1/9/12`, `lz4hc`, `lz4f`, `lz5:1/9/15`, `lz5f`, `lzav:0/1`, `zxc:1-7`. The seven decoder reproducers of fast-lzma2 run clean under AddressSanitizer with fast-lzma2 1.2.0 and ultra-fast-lzma2 1.6.5.
+- **Full test battery:** every suite has 0 cases to review; golden archives: 0 unexpected failures; `difftest` against 2.7.2: the 182 archives have the same size and each version reads the other's.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` writes the same bytes on the three; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** Franzen both ways between the two, 30 extractions and 30 tests in a row on each with no failure, and zpaqfranz 65.18 on Linux reads both archives; the named levels and `-nolfast` write and test; `-sa` on the 244 arithmetic-coded JPEGs and `-ma:lzh:4` as in 2.7.2. CI is green on all six platforms.
 
 ### [2.7.2] - 2026-11-08
 
