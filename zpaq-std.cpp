@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.9.0-rc5"
+#define ZPAQSTD_VERSION "2.9.0-rc6"
 #define ZPAQSTD_DATE "(2026-11-11)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -95485,7 +95485,11 @@ struct zs_sa_codec
 	bool		rcmd, rc_ok;
 	std::string rc_ma;
 	int			rc_level, rc_n, rc_pseudo, rcmd_de;
-	zs_sa_codec() : level(0), segs(false), rcmd(false), rc_ok(false), rc_level(0), rc_n(-1), rc_pseudo(-1), rcmd_de(-1) {}
+	/// 2.9.0: the most "weight" a group of its files may hold (ZS_QUERY_GROUP_WEIGHT), 0 if the codec
+	/// gives none. For a codec whose ZPAQL decoder takes time by something that is not the bytes of
+	/// the files (PPA: the pixels of the images): the files' own weights come from ZS_QUERY_WEIGHT
+	int64_t		peso_tope;
+	zs_sa_codec() : level(0), segs(false), rcmd(false), rc_ok(false), rc_level(0), rc_n(-1), rc_pseudo(-1), rcmd_de(-1), peso_tope(0) {}
 };
 int						 g_sa_mode= 0;	/// 'e' (-sae, and -sa), 't' (-sat) or 0
 #include <functional>
@@ -172797,6 +172801,17 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			sc.cfg=xe->zpaql;
 			sc.segs=xe->segs && !xe->zpaql.empty();
+			/// 2.9.0: a cap on the weight of a group, if the codec gives one (and it shares blocks)
+			if (c->query && sc.segs)
+			{
+				const long long tope=c->query(ZS_QUERY_GROUP_WEIGHT, "", 0);
+				if (tope>0)
+				{
+					sc.peso_tope=(int64_t)tope;
+					if (g_sa_mode=='t' || flagverbose)
+						myprintf("00787: -sa: %s: a group of its files holds a weight of %s at most (the codec's own measure)\n", sc.algo.c_str(), migliaia(sc.peso_tope));
+				}
+			}
 			if (sc.segs)
 			{
 				sc.zcfg=sa_zcfg(sc.file, sc.algo);
@@ -267907,6 +267922,8 @@ int Jidac::add2()
 	/// first NEW fragment (2.9.0-rc3: a file whose first fragment was already there never started, and
 	/// went as -m says)
 	const DT		   *sa_ini= NULL; /// (the file itself, not its place in vf: the files that waited are moved)
+	/// 2.9.0: the weight of the files of the block being filled, for the codecs that cap it (peso_tope)
+	int64_t				sa_blk_peso= 0;
 	std::vector<size_t> sa_cuts;
 	std::string			sa_names;
 	/// -sa (2.3.0): while a block of codec C is being filled, a file C does not take (another codec
@@ -268035,6 +268052,7 @@ int Jidac::add2()
 		/// unless none of it is new; without one, the file goes as -m/-ma say
 		int	 sa_file = -1;
 		bool sa_force= false;
+		int64_t sa_peso= 0; /// 2.9.0: the weight of the file for its codec (ZS_QUERY_WEIGHT), 0 if none
 		if (g_sa_mode && (fi < vf.size()) && (in != FPNULL) && (!flagstdin) && (!flagmemfile) && (!flagimage) && (!flagtarspecial)
 			&& (p->second.expectedsize > 16) && (p->second.expectedsize <= ZS_SA_MAXFILE) && !sa_nessuno.count(&p->second))
 		{
@@ -268042,6 +268060,12 @@ int Jidac::add2()
 			if (fread(&safb[0], 1, safb.size(), in) == safb.size())
 			{
 				sa_file= zs_sa_detect(&safb[0], safb.size());
+				if (sa_file >= 0 && g_sa[sa_file].rcmd_de < 0 && g_sa[sa_file].peso_tope > 0)
+				{
+					const zs_ext *xp= zs_ext_get(g_sa[sa_file].file, g_sa[sa_file].algo);
+					const long long w= (xp && xp->c && xp->c->query) ? xp->c->query(ZS_QUERY_WEIGHT, &safb[0], safb.size()) : 0;
+					sa_peso= w > 0 ? (int64_t)w : 0;
+				}
 				if (sa_file >= 0 && g_sa[sa_file].rcmd_de >= 0)
 				{
 					/// 2.9.0, +rcmd: of a codec's format, but the codec does not take it (its detect said 2):
@@ -268257,7 +268281,8 @@ int Jidac::add2()
 				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3:
 				/// 2.3.0 measured 8 and 16 MB: a set of photos saved again lost 14% and 8%)
 				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
-								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP);
+								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP)
+								   && (g_sa[sa_file].peso_tope <= 0 || sa_blk_peso + sa_peso <= g_sa[sa_file].peso_tope); /// 2.9.0: and its weight fits
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
 				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
@@ -268422,6 +268447,7 @@ int Jidac::add2()
 						sa_names= vf[fi]->first;
 					sa_blk_fi	= (int)fi;
 					sa_blk_codec= sa_file;
+					sa_blk_peso = (sa_join ? sa_blk_peso : 0) + sa_peso;
 					if (!sa_join)
 						sa_blk_ok= true;
 					if (g_sa_mode == 't' && g_sa[sa_file].rcmd_de < 0)
@@ -269287,7 +269313,8 @@ int Jidac::add2()
 				/// compresses it, not -m, and the bigger the group the more its LZ77 finds (stage 4.3:
 				/// 2.3.0 measured 8 and 16 MB: a set of photos saved again lost 14% and 8%)
 				const bool sa_join = sa_start && sa_blk_fi >= 0 && sa_blk_ok && sa_file == sa_blk_codec && g_sa[sa_file].segs
-								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP);
+								   && (int64_t)(sb.size() + vf[fi]->second.size + (vf[fi]->second.size >> 14) + 4096 + frags * 4) < (std::max)((int64_t)blocksize, ZS_SA_GROUP)
+								   && (g_sa[sa_file].peso_tope <= 0 || sa_blk_peso + sa_peso <= g_sa[sa_file].peso_tope); /// 2.9.0: and its weight fits
 				if (sb.size() + sz + 80 + frags * 4 >= blocksize && sa_blk_fi != (int)fi)
 					newblock= true;
 				if (sa_start || (sa_blk_fi >= 0 && sa_blk_fi != (int)fi))
@@ -269452,6 +269479,7 @@ int Jidac::add2()
 						sa_names= vf[fi]->first;
 					sa_blk_fi	= (int)fi;
 					sa_blk_codec= sa_file;
+					sa_blk_peso = (sa_join ? sa_blk_peso : 0) + sa_peso;
 					if (!sa_join)
 						sa_blk_ok= true;
 					if (g_sa_mode == 't' && g_sa[sa_file].rcmd_de < 0)

@@ -120,6 +120,17 @@ typedef struct zs_codec {
                                  decoder handles several segments in one block (it starts
                                  afresh at the end of each), anything else if not;
                                  zpaq-std asks with src "" and n 0 */
+#define ZS_QUERY_WEIGHT 4     /* -sa/-sae/-sat (since zpaq-std 2.9.0): the "weight" of one file
+                                 the codec takes, in the codec's own measure (for PPA, the
+                                 bytes of the decoded pixels): what makes its ZPAQL decoder
+                                 slow or large when it is not the size of the file. src is
+                                 the ORIGINAL file, n its size. 0 or less: no weight */
+#define ZS_QUERY_GROUP_WEIGHT 5 /* (since zpaq-std 2.9.0) the most weight a group of files in
+                                 one block may hold, asked once with src "" and n 0; 0 or
+                                 less, or no query(): no cap. zpaq-std closes the group
+                                 before the file that would pass it; a file heavier than the
+                                 cap goes alone. Only for a codec that answers 1 to
+                                 ZS_QUERY_SEGMENTS; the cap on the bytes of a group stays */
 #define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
 #define ZS_DATA_ZPAQL      2  /* -mae/-mat: the codec's ZPAQL decoder, as text */
 #define ZS_DATA_ZPAQL_ARGS 4  /* the same, for a decoder that uses $3..$5 (since zpaq-std
