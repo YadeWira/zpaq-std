@@ -1,6 +1,9 @@
-PJA 0.9.9 (tag v0.9.9, commit 62bf00c), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.9.9-zpaqstd.tar.gz (sha256
-41965cdf5ef4dc18abde7ea7684be3ef414d9bc15ce22bda83d00b6e19de7b74), copied unmodified.
+PJA 0.9.10 (tag v0.9.10, commit 68f25f8), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.10-zpaqstd.tar.gz (sha256
+075a65d72219e2b3ad4f64b8240e7df293835ec444ede352bb8821cf72f7f467), copied unmodified.
+0.9.10 changes nothing for this plugin but the version in its card (pas/pjacodec.pas) and
+VENDOR.md: its change is in PJA's 7-Zip plugin. The 31 codecs, streams, ZPAQL, detect and
+lists are 0.9.9's (tarball sha256 41965cdf...), which was in zpaq-std 2.9.0.
 For the plugin, 0.3.0 frees each coding thread's model tables when the thread ends
 (they leaked, and ran out of memory on 32 bits), and 0.4.0 adds the five z codecs
 (pjaz, pjalsz, pjaxz, pjallz, pjalsxz): the ZPAQL of each base codec with zpaq's

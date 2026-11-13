@@ -136,7 +136,7 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.9.9, plugin only (`pja.dll` or `.so`): the family, its six codecs in this order | | 2 | 2 |
+| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.9.10, plugin only (`pja.dll` or `.so`): the family, its six codecs in this order | | 2 | 2 |
 | `-sa:pjax78+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
 | (pja78) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
 | `-sa:pjall8+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |

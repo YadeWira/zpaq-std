@@ -1,8 +1,20 @@
-# PJA 0.9.9: the zpaq-std plugin, vendored
+# PJA 0.9.10: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.9`, commit `62bf00c`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.10`, commit `68f25f8`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.9.10
+
+Nothing for the plugin: its 31 codecs, their streams, ZPAQL, detect (1 and
+2) and fallback lists are 0.9.9's. The only change in these sources is
+`PJA_VERSION` in `pas/pjacodec.pas` (the cards' `version=`). 0.9.10's
+change is in libpja's 7-Zip plugin (it follows `-mmt` when extracting),
+which zpaq-std's plugin does not use. Rebuilding is optional.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k`,
+`tests/jpg` and `tests/jls`.
 
 ## What is new in 0.9.9: +rcmd, and BLAKE3 from pBLAKE3
 
@@ -221,7 +233,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` and `{$L b3chunks.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=62bf00c
+export PJA_COMMIT=68f25f8
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

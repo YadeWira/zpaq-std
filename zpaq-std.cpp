@@ -77,7 +77,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.10.0-rc1"
+#define ZPAQSTD_VERSION "2.10.0"
 #define ZPAQSTD_DATE "(2026-11-13)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.

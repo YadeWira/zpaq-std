@@ -1,6 +1,6 @@
-### [2.10.0] - unreleased
+### [2.10.0] - 2026-11-13
 
-**`-ma:lz6` is lz6's seq engine. What it was is `-ma:lz6hc`.**
+**`-ma:lz6` is lz6's seq engine; what it was is `-ma:lz6hc`. PPA 0.2.1, syc v0.7.0 (a security fix for the 32-bit sylz plugins), PJA 0.9.10.**
 
 - **`-ma:lz6:N` now uses lz6's seq engine** (lz6 2.1.0, levels 1 to 13, 7 by default): an LZ match finder with tANS and Huffman coding, which is what lz6 is about. Its format is frozen and every block carries its decoder.
   - Any zpaq extracts it: each block carries **ZPAQLZ6SEQ**, a new ZPAQL decoder (6,810 bytes), and zpaq-std 2.9.0 and older run it too. Another zpaq needs 64 MiB a block to extract.
@@ -10,6 +10,7 @@
   - **A script that wrote `-ma:lz6` now compresses with another method** (smaller and, at the default level, slower to write). `-ma:lz6:14` and `-ma:lz6:15` are taken as 13, `-ma:lz6:0` as 1.
   - The plugin of the seq engine is `codecs/lz6seq`; `codecs/lz6` stays the profile's.
 - **PPA 0.2.1** (`-sa:ppa`, still experimental): `ppa1` no longer makes an animation of many small frames larger (its frames that do not beat their own deflate bytes go as bytes), so those files are taken instead of going to `-m`; an image of 64 KiB or more that its model does not shrink goes as bytes; faster. An encoder change only: `ppa1`'s stream and ZPAQL decoder are 0.2.0's, and 0.2.0's plugin reads the new blocks.
+- **PJA 0.9.10** (`-sa`): the version only; its codecs, streams and ZPAQL decoders are 0.9.9's, and `-sa` writes the same archives.
 - **syc v0.7.0** (`-ma:sylz`, `-ma:sylzec`): a security fix for the **32-bit** plugins (Linux x86, Windows x86). A block made on purpose could make the 32-bit decoders write before the output buffer (a length that wrapped to a negative number); such blocks are refused now. No archive syc or zpaq-std writes does it, and the 64-bit plugins were not affected. The same bytes at every level.
 
 ### [2.9.0] - 2026-11-13
