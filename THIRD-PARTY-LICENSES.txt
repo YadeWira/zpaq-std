@@ -35,7 +35,7 @@ PART 1 - BUNDLED COMPRESSORS
   zxc                  1.0.0                        BSD-3-Clause; rapidhash MIT
   sylz and sylzec      syc v0.7.0                   MIT
   PJA                  0.9.9                        MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
-  PPA                  0.2.0                        MIT; parts ported from zlib (zlib license); a copy of PJA
+  PPA                  0.2.1                        MIT; parts ported from zlib (zlib license); a copy of PJA
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -2469,7 +2469,7 @@ The second prediction in the JPEG-LS symbol model (pas/pjamodel.pas) is
 CALIC's gradient-adjusted prediction with its error feedback (Wu and Memon).
 
 ===============================================================================
-PPA 0.2.0
+PPA 0.2.1
 Licence: MIT; parts ported from zlib (zlib license); a copy of PJA
 Copyright: Yade Bravo (YadeWira)
 The -sa codec ppa1 (PNG, APNG, MNG). Free Pascal and C, built only as a plugin

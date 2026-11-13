@@ -1,9 +1,16 @@
-PPA 0.2.0 (tag v0.2.0, commit eaf0b4a), https://github.com/YadeWira/PPA,
-from the vendor tarball ppa-v0.2.0-zpaqstd.tar.gz (sha256
-5eefd6096e184df3b204f4cbc5b65e86ace0537f2ce675bc3990678ba5f463b3), copied unmodified
+PPA 0.2.1 (tag v0.2.1, commit 6a25d70), https://github.com/YadeWira/PPA,
+from the vendor tarball ppa-v0.2.1-zpaqstd.tar.gz of its release (sha256
+ee0cf300a0a69797fdc868a74a6f5384716f027caa034b7d5b38d9798a91b66c), copied unmodified
 (SHA256SUMS lists each file). Files: the sources of its zpaq-std plugin, with PPA's own
 copy of PJA in vendor/pja (linked for a JNG's JPEG, which ppa1 does not use), LICENSE (MIT),
 NOTICE (zlib's choices, ported; PJA) and VENDOR.md (what it is and how it builds).
+0.2.1 changes ppa1's encoder only (its stream, version 2, and its ZPAQL decoder are 0.2.0's,
+frozen): the frames of an animation that do not beat their own deflate bytes go as bytes when
+the file comes out smaller, and so does an image of 64 KiB or more that the static model does
+not shrink; it is also faster. Checked here: the group of 9 animations that grew with 0.2.0
+(1,345,329 -> 1,534,422 bytes, so it went to -m) is taken (1,294,937); two PNG sets come back
+byte for byte with the plugin, without it and with zpaq 7.15; 0.2.0's plugin reads 0.2.1's blocks.
+Before: PPA 0.2.0 (tag v0.2.0, commit eaf0b4a, tarball sha256 5eefd609...), in zpaq-std 2.9.0.
 
 In zpaq-std since 2.9.0, experimental.
 zpaq-std's codec for PNG, -sa:ppa (or -sa:ppa1), tried after PJA's codecs: PNG, APNG and MNG

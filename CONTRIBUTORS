@@ -70,7 +70,7 @@ folder under compressors/.
   sylz and sylzec syc v0.7.0
                           Yade Bravo (YadeWira)                   MIT
   PJA 0.9.9               Yade Bravo (YadeWira)                   MIT
-  PPA 0.2.0               Yade Bravo (YadeWira)                   MIT
+  PPA 0.2.1               Yade Bravo (YadeWira)                   MIT
 
 sylz (syc), PJA and PPA (Yade Bravo, MIT) are in Free Pascal and, by rule, never linked
 into zpaq-std: they ship as plugins (codecs/sylz, codecs/pja and codecs/ppa, .dll or .so).

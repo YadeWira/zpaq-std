@@ -148,7 +148,7 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:ppa` or `-sa:ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.2.0, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
+| `-sa:ppa` or `-sa:ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.2.1, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
 
 `ppa1` rebuilds the file's deflate streams, so the PNG comes back byte for byte
 (20 photos as PNG: 65.6% of their size, against 100% with `-m1` and 96.3% with

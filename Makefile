@@ -597,7 +597,7 @@ PPASRC := $(wildcard compressors/ppa/pas/*.pas compressors/ppa/pas/*.inc compres
 plugins/codecs/ppa$(PLUGEXT): $(PPASRC)
 	@mkdir -p plugins/codecs plugins/fpc-ppa
 	CC="$(SYLZC_CC) $(filter -m32,$(CFLAGS))" sh compressors/ppa/pas/build_c.sh plugins/fpc-ppa $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
-	PPA_COMMIT=eaf0b4a $(FPC) -O3 -dPPA_FAST -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/ppa/pas -Ficompressors/ppa/pas \
+	PPA_COMMIT=6a25d70 $(FPC) -O3 -dPPA_FAST -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/ppa/pas -Ficompressors/ppa/pas \
 	  -Fucompressors/ppa/pas/plugin -Ficompressors/ppa/pas/plugin -Fucompressors/ppa/vendor/pja/pas -Ficompressors/ppa/vendor/pja/pas \
 	  -FUplugins/fpc-ppa -Foplugins/fpc-ppa -oplugins/fpc-ppa/ppa$(PLUGEXT) compressors/ppa/pas/plugin/ppa_zpaqstd.pas
 	mv -f plugins/fpc-ppa/ppa$(PLUGEXT) $@
