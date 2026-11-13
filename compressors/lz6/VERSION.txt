@@ -1,12 +1,14 @@
-lz6 lib/ v2.0.1 (tag v2.0.1, commit 63d5e1d, 2026-11-12; 2.0.1 changes one row of the seq table,
-its level -1, and the version): lz6.h and lz6common.h copied
-unmodified (lz6.c, lz6hc.c, lz6hc.h, mem.h and LICENSE did not change). 2.0.0 (d84e1a2) changed lz6's
+lz6 lib/ v2.0.2 (tag v2.0.2, commit 5bea275, 2026-11-12): lz6.h and lz6hc.c copied unmodified
+(lz6.c, lz6common.h, lz6hc.h, mem.h and LICENSE did not change). 2.0.2 changes the encoder of
+lz6's seq engine, with no change of format; in lz6hc.c only its row parser (LZ6HC_compress_row,
+a cap of 1024 bytes on the step through runs with no match), which is of the seq levels.
+2.0.1 (63d5e1d) changed one row of the seq table, its level -1. 2.0.0 (d84e1a2) changed lz6's
 seq engine: its blocks are written in "format 2", which lz6 1.x does not read, and its level
 table (in lz6common.h) is shifted. zpaq-std does not use the seq engine: -ma:lz6 writes the
 LZ5 v1.5 "portable profile" (LZ6_compress_fast_window, LZ6_compress_HC_window,
 LZ6_decompress_safe), whose HC table and code are untouched. -ma:lz6 at levels 0 to 15
-writes the very bytes of 1.7.1 (checked with 2.0.0 and again with 2.0.1: the 16 archives of a 49 MB set are identical), so
-the archives, ZPAQLZ6 and the tag stay as they were.
+writes the very bytes of 1.7.1 (checked with 2.0.0, 2.0.1 and 2.0.2: the 16 archives of a 49 MB
+set are identical), so the archives, ZPAQLZ6 and the tag stay as they were.
 
 Before: lz6 lib/ v1.7.1 (tag v1.7.1, commit ea9f132, 2026-10-29): lz6.c, lz6.h and LICENSE copied
 unmodified (the other files did not change). 1.7.1 changes nothing in the format, the library
