@@ -21,6 +21,15 @@
 - **syc v0.6.0** (`-ma:sylz`, `-ma:sylzec`): the same bytes at every level; the decoders refuse the blocks of syc's new, still provisional formats instead of misreading them.
 - Without `+rcmd` nothing changes: the archives are those of 2.8.0.
 
+#### Checked
+
+- **`+rcmd` and the weight cap:** `suite_rcmd` 15/15 and `suite_peso` 7/7 with the example plugin and PJA 0.9.9: without `+rcmd` the archive of before; the recommended method chosen, said and used; every file back with the plugin, without it (ZPAQL) and with zpaq 7.15; the same archive with `-t1` and `-t8`; no group over its cap. PJA's and PPA's own projects tested the release candidates with their plugins.
+- **PPA 0.2.0:** `-sa` on PNG files writes `ppa1` blocks that come back byte for byte with the plugin, without it and with zpaq 7.15 and zpaq-std 2.8.0; the plugin built by zpaq-std writes the streams of PPA's own build.
+- **Codecs:** `-ma:lz6` at its 16 levels with lz6 2.0.0, 2.0.1, 2.0.2 and 2.1.0, and `-ma:sylz` and `-ma:sylzec` at their 22 levels with syc v0.6.0, write the archives of the versions before to the byte.
+- **Full test battery:** every suite has 0 cases to review (`suite_sa` 25/25); golden archives: 0 unexpected failures; `difftest` against 2.8.0: the 182 archives have the same size and each version reads the other's.
+- **Linux x86 and AArch64:** the same suites pass; `-sa` with PJA, with PPA on PNG and with `-rcmd` writes the same bytes on the three, and what x64 writes extracts identically on the other two; all 288 cross extractions are identical.
+- **Windows 7 x64 and x86:** `-sa` on the 244 arithmetic-coded JPEGs, on PNG with PPA and with `-rcmd -m5` extracts identically both ways, and on Linux with zpaq 7.15 and 2.8.0; `-ma:lzh:4` as in 2.8.0. CI is green on all six platforms.
+
 ### [2.8.0] - 2026-11-11
 
 **zpaqfranz 65.18: Franzen encryption and the levels by name; nine codecs up to date.**
