@@ -9,6 +9,7 @@
 - **`-ma:lz6hc:N` is what `-ma:lz6` was up to 2.9.0**: lz6's LZ5 v1.5 profile, 0 (fast, the default) and 1 to 15 (HC), the same bytes, the same ZPAQL decoder (ZPAQLZ6) and the same tag. Archives written with `-ma:lz6` by any older version are read as before.
   - **A script that wrote `-ma:lz6` now compresses with another method** (smaller and, at the default level, slower to write). `-ma:lz6:14` and `-ma:lz6:15` are taken as 13, `-ma:lz6:0` as 1.
   - The plugin of the seq engine is `codecs/lz6seq`; `codecs/lz6` stays the profile's.
+- **syc v0.7.0** (`-ma:sylz`, `-ma:sylzec`): a security fix for the **32-bit** plugins (Linux x86, Windows x86). A block made on purpose could make the 32-bit decoders write before the output buffer (a length that wrapped to a negative number); such blocks are refused now. No archive syc or zpaq-std writes does it, and the 64-bit plugins were not affected. The same bytes at every level.
 
 ### [2.9.0] - 2026-11-13
 

@@ -1,11 +1,15 @@
-sylz (format v2) and sylzec (format v3), from syc v0.6.0 (tag v0.6.0, commit 427ea5e, 2026-11-12),
-https://github.com/YadeWira/syc. v0.6.0 brings syc's new formats v4 and v5 (provisional, with no
-codec in the plugin): sylz.pas and sylzc.c grow for them, and both decoders now refuse a block
-with bit 30 of its first u32 set (a v4/v5 block), as sylz refused bit 31. What sylz and sylzec
-write is byte for byte v0.5.4's (checked here: the 22 archives of levels 0 to 10 of each on a
-49 MB set are identical, and the old plugin and the ZPAQL read them). The library text is
-"sylz format v2 (syc 0.6.0)" and "sylz format v3 (syc 0.6.0)"; the prefixes zpaq-std checks
-are the same.
+sylz (format v2) and sylzec (format v3), from syc v0.7.0 (tag v0.7.0, commit 1fa0ffa, 2026-11-13),
+https://github.com/YadeWira/syc. v0.7.0 fixes the decoders on 32-bit targets (Linux x86, Windows x86):
+a block made on purpose, with a length extension of about 16.8 MB of 0xFF bytes, made the length
+wrap to a negative number and the v2 decoder could write before the output buffer; in v3 a litCount
+of 2^31 or more was read as negative. Those blocks are refused now. No block syc writes does it, and
+the 64-bit code does not change there. What sylz and sylzec write is byte for byte v0.6.0's (checked
+here: the 22 archives of levels 0 to 10 of each on a 49 MB set are identical, and each plugin reads
+the other's). The library text is "sylz format v2 (syc 0.7.0)" and "sylz format v3 (syc 0.7.0)".
+syc's formats v4 and v5 are still provisional, with no codec in the plugin.
+Before: syc v0.6.0 (tag v0.6.0, commit 427ea5e, 2026-11-12): it brought the code of formats v4 and v5,
+and both decoders refuse a block with bit 30 of its first u32 set (a v4/v5 block), as sylz refused
+bit 31; the same bytes as v0.5.4.
 Before: syc v0.5.4 (tag v0.5.4, commit b161b8c, 2026-10-29). v0.5.4 changes only plugin/sylz_zpaqstd.pas: on macOS it exports
 its entry points with Darwin's leading underscore, so dlsym finds them; elsewhere the
 plugin is byte for byte v0.5.3's. v0.5.2 and v0.5.3 change only src/sylzc.c for zpaq-std: it builds
