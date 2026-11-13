@@ -135,19 +135,13 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` | [PJA](https://github.com/YadeWira/PJA) 0.9.10, plugin only (`pja.dll` or `.so`): the family, its six codecs in this order | | 2 | 2 |
-| `-sa:pjax78+N` | the same plugin | JPEG that needs PJA's format v6: MPO and Ultra HDR (big JPEGs after the EOI), 12 bits, DNL, DRI without RST | 2 | 2 |
-| (pja78) | the same plugin, only through the family | JPEG: baseline, progressive, arithmetic-coded | 2 | 2 |
-| `-sa:pjall8+N` | the same plugin | lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7 | 2 | 2 |
-| `-sa:pjals8+N` | the same plugin | JPEG-LS | 2 | 2 |
-| `-sa:pjalsx8+N` | the same plugin | JPEG-LS with subsampled components | 2 | 2 |
-| `-sa:pja2k+N` | the same plugin | JPEG 2000: JP2, JPX, JPM, Motion JPEG 2000 and codestreams (HTJ2K stays as bytes) | 2 | 2 |
+| `-sa:pja` / `pjax78` / `pja78` / `pjall8` / `pjals8` / `pjalsx8` / `pja2k` | [PJA](https://github.com/YadeWira/PJA) 0.9.10, plugin only (`pja.dll` or `.so`). `pja` is the family: its six codecs, tried in this order; each name alone is that codec | `pjax78`: JPEG that needs PJA's format v6 (MPO and Ultra HDR: big JPEGs after the EOI; 12 bits, DNL, DRI without RST). `pja78`: JPEG (baseline, progressive, arithmetic-coded). `pjall8`: lossless JPEG (SOF3): 2 to 16 bits, predictors 1–7. `pjals8`: JPEG-LS. `pjalsx8`: JPEG-LS with subsampled components. `pja2k`: JPEG 2000: JP2, JPX, JPM, Motion JPEG 2000 and codestreams (HTJ2K stays as bytes) | 2 | 2 |
 
 #### Experimental
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:ppa` or `-sa:ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.2.1, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
+| `-sa:ppa` / `ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.2.1, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
 
 `ppa1` rebuilds the file's deflate streams, so the PNG comes back byte for byte
 (20 photos as PNG: 65.6% of their size, against 100% with `-m1` and 96.3% with
