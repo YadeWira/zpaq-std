@@ -13,6 +13,16 @@
 - **PJA 0.9.10** (`-sa`): the version only; its codecs, streams and ZPAQL decoders are 0.9.9's, and `-sa` writes the same archives.
 - **syc v0.7.0** (`-ma:sylz`, `-ma:sylzec`): a security fix for the **32-bit** plugins (Linux x86, Windows x86). A block made on purpose could make the 32-bit decoders write before the output buffer (a length that wrapped to a negative number); such blocks are refused now. No archive syc or zpaq-std writes does it, and the 64-bit plugins were not affected. The same bytes at every level.
 
+#### Checked
+
+- **`-ma:lz6` (ZPAQLZ6SEQ):** the decoder on 2,578 cases before it went in (lz6's 80 test vectors: the 48 it covers decode, the 32 it does not are refused with nothing written; real blocks at levels 1 to 13; 898 damaged streams, all ending; archives extracted by zpaq 7.15). In zpaq-std: levels 1, 3, 5, 7, 9 and 13 come back; zpaq 7.15 and zpaq-std 2.9.0 extract them; blocks of 64 MB (four seq blocks each) come back with the three; 400 damaged archives all end with a clean error, and zpaq-std 2.9.0, which runs the ZPAQL, neither hangs nor crashes on them.
+- **`-ma:lz6hc`:** at levels 0, 1, 5, 9, 12 and 15 the archive of 2.9.0's `-ma:lz6` to the byte; an archive written by 2.9.0 with `-ma:lz6` is read.
+- **PPA 0.2.1:** the group of 9 animations that grew with 0.2.0 (1,345,329 to 1,534,422 bytes, so it went to `-m`) is taken (1,294,937); two PNG sets come back byte for byte with the plugin, without it and with zpaq 7.15; 0.2.0's plugin reads the new blocks.
+- **syc v0.7.0 and PJA 0.9.10:** the 22 archives of `-ma:sylz` and `-ma:sylzec` (levels 0 to 10) and `-sa` on the 244 arithmetic-coded JPEGs are those of the versions before to the byte.
+- **Full test battery:** every suite has 0 cases to review (the 40 `-ma` codec cases run and come back, `suite_sa` 25/25); golden archives: 0 unexpected failures; `difftest` against 2.9.0: each version reads the other's 182 archives, which differ by the version stamp and, for `-ma:lz6`, by the new method.
+- **Linux x86 and AArch64:** the same suites pass; `-ma:lz6` (levels 1, 7, 13), `-sa` with PJA, with PPA on PNG and with `-rcmd` write the same bytes on the three, and what x64 writes extracts identically on the other two; all 297 cross extractions are identical. The 32-bit builds still write other bytes for four methods (`-ma:brotli`, `-ma:lz4f`, `-ma:lz5f` and `-ma:lz6hc:0`).
+- **Windows 7 x64 and x86:** `-ma:lz6` at levels 7 and 13 and `-ma:lz6hc:9` write and test, extract both ways, and on Linux with zpaq 7.15 and 2.9.0; `-sa` on the 244 JPEGs, on PNG with PPA and with `-rcmd -m5`, and `-ma:lzh:4`, as in 2.9.0. CI is green on all six platforms.
+
 ### [2.9.0] - 2026-11-13
 
 **PNG in `-sa`: PPA's `ppa1` (experimental). `+rcmd`: a `-sa` codec recommends the method of the files of its format that it does not take. PJA 0.9.9.**
