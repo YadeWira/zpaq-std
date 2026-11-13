@@ -34,7 +34,7 @@ PART 1 - BUNDLED COMPRESSORS
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  1.0.0                        BSD-3-Clause; rapidhash MIT
   sylz and sylzec      syc v0.7.0                   MIT
-  PJA                  0.9.10                       MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
+  PJA                  0.9.11                       MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
   PPA                  0.2.1                        MIT; parts ported from zlib (zlib license); a copy of PJA
   ZPAQLZMA decoder     -                            see text
 
@@ -2344,7 +2344,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-PJA 0.9.10
+PJA 0.9.11
 Licence: MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
 Copyright: Yade Bravo (YadeWira)
 The -sa codecs: pjax78 and pja78 (JPEG), pjall8 (lossless JPEG), pjals8 and pjalsx8 (JPEG-LS),

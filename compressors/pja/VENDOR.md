@@ -1,8 +1,23 @@
-# PJA 0.9.10: the zpaq-std plugin, vendored
+# PJA 0.9.11: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.10`, commit `68f25f8`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.11`, commit `ae5270c`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.9.11
+
+The 31 codecs, their streams, ZPAQL and detect (1 and 2) are 0.9.9's. One
+change in the cards: the JPEG-LS and JPEG 2000 `fallback_ma` lists name
+`lz6hc:15` where they had `lz6:15`, the same codec and level, as zpaq-std
+2.10.0 calls it (its `lz6` is now another engine, levels 1 to 13, where
+`lz6:15` would be skipped as out of range). zpaq-std 2.9.0 skips `lz6hc`;
+the entries before it (`flzma2:10`, `zstd:19`) come first in either. The
+rest of 0.9.11 is in the `pja` command (what it prints on Windows is
+UTF-8), which the plugin does not use.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k`,
+`tests/jpg` and `tests/jls`.
 
 ## What is new in 0.9.10
 
@@ -233,7 +248,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` and `{$L b3chunks.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=68f25f8
+export PJA_COMMIT=ae5270c
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):

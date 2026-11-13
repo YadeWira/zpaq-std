@@ -1,3 +1,7 @@
+### [unreleased]
+
+- **PJA 0.9.11** (`-sa`): its lists of recommended methods (`+rcmd`) for JPEG-LS and JPEG 2000 say `lz6hc:15` where they said `lz6:15`, which 2.10.0 renamed (and skipped, as a level out of range). Codecs, streams and ZPAQL decoders are unchanged: `-sa` and `-sa -rcmd` write the same archives.
+
 ### [2.10.0] - 2026-11-13
 
 **`-ma:lz6` is lz6's seq engine; what it was is `-ma:lz6hc`. PPA 0.2.1, syc v0.7.0 (a security fix for the 32-bit sylz plugins), PJA 0.9.10.**

@@ -135,7 +135,7 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` / `pjax78` / `pja78` / `pjall8` / `pjals8` / `pjalsx8` / `pja2k` | [PJA](https://github.com/YadeWira/PJA) 0.9.10, plugin only (`pja.dll` or `.so`) | JPEG, lossless JPEG, JPEG-LS, JPEG 2000 | 2 | 2 |
+| `-sa:pja` / `pjax78` / `pja78` / `pjall8` / `pjals8` / `pjalsx8` / `pja2k` | [PJA](https://github.com/YadeWira/PJA) 0.9.11, plugin only (`pja.dll` or `.so`) | JPEG, lossless JPEG, JPEG-LS, JPEG 2000 | 2 | 2 |
 
 `pja` is the family: its six codecs, tried in this order. Each name alone is that codec:
 

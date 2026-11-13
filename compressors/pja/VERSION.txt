@@ -1,6 +1,10 @@
-PJA 0.9.10 (tag v0.9.10, commit 68f25f8), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.9.10-zpaqstd.tar.gz (sha256
-075a65d72219e2b3ad4f64b8240e7df293835ec444ede352bb8821cf72f7f467), copied unmodified.
+PJA 0.9.11 (tag v0.9.11, commit ae5270c), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.11-zpaqstd.tar.gz (sha256
+10d12d9d9c71d21fd48a42562b4f10c4d904acc87f8a62ada9d7799f42ab09e5), copied unmodified.
+0.9.11: the fallback_ma lists of the JPEG-LS and JPEG 2000 codecs say lz6hc:15 where they said
+lz6:15 (zpaq-std 2.10.0 renamed that codec; lz6:15 is out of range there and was skipped).
+Streams, ZPAQL and detect are unchanged. Before: 0.9.10 (commit 68f25f8, tarball sha256 075a65d7...),
+in zpaq-std 2.10.0:
 0.9.10 changes nothing for this plugin but the version in its card (pas/pjacodec.pas) and
 VENDOR.md: its change is in PJA's 7-Zip plugin. The 31 codecs, streams, ZPAQL, detect and
 lists are 0.9.9's (tarball sha256 41965cdf...), which was in zpaq-std 2.9.0.
