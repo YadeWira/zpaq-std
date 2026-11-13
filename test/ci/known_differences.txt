@@ -1,13 +1,13 @@
 # Methods whose archive bytes differ from the reference build (linux-x64, or windows-x64
 # for windows-x86) on a platform, as "<platform> <method>".
 # Both archives are valid and every platform reads both (checked in CI). On 32-bit x86,
-# brotli, lz6 at level 0 (LZ4 fast mode) and the LZ4 frame paths (lz4f, lz5f) compress
+# brotli, lz6hc at level 0 (LZ4 fast mode; -ma:lz6 up to 2.9.0) and the LZ4 frame paths (lz4f, lz5f) compress
 # differently from 64-bit.
 linux-x86 -ma:brotli
 linux-x86 -ma:lz5f
-linux-x86 -ma:lz6
+linux-x86 -ma:lz6hc
 linux-x86 -ma:lz4f
 windows-x86 -ma:brotli
 windows-x86 -ma:lz5f
-windows-x86 -ma:lz6
+windows-x86 -ma:lz6hc
 windows-x86 -ma:lz4f
