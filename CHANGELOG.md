@@ -1,4 +1,4 @@
-### [2.9.0] - unreleased
+### [2.9.0] - 2026-11-12
 
 **PNG in `-sa`: PPA's `ppa1` (experimental). `+rcmd`: a `-sa` codec recommends the method of the files of its format that it does not take. PJA 0.9.9.**
 
