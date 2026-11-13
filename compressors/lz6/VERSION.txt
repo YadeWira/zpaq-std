@@ -1,3 +1,11 @@
+Since zpaq-std 2.10.0 also lib/entropy/ (lz6seq.c, lz6seq.h, lz6fse.c, lz6fse.h, lz6huf.c, lz6huf.h, copied
+unmodified from tag v2.1.0, commit c929365, into entropy/; its licence, MIT, is entropy/LICENSE): lz6's seq
+engine, used by -ma:lz6 through LZ6_compress_seq_opt (blockMask LZ6SEQ_BLOCK_X86, literal modes 1, 5, 7, 8),
+LZ6_decompress_seq and LZ6_seq_init; decoded by the ZPAQLZ6SEQ program (compressors/zpaqlz6seq/). lz6seq.c is
+compiled with -include zs_noenv.h (a file of zpaq-std's, in this directory), which makes getenv answer "not
+set" in it: lz6's experiment switches cannot change what zpaq-std writes. The LZ5 v1.5 profile described below
+is -ma:lz6hc since 2.10.0 (it was -ma:lz6).
+
 lz6 lib/ v2.1.0 (tag v2.1.0, commit c929365, 2026-11-12): lz6.h copied unmodified, only its
 version changes (lz6.c, lz6hc.c, lz6common.h, lz6hc.h, mem.h and LICENSE did not change). 2.1.0
 adds LZ6_compress_seq_opt (masks of block kinds and literal modes) to lz6's seq engine, in
@@ -54,7 +62,7 @@ buffer, which every zpaq block is), and before that at a8e1b51 (v1.6.4-pre). Sam
 checked against a8e1b51 on 36 inputs x levels 0-15 at window 22, 64 and 32 bits.
 Source: https://github.com/YadeWira/lz6 (lib/, BSD 2-Clause, see LICENSE)
 Files copied unmodified: lz6.c lz6hc.c lz6.h lz6hc.h lz6common.h mem.h LICENSE
-(lib/entropy/ is not needed: it is lz6's seq engine, which zpaq-std does not use.)
+(lib/entropy/ too since zpaq-std 2.10.0: see the top of this file.)
 Used by zpaq-std -ma:lz6 through LZ6_compress_fast_window, LZ6_compress_HC_window
 and LZ6_decompress_safe only. The HC block format is lz6's frozen "portable
 profile" (same raw block format as LZ5 v1.5), decoded by the ZPAQLZ6 program.

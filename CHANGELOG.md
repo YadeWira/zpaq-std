@@ -1,3 +1,15 @@
+### [2.10.0] - unreleased
+
+**`-ma:lz6` is lz6's seq engine. What it was is `-ma:lz6hc`.**
+
+- **`-ma:lz6:N` now uses lz6's seq engine** (lz6 2.1.0, levels 1 to 13, 7 by default): an LZ match finder with tANS and Huffman coding, which is what lz6 is about. EXPERIMENTAL (00603): its format is frozen and every block carries its decoder, but the encoder, and so the bytes and what each level gives, may change.
+  - Any zpaq extracts it: each block carries **ZPAQLZ6SEQ**, a new ZPAQL decoder (6,810 bytes), and zpaq-std 2.9.0 and older run it too. Another zpaq needs 64 MiB a block to extract.
+  - A block is written as self-contained seq blocks of up to 16 MiB each, so the decoder's memory is bounded. zpaq-std asks lz6 for the parts of its format that the decoder covers (normal, stored and x86 blocks; literal modes 0, 1, 5, 7 and 8).
+  - lz6's seq engine reads experiment switches from the environment; zpaq-std builds it so that it does not, and the bytes never depend on the environment.
+- **`-ma:lz6hc:N` is what `-ma:lz6` was up to 2.9.0**: lz6's LZ5 v1.5 profile, 0 (fast, the default) and 1 to 15 (HC), the same bytes, the same ZPAQL decoder (ZPAQLZ6) and the same tag. Archives written with `-ma:lz6` by any older version are read as before.
+  - **A script that wrote `-ma:lz6` now compresses with another method** (smaller and, at the default level, slower to write). `-ma:lz6:14` and `-ma:lz6:15` are taken as 13, `-ma:lz6:0` as 1.
+  - The plugin of the seq engine is `codecs/lz6seq`; `codecs/lz6` stays the profile's.
+
 ### [2.9.0] - 2026-11-13
 
 **PNG in `-sa`: PPA's `ppa1` (experimental). `+rcmd`: a `-sa` codec recommends the method of the files of its format that it does not take. PJA 0.9.9.**

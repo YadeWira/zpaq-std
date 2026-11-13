@@ -35,7 +35,10 @@ BUNDLED = [
      ['compressors/lz5/LICENSE'], 'A fork of LZ5 1.5 with the same block format.'),
     ('LZ4', '1.11.1', 'BSD-2-Clause (library)', 'Yann Collet', ['compressors/lz4/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lz4, lz4hc, lz4f).'),
     ('LZAV', '7.2', 'MIT', 'Aleksey Vaneev', ['compressors/lzav/LICENSE'], 'zpaq-std\'s own again since 2.0.0 (-ma:lzav).'),
-    ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause', 'Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), YadeWira', ['compressors/lz6/LICENSE'], ''),
+    ('lz6', 'see compressors/lz6/VERSION.txt', 'BSD-2-Clause; its seq engine (entropy/) MIT', 'Yann Collet (LZ4), Przemyslaw Skibinski (LZ5), Yade Bravo (YadeWira)',
+     ['compressors/lz6/LICENSE', 'compressors/lz6/entropy/LICENSE'],
+     'lz6.c and lz6hc.c (BSD-2-Clause) are the LZ5 v1.5 profile of -ma:lz6hc and the match finders;\n'
+     'entropy/ (MIT) is the seq engine of -ma:lz6.'),
     ('Snappy', '1.3.1', 'BSD-3-Clause', 'Google Inc.', ['compressors/snappy/LICENSE'], ''),
     ('lzfse-ex (LZFSE)', '1.0.4', 'BSD-3-Clause', 'Apple Inc.; maintained by YadeWira', ['compressors/lzfse/LICENSE'], ''),
     ('heatshrink-ex', '0.7.2', 'ISC', 'Scott Vokes (heatshrink); YadeWira (heatshrink-ex)', ['compressors/hs/LICENSE'], 'A maintained fork of heatshrink 0.4.1, same stream: see compressors/hs/VERSION.txt.'),

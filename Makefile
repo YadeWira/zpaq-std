@@ -90,7 +90,9 @@ SOURCE  := zpaq-std.cpp
 # (zpaqfranz dropped -m6/-m7 in 65.5d); -ma:lz4* and -ma:lzav write the 1.x blocks.
 LZ5SRC  := compressors/lz5/lz5.c compressors/lz5/lz5hc.c
 LZ4SRC  := compressors/lz4/lz4.c compressors/lz4/lz4hc.c
-LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c
+# lz6: lz6.c and lz6hc.c are the LZ5 v1.5 profile (-ma:lz6hc) and the match finders; entropy/ is its seq
+# engine (-ma:lz6 since 2.10.0)
+LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c compressors/lz6/entropy/lz6seq.c compressors/lz6/entropy/lz6fse.c compressors/lz6/entropy/lz6huf.c
 # LZMA SDK (-ma:lzma): single-threaded match finder, see compressors/lzmasdk/LEEME.md
 LZMASRC := compressors/lzmasdk/LzmaLib.c compressors/lzmasdk/LzmaEnc.c compressors/lzmasdk/LzmaDec.c compressors/lzmasdk/LzFind.c compressors/lzmasdk/LzFindOpt.c compressors/lzmasdk/Alloc.c compressors/lzmasdk/CpuArch.c
 ZSTDSRC := compressors/zstd/zstd.c
@@ -421,7 +423,7 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc
+PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 lz6seq snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc
 PLUGLIB_zstd := compressors/zstd/zstd.c
 PLUGINC_zstd := -Icompressors/zstd
 PLUGLIB_flzma2 := $(FL2OBJ)
@@ -442,6 +444,8 @@ PLUGLIB_lz5 := $(LZ5OBJ)
 PLUGINC_lz5 := $(LZ5INC)
 PLUGLIB_lz6 := $(LZ6OBJ)
 PLUGINC_lz6 := $(LZ6INC)
+PLUGLIB_lz6seq := $(LZ6OBJ)
+PLUGINC_lz6seq := $(LZ6INC)
 PLUGLIB_snappy := $(SNAPPYOBJ)
 PLUGINC_snappy := $(SNAPPYINC)
 PLUGLIB_zxc := $(ZXCOBJ)
@@ -636,6 +640,11 @@ compressors/lz4/%.o: compressors/lz4/%.c
 
 compressors/lz5/%.o: compressors/lz5/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZ5INC) -c $< -o $@
+
+# lz6's seq engine reads experiment switches from the environment: zs_noenv.h (force-included) makes
+# getenv answer "not set" there, so the bytes never depend on the environment. The sources are not patched.
+compressors/lz6/entropy/%.o: compressors/lz6/entropy/%.c compressors/lz6/zs_noenv.h
+	$(CC) $(ZPAQ_CFLAGS) $(LZ6INC) -include compressors/lz6/zs_noenv.h -c $< -o $@
 
 compressors/lz6/%.o: compressors/lz6/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(LZ6INC) -c $< -o $@

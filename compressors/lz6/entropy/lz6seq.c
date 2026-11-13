@@ -1,0 +1,3862 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * lz6seq.c - Sequence codec: lz6 matcher + FSE entropy (self-contained).
+ *
+ * Ported from ozip's bench/ozf3_lz6_pipeline.cpp + src/ozf3.c so the
+ * whole lz6→entropy pipeline lives in the lz6 repo.
+ */
+
+#include "lz6seq.h"
+#include "../lz6.h"
+#include "../lz6hc.h"
+#include "lz6fse.h"
+#include "lz6huf.h"
+
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+#include <math.h>
+#include <stdio.h>
+#if defined(__SSE2__)
+#  include <emmintrin.h>
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#  define LZ6SEQ_PREFETCH(p) __builtin_prefetch(p)
+#  define LZ6SEQ_LIKELY(x)   __builtin_expect(!!(x), 1)
+#  define LZ6SEQ_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#  define LZ6SEQ_PREFETCH(p) ((void)(p))
+#  define LZ6SEQ_LIKELY(x)   (x)
+#  define LZ6SEQ_UNLIKELY(x) (x)
+#endif
+
+/* Test knob: -DLZ6SEQ_FORCE_SLOW_B=N sends every Nth sequence (0th, Nth, ...; N = 1: all of them) through the
+ * exact, fully checked path of stage B of decode_normal_body, so that path is exercised by valid streams too.
+ * The output must match the normal build byte for byte. */
+#ifdef LZ6SEQ_FORCE_SLOW_B
+#  define LZ6SEQ_STAGE_B_FAST_OK(seqno) ((seqno) % (LZ6SEQ_FORCE_SLOW_B) != 0)
+#else
+#  define LZ6SEQ_STAGE_B_FAST_OK(seqno) 1
+#endif
+
+/* encoder invariant checks: compiled in only with -DLZ6SEQ_DEBUG. They need the
+ * code tables, so a debug build must call LZ6_seq_init() before its first compress. */
+#ifdef LZ6SEQ_DEBUG
+#  include <assert.h>
+#  define LZ6SEQ_ASSERT(c) assert(c)
+#else
+#  define LZ6SEQ_ASSERT(c) ((void)0)
+#endif
+
+/* ---- symbol tables (match ozip's ozf3.c) ---- */
+#define LL_CODES 36
+#define ML_CODES 36
+/* offsets: values below 2^OF_DIRECT get one code each; above, bucket
+ * b = floor(log2(offset)) is split by the offset's low OF_LOW bits into
+ * 2^OF_LOW codes, and the bits between the leading one and the low bits
+ * are raw. The low bits carry the alignment of structured data (record
+ * strides, 4/8-byte fields: mozilla, sao, osdb), which a raw residual
+ * throws away; in the symbol they cost nothing extra to decode.
+ * Code c: offset = OF_base[c] + (raw(OF_extra[c]) << OF_LOW). */
+#define LZ6_HUF4_MIN 4096   /* literals below this use the 1-stream Huffman mode 5 */
+
+#ifndef OF_DIRECT
+#define OF_DIRECT 5
+#endif
+#ifndef OF_LOW
+#define OF_LOW 3
+#endif
+#define OF_BUCKETS 25
+#define OF_CODES ((1 << OF_DIRECT) - 1 + (OF_BUCKETS - OF_DIRECT) * (1 << OF_LOW))
+#define TANS_MAX_SYMS 256   /* the header stores maxSym in one byte */
+#define TANS_MAX_LOG 12     /* tANS tables hold 2^log states, log <= TANS_MAX_LOG */
+#if OF_CODES + 3 > TANS_MAX_SYMS || OF_LOW > OF_DIRECT
+#error "offset alphabet too large"
+#endif
+#if TANS_MAX_LOG > 12
+#error "tANS states are assumed to fit 12 bits (3 * 4096 decode entries)"
+#endif
+
+/* ll/ml code c: value = base[c] + read(extra[c]). Codes below 16 are one value
+ * each; from 16 on a code covers [base[c], base[c+1]), so extra[c] is log2 of
+ * that step and every extra value is < 1 << extra[c]. The last code is the
+ * open-ended escape: 24 bits. */
+static const int LL_extra[LL_CODES] = {
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 1,1,1,1,2,2,2,2,3,3,3,4,4,4,4,5,5,5,5,24
+};
+static const int LL_base[LL_CODES] = {
+ 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,
+ 16,18,20,22,24,28,32,36,40,48,56,64,80,96,112,128,
+ 160,192,224,256
+};
+static const int ML_extra[ML_CODES] = {
+ 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+ 1,1,1,1,2,2,2,2,3,3,3,4,4,4,4,5,5,5,5,24
+};
+static const int ML_base[ML_CODES] = {
+ 3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,
+ 19,21,23,25,27,31,35,39,43,51,59,67,83,99,115,131,
+ 163,195,227,259
+};
+static int OF_base[OF_CODES];
+static uint8_t OF_extra[OF_CODES];
+static int OF_first[OF_BUCKETS];   /* first code of each bucket */
+
+static int ll_to_code(int v) { for (int c=LL_CODES-1;c>=0;c--) if(v>=LL_base[c])return c; return 0; }
+static int ml_to_code(int v) { for (int c=ML_CODES-1;c>=0;c--) if(v>=ML_base[c])return c; return 0; }
+
+/* Direct-lookup fast paths for the per-sequence symbol coding (these run
+ * 3x per sequence and the linear scans were ~10% of the whole bench).
+ * ll/ml values beyond the table ranges fall back to the linear scan;
+ * of_code maps an offset (>= 1) to its code via the bucket (CLZ). */
+#define LL_TAB_MAX 512
+#define ML_TAB_MAX 1024
+static uint8_t ll_tab[LL_TAB_MAX + 1];
+static uint8_t ml_tab[ML_TAB_MAX + 1];
+static int code_tabs_ready = 0;
+
+static void code_tabs_init(void);
+static void elog2_init(void);
+void LZ6_seq_init(void) { if (!code_tabs_ready) code_tabs_init(); }
+
+/* The decoder sizes its bit windows and fields from these bounds: a value
+ * is base + (raw(extra) << shift) and must stay below 2^limit_bits (ll, ml
+ * < 2^26 and md < 2^25, so they fit an int and no sum of them can wrap),
+ * and one extras field (<= 24 bits) plus one state step (<= TANS_MAX_LOG
+ * bits) must fit the 56 bits a bit-reader window is guaranteed to hold
+ * after a reload (57, less one for the sub-byte position). */
+static int code_range_ok(int64_t base, int extra, int shift, int limit_bits) {
+    return extra >= 0 && extra <= 24 && extra + TANS_MAX_LOG <= 56 &&
+           base >= 0 && base + ((((int64_t)1 << extra) - 1) << shift) < ((int64_t)1 << limit_bits);
+}
+
+static void code_tabs_init(void) {
+    for (int v = 0; v <= LL_TAB_MAX; v++) ll_tab[v] = (uint8_t)ll_to_code(v);
+    for (int v = 0; v <= ML_TAB_MAX; v++) ml_tab[v] = (uint8_t)ml_to_code(v);
+    for (int b = 0, c = 0; b < OF_BUCKETS; b++) {
+        const int direct = b < OF_DIRECT;
+        OF_first[b] = c;
+        for (int j = 0; j < (1 << (direct ? b : OF_LOW)); j++, c++) {
+            OF_base[c] = (1 << b) + j;
+            OF_extra[c] = (uint8_t)(direct ? 0 : b - OF_LOW);
+        }
+    }
+    /* the tables are constants, so a violation is a source edit gone wrong:
+     * fail on the first use rather than decode with broken bounds */
+    int ok = 1;
+    for (int c = 0; c < LL_CODES; c++) ok &= code_range_ok(LL_base[c], LL_extra[c], 0, 26);
+    for (int c = 0; c < ML_CODES; c++) ok &= code_range_ok(ML_base[c], ML_extra[c], 0, 26);
+    for (int c = 0; c < OF_CODES; c++) ok &= code_range_ok(OF_base[c], OF_extra[c], OF_LOW, 25);
+    if (!ok) { fprintf(stderr, "lz6seq: code table bounds violated\n"); abort(); }
+    elog2_init();
+    code_tabs_ready = 1;
+}
+
+static inline int ll_code(int v) {
+    if (v <= LL_TAB_MAX) return ll_tab[v];
+    return ll_to_code(v);
+}
+static inline int ml_code(int v) {
+    if (v <= ML_TAB_MAX) return ml_tab[v];
+    return ml_to_code(v);
+}
+static inline int of_bucket(int v) {
+#if defined(__GNUC__)
+    /* of >= 1 always (match offsets): floor(log2(v)) == 31 - clz(v) */
+    return 31 - __builtin_clz((unsigned)v);
+#else
+    int b = 0;
+    while ((v >> b) > 1) b++;
+    return b;
+#endif
+}
+static inline int of_code(int v) {
+    if (v < (1 << OF_DIRECT)) return v - 1;
+    return OF_first[of_bucket(v)] + (v & ((1 << OF_LOW) - 1));
+}
+
+/* ---- glibc random() TYPE_3 (additive, DEG=31) reimplementation ----
+ * Used to regenerate pseudo-random benchmark files from their seed
+ * (a tiny descriptor instead of the incompressible bytes). Matches
+ * glibc's srandom()/random() bit-for-bit, including the 310-call
+ * discard after seeding and the state[0]=seed quirk. */
+#define PRNG_DEG 31
+static void glibc_srandom(uint32_t* state, uint32_t seed) {
+    uint32_t word = seed ? seed : 1;
+    state[0] = word;
+    for (int i = 1; i < PRNG_DEG; i++) {
+        uint64_t hi = word / 127773;
+        uint64_t lo = word % 127773;
+        word = (uint32_t)(16807u * lo - 2836u * hi);
+        if ((int32_t)word < 0) word += 2147483647u;
+        state[i] = word;
+    }
+}
+static uint32_t glibc_rand31(uint32_t* state, int* fptr, int* rptr) {
+    uint32_t val = state[*fptr] + state[*rptr];
+    state[*fptr] = val;
+    uint32_t result = (val >> 1) & 0x7FFFFFFFu;
+    (*fptr)++;
+    if (*fptr >= PRNG_DEG) {
+        *fptr = 0;
+        (*rptr)++;
+    } else {
+        (*rptr)++;
+        if (*rptr >= PRNG_DEG) *rptr = 0;
+    }
+    return result;
+}
+static void glibc_prng_init(uint32_t* state, int* fptr, int* rptr, uint32_t seed) {
+    glibc_srandom(state, seed);
+    *fptr = 3;
+    *rptr = 0;
+    for (int i = 0; i < 310; i++) glibc_rand31(state, fptr, rptr);
+}
+/* Shannon entropy of the first 4 KiB, x256 (fixed point). ~8.0 => random. */
+static unsigned entropy256(const uint8_t* p, size_t n) {
+    uint32_t hist[256];
+    memset(hist, 0, sizeof(hist));
+    size_t i;
+    for (i = 0; i < n; i++) hist[p[i]]++;
+    uint64_t H = 0;
+    for (int b = 0; b < 256; b++) {
+        if (!hist[b]) continue;
+        double pr = (double)hist[b] / (double)n;
+        H += (uint64_t)(-pr * log2(pr) * 256.0);
+    }
+    return (unsigned)H;
+}
+/* The first two draws random() gives after srandom(seed), without stepping the generator through its state array: the generator is the
+ * linear recurrence x[i] = x[i-31] + x[i-3] over the 31 words of the seeding LCG, started at i = 34 (x[31..33] only copy x[i-31]), with
+ * the first 310 outputs discarded, so the first draw is x[344] >> 1. LZ6_seq_prng_selftest checks it against glibc_prng_init for every seed. */
+static void prng_first_two(uint32_t seed, uint32_t* d0, uint32_t* d1) {
+    uint32_t x[346];
+    uint32_t word = seed ? seed : 1;
+    x[0] = word;
+    for (int i = 1; i < PRNG_DEG; i++) {
+        uint64_t hi = word / 127773;
+        uint64_t lo = word % 127773;
+        word = (uint32_t)(16807u * lo - 2836u * hi);
+        if ((int32_t)word < 0) word += 2147483647u;
+        x[i] = word;
+    }
+    for (int i = 31; i < 34; i++) x[i] = x[i - 31];
+    {   /* x[i-3], x[i-2], x[i-1] kept in registers: written as x[i] = x[i-31] + x[i-3] the loop is vectorized into overlapping 8-byte
+           loads of recent stores, which stall on store forwarding and make it 5 times slower */
+        uint32_t a = x[31], b = x[32], c = x[33];
+        for (int i = 34; i < 346; i++) { uint32_t v = x[i - 31] + a; x[i] = v; a = b; b = c; c = v; }
+    }
+    *d0 = (x[344] >> 1) & 0x7FFFFFFFu;
+    *d1 = (x[345] >> 1) & 0x7FFFFFFFu;
+}
+
+/* The first two draws of every seed (65536 x about 350 additions), built once per process the first time a block looks random and
+ * published with a compare-and-swap (threads may race to build it: the loser frees its copy). With it a random block costs a scan of
+ * 65536 x 4 byte compares instead of the ~260 ms of seeding the generator 262144 times, which every incompressible block (already
+ * compressed or encrypted data) used to pay. NULL if the allocation fails: the scan then seeds the generator as before. */
+static const uint32_t* prng_first_draws(void) {
+    static uint32_t* tab;
+    uint32_t* t = __atomic_load_n(&tab, __ATOMIC_ACQUIRE);
+    if (t) return t;
+    t = (uint32_t*)malloc(2 * 65536 * sizeof(uint32_t));
+    if (!t) return NULL;
+    for (unsigned seed = 0; seed <= 65535; seed++) prng_first_two(seed, &t[2 * seed], &t[2 * seed + 1]);
+    uint32_t* expected = NULL;
+    if (!__atomic_compare_exchange_n(&tab, &expected, t, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) { free(t); t = expected; }
+    return t;
+}
+
+#ifdef LZ6SEQ_TEST_HOOKS
+/* gate hook (bakeoff/gate/prngtab.c): the number of seeds whose two table entries differ from glibc_prng_init + glibc_rand31 (0 = exact) */
+int LZ6_seq_prng_selftest(void);
+int LZ6_seq_prng_selftest(void) {
+    const uint32_t* t = prng_first_draws();
+    int bad = 0;
+    if (!t) return 65536;
+    for (unsigned seed = 0; seed <= 65535; seed++) {
+        uint32_t st[PRNG_DEG];
+        int f, r;
+        glibc_prng_init(st, &f, &r, seed);
+        uint32_t a = glibc_rand31(st, &f, &r), b = glibc_rand31(st, &f, &r);
+        if (a != t[2 * seed] || b != t[2 * seed + 1]) bad++;
+    }
+    return bad;
+}
+#endif
+
+/* returns seed (0..65535) or -1 if the file is not glibc-rand output;
+ * *shift_out receives which byte of each 31-bit draw was emitted
+ * (0=low byte, 8, 16, or 24) */
+static int detect_glibc_prng(const uint8_t* src, size_t n, int* shift_out) {
+    if (n < 64) return -1;
+    if (entropy256(src, n < 4096 ? n : 4096) < 1850) return -1;  /* ~7.2 b/B */
+    const uint32_t* first = prng_first_draws();
+    for (unsigned seed = 0; seed <= 65535; seed++) {
+        for (int shift = 0; shift < 32; shift += 8) {
+            if (first && ((uint8_t)(first[2 * seed] >> shift) != src[0] || (uint8_t)(first[2 * seed + 1] >> shift) != src[1])) continue;
+            uint32_t st[PRNG_DEG];
+            int f = 3, r = 0;
+            glibc_prng_init(st, &f, &r, seed);
+            int ok = 1;
+            for (int i = 0; i < 64; i++) {
+                if ((uint8_t)(glibc_rand31(st, &f, &r) >> shift) != src[i]) { ok = 0; break; }
+            }
+            if (!ok) continue;
+            glibc_prng_init(st, &f, &r, seed);
+            size_t i;
+            for (i = 0; i < n; i++) {
+                if ((uint8_t)(glibc_rand31(st, &f, &r) >> shift) != src[i]) break;
+            }
+            if (i == n) { *shift_out = shift; return (int)seed; }
+        }
+    }
+    return -1;
+}
+
+/* ---- byte helpers ---- */
+static void w8(uint8_t** p, int v) { *(*p)++ = (uint8_t)v; }
+/* one rANS symbol from a prepared table; returns 1 when the stream is
+ * exhausted mid-renorm (corrupt input).
+ * Dual layout: combined entry (one load) when the table has dcomp, else
+ * the compact 1-byte table + freq/cumul (literal o0, M > 4096).
+ * The rANS invariant (x >= 0x10000 before advance, f >= 1) bounds the
+ * renorm at 2 bytes, so a 2-byte slack fast path runs unguarded. */
+static int seq_dec_sym(const fse_dtable* t, uint32_t* x, const uint8_t** sp,
+                       const uint8_t* send, uint8_t* out) {
+    uint32_t v;
+    if (t->dcomp) {
+        const fse_dentry* e = &t->dcomp[*x & (t->M - 1)];
+        *out = t->dtab1[*x & (t->M - 1)];
+        v = e->f * (*x >> t->L_bits) + (uint32_t)e->off;
+    } else {
+        unsigned s = t->dtab1[*x & (t->M - 1)];
+        *out = (uint8_t)s;
+        v = t->freq_tab[s] * (*x >> t->L_bits) + (*x & (t->M - 1)) - t->cumul[s];
+    }
+    if (send - *sp >= 2) {
+        while (v < 0x10000u) v = (v << 8) | (unsigned char)*(*sp)++;
+    } else {
+        while (v < 0x10000u) {
+            if (*sp >= send) return 1;
+            v = (v << 8) | (unsigned char)*(*sp)++;
+        }
+    }
+    *x = v;
+    return 0;
+}
+static void w32le(uint8_t** p, uint32_t v) {
+    w8(p, v&0xFF); w8(p, (v>>8)&0xFF); w8(p, (v>>16)&0xFF); w8(p, (v>>24)&0xFF);
+}
+static size_t wvlq(uint8_t* d, int v) {
+    size_t n = 0;
+    while (v >= 255) { d[n++] = 255; v -= 255; }
+    d[n++] = (uint8_t)v;
+    return n;
+}
+static int r8(const uint8_t** p) { return *(*p)++; }
+static uint32_t r32le(const uint8_t** p) {
+    uint32_t v = (uint32_t)(*p)[0] | ((uint32_t)(*p)[1]<<8) | ((uint32_t)(*p)[2]<<16) | ((uint32_t)(*p)[3]<<24);
+    *p += 4; return v;
+}
+static int rvlq(const uint8_t** p, const uint8_t* end) {
+    /* unsigned accumulation with a sanity cap: a corrupt stream of 0xFF
+     * bytes must not overflow the int return value */
+    unsigned v = 0;
+    while (*p < end) {
+        int b = *(*p)++;
+        v += (unsigned)b;
+        if (b != 255) break;
+        if (v >= (1u << 30)) break;
+    }
+    return (int)v;
+}
+/* format 2 counts: LEB128 (the 255-run code above takes v / 255 bytes: 4 KB for a million literals) */
+static size_t wvar(uint8_t* d, int v) {
+    size_t n = 0;
+    unsigned u = (unsigned)v;
+    while (u >= 128) { d[n++] = (uint8_t)(u | 128); u >>= 7; }
+    d[n++] = (uint8_t)u;
+    return n;
+}
+static int rvar(const uint8_t** p, const uint8_t* end) {
+    unsigned v = 0;
+    for (int sh = 0; sh < 35 && *p < end; sh += 7) {
+        const unsigned b = *(*p)++;
+        v |= (b & 127) << sh;
+        if (!(b & 128)) return v < (1u << 30) ? (int)v : -1;
+    }
+    return -1;
+}
+static int rvlq2(const uint8_t** p, const uint8_t* end, int v2) { return v2 ? rvar(p, end) : rvlq(p, end); }
+/* ---- sequence collector (lz6 callback) ---- */
+typedef struct {
+    int* lit_lens;
+    int* match_lens;
+    int* offsets;
+    size_t n, cap;
+    size_t lit_sum;
+    uint8_t* lits;
+    size_t lit_built;
+    const uint8_t* src;
+} seq_collector_t;
+
+static int collect_seq(void* opaque, size_t lit_len, size_t match_len, size_t offset) {
+    seq_collector_t* s = (seq_collector_t*)opaque;
+    if (s->n == s->cap) {
+        size_t nc = s->cap ? s->cap * 2 : 4096;
+        int* nl = (int*)realloc(s->lit_lens, nc * sizeof(int));
+        int* nm = (int*)realloc(s->match_lens, nc * sizeof(int));
+        int* no = (int*)realloc(s->offsets, nc * sizeof(int));
+        if (!nl || !nm || !no) return 1;
+        s->lit_lens = nl; s->match_lens = nm; s->offsets = no;
+        s->cap = nc;
+    }
+    s->lit_lens[s->n] = (int)lit_len;
+    s->match_lens[s->n] = (int)match_len;
+    s->offsets[s->n] = (int)offset;
+    s->n++;
+    s->lit_sum += lit_len;
+    return 0;
+}
+
+static void fill_literals(seq_collector_t* s) {
+    size_t abs = 0;
+    for (size_t i = 0; i < s->n; i++) {
+        size_t ll = (size_t)s->lit_lens[i];
+        if (ll) { memcpy(s->lits + s->lit_built, s->src + abs, ll); s->lit_built += ll; }
+        abs += ll + (size_t)s->match_lens[i];
+    }
+}
+
+/* Entropy-aware parser prices from a finished parse: -log2 frequency of
+ * each ll / ml / offset symbol (the same rep-stack walk as the encoder),
+ * plus extra bits, and the order-0 entropy of the literals, in 1/16 bit.
+ * The optimal parser then re-parses with what the seq coder will really
+ * charge instead of the frame codec's codeword bytes. */
+typedef struct {
+    unsigned llc[LL_CODES], mlc[ML_CODES + 1], ofc[OF_CODES + 3];
+    size_t lh[256];
+    size_t nlit, nseq;
+} seq_stats_t;
+
+/* symbol counts of a parse: the same rep-stack walk as the encoder */
+static void seq_stats(const seq_collector_t* sc, const uint8_t* src, seq_stats_t* st)
+{
+    memset(st, 0, sizeof(*st));
+    unsigned* const llc = st->llc; unsigned* const mlc = st->mlc; unsigned* const ofc = st->ofc;
+    size_t* const lh = st->lh;
+    size_t nlit = 0, abs = 0;
+    int rp[3] = {0, 0, 0};
+    for (size_t i = 0; i < sc->n; i++) {
+        const size_t ll = (size_t)sc->lit_lens[i], ml = (size_t)sc->match_lens[i];
+        for (size_t k = 0; k < ll; k++) lh[src[abs + k]]++;
+        nlit += ll;
+        abs += ll + ml;
+        llc[ll_to_code((int)ll)]++;
+        if (ml == 0) { mlc[0]++; ofc[0]++; continue; }
+        mlc[ml_to_code((int)ml) + 1]++;
+        const int of = sc->offsets[i];
+        int ri = -1;
+        if (of == rp[0]) ri = 0; else if (of == rp[1]) ri = 1; else if (of == rp[2]) ri = 2;
+        if (ri < 0) {
+            ofc[of_code(of)]++;
+            rp[2] = rp[1]; rp[1] = rp[0]; rp[0] = of;   /* of != rp[0] here: an offset equal to rep0 is coded as rep0 */
+        } else {
+            ofc[OF_CODES + ri]++;
+            if (ri > 0) { int t = rp[ri]; for (int k = ri; k > 0; k--) rp[k] = rp[k-1]; rp[0] = t; }
+        }
+    }
+    st->nlit = nlit;
+    st->nseq = sc->n;
+}
+
+/* Ideal size in bits of a parse under its own statistics: order-0 entropy of the literals and of the
+ * ll / ml / offset symbols, plus the extra bits. Not the coded size, but it orders two parses of
+ * one block as the coder does when they differ by a few percent. */
+static double seq_ideal_bits(const seq_collector_t* sc, const uint8_t* src)
+{
+    seq_stats_t st;
+    seq_stats(sc, src, &st);
+    double bits = 0;
+    for (int c = 0; c < 256; c++)
+        if (st.lh[c]) bits += (double)st.lh[c] * log2((double)st.nlit / (double)st.lh[c]);
+    size_t nof = 0;
+    for (int c = 0; c < OF_CODES + 3; c++) nof += st.ofc[c];
+    for (int c = 0; c < LL_CODES; c++)
+        if (st.llc[c]) bits += (double)st.llc[c] * (log2((double)st.nseq / st.llc[c]) + LL_extra[c]);
+    for (int c = 0; c < ML_CODES + 1; c++)
+        if (st.mlc[c]) bits += (double)st.mlc[c] * (log2((double)st.nseq / st.mlc[c]) + (c ? ML_extra[c - 1] : 0));
+    for (int c = 0; c < OF_CODES + 3; c++)
+        if (st.ofc[c]) bits += (double)st.ofc[c] * (log2((double)nof / st.ofc[c]) + (c < OF_CODES ? OF_extra[c] : 0));
+    return bits;
+}
+
+static void build_seq_price(const seq_collector_t* sc, const uint8_t* src, LZ6HC_seqPrice* sp)
+{
+    seq_stats_t st;
+    seq_stats(sc, src, &st);
+    const unsigned* const llc = st.llc; const unsigned* const mlc = st.mlc; const unsigned* const ofc = st.ofc;
+    const size_t* const lh = st.lh;
+    const size_t nlit = st.nlit, nseq = st.nseq;
+#define SP_COST(cnt, tot, alpha) \
+    ((unsigned)(16.0 * log2(((double)(tot) + 0.5 * (alpha)) / ((double)(cnt) + 0.5)) + 0.5))
+    double h0 = 0;
+    for (int c = 0; c < 256; c++)
+        if (lh[c]) h0 -= (double)lh[c] * log2((double)lh[c] / (double)nlit);
+    sp->lit = nlit ? (unsigned)(16.0 * h0 / (double)nlit + 0.5) : 128;
+    if (sp->lit < 8) sp->lit = 8;
+    size_t nof = 0;
+    for (int c = 0; c < OF_CODES + 3; c++) nof += ofc[c];
+    /* the parser prices a new offset by (bucket, low 3 bits): the
+     * frequency-weighted cost of the codes in that cell plus raw bits */
+    for (int b = 0; b < OF_BUCKETS; b++)
+        for (int l = 0; l < 8; l++) {
+            double w = 0, sum = 0;
+            for (int v = 0; v < (1 << (b < OF_DIRECT ? b : OF_LOW)); v++) {
+                const int c = OF_first[b] + v;
+                if ((OF_base[c] & 7) != l) continue;   /* b < 3: the offset itself */
+                const double f = (double)ofc[c] + 0.01;
+                w += f;
+                sum += f * (SP_COST(ofc[c], nof, OF_CODES + 3) + 16.0 * OF_extra[c]);
+            }
+            sp->of[b * 8 + l] = w > 0 ? (unsigned)(sum / w + 0.5) : 16u * (unsigned)(b + 4);
+        }
+    sp->rep0 = SP_COST(ofc[OF_CODES], nof, OF_CODES + 3);
+    for (int n = 0; n <= LZ6HC_SP_LEN; n++) {
+        const int c = ll_to_code(n);
+        sp->ll[n] = SP_COST(llc[c], nseq, LL_CODES) + 16u * (unsigned)LL_extra[c];
+    }
+    for (int n = 0; n <= LZ6HC_SP_LEN; n++) {
+        if (n < 3) { sp->ml[n] = 1u << 16; continue; }
+        const int c = ml_to_code(n);
+        sp->ml[n] = SP_COST(mlc[c + 1], nseq, ML_CODES + 1) + 16u * (unsigned)ML_extra[c];
+    }
+#undef SP_COST
+}
+
+/* ================= ENCODER ================= */
+
+/* ---- core block: lz6 matches + FSE/Huffman, no transforms ---- */
+/* ================= tANS for the sequence symbols =================
+ * Table ANS in the style of zstd's FSE: decoding a symbol is one table
+ * load plus a bit read (no multiply), and the ll/ml/of states share ONE
+ * backward bitstream with the extra bits, so a sequence costs one or two
+ * refills in total. Tables hold 2^log states, log <= TANS_MAX_LOG. */
+#define TANS_MIN_LOG 5
+
+typedef struct { int32_t deltaFindState; uint32_t deltaNbBits; } tans_symtt;
+typedef struct {
+    int log;
+    uint16_t stateTable[1 << TANS_MAX_LOG];
+    tans_symtt tt[TANS_MAX_SYMS];
+} tans_ctable;
+
+static inline unsigned tans_highbit(uint32_t v) { return 31u - (unsigned)__builtin_clz(v); }
+
+/* counts[0..maxSym] (total > 0) -> norm summing to 2^log, every present
+ * symbol >= 1: floor share, then the rounding residue goes to (or comes
+ * from) the most frequent symbols */
+static int tans_normalize(const unsigned* counts, int maxSym, int log, uint16_t* norm)
+{
+    const unsigned M = 1u << log;
+    uint64_t total = 0;
+    int present = 0;
+    for (int s = 0; s <= maxSym; s++) { total += counts[s]; present += counts[s] > 0; }
+    if (total == 0 || (unsigned)present > M) return 0;
+    int sum = 0;
+    for (int s = 0; s <= maxSym; s++) {
+        if (!counts[s]) { norm[s] = 0; continue; }
+        unsigned n = (unsigned)(((uint64_t)counts[s] * M) / total);
+        if (n == 0) n = 1;
+        norm[s] = (uint16_t)n;
+        sum += (int)n;
+    }
+    while (sum != (int)M) {
+        /* adjust the symbol where one unit costs least: the largest */
+        int best = -1;
+        for (int s = 0; s <= maxSym; s++) {
+            if (!norm[s] || (sum > (int)M && norm[s] <= 1)) continue;
+            if (best < 0 || counts[s] > counts[best]) best = s;
+        }
+        if (best < 0) return 0;
+        if (sum < (int)M) { int d = (int)M - sum; norm[best] = (uint16_t)(norm[best] + d); sum += d; }
+        else { norm[best]--; sum--; }
+    }
+    return 1;
+}
+
+static void tans_spread(const uint16_t* norm, int maxSym, int log, uint8_t* sym_at)
+{
+    const unsigned size = 1u << log, mask = size - 1;
+    const unsigned step = (size >> 1) + (size >> 3) + 3;   /* odd: visits every slot */
+    unsigned pos = 0;
+    for (int s = 0; s <= maxSym; s++)
+        for (unsigned i = 0; i < norm[s]; i++) { sym_at[pos] = (uint8_t)s; pos = (pos + step) & mask; }
+}
+
+static void tans_build_ctable(tans_ctable* ct, const uint16_t* norm, int maxSym, int log)
+{
+    const unsigned size = 1u << log;
+    uint8_t sym_at[1 << TANS_MAX_LOG];
+    unsigned cumul[TANS_MAX_SYMS + 1];
+    tans_spread(norm, maxSym, log, sym_at);
+    cumul[0] = 0;
+    for (int s = 0; s <= maxSym; s++) cumul[s + 1] = cumul[s] + norm[s];
+    for (unsigned u = 0; u < size; u++) ct->stateTable[cumul[sym_at[u]]++] = (uint16_t)(size + u);
+    ct->log = log;
+    int total = 0;
+    for (int s = 0; s <= maxSym; s++) {
+        const unsigned n = norm[s];
+        if (n == 0) { ct->tt[s].deltaNbBits = 0; ct->tt[s].deltaFindState = 0; }
+        else if (n == 1) {
+            ct->tt[s].deltaNbBits = ((uint32_t)log << 16) - size;
+            ct->tt[s].deltaFindState = total - 1;
+            total += 1;
+        } else {
+            const unsigned maxBitsOut = (unsigned)log - tans_highbit(n - 1);
+            const uint32_t minStatePlus = (uint32_t)n << maxBitsOut;
+            ct->tt[s].deltaNbBits = (maxBitsOut << 16) - minStatePlus;
+            ct->tt[s].deltaFindState = total - (int)n;
+            total += (int)n;
+        }
+    }
+}
+
+/* Sequence decode entry (zstd's ZSTD_seqSymbol): the tANS state step plus
+ * the symbol's value base and extra-bit count, so stage A computes a field
+ * as base + read(nbExtra) with no per-symbol table lookups or branches.
+ * Offset rep codes carry SEQ_REP | index in base. */
+#define SEQ_REP 0x80000000u
+typedef struct { uint16_t next; uint8_t nbBits; uint8_t nbExtra; uint32_t base; } seq_dentry;
+enum { SEQ_T_LL, SEQ_T_ML, SEQ_T_OF };
+
+
+static void seq_build_dtable(seq_dentry* dt, const uint16_t* norm, int maxSym, int log, int kind)
+{
+    const unsigned size = 1u << log;
+    uint8_t sym_at[1 << TANS_MAX_LOG];
+    uint32_t next[TANS_MAX_SYMS];
+    uint32_t sbase[TANS_MAX_SYMS];
+    uint8_t sextra[TANS_MAX_SYMS];
+    /* per-symbol value base and extra bits first: the state loop below then has no branches on the kind
+     * (a table is rebuilt at every epoch, so this runs once per epoch and table) */
+    for (int s = 0; s <= maxSym; s++) {
+        next[s] = norm[s];
+        if (kind == SEQ_T_LL) { sbase[s] = (uint32_t)LL_base[s]; sextra[s] = (uint8_t)LL_extra[s]; }
+        else if (kind == SEQ_T_ML) {
+            /* symbol 0 = no match: ml 0, no extra bits */
+            sbase[s] = s ? (uint32_t)ML_base[s - 1] : 0; sextra[s] = s ? (uint8_t)ML_extra[s - 1] : 0;
+        } else if (s < OF_CODES) { sbase[s] = (uint32_t)OF_base[s]; sextra[s] = OF_extra[s]; }
+        else { sbase[s] = SEQ_REP | (uint32_t)(s - OF_CODES); sextra[s] = 0; }
+    }
+    tans_spread(norm, maxSym, log, sym_at);
+    const unsigned koff = (unsigned)kind << TANS_MAX_LOG;   /* the state indexes one table array */
+    for (unsigned u = 0; u < size; u++) {
+        const unsigned s = sym_at[u];
+        const uint32_t x = next[s]++;
+        const unsigned nb = (unsigned)log - tans_highbit(x);
+        dt[u].nbBits = (uint8_t)nb;
+        dt[u].next = (uint16_t)((x << nb) - size + koff);
+        dt[u].base = sbase[s];
+        dt[u].nbExtra = sextra[s];
+    }
+}
+
+/* table header: [log:1][maxSym:1] then the normalised counts 0..maxSym,
+ * each a varint (v < 128: one byte; else 0x80 | (v & 127), v >> 7); a zero
+ * count is followed by one byte of further zeros (0..255) */
+static size_t tans_read_header(const uint8_t* in, size_t len, int alphaMax,
+                               uint16_t* norm, int* maxSym, int* log)
+{
+    if (len < 2) return 0;
+    const int lg = in[0], ms = in[1];
+    if (lg < TANS_MIN_LOG || lg > TANS_MAX_LOG || ms > alphaMax) return 0;
+    size_t q = 2;
+    unsigned sum = 0;
+    for (int s = 0; s <= ms; s++) {
+        if (q >= len) return 0;
+        unsigned v = in[q++];
+        if (v == 0) {
+            if (q >= len) return 0;
+            const int run = in[q++];
+            if (s + run > ms) return 0;
+            for (int k = 0; k <= run; k++) norm[s + k] = 0;
+            s += run;
+            continue;
+        }
+        if (v & 0x80) {
+            if (q >= len) return 0;
+            v = (v & 127) | ((unsigned)in[q++] << 7);
+        }
+        if (v > (1u << lg)) return 0;
+        norm[s] = (uint16_t)v; sum += v;
+    }
+    if (sum != (1u << lg)) return 0;
+    *maxSym = ms; *log = lg;
+    return q;
+}
+
+/* Format 2 table header, bit-packed: [log:4][k:4][maxSym:8], then for s = 0 .. maxSym - 1 the count as
+ * Rice(k), and after each zero count the run of further zeros as Elias gamma(run + 1). The last count is
+ * the remainder to 2^log (nonzero: maxSym is the last present symbol). k is the cheapest for the table. */
+typedef struct { uint8_t* p; uint64_t acc; unsigned n; } hbw_t;
+static void hbw_put(hbw_t* w, uint32_t v, unsigned nb) {
+    for (unsigned i = 0; i < nb; i++) {
+        w->acc |= (uint64_t)((v >> i) & 1u) << w->n;
+        if (++w->n == 8) { *w->p++ = (uint8_t)w->acc; w->acc = 0; w->n = 0; }
+    }
+}
+static unsigned rice_len(unsigned v, unsigned k) { return (v >> k) + 1 + k; }
+static unsigned gamma_len(unsigned v) { return 2 * (31u - (unsigned)__builtin_clz(v)) + 1; }   /* v >= 1 */
+static void hbw_rice(hbw_t* w, unsigned v, unsigned k) {
+    for (unsigned q = v >> k; q; q--) hbw_put(w, 1, 1);
+    hbw_put(w, 0, 1);
+    hbw_put(w, v & ((1u << k) - 1), k);
+}
+static void hbw_gamma(hbw_t* w, unsigned v) {
+    const unsigned nb = 31u - (unsigned)__builtin_clz(v);
+    hbw_put(w, 0, nb);          /* nb zeros, then the nb + 1 bits of v from its top */
+    for (int i = (int)nb; i >= 0; i--) hbw_put(w, (v >> i) & 1u, 1);
+}
+static unsigned header2_bits(const uint16_t* norm, int maxSym, unsigned k) {
+    unsigned bits = 16;
+    for (int s = 0; s < maxSym; s++) {
+        bits += rice_len(norm[s], k);
+        if (!norm[s]) {
+            int run = 0;
+            while (s + 1 < maxSym && norm[s + 1] == 0) { s++; run++; }
+            bits += gamma_len((unsigned)run + 1);
+        }
+    }
+    return bits;
+}
+/* the Rice parameter is tried around log2 of the mean nonzero count (the cost is convex in k) */
+static unsigned header2_best_k(const uint16_t* norm, int maxSym, unsigned* bits_out)
+{
+    unsigned sum = 0, nz = 0;
+    for (int s = 0; s < maxSym; s++) if (norm[s]) { sum += norm[s]; nz++; }
+    unsigned k0 = 0;
+    if (nz && sum / nz > 1) k0 = 31u - (unsigned)__builtin_clz(sum / nz);
+    unsigned k = 0, best = ~0u;
+    for (unsigned kk = k0 ? k0 - 1 : 0; kk <= k0 + 1 && kk <= 11; kk++) {
+        const unsigned b = header2_bits(norm, maxSym, kk);
+        if (b < best) { best = b; k = kk; }
+    }
+    *bits_out = best;
+    return k;
+}
+static size_t tans_write_header2(uint8_t* out, const uint16_t* norm, int maxSym, int log)
+{
+    unsigned best;
+    const unsigned k = header2_best_k(norm, maxSym, &best);
+    hbw_t w = { out, 0, 0 };
+    hbw_put(&w, (uint32_t)log, 4);
+    hbw_put(&w, k, 4);
+    hbw_put(&w, (uint32_t)maxSym, 8);
+    for (int s = 0; s < maxSym; s++) {
+        hbw_rice(&w, norm[s], k);
+        if (!norm[s]) {
+            int run = 0;
+            while (s + 1 < maxSym && norm[s + 1] == 0) { s++; run++; }
+            hbw_gamma(&w, (unsigned)run + 1);
+        }
+    }
+    if (w.n) *w.p++ = (uint8_t)w.acc;
+    return (size_t)(w.p - out);
+}
+static size_t tans_header2_size(const uint16_t* norm, int maxSym)
+{
+    unsigned best;
+    (void)header2_best_k(norm, maxSym, &best);
+    return (best + 7) / 8;
+}
+
+/* LSB-first bit reader over [p, end) with a 64-bit window; used counts the bits taken, err flags a read
+ * past the end */
+typedef struct { const uint8_t* p; const uint8_t* end; uint64_t buf; unsigned n; size_t used; int err; } hbr_t;
+static void hbr_init(hbr_t* r, const uint8_t* in, size_t len) { r->p = in; r->end = in + len; r->buf = 0; r->n = 0; r->used = 0; r->err = 0; }
+static inline unsigned hbr_bits(hbr_t* r, unsigned nb) {
+    if (r->n < nb) {
+        while (r->n <= 56 && r->p < r->end) { r->buf |= (uint64_t)*r->p++ << r->n; r->n += 8; }
+        if (r->n < nb) { r->err = 1; return 0; }
+    }
+    const unsigned v = (unsigned)(r->buf & ((1ull << nb) - 1));
+    r->buf >>= nb; r->n -= nb; r->used += nb;
+    return v;
+}
+static inline unsigned hbr_bit(hbr_t* r) { return hbr_bits(r, 1); }
+static size_t tans_read_header2(const uint8_t* in, size_t len, int alphaMax,
+                                uint16_t* norm, int* maxSym, int* log)
+{
+    hbr_t r;
+    hbr_init(&r, in, len);
+    const int lg = (int)hbr_bits(&r, 4);
+    const unsigned k = hbr_bits(&r, 4);
+    const int ms = (int)hbr_bits(&r, 8);
+    if (r.err || lg < TANS_MIN_LOG || lg > TANS_MAX_LOG || k > 11 || ms > alphaMax) return 0;
+    const unsigned M = 1u << lg;
+    unsigned sum = 0;
+    for (int s = 0; s < ms; s++) {
+        unsigned q = 0;
+        while (hbr_bit(&r)) { if (++q > M || r.err) return 0; }
+        const unsigned v = (q << k) | hbr_bits(&r, k);
+        if (r.err || v > M - sum) return 0;
+        norm[s] = (uint16_t)v; sum += v;
+        if (!v) {
+            unsigned nb = 0;
+            while (!hbr_bit(&r)) { if (++nb > 8 || r.err) return 0; }
+            unsigned run = 1;
+            for (unsigned i = 0; i < nb; i++) run = (run << 1) | hbr_bit(&r);
+            run -= 1;
+            if (r.err || s + (int)run >= ms) return 0;
+            for (unsigned i = 0; i < run; i++) norm[++s] = 0;
+        }
+    }
+    if (sum >= M) return 0;   /* the last symbol is present */
+    norm[ms] = (uint16_t)(M - sum);
+    *maxSym = ms; *log = lg;
+    return (r.used + 7) / 8;
+}
+
+/* Format 2 Huffman header: the 257-byte [k][256 code lengths] of lz6huf, bit-packed as [k:4] then per
+ * symbol either 0 + gamma(run) for a run of absent symbols, or 1 + Rice1(zigzag(length - previous length)). */
+static size_t huf_hdr2_write(const uint8_t* h257, uint8_t* out)
+{
+    hbw_t w = { out, 0, 0 };
+    const uint8_t* len = h257 + 1;
+    hbw_put(&w, h257[0], 4);
+    int prev = 8;
+    for (int s = 0; s < 256; s++) {
+        if (!len[s]) {
+            int run = 1;
+            while (s + 1 < 256 && !len[s + 1]) { s++; run++; }
+            hbw_put(&w, 0, 1);
+            hbw_gamma(&w, (unsigned)run);
+            continue;
+        }
+        const int d = len[s] - prev;
+        prev = len[s];
+        hbw_put(&w, 1, 1);
+        hbw_rice(&w, d < 0 ? (unsigned)(-2 * d - 1) : (unsigned)(2 * d), 1);
+    }
+    if (w.n) *w.p++ = (uint8_t)w.acc;
+    return (size_t)(w.p - out);
+}
+static size_t huf_hdr2_read(const uint8_t* in, size_t n, uint8_t* h257)
+{
+    hbr_t r;
+    hbr_init(&r, in, n);
+    h257[0] = (uint8_t)hbr_bits(&r, 4);
+    uint8_t* const len = h257 + 1;
+    int prev = 8;
+    for (int s = 0; s < 256 && !r.err; ) {
+        if (!hbr_bit(&r)) {
+            unsigned nb = 0;
+            while (!hbr_bit(&r)) { if (++nb > 8 || r.err) return 0; }
+            unsigned run = 1;
+            for (unsigned i = 0; i < nb; i++) run = (run << 1) | hbr_bit(&r);
+            if ((unsigned)s + run > 256) return 0;
+            for (unsigned i = 0; i < run; i++) len[s++] = 0;
+            continue;
+        }
+        unsigned q = 0;
+        while (hbr_bit(&r)) { if (++q > 40 || r.err) return 0; }
+        const unsigned z = (q << 1) | hbr_bit(&r);
+        const int d = (z & 1) ? -(int)((z + 1) >> 1) : (int)(z >> 1);
+        prev += d;
+        if (prev < 1 || prev > 16) return 0;
+        len[s++] = (uint8_t)prev;
+    }
+    if (r.err) return 0;
+    return (r.used + 7) / 8;
+}
+
+/* forward bit writer for a backward-read stream: LSB-first, closed by a
+ * 1-bit marker so the reader can find the last written bit */
+typedef struct { uint64_t acc; unsigned n; uint8_t* p; uint8_t* end; int err; } tbw_t;
+static inline void tbw_add(tbw_t* w, uint32_t v, unsigned nb)
+{
+    w->acc |= (uint64_t)(v & (uint32_t)((1ull << nb) - 1)) << w->n;
+    w->n += nb;
+    while (w->n >= 8) {
+        if (w->p >= w->end) { w->err = 1; return; }
+        *w->p++ = (uint8_t)w->acc;
+        w->acc >>= 8; w->n -= 8;
+    }
+}
+/* accumulate without flushing: the caller keeps w->n + nb <= 64 and calls
+ * tbw_flush, which needs 8 bytes of room (checked once per sequence) */
+static inline void tbw_put(tbw_t* w, uint32_t v, unsigned nb)
+{
+    w->acc |= (uint64_t)(v & (uint32_t)((1ull << nb) - 1)) << w->n;
+    w->n += nb;
+}
+static inline void tbw_flush(tbw_t* w)
+{
+    const unsigned nbytes = w->n >> 3;
+    uint64_t a = w->acc;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    for (int i = 0; i < 8; i++) w->p[i] = (uint8_t)(a >> (8 * i));
+#else
+    memcpy(w->p, &a, 8);   /* little-endian store */
+#endif
+    w->p += nbytes;
+    w->acc = a >> (8 * nbytes);   /* n <= 63, so nbytes <= 7 */
+    w->n &= 7;
+}
+static inline void tbw_close(tbw_t* w)
+{
+    tbw_add(w, 1, 1);
+    if (w->n > 0) {
+        if (w->p >= w->end) { w->err = 1; return; }
+        *w->p++ = (uint8_t)w->acc;
+        w->acc = 0; w->n = 0;
+    }
+}
+
+typedef struct { uint32_t value; } tans_cstate;
+static inline void tans_cinit(tans_cstate* st, const tans_ctable* ct, unsigned s)
+{
+    const tans_symtt tt = ct->tt[s];
+    const uint32_t nbOut = (tt.deltaNbBits + (1u << 15)) >> 16;
+    uint32_t v = (nbOut << 16) - tt.deltaNbBits;
+    st->value = ct->stateTable[(v >> nbOut) + (uint32_t)tt.deltaFindState];
+}
+static inline void tans_cencode(tans_cstate* st, const tans_ctable* ct, tbw_t* w, unsigned s)
+{
+    const tans_symtt tt = ct->tt[s];
+    const uint32_t nbOut = (st->value + tt.deltaNbBits) >> 16;
+    tbw_put(w, st->value, nbOut);
+    st->value = ct->stateTable[(st->value >> nbOut) + (uint32_t)tt.deltaFindState];
+}
+static inline void tans_cflush(tans_cstate* st, const tans_ctable* ct, tbw_t* w)
+{
+    tbw_add(w, st->value, (unsigned)ct->log);
+}
+
+/* backward bit reader over [start, end): start holds 8 bytes of padding so
+ * every 8-byte load stays in bounds; bits consumed past the real stream
+ * are detected once at the end (tbr_exact) */
+/* Bit position inside c, counted from its top. The BMI2 clone (bmi == 1) uses `p`, kept negated (p = -consumed):
+ * a field is then bzhi(c >> (p & 63), nb) after p -= nb, 3 instructions with no nb == 0 special case. Without BMI2
+ * (bmi == 0) it uses `used`, the plain consumed count, and the old shift pair is cheaper than shift + mask. bmi is a
+ * compile-time constant in both clones of decode_normal_body. */
+typedef struct { uint64_t c; unsigned used; const uint8_t* ptr; const uint8_t* start; const uint8_t* end; int64_t p; } tbr_t;
+/* tbr_reload_fast needs an arithmetic right shift of negative values (C89-style compile-time assert: the build is -std=gnu99) */
+typedef char lz6seq_arith_shift_check[((-1 >> 1) == -1) ? 1 : -1];
+static inline unsigned tbr_used(const tbr_t* r, const int bmi) { return bmi ? (unsigned)(-r->p) : r->used; }
+static inline void tbr_set_used(tbr_t* r, unsigned used, const int bmi) { if (bmi) r->p = -(int64_t)used; else r->used = used; }
+/* x & (2^nb - 1) as one bzhi (GCC turns the mask into mov/shlx/not/and, never into bzhi). nb < 64 always: it is an
+ * extra-bit width (<= 24) or a table log (<= TANS_MAX_LOG). Only the BMI2 clone (x86-64 GNU C) reaches the asm. */
+static inline uint64_t tbr_bzhi(uint64_t x, unsigned nb)
+{
+#if (defined(__GNUC__) || defined(__clang__)) && defined(__x86_64__)
+    uint64_t r;
+    __asm__("bzhiq %2, %1, %0" : "=r"(r) : "r"(x), "r"((uint64_t)nb) : "cc");
+    return r;
+#else
+    return x & (((uint64_t)1 << nb) - 1);
+#endif
+}
+static inline uint64_t tbr_load(const uint8_t* q)
+{
+    uint64_t v;
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    v = (uint64_t)q[0] | ((uint64_t)q[1] << 8) | ((uint64_t)q[2] << 16) | ((uint64_t)q[3] << 24)
+      | ((uint64_t)q[4] << 32) | ((uint64_t)q[5] << 40) | ((uint64_t)q[6] << 48) | ((uint64_t)q[7] << 56);
+#else
+    memcpy(&v, q, 8);
+#endif
+    return v;
+}
+static int tbr_init(tbr_t* r, const uint8_t* start, size_t len, const int bmi)
+{
+    if (len < 9 || start[len - 1] == 0) return 0;
+    r->start = start;
+    r->end = start + len;
+    r->ptr = r->end - 8;
+    r->c = tbr_load(r->ptr);
+    tbr_set_used(r, 8 - tans_highbit(start[len - 1]), bmi);
+    return 1;
+}
+static inline size_t tbr_read(tbr_t* r, unsigned nb, const int bmi)
+{
+    if (bmi) {
+        r->p -= nb;
+        return (size_t)tbr_bzhi(r->c >> (r->p & 63), nb);
+    } else {
+        const size_t v = (size_t)(((r->c << (r->used & 63)) >> 1) >> ((63 - nb) & 63));
+        r->used += nb;
+        return v;
+    }
+}
+static inline void tbr_reload(tbr_t* r, const int bmi)
+{
+    unsigned used = tbr_used(r, bmi);
+    if (used > 64) used = 64;   /* overrun: tbr_exact fails */
+    const size_t bytes = used >> 3;
+    if ((size_t)(r->ptr - r->start) >= bytes) { r->ptr -= bytes; used &= 7; }
+    else { const size_t b2 = (size_t)(r->ptr - r->start); r->ptr = r->start; used -= (unsigned)(b2 * 8); }
+    tbr_set_used(r, used, bmi);
+    r->c = tbr_load(r->ptr);
+}
+/* branch-free reload while the stream has >= 24 bytes left below ptr (ptr >= lim, lim from
+ * tbr_fast_lim, computed once outside the decode loop):
+ * even an overrun (used <= 64 + 57) moves ptr by at most 15 bytes */
+static inline void tbr_reload_fast(tbr_t* r, const uint8_t* lim, const int bmi)
+{
+    if (LZ6SEQ_LIKELY(r->ptr >= lim)) {
+        if (bmi) {
+            const int64_t t = r->p + 7;   /* -(bytes consumed), rounded down to whole bytes */
+            r->ptr += t >> 3;
+            r->p = (t & 7) - 7;
+        } else {
+            r->ptr -= r->used >> 3;
+            r->used &= 7;
+        }
+        r->c = tbr_load(r->ptr);
+    } else {
+        tbr_reload(r, bmi);
+    }
+}
+/* every real bit consumed, none of the padding */
+static int tbr_exact(const tbr_t* r, const int bmi)
+{
+    const size_t consumed = (size_t)(r->end - r->ptr) * 8 - 64 + tbr_used(r, bmi);
+    return consumed == (size_t)(r->end - r->start - 8) * 8;
+}
+
+/* ---- fast1: single-pass fast parser (zstd "fast"-style) ----
+ * Writes sequences and literals straight into the collector (no HC
+ * context, no callback, no second literal pass): one small hash table over
+ * mls-byte hashes, no lazy matching, an accelerating step through literal
+ * runs, and matches only within 2^wlog bytes so verifying a candidate stays
+ * in cache. What it adds to the plain fast scheme (each option is a field of the
+ * level's row, see LZ6HC_seqFast1Opts):
+ *  - buckets of `ways` slots (1, 2 or 4) in one cache line, newest first: the
+ *    longest verified candidate wins (2 ways: -0.36 points for +11% instructions);
+ *  - three rep offsets, as in the format: rep0 is tried at every position, rep1 and
+ *    rep2 only within 8 bytes of the last match, where they pay (-0.25 points). A rep1/rep2
+ *    match makes the decoder's offset history take its less predictable path: x-ray +9% decode cycles;
+ *  - `insp` positions at each end of every match are indexed (1 = the plain scheme: -0.3 points for 3). */
+static inline uint32_t fast1_hash(const uint8_t* p, unsigned mls, unsigned hlog)
+{
+    uint64_t v;
+    memcpy(&v, p, 8);
+    return (uint32_t)(((v << (64 - 8 * mls)) * 0xCF1BBCDCB7A56463ULL) >> (64 - hlog));
+}
+static inline uint32_t fast1_r32(const uint8_t* p) { uint32_t v; memcpy(&v, p, 4); return v; }
+static inline size_t fast1_count(const uint8_t* a, const uint8_t* b, const uint8_t* lim)
+{
+    const uint8_t* const a0 = a;
+    while (a + 8 <= lim) {
+        uint64_t x, y;
+        memcpy(&x, a, 8); memcpy(&y, b, 8);
+        const uint64_t d = x ^ y;
+        if (d) return (size_t)(a - a0) + ((unsigned)__builtin_ctzll(d) >> 3);
+        a += 8; b += 8;
+    }
+    while (a < lim && *a == *b) { a++; b++; }
+    return (size_t)(a - a0);
+}
+
+#define FAST1_REP_WINDOW 8   /* rep1/rep2 are probed only this close to the last match */
+static inline __attribute__((always_inline))
+int fast1_parse_w(seq_collector_t* sc, const uint8_t* src, size_t n,
+                  unsigned hlog, unsigned mls, unsigned wlog, const unsigned ways, const unsigned rep3, const unsigned insp)
+{
+    const size_t cap = n / 4 + 16;
+    while (hlog > 10 && ((size_t)1 << hlog) > 2 * n) hlog--;   /* never more than two slots per input byte */
+    sc->lit_lens = (int*)malloc(cap * sizeof(int));
+    sc->match_lens = (int*)malloc(cap * sizeof(int));
+    sc->offsets = (int*)malloc(cap * sizeof(int));
+    uint32_t* ht = (uint32_t*)calloc((size_t)1 << hlog, sizeof(uint32_t));
+    if (!sc->lit_lens || !sc->match_lens || !sc->offsets || !ht) { free(ht); return 1; }
+    sc->cap = cap;
+    size_t ns = 0, nl = 0;
+    const uint8_t* ip = src;
+    const uint8_t* anchor = src;
+    const uint8_t* const iend = src + n;
+    const uint8_t* const ilimit = n > 16 ? iend - 16 : src;   /* hash reads 8 bytes */
+    const uint8_t* const mlimit = n > 8 ? iend - 8 : src;     /* match end: last bytes stay literals */
+    const size_t wmax = ((size_t)1 << wlog) - 1;
+    size_t rp[3] = {0, 0, 0};   /* rep offsets, the same stack the encoder walks; 0 = none */
+    unsigned miss = 0;
+#define FAST1_SLOT(p) (fast1_hash((p), mls, hlog) & ~(uint32_t)(ways - 1))
+#define FAST1_PUT(slot, pos) do {                                           \
+        for (unsigned w_ = ways - 1; w_ > 0; w_--) ht[(slot) + w_] = ht[(slot) + w_ - 1]; \
+        ht[(slot)] = (uint32_t)(pos) + 1;                                   \
+    } while (0)
+#define FAST1_EMIT(mstart, ml, off) do {                                    \
+        const size_t ll_ = (size_t)((mstart) - anchor);                    \
+        memcpy(sc->lits + nl, anchor, ll_); nl += ll_;                     \
+        sc->lit_lens[ns] = (int)ll_; sc->match_lens[ns] = (int)(ml);       \
+        sc->offsets[ns] = (int)(off); ns++;                                 \
+        if ((size_t)(off) != rp[0]) {                                       \
+            if ((size_t)(off) == rp[1]) { rp[1] = rp[0]; rp[0] = (size_t)(off); } \
+            else { rp[2] = rp[1]; rp[1] = rp[0]; rp[0] = (size_t)(off); }   \
+        }                                                                   \
+    } while (0)
+    if (n > 16) ip++;
+    while (ip < ilimit) {
+        const size_t pos = (size_t)(ip - src);
+        const uint32_t slot = FAST1_SLOT(ip);
+        uint32_t cs[4];
+        for (unsigned w = 0; w < ways; w++) cs[w] = ht[slot + w];
+        FAST1_PUT(slot, pos);
+        const uint8_t* mstart = NULL;
+        size_t ml = 0, off = 0;
+        const unsigned nrep = rep3 && (size_t)(ip - anchor) < FAST1_REP_WINDOW ? 3 : 1;
+        for (unsigned ri = 0; ri < nrep; ri++)
+            if (rp[ri] && pos + 1 >= rp[ri] && fast1_r32(ip + 1 - rp[ri]) == fast1_r32(ip + 1)) {
+                mstart = ip + 1; off = rp[ri];
+                ml = 4 + fast1_count(mstart + 4, mstart + 4 - off, mlimit);
+                break;
+            }
+        if (!mstart) {
+            for (unsigned w = 0; w < ways; w++) {
+                const uint32_t c = cs[w];
+                if (c && pos - (c - 1) <= wmax && fast1_r32(src + c - 1) == fast1_r32(ip)) {
+                    const size_t l = 4 + fast1_count(ip + 4, src + c + 3, mlimit);
+                    if (l > ml) { ml = l; off = (size_t)(ip - (src + c - 1)); mstart = ip; }
+                }
+            }
+            if (!mstart) { ip += 1 + (miss++ >> 6); continue;   /* accelerate through literal runs */ }
+        }
+        {   /* extend backwards over the pending literals */
+            const uint8_t* m = mstart - off;
+            while (mstart > anchor && m > src && mstart[-1] == m[-1]) { mstart--; m--; ml++; }
+        }
+        miss = 0;
+        FAST1_EMIT(mstart, ml, off);
+        ip = anchor = mstart + ml;
+        if (ip < ilimit) {   /* index `insp` positions at the start of the match and `insp` at its end */
+            for (unsigned j = 0; j < insp; j++) {
+                const uint8_t* const q1 = ip - 2 - j; const uint8_t* const q2 = mstart + 1 + j;
+                const uint32_t s1 = FAST1_SLOT(q1); FAST1_PUT(s1, q1 - src);
+                const uint32_t s2 = FAST1_SLOT(q2); FAST1_PUT(s2, q2 - src);
+            }
+        }
+        /* immediate rep0 right after the match */
+        while (ip < ilimit && rp[0] && fast1_r32(ip) == fast1_r32(ip - rp[0])) {
+            const size_t rl = 4 + fast1_count(ip + 4, ip + 4 - rp[0], mlimit);
+            FAST1_EMIT(ip, rl, rp[0]);
+            ip = anchor = ip + rl;
+        }
+        if (ns + 2 >= cap) break;   /* cannot happen with 4-byte minimum matches; guard */
+    }
+#undef FAST1_SLOT
+#undef FAST1_PUT
+#undef FAST1_EMIT
+    /* last literals: a literals-only sequence */
+    {
+        const size_t ll = (size_t)(iend - anchor);
+        memcpy(sc->lits + nl, anchor, ll); nl += ll;
+        sc->lit_lens[ns] = (int)ll; sc->match_lens[ns] = 0; sc->offsets[ns] = 0; ns++;
+    }
+    sc->n = ns;
+    sc->lit_sum = nl;
+    sc->lit_built = nl;
+    free(ht);
+    return 0;
+}
+static int fast1_parse(seq_collector_t* sc, const uint8_t* src, size_t n,
+                       unsigned hlog, unsigned mls, unsigned wlog, unsigned ways, unsigned rep3, unsigned insp)
+{
+    if (insp < 1) insp = 1;
+    if (insp > 3) insp = 3;
+    if (ways >= 4) return fast1_parse_w(sc, src, n, hlog, mls, wlog, 4, rep3, insp);
+    if (ways == 2) return fast1_parse_w(sc, src, n, hlog, mls, wlog, 2, rep3, insp);
+    return fast1_parse_w(sc, src, n, hlog, mls, wlog, 1, rep3, insp);
+}
+
+static void collector_free_parse(seq_collector_t* c)
+{
+    free(c->lit_lens); free(c->match_lens); free(c->offsets);
+    c->lit_lens = c->match_lens = c->offsets = NULL;
+    c->n = c->cap = 0;
+}
+
+/* dst takes over the parse of src (the literals are rebuilt from the source by fill_literals) */
+static void collector_take_parse(seq_collector_t* dst, seq_collector_t* src)
+{
+    collector_free_parse(dst);
+    dst->lit_lens = src->lit_lens; dst->match_lens = src->match_lens; dst->offsets = src->offsets;
+    dst->n = src->n; dst->cap = src->cap; dst->lit_sum = src->lit_sum; dst->lit_built = 0;
+    src->lit_lens = src->match_lens = src->offsets = NULL;
+    src->n = src->cap = 0;
+}
+
+/* Level guard. The parsers of levels 4-15 take 3-5 byte matches that the level-1 parser (6-byte hash)
+ * never sees, and the optimal parser (8-15) prices matches with the statistics of an earlier parse, so
+ * once short matches dominate they look cheap and the parse repeats them. On data whose literals are
+ * already cheap (protein: 21 symbols, 4.2 bits each) a 3-byte match saves 12 bits and costs about 16:
+ * the output came out 4-6% larger than level 1's. Such a parse is recognised by its economics: the bits
+ * its matches save (length x the entropy of the block's bytes) against a crude price (5 + the bits of the
+ * offset); when they save less than 25% more than they cost, the parse is compared with the plain level-1
+ * parse of the same block, by ideal size, and the cheaper one is kept. Blocks whose matches
+ * pay for themselves are not touched and pay nothing. */
+static void seq_guard(seq_collector_t* sc, const char* src, size_t srcSize)
+{
+    enum { GUARD_MIN_BLOCK = 4096, GUARD_SAMPLE = 65536 };
+    unsigned h, m, w;
+    if (srcSize < GUARD_MIN_BLOCK || sc->n == 0 || !LZ6HC_seqFast1Params(1, &h, &m, &w)) return;
+    double bits = 0;   /* entropy of the bytes, bits per byte, from a prefix */
+    {
+        size_t hist[256] = {0};
+        const size_t pn = srcSize < GUARD_SAMPLE ? srcSize : GUARD_SAMPLE;
+        for (size_t i = 0; i < pn; i++) hist[(uint8_t)src[i]]++;
+        for (int c = 0; c < 256; c++)
+            if (hist[c]) bits -= (double)hist[c] * log2((double)hist[c] / (double)pn);
+        bits /= (double)pn;
+    }
+    if (bits < 2.5) return;   /* cheap literals: matches nearly always pay */
+    double saved = 0, paid = 0;
+    for (size_t i = 0; i < sc->n; i++) {
+        const int ml = sc->match_lens[i];
+        if (!ml) continue;
+        const unsigned off = (unsigned)sc->offsets[i];
+        saved += (double)ml * bits;
+        paid += 5.0 + (double)(off ? 32 - __builtin_clz(off) : 0);
+    }
+    if (saved == 0 || saved - paid >= 0.25 * saved) return;
+    seq_collector_t cb;
+    memset(&cb, 0, sizeof(cb));
+    cb.src = (const uint8_t*)src;
+    cb.lits = (uint8_t*)malloc(srcSize + 65536);
+    if (!cb.lits) return;
+    unsigned ways, rep3, insp;
+    LZ6HC_seqFast1Opts(1, &ways, &rep3, &insp);
+    if (fast1_parse(&cb, (const uint8_t*)src, srcSize, h, m, w, ways, rep3, insp)) { free(cb.lits); collector_free_parse(&cb); return; }
+    free(cb.lits);
+    cb.lits = NULL;
+    if (seq_ideal_bits(&cb, (const uint8_t*)src) < seq_ideal_bits(sc, (const uint8_t*)src))
+        collector_take_parse(sc, &cb);
+    collector_free_parse(&cb);
+}
+
+/* ---- what the block format can hold, which the parsers do not know ----
+ * A literal run or a match length is a code plus at most 24 extra bits (the last code is open-ended: at most 256 + 2^24 - 1 literals, 259 + 2^24 - 1
+ * bytes), and the decoder refuses a block of more than 2^24 sequences. A parse beyond one of them gave a stream that did not decode: a run of more
+ * than 16 MiB of incompressible bytes inside a block of 256 MB (a compressed ISO), a 40 MB run of zeros, 20 million short matches; the CLI gives a
+ * file larger than 16 MiB blocks of 256 MB. seq_fit_limits rewrites such a parse into one the format can hold, without changing the format or any
+ * parse that was already inside the limits: a match over the limit is cut in pieces with the same offset, the shortest matches are turned back into
+ * literals until the count fits, and a literal run over the limit is split by a short match found inside it (a repeat of 3 bytes or more within 64 KB).
+ * It returns 1 when no such match exists (adversarial data): the block is then stored. The limits can be shrunk at build time, to test the
+ * rewriting on small blocks. */
+#ifndef LZ6SEQ_LIMIT_LL
+#define LZ6SEQ_LIMIT_LL ((size_t)LL_base[LL_CODES - 1] + ((size_t)1 << LL_extra[LL_CODES - 1]) - 1)
+#endif
+#ifndef LZ6SEQ_LIMIT_ML
+#define LZ6SEQ_LIMIT_ML ((size_t)ML_base[ML_CODES - 1] + ((size_t)1 << ML_extra[ML_CODES - 1]) - 1)
+#endif
+#ifndef LZ6SEQ_LIMIT_SC
+#define LZ6SEQ_LIMIT_SC ((size_t)1 << 24)
+#endif
+
+static int seq_over_limits(const seq_collector_t* sc) {
+    if (sc->n > LZ6SEQ_LIMIT_SC) return 1;
+    for (size_t i = 0; i < sc->n; i++)
+        if ((size_t)sc->lit_lens[i] > LZ6SEQ_LIMIT_LL || (size_t)sc->match_lens[i] > LZ6SEQ_LIMIT_ML) return 1;
+    return 0;
+}
+
+typedef struct { int* ll; int* ml; int* of; size_t n, cap; } seq_vec_t;
+
+static int seq_vec_push(seq_vec_t* v, size_t ll, size_t ml, size_t of) {
+    if (v->n == v->cap) {
+        size_t nc = v->cap ? v->cap * 2 : 4096;
+        int* a = (int*)realloc(v->ll, nc * sizeof(int)); if (!a) return 1; v->ll = a;
+        int* b = (int*)realloc(v->ml, nc * sizeof(int)); if (!b) return 1; v->ml = b;
+        int* c = (int*)realloc(v->of, nc * sizeof(int)); if (!c) return 1; v->of = c;
+        v->cap = nc;
+    }
+    v->ll[v->n] = (int)ll; v->ml[v->n] = (int)ml; v->of[v->n] = (int)of; v->n++;
+    return 0;
+}
+
+static inline uint32_t seq_h3(const uint8_t* p) {
+    return (((uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16)) * 2654435761u) >> 16;
+}
+
+/* the first position p in [from, to - 3] holding a repeat of 3 or more bytes at a distance of at most 65535, as *pos, its *dist and *len (it ends
+ * by `to` at the latest); 1 when there is none */
+static int seq_find_repeat(const uint8_t* src, size_t from, size_t to, size_t* pos, size_t* dist, size_t* len) {
+    enum { WIN = 65535, MAXLEN = 4096 };
+    uint32_t* tab = (uint32_t*)malloc((size_t)65536 * sizeof(uint32_t));
+    if (!tab) return 1;
+    memset(tab, 0xFF, (size_t)65536 * sizeof(uint32_t));
+    for (size_t q = from > WIN ? from - WIN : 0; q < from; q++) tab[seq_h3(src + q)] = (uint32_t)q;
+    for (size_t p = from; p + 3 <= to; p++) {
+        const uint32_t h = seq_h3(src + p), c = tab[h];
+        if (c != 0xFFFFFFFFu && p - c <= WIN && src[c] == src[p] && src[c + 1] == src[p + 1] && src[c + 2] == src[p + 2]) {
+            size_t l = 3;
+            while (p + l < to && l < MAXLEN && src[c + l] == src[p + l]) l++;
+            *pos = p; *dist = p - c; *len = l;
+            free(tab);
+            return 0;
+        }
+        tab[h] = (uint32_t)p;
+    }
+    free(tab);
+    return 1;
+}
+
+/* the literals [*rs, litend) as sequences no longer than the limit: each cut is a short match found past the middle of the allowed run;
+ * on return *rs is where the last piece starts (the caller emits it with the match that follows, or alone) */
+static int seq_split_run(seq_vec_t* out, const uint8_t* src, size_t* rs, size_t litend) {
+    while (litend - *rs > LZ6SEQ_LIMIT_LL) {
+        const size_t from = *rs + LZ6SEQ_LIMIT_LL / 2;
+        size_t scanend = *rs + LZ6SEQ_LIMIT_LL;
+        if (scanend + 3 > litend) scanend = litend - 3;
+        size_t p, d, l;
+        if (from > scanend || seq_find_repeat(src, from, scanend + 3, &p, &d, &l)) return 1;
+        if (seq_vec_push(out, p - *rs, l, d)) return 1;
+        *rs = p + l;
+    }
+    return 0;
+}
+
+/* a match as pieces no longer than the limit (the first carries the literals, the others none; they share the offset) */
+static int seq_emit_match(seq_vec_t* out, size_t ll, size_t ml, size_t of) {
+    if (ml <= LZ6SEQ_LIMIT_ML) return seq_vec_push(out, ll, ml, of);
+    const size_t pieces = (ml + LZ6SEQ_LIMIT_ML - 1) / LZ6SEQ_LIMIT_ML, base = ml / pieces, extra = ml % pieces;
+    for (size_t k = 0; k < pieces; k++)
+        if (seq_vec_push(out, k ? 0 : ll, base + (k < extra ? 1 : 0), of)) return 1;
+    return 0;
+}
+
+static int seq_fit_limits(seq_collector_t* sc, const uint8_t* src, size_t srcSize) {
+    seq_vec_t out;
+    memset(&out, 0, sizeof(out));
+    const size_t n = sc->n;
+    /* the room the rewriting itself may need: a cut per half run, a piece per match limit */
+    const size_t margin = srcSize / (LZ6SEQ_LIMIT_LL / 2 + 1) + srcSize / LZ6SEQ_LIMIT_ML + 64;
+    if (margin >= LZ6SEQ_LIMIT_SC) return 1;
+    int drop_all = 0;
+    size_t thr = 0, quota = 0;
+    if (n > LZ6SEQ_LIMIT_SC - margin) {                         /* too many sequences: the shortest matches go back to literals */
+        const size_t excess = n - (LZ6SEQ_LIMIT_SC - margin);
+        size_t hist[258], cum = 0;
+        memset(hist, 0, sizeof(hist));
+        for (size_t i = 0; i < n; i++) if (sc->match_lens[i] > 0) hist[(size_t)sc->match_lens[i] < 257 ? (size_t)sc->match_lens[i] : 257]++;
+        drop_all = 1;
+        for (size_t t = 0; t <= 256; t++) {
+            if (cum + hist[t] >= excess) { thr = t; quota = excess - cum; drop_all = 0; break; }
+            cum += hist[t];
+        }
+    }
+    size_t abs = 0, runstart = 0;
+    for (size_t i = 0; i < n; i++) {
+        const size_t ll = (size_t)sc->lit_lens[i], ml = (size_t)sc->match_lens[i], of = (size_t)sc->offsets[i];
+        const size_t litend = abs + ll;
+        if (ml > 0 && (drop_all || ml < thr || (ml == thr && quota > 0 && quota--))) { abs = litend + ml; continue; }   /* the match joins the run */
+        size_t rs = runstart;
+        if (seq_split_run(&out, src, &rs, litend)) goto fail;
+        if (ml == 0 ? seq_vec_push(&out, litend - rs, 0, 0) : seq_emit_match(&out, litend - rs, ml, of)) goto fail;
+        abs = litend + ml;
+        runstart = abs;
+    }
+    if (runstart < abs) {                                        /* the parse ended with dropped matches: the literals that remain */
+        size_t rs = runstart;
+        if (seq_split_run(&out, src, &rs, abs) || seq_vec_push(&out, abs - rs, 0, 0)) goto fail;
+    }
+    {   /* the rewritten parse must still cover the block exactly */
+        size_t total = 0;
+        for (size_t i = 0; i < out.n; i++) total += (size_t)out.ll[i] + (size_t)out.ml[i];
+        if (total != srcSize || out.n > LZ6SEQ_LIMIT_SC) goto fail;
+    }
+    free(sc->lit_lens); free(sc->match_lens); free(sc->offsets);
+    sc->lit_lens = out.ll; sc->match_lens = out.ml; sc->offsets = out.of;
+    sc->n = out.n; sc->cap = out.cap;
+    sc->lit_sum = 0;
+    for (size_t i = 0; i < sc->n; i++) sc->lit_sum += (size_t)sc->lit_lens[i];
+    return 0;
+fail:
+    free(out.ll); free(out.ml); free(out.of);
+    return 1;
+}
+
+/* ---- table epochs (block flag 0x20) ----
+ * The sequences of a block are cut into epochs, each with its own three tANS tables, so the tables
+ * follow the statistics as they drift through the block while the matches keep the whole window.
+ * The cuts come from a recursive split on the coded size the tables would give (header included). */
+#define SEQ_EPOCH_FLAG 0x20
+#ifndef TABLE_REPEAT_BIAS
+#define TABLE_REPEAT_BIAS 0
+#endif
+#ifndef EPOCH_PEN
+#define EPOCH_PEN 512        /* bits: an epoch also costs the decoder a table rebuild; 512 gave 2 points of decode time for 0.06% of size */
+#endif
+#ifndef LIT_EPOCH_PEN
+#define LIT_EPOCH_PEN 512
+#endif
+#ifndef LIT_HDR_BITS
+#define LIT_HDR_BITS 3
+#endif
+#ifndef EPOCH_MIN_SEQ
+#define EPOCH_MIN_SEQ 1024
+#endif
+#define EPOCH_MAX 1024
+static const int epoch_alpha[3] = { LL_CODES - 1, ML_CODES, OF_CODES + 2 };
+
+typedef struct { uint16_t norm[3][TANS_MAX_SYMS]; uint8_t ms[3], lg[3], rep; int a, b; } seq_epoch_t;   /* rep: bit t = table t is the previous epoch's */
+
+/* The epoch decisions (cuts, table logs, table repeats) are made in integer fixed point, 1/65536 bit:
+ * with doubles they depended on the FPU's precision, and a 32-bit x87 build on Windows (whose new
+ * threads start at 53-bit precision, the main thread at 64) cut differently with -T than without.
+ * log2 is a table of log2(1 + i/4096) in 1/65536 built with integer squaring only. */
+typedef int64_t ebits_t;
+#define EB(b) ((ebits_t)(b) * 65536)
+static uint16_t elog2_frac[4096];
+static void elog2_init(void)
+{
+    for (unsigned i = 0; i < 4096; i++) {
+        uint64_t y = (uint64_t)(4096 + i) << 18;   /* 1 + i/4096 in 2^30 fixed point */
+        unsigned frac = 0;
+        for (int b = 15; b >= 0; b--) {
+            y = (y * y) >> 30;
+            if (y >= ((uint64_t)2 << 30)) { y >>= 1; frac |= 1u << b; }
+        }
+        elog2_frac[i] = (uint16_t)frac;
+    }
+}
+/* log2(x) in 1/65536, x >= 1 (exact for x < 8192) */
+static inline ebits_t elog2(uint64_t x)
+{
+    const unsigned e = 63u - (unsigned)__builtin_clzll(x);
+    const unsigned i = (unsigned)(e >= 12 ? x >> (e - 12) : x << (12 - e)) & 4095u;
+    return (ebits_t)e * 65536 + elog2_frac[i];
+}
+
+/* bits of one table for these counts: its header plus the symbols at the normalised probabilities */
+static ebits_t epoch_table_bits(const unsigned* cnt, int alphaMax, int lg)
+{
+    int ms = -1;
+    for (int v = alphaMax; v >= 0; v--) if (cnt[v]) { ms = v; break; }
+    if (ms < 0) return 0;
+    uint16_t norm[TANS_MAX_SYMS];
+    if (!tans_normalize(cnt, ms, lg, norm)) return EB(1) << 40;
+    ebits_t bits = EB(8 * (int64_t)tans_header2_size(norm, ms));
+    for (int s = 0; s <= ms; s++)
+        if (cnt[s]) bits += (ebits_t)cnt[s] * (EB(lg) - elog2(norm[s]));
+    return bits;
+}
+
+/* Prefix histograms over chunks of G symbols (several alphabets side by side, width in all): the counts of
+ * chunks [ca, cb) are cum[cb] - cum[ca], so a candidate epoch costs one pass over the alphabets and the
+ * split search stays linear in the block. Cuts fall on chunk boundaries. */
+typedef struct {
+    int n, G, nck, width;
+    uint32_t* cum;              /* (nck + 1) x width */
+    const int* lgs;             /* sequences: the table logs */
+} epoch_pf_t;
+
+static int epoch_pf_init(epoch_pf_t* pf, int n, int G, int width)
+{
+    pf->n = n; pf->G = G; pf->width = width;
+    pf->nck = (n + G - 1) / G;
+    pf->cum = (uint32_t*)calloc((size_t)(pf->nck + 1) * (size_t)width, sizeof(uint32_t));
+    return pf->cum != NULL;
+}
+
+/* chunk c's counts are added on top of the running prefix */
+static void epoch_pf_close_chunk(epoch_pf_t* pf, int c)
+{
+    uint32_t* const cur = pf->cum + (size_t)(c + 1) * (size_t)pf->width;
+    const uint32_t* const prev = pf->cum + (size_t)c * (size_t)pf->width;
+    for (int k = 0; k < pf->width; k++) cur[k] += prev[k];
+}
+
+static ebits_t seq_epoch_cost(const epoch_pf_t* pf, int ca, int cb)
+{
+    static const int off[3] = { 0, LL_CODES, LL_CODES + ML_CODES + 1 };
+    const uint32_t* const hb = pf->cum + (size_t)cb * (size_t)pf->width;
+    const uint32_t* const ha = pf->cum + (size_t)ca * (size_t)pf->width;
+    ebits_t bits = EB(64 + EPOCH_PEN);   /* the epoch's count and the three state flushes, and the decoder's table rebuild */
+    for (int t = 0; t < 3; t++) {
+        unsigned cnt[TANS_MAX_SYMS];
+        for (int s = 0; s <= epoch_alpha[t]; s++) cnt[s] = hb[off[t] + s] - ha[off[t] + s];
+        bits += epoch_table_bits(cnt, epoch_alpha[t], pf->lgs[t]);
+    }
+    return bits;
+}
+
+static ebits_t lit_epoch_cost(const epoch_pf_t* pf, int ca, int cb)
+{
+    const uint32_t* const hb = pf->cum + (size_t)cb * 256;
+    const uint32_t* const ha = pf->cum + (size_t)ca * 256;
+    uint64_t n = 0;
+    ebits_t bits = EB(64 + LIT_EPOCH_PEN);
+    for (int s = 0; s < 256; s++) n += hb[s] - ha[s];
+    if (!n) return bits;
+    const ebits_t ln = elog2(n);
+    for (int s = 0; s < 256; s++) {
+        const uint32_t c = hb[s] - ha[s];
+        if (c) bits += (ebits_t)c * (ln - elog2(c)) + EB(LIT_HDR_BITS);   /* the table: ~3 bits per present symbol */
+    }
+    return bits;
+}
+
+typedef ebits_t (*epoch_cost_fn)(const epoch_pf_t*, int, int);
+
+/* recursive split of chunks [ca, cb) at the best quarter point while it pays; appends the cut chunk
+ * indexes in increasing order */
+static void epoch_split(const epoch_pf_t* pf, epoch_cost_fn cost, int ca, int cb, ebits_t whole, int minc,
+                        int* cuts, int* ncut, int maxcut, int depth)
+{
+    if (cb - ca < 2 * minc || *ncut >= maxcut || depth > 24) return;
+    int best_m = -1;
+    ebits_t best = whole, bl = 0, br = 0;
+#ifndef EPOCH_Q0
+#define EPOCH_Q0 1
+#endif
+    for (int q = EPOCH_Q0; q <= 4 - EPOCH_Q0; q++) {
+        const int m = ca + (int)((int64_t)(cb - ca) * q / 4);
+        if (m - ca < minc || cb - m < minc) continue;
+        const ebits_t l = cost(pf, ca, m), r = cost(pf, m, cb);
+        if (l + r < best) { best = l + r; best_m = m; bl = l; br = r; }
+    }
+    if (best_m < 0) return;
+    epoch_split(pf, cost, ca, best_m, bl, minc, cuts, ncut, maxcut, depth + 1);
+    if (*ncut < maxcut) cuts[(*ncut)++] = best_m;
+    epoch_split(pf, cost, best_m, cb, br, minc, cuts, ncut, maxcut, depth + 1);
+}
+
+#define EPOCH_G 256        /* sequences per chunk */
+#define LIT_EPOCH_G 1024   /* literals per chunk */
+
+/* cuts (sequence indexes) of a block's sequences; 0 cuts on any failure */
+static int seq_epoch_cuts(unsigned* const syms[3], const int lgs[3], int n, int* cuts)
+{
+    epoch_pf_t pf;
+    const int W = LL_CODES + ML_CODES + 1 + OF_CODES + 3;
+    if (n < 2 * EPOCH_MIN_SEQ || !epoch_pf_init(&pf, n, EPOCH_G, W)) return 0;
+    pf.lgs = lgs;
+    for (int c = 0; c < pf.nck; c++) {
+        uint32_t* const h = pf.cum + (size_t)(c + 1) * (size_t)W;
+        const int e = (c + 1) * EPOCH_G < n ? (c + 1) * EPOCH_G : n;
+        for (int i = c * EPOCH_G; i < e; i++) {
+            h[syms[0][i]]++;
+            h[LL_CODES + syms[1][i]]++;
+            h[LL_CODES + ML_CODES + 1 + syms[2][i]]++;
+        }
+        epoch_pf_close_chunk(&pf, c);
+    }
+    int ncut = 0;
+    const int minc = (EPOCH_MIN_SEQ + EPOCH_G - 1) / EPOCH_G;
+    epoch_split(&pf, seq_epoch_cost, 0, pf.nck, seq_epoch_cost(&pf, 0, pf.nck), minc, cuts, &ncut, EPOCH_MAX - 1, 0);
+    for (int k = 0; k < ncut; k++) cuts[k] *= EPOCH_G;
+    free(pf.cum);
+    return ncut;
+}
+
+/* What the encoder may write (LZ6_compress_seq_opt): `blocks` is a mask of LZ6SEQ_BLOCK_*, `lits` one of LZ6SEQ_LIT(mode) bits.
+ * It travels by pointer down the whole call chain (never a global: two threads may compress with different masks), and
+ * every nesting depth reads the same one: the block inside an x86 block, the blocks of a plane's LZ lanes, the sections
+ * of the literal epochs. With every bit set each test below is true and the encoder is the one of v2.0.2, byte for byte. */
+typedef struct {
+    unsigned blocks;
+    unsigned lits;
+} seq_opt_t;
+#define SEQ_LIT_OK(o, mode) (((o)->lits >> (mode)) & 1u)
+
+/* One literal section: [mode][count:vlq] and the mode's payload. Returns its size, or LITSEC_ERR.
+ * A mode that opt does not allow is not built, so the choice at the end is among the allowed ones (raw always is). */
+#define LITSEC_ERR ((size_t)-1)
+static size_t lit_section_encode(const uint8_t* lits, int lit_count, int level, int fast_lits, const seq_opt_t* opt,
+                                 uint8_t* out, size_t cap)
+{
+    uint8_t* p = out;
+    if (lit_count > 0) {
+        /* the rANS coders take 32-bit symbols: widen only when one runs
+         * (4 bytes per literal of page-faulted memory at L1-3 otherwise) */
+        unsigned* lit_syms = NULL;
+        size_t lit_cap = (size_t)lit_count * 2 + 4096;  /* fse_encode writes backwards; needs ~1.5n */
+        uint8_t* lit_buf = (uint8_t*)malloc(lit_cap);
+        uint8_t* huf_buf = (uint8_t*)malloc(lit_cap);
+        if (!lit_buf || !huf_buf) { free(lit_buf); free(huf_buf); return LITSEC_ERR; }
+        /* huffman first: cheap encode, fast table decode. FSE is only
+         * tried when huffman fails (pathological tree) — its encode is
+         * ~2x more expensive, so skipping it when huffman works is a
+         * Weissman win. */
+        unsigned hcounts[256] = {0};
+        for (int i = 0; i < lit_count; i++) hcounts[lits[i]]++;
+        int hk = 0;
+        int hlim = 0;   /* 1: code lengths were cut to the table width */
+        size_t hhdr = huf_build_header(hcounts, 255, huf_buf, lit_cap, &hk, &hlim, 16);
+        size_t hsz = 0;
+        /* k<=12 keeps table decode (4096 entries); only deeper trees fall
+         * back to FSE. The old k<=10 gate skipped huffman for most text. */
+        /* 4 interleaved streams (lit_mode 7) from LZ6_HUF4_MIN literals:
+         * ~12 bytes more, decoded ~4 symbols at a time */
+        /* restricted: without mode 7 the single stream codes any count; without mode 5 there is no Huffman below
+         * LZ6_HUF4_MIN literals (mode 7 is never written for fewer: a decoder may count on that) */
+        const int huf4 = lit_count >= LZ6_HUF4_MIN && SEQ_LIT_OK(opt, 7);
+        /* one stream's [total_bits:4] holds 32 bits: the single stream (mode 5) is only for a count whose bits fit
+         * whatever the code lengths (<= 16). It mattered once mode 7 could be masked out: 640 MB of literals in one
+         * stream wrapped the count and decoded to wrong bytes. Mode 7's four streams fit for any block (a code no
+         * longer than 8 bits on average, a quarter of at most 2^31 literals each). */
+        const int huf1_fits = (uint64_t)lit_count * 16 <= 0xFFFFFFFFu;
+        if (hhdr > 0 && hk <= 12 && SEQ_LIT_OK(opt, huf4 ? 7 : 5) && (huf4 || huf1_fits)) {
+            size_t hstr = huf4
+                ? huf_encode4_8(huf_buf, lits, (size_t)lit_count, huf_buf + hhdr, lit_cap - hhdr)
+                : huf_encode_stream8(huf_buf, lits, (size_t)lit_count, huf_buf + hhdr, lit_cap - hhdr);
+            if (hstr > 0) hsz = hhdr + hstr;
+        }
+        size_t lit_sz = 0;
+        /* a length-limited Huffman can lose a few % to order-0 rANS (AIT
+         * C/F text): from level 4 try it too; L1-L3 keep the faster one */
+        /* (no Huffman at all, because its modes are not allowed, is the first case: order-0 rANS at every level) */
+        const int try_o0 = SEQ_LIT_OK(opt, 1) && (hsz == 0 || (hlim && level >= 4 && !fast_lits));
+        if (try_o0 || (lit_count >= 65536 && level >= 4 && !fast_lits)) {
+            lit_syms = (unsigned*)malloc((size_t)lit_count * sizeof(unsigned));
+            if (!lit_syms) { free(lit_buf); free(huf_buf); return LITSEC_ERR; }
+            for (int i = 0; i < lit_count; i++) lit_syms[i] = lits[i];
+        }
+        /* FSE vs Huffman: huffman's encode is ~2x cheaper and its decode
+         * ~2x faster (table walk), so it wins any near-tie. Run FSE only
+         * when huffman is absent/pathological. */
+        if (try_o0) {
+            size_t lit_ts;
+            lit_sz = fse_encode(lit_syms, (size_t)lit_count, 255, lit_buf, lit_cap, NULL, 0, &lit_ts);
+        }
+        /* order-1 FSE candidate (lit_mode=3): context = previous literal.
+         * ~30% smaller literal stream than order-0 on text (B/C/H), at the
+         * cost of a 256-table header (active contexts only) and a slower
+         * encode. Compete with huffman/order-0 and keep the smallest.
+         * Gate: sample-estimate H0/H1 first — only pay the full table
+         * build+encode cost when order-1 clearly beats order-0 (text
+         * H1/H0 ~0.70; binary A 0.996; random lanes ~1.0). */
+        uint8_t* ctx_buf = NULL;
+        size_t ctx_sz = 0;
+        int ctx_mode16 = 0;
+        /* order-1 only at level >= 8: at L1/L2 its encode cost dwarfs the
+         * ratio gain and sinks the Weissman score (measured on A-H:
+         * L2 W 2.32 -> 1.76 with order-1 on). It is also slow to decode, and at
+         * levels 4-7 it was never chosen on Silesia or AIT (identical bytes
+         * with it off) while its trial cost ~5% of the encode time. */
+        if (lit_count >= 65536 && level >= 8 && !fast_lits && (SEQ_LIT_OK(opt, 6) || SEQ_LIT_OK(opt, 3))) {
+            /* sample up to 64K literals */
+            int samp = lit_count < 65536 ? lit_count : 65536;
+            uint32_t hist0[256], hist1[256];
+            memset(hist0, 0, sizeof(hist0));
+            memset(hist1, 0, sizeof(hist1));
+            for (int i = 0; i < samp; i++) {
+                hist0[lit_syms[i]]++;
+                if (i > 0) hist1[lit_syms[i - 1] * 0 + lit_syms[i]]++;
+            }
+            /* H0 estimate */
+            double h0 = 0;
+            for (int s = 0; s < 256; s++) {
+                if (!hist0[s]) continue;
+                double pr = (double)hist0[s] / samp;
+                h0 -= pr * log2(pr);
+            }
+            /* H1 estimate via 16 high-nibble contexts */
+            uint32_t hctx[16][256];
+            uint32_t ctx_tot[16];
+            memset(hctx, 0, sizeof(hctx));
+            memset(ctx_tot, 0, sizeof(ctx_tot));
+            for (int i = 1; i < samp; i++) {
+                int c = lit_syms[i - 1] >> 4;
+                hctx[c][lit_syms[i]]++;
+                ctx_tot[c]++;
+            }
+            double h1 = 0;
+            for (int c = 0; c < 16; c++) {
+                if (!ctx_tot[c]) continue;
+                for (int s = 0; s < 256; s++) {
+                    if (!hctx[c][s]) continue;
+                    double pr = (double)hctx[c][s] / ctx_tot[c];
+                    h1 -= (double)ctx_tot[c] / (samp - 1) * pr * log2(pr);
+                }
+            }
+            /* order-1 pays off when it cuts entropy > 10% (text corpora
+             * measure 0.79-0.86 H1/H0; binary stays ~1.0) */
+            if (getenv("LZ6_SEQ_VERBOSE"))
+                fprintf(stderr, "seq: lit gate h0=%.3f h1=%.3f ratio=%.3f lit_count=%d\n",
+                        h0, h1, h0 ? h1 / h0 : 1.0, lit_count);
+            if (h1 < h0 * 0.90 && SEQ_LIT_OK(opt, 6)) {
+                /* 16-context version (lit_mode=6): context = prev>>4.
+                 * Header is 16*513 = 8KB vs 65KB for the 256-ctx mode,
+                 * and the stream gains ~21% on text (vs 30%) — better
+                 * Weissman for mid-size blocks. */
+                uint32_t nib_counts[16][256];
+                uint32_t g_counts2[256];
+                memset(nib_counts, 0, sizeof(nib_counts));
+                memset(g_counts2, 0, sizeof(g_counts2));
+                for (int i = 0; i < lit_count; i++) g_counts2[lit_syms[i]]++;
+                for (int i = 1; i < lit_count; i++)
+                    nib_counts[lit_syms[i - 1] >> 4][lit_syms[i]]++;
+                fse_ctx_table ntab[16];
+                int ok6 = 1;
+                for (int c = 0; c < 16; c++)
+                    if (!fse_ctx_table_build(&ntab[c], nib_counts[c], 255, 12)) { ok6 = 0; break; }
+                if (ok6) {
+                    unsigned* ctxs6 = (unsigned*)malloc((size_t)lit_count * sizeof(unsigned));
+                    uint8_t* s6 = ctxs6 ? (uint8_t*)malloc((size_t)lit_count * 2 + 1024) : NULL;
+                    if (ctxs6 && s6) {
+                        ctxs6[0] = 0;
+                        for (int i = 1; i < lit_count; i++) ctxs6[i] = lit_syms[i - 1] >> 4;
+                        size_t ssz6 = fse_encode_ctx(lit_syms, ctxs6, (size_t)lit_count,
+                                                     ntab, 16, s6, (size_t)lit_count * 2 + 1024);
+                        if (ssz6 > 0) {
+                            size_t hdr6 = 1 + 16 * 513;
+                            ctx_buf = (uint8_t*)malloc(hdr6 + ssz6);
+                            if (ctx_buf) {
+                                uint8_t* q6 = ctx_buf;
+                                *q6++ = 12;  /* L_bits */
+                                for (int c = 0; c < 16; c++)
+                                    q6 += fse_ctx_table_write(&ntab[c], q6, 513);
+                                memcpy(q6, s6, ssz6);
+                                ctx_sz = hdr6 + ssz6;
+                                ctx_mode16 = 1;
+                            }
+                        }
+                    }
+                    free(s6);
+                    free(ctxs6);
+                }
+                for (int c = 0; c < 16; c++) fse_ctx_table_free(&ntab[c]);
+            }
+            /* 256-ctx version (lit_mode=3) — competes with 16ctx: some
+             * corpora (C) have skewed byte-pair structure that 256 ctx
+             * exploits better than the 16-ctx high-nibble split. */
+            if (SEQ_LIT_OK(opt, 3)) {
+                unsigned (*pair_counts)[256] = (unsigned(*)[256])calloc(256, sizeof(unsigned[256]));
+                if (pair_counts) {
+                for (int i = 1; i < lit_count; i++)
+                    pair_counts[lit_syms[i - 1]][lit_syms[i]]++;
+                /* active contexts: enough samples to make a table pay off */
+                unsigned char active_ctx[256];
+                int n_active = 0;
+                unsigned g_counts[256];
+                memset(g_counts, 0, sizeof(g_counts));
+                for (int i = 0; i < lit_count; i++) g_counts[lit_syms[i]]++;
+                for (int c = 0; c < 256; c++) {
+                    unsigned tot = 0;
+                    for (int s = 0; s < 256; s++) tot += pair_counts[c][s];
+                    active_ctx[c] = (tot >= 128) ? 1 : 0;
+                    if (active_ctx[c]) n_active++;
+                }
+                /* context table set: 256 active + 1 order-0 fallback */
+                fse_ctx_table* ctab = (fse_ctx_table*)calloc(257, sizeof(fse_ctx_table));
+                if (ctab) {
+                    int ok = 1;
+                    for (int c = 0; c < 256; c++) {
+                        if (!active_ctx[c]) continue;
+                        if (!fse_ctx_table_build(&ctab[c], pair_counts[c], 255, 12)) { ok = 0; break; }
+                    }
+                    if (ok && !fse_ctx_table_build(&ctab[256], g_counts, 255, 12)) ok = 0;
+                    if (ok) {
+                        /* serialize: bitmap(32) + L_bits(1) + gtab + active tabs */
+                        size_t hdr_sz = 32 + 1 + (size_t)(1 + n_active) * 513;
+                        uint8_t* ctx_hdr = (uint8_t*)malloc(hdr_sz);
+                        if (ctx_hdr) {
+                            uint8_t* q = ctx_hdr;
+                            memset(q, 0, 32);  /* bitmap must be zeroed: garbage bits would
+                                                 * mark unwritten contexts as active */
+                            for (int c = 0; c < 256; c++)
+                                if (active_ctx[c]) q[c >> 3] |= (uint8_t)(1 << (c & 7));
+                            q += 32;
+                            *q++ = 12;  /* L_bits */
+                            q += fse_ctx_table_write(&ctab[256], q, 513);
+                            for (int c = 0; c < 256; c++)
+                                if (active_ctx[c])
+                                    q += fse_ctx_table_write(&ctab[c], q, 513);
+                            /* ctx array: prev byte for i>=1, 0 for i==0;
+                             * inactive contexts route to the fallback (256) */
+                            unsigned* ctxs = (unsigned*)malloc((size_t)lit_count * sizeof(unsigned));
+                            if (ctxs) {
+                                ctxs[0] = active_ctx[0] ? 0u : 256u;
+                                for (int i = 1; i < lit_count; i++) {
+                                    unsigned prev = lit_syms[i - 1];
+                                    ctxs[i] = active_ctx[prev] ? prev : 256u;
+                                }
+                                /* build unified table pointer array for fse_encode_ctx */
+                                fse_ctx_table unified[257];
+                                memcpy(unified, ctab, sizeof(unified));
+                                /* fse_encode_ctx reads tables[0].L_bits as the
+                                 * shared L_bits; context 0 may be inactive
+                                 * (unbuilt, L_bits=0) — patch it. */
+                                if (unified[0].L_bits == 0) unified[0].L_bits = 12;
+                                uint8_t* stream = (uint8_t*)malloc((size_t)lit_count * 2 + 1024);
+                                if (stream) {
+                                    size_t ssz = fse_encode_ctx(lit_syms, ctxs, (size_t)lit_count,
+                                                                unified, 257, stream,
+                                                                (size_t)lit_count * 2 + 1024);
+                                    if (ssz > 0) {
+                                        /* keep 16ctx result; replace only if smaller */
+                                        uint8_t* nb = (uint8_t*)malloc(hdr_sz + ssz);
+                                        if (nb) {
+                                            if (ctx_sz == 0 || hdr_sz + ssz < ctx_sz) {
+                                                free(ctx_buf);
+                                                memcpy(nb, ctx_hdr, hdr_sz);
+                                                memcpy(nb + hdr_sz, stream, ssz);
+                                                ctx_buf = nb;
+                                                ctx_sz = hdr_sz + ssz;
+                                                ctx_mode16 = 0;
+                                            } else {
+                                                free(nb);
+                                            }
+                                        }
+                                    }
+                                    free(stream);
+                                }
+                                free(ctxs);
+                            }
+                            free(ctx_hdr);
+                        }
+                    }
+                    for (int c = 0; c < 257; c++) fse_ctx_table_free(&ctab[c]);
+                    free(ctab);
+                }
+                free(pair_counts);
+                }
+            }
+        }
+        if (getenv("LZ6_SEQ_VERBOSE"))
+            fprintf(stderr, "seq: lit compete hsz=%zu lit_sz=%zu ctx_sz=%zu (mode16=%d) lit_count=%d\n",
+                    hsz, lit_sz, ctx_sz, ctx_mode16, lit_count);
+        /* the 257-byte header goes out bit-packed: compare the modes on that size */
+        uint8_t hc2buf[2 + 256 * 4];
+        size_t hc2 = 0;
+        if (hsz > 0) hc2 = huf_hdr2_write(huf_buf, hc2buf);
+        const size_t hsz2 = hsz > 0 ? hsz - 257 + hc2 : 0;
+        if (hsz > 0 && (ctx_sz == 0 || (size_t)hsz2 <= ctx_sz + ctx_sz / 32) &&
+            (lit_sz == 0 || (size_t)hsz2 <= lit_sz + (size_t)lit_sz / 50)) {
+            /* Huffman wins ties and near-ties (within 2% of order-0, 3% of
+             * order-1): its table decode is faster than rANS
+             * renormalization, and order-1 decodes ~2.5x slower (mozilla:
+             * a 1.0% smaller literal stream cost 2.6x the decode time). */
+            w8(&p, huf4 ? 7 : 5);  /* lit_mode=huffman (4 streams / 1 stream) */
+            p += wvar(p, lit_count);
+            p += wvar(p, (int)(hc2 + hsz - 257));
+            if ((size_t)(p - out) + hc2 + hsz > cap) { free(ctx_buf); free(lit_buf); free(huf_buf); free(lit_syms); return LITSEC_ERR; }
+            memcpy(p, hc2buf, hc2);   /* the compact header, then the streams */
+            memcpy(p + hc2, huf_buf + 257, hsz - 257);
+            p += hc2 + hsz - 257;
+        } else if (ctx_sz > 0 && ctx_sz < (size_t)lit_count &&
+                   (lit_sz == 0 || ctx_sz <= lit_sz)) {
+            w8(&p, ctx_mode16 ? 6 : 3);  /* lit_mode=order-1 FSE (16ctx / 256ctx) */
+            p += wvar(p, lit_count);
+            p += wvar(p, (int)ctx_sz);
+            if ((size_t)(p - out) + ctx_sz > cap) { free(ctx_buf); free(lit_buf); free(huf_buf); free(lit_syms); return LITSEC_ERR; }
+            memcpy(p, ctx_buf, ctx_sz);
+            p += ctx_sz;
+        } else if (lit_sz > 0 && lit_sz < (size_t)lit_count) {
+            w8(&p, 1);  /* lit_mode=fse */
+            p += wvar(p, lit_count);
+            p += wvar(p, (int)lit_sz);
+            if ((size_t)(p - out) + lit_sz > cap) { free(ctx_buf); free(lit_buf); free(huf_buf); free(lit_syms); return LITSEC_ERR; }
+            memcpy(p, lit_buf, lit_sz);
+            p += lit_sz;
+        } else {
+            w8(&p, 0);  /* lit_mode=raw */
+            p += wvar(p, lit_count);
+            if ((size_t)(p - out) + (size_t)lit_count > cap) { free(ctx_buf); free(lit_buf); free(huf_buf); free(lit_syms); return LITSEC_ERR; }
+            memcpy(p, lits, (size_t)lit_count);
+            p += lit_count;
+        }
+        free(ctx_buf);
+        free(lit_buf);
+        free(huf_buf);
+        free(lit_syms);
+    } else {
+        w8(&p, 0);
+        p += wvar(p, 0);
+    }
+
+    return (size_t)(p - out);
+}
+
+/* ---- literal epochs (lit_mode 8) ----
+ * [8][count:vlq][size:vlq] then [epochs:vlq] and one literal section per epoch (any other mode), in order.
+ * Cuts from a recursive split on the order-0 size with an estimated table header. */
+#define LIT_EPOCHS 8
+#ifndef LIT_EPOCH_MIN
+#define LIT_EPOCH_MIN 16384
+#endif
+#define LIT_EPOCH_MAX 256
+/* LITSEC_ERR when there is no cut worth trying (the caller keeps its single section) */
+static size_t lit_epochs_encode(const uint8_t* lits, int lit_count, int level, int fast_lits, const seq_opt_t* opt,
+                                uint8_t* out, size_t cap)
+{
+    if (lit_count < 2 * LIT_EPOCH_MIN) return LITSEC_ERR;
+    int cuts[LIT_EPOCH_MAX];
+    int ncut = 0;
+    epoch_pf_t pf;
+    if (!epoch_pf_init(&pf, lit_count, LIT_EPOCH_G, 256)) return LITSEC_ERR;
+    for (int c = 0; c < pf.nck; c++) {
+        uint32_t* const h = pf.cum + (size_t)(c + 1) * 256;
+        const int e = (c + 1) * LIT_EPOCH_G < lit_count ? (c + 1) * LIT_EPOCH_G : lit_count;
+        for (int i = c * LIT_EPOCH_G; i < e; i++) h[lits[i]]++;
+        epoch_pf_close_chunk(&pf, c);
+    }
+    const int minc = (LIT_EPOCH_MIN + LIT_EPOCH_G - 1) / LIT_EPOCH_G;
+    epoch_split(&pf, lit_epoch_cost, 0, pf.nck, lit_epoch_cost(&pf, 0, pf.nck), minc, cuts, &ncut, LIT_EPOCH_MAX - 1, 0);
+    free(pf.cum);
+    for (int k = 0; k < ncut; k++) cuts[k] *= LIT_EPOCH_G;
+    if (ncut == 0 || cap < 32) return LITSEC_ERR;
+    /* the sections go after a reserved head, which is filled in once their size is known */
+    uint8_t* const body = out + 16;
+    uint8_t* q = body;
+    q += wvar(q, ncut + 1);
+    for (int e = 0; e <= ncut; e++) {
+        const int a = e ? cuts[e - 1] : 0, b = e < ncut ? cuts[e] : lit_count;
+        const size_t ls = lit_section_encode(lits + a, b - a, level, fast_lits, opt, q, cap - (size_t)(q - out));
+        if (ls == LITSEC_ERR) return LITSEC_ERR;
+        q += ls;
+    }
+    const size_t bsz = (size_t)(q - body);
+    uint8_t head[16];
+    uint8_t* h = head;
+    w8(&h, LIT_EPOCHS);
+    h += wvar(h, lit_count);
+    h += wvar(h, (int)bsz);
+    const size_t hs = (size_t)(h - head);
+    memmove(out + hs, body, bsz);
+    memcpy(out, head, hs);
+    return hs + bsz;
+}
+
+/* legacy_f1: the fast parser runs with the options it had before the level-1 retune (1 way, rep0 only, 2 indexed
+ * positions): the BCJ trial below decides on level 1's size, and it has to decide the same way whatever level 1 is */
+static size_t compress_normal_x(const char* src, size_t srcSize,
+                              char* dst, size_t dstCap, int level,
+                                 int fast_lits, int legacy_f1, const seq_opt_t* opt) {
+    /* Phase 1: lz6 match finding */
+    size_t state_sz = (size_t)LZ6_sizeofStateHC();
+    seq_collector_t sc;
+    memset(&sc, 0, sizeof(sc));
+    sc.src = (const uint8_t*)src;
+    sc.lits = (uint8_t*)malloc(srcSize + 65536);
+    if (!sc.lits) return 0;
+
+    /* optimal levels (11-15): price the optimal parse with what the seq
+     * coder will charge (symbol statistics) instead of codeword bytes. The
+     * statistics come from a cheap pre-parse (level `pre`, own context,
+     * freed before the main context is allocated, so the peak memory is
+     * the larger of the two), so the optimal parse runs once; `passes`
+     * extra re-parses refine them. */
+    LZ6HC_seqPrice* sp = NULL;
+    int rc = 0;
+    if (LZ6HC_seqLevelIsOptimal(level) && !getenv("LZ6_NO_SEQPRICE"))
+        sp = (LZ6HC_seqPrice*)malloc(sizeof(LZ6HC_seqPrice));
+    if (sp) {
+        /* the pre-parse has its own parameter row; LZ6_SEQPRICE_PRE=L uses
+         * level L instead (experiments), 0 disables it */
+        int pre = getenv("LZ6_SEQPRICE_PRE") ? atoi(getenv("LZ6_SEQPRICE_PRE")) : LZ6HC_SEQ_PRE_LEVEL;
+        int ok = 0;
+        if (pre != 0) {
+            void* hp = malloc(state_sz);
+            if (hp) {
+                memset(hp, 0, state_sz);
+                if (LZ6_alloc_mem_HC_seq((LZ6HC_Data_Structure*)hp, pre, srcSize)) {
+                    LZ6HC_reset_mem((LZ6HC_Data_Structure*)hp);
+                    ok = LZ6HC_compress_sequences(hp, src, srcSize, collect_seq, &sc) == 0 && sc.n > 0;
+                    LZ6_free_mem_HC(hp);
+                }
+                free(hp);
+            }
+        }
+        if (ok) build_seq_price(&sc, (const uint8_t*)src, sp);
+        else { free(sp); sp = NULL; }
+        sc.n = 0;
+        sc.lit_sum = 0;
+    }
+
+    {
+        unsigned h, m, w;
+        if (LZ6HC_seqFast1Params(level, &h, &m, &w)) {
+#ifdef LZ6_SEQ_TUNING
+            if (getenv("LZ6_F1_H")) h = (unsigned)atoi(getenv("LZ6_F1_H"));
+            if (getenv("LZ6_F1_M")) m = (unsigned)atoi(getenv("LZ6_F1_M"));
+            if (getenv("LZ6_F1_W")) w = (unsigned)atoi(getenv("LZ6_F1_W"));
+#endif
+            if (h < 10) h = 10;
+            if (h > 24) h = 24;
+            if (m < 4) m = 4;
+            if (m > 8) m = 8;
+            if (w < 10) w = 10;
+            if (w > 25) w = 25;
+            unsigned ways, rep3, insp;
+            LZ6HC_seqFast1Opts(level, &ways, &rep3, &insp);
+            if (legacy_f1) { h = 15; m = 6; w = 20; ways = 1; rep3 = 0; insp = 1; }
+#ifdef LZ6_SEQ_TUNING
+            if (getenv("LZ6_F1_WAYS")) ways = (unsigned)atoi(getenv("LZ6_F1_WAYS"));
+            if (getenv("LZ6_F1_REP")) rep3 = (unsigned)atoi(getenv("LZ6_F1_REP"));
+            if (getenv("LZ6_F1_INS")) insp = (unsigned)atoi(getenv("LZ6_F1_INS"));
+#endif
+            if (fast1_parse(&sc, (const uint8_t*)src, srcSize, h, m, w, ways, rep3, insp)) {
+                free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets); return 0;
+            }
+            goto parsed;
+        }
+    }
+    void* hc = malloc(state_sz);
+    if (!hc) { free(sp); free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets); return 0; }
+    memset(hc, 0, state_sz);
+    if (!LZ6_alloc_mem_HC_seq((LZ6HC_Data_Structure*)hc, level, srcSize)) {
+        free(hc); free(sp); free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets);
+        return 0;   /* alloc returns 1 on success */
+    }
+    /* The alloc leaves the hash/chain tables uninitialized (LZ6HC_init only
+     * zeroes them under LZ6_RESET_MEM, which production builds don't define),
+     * and the fast parser reads before its first insert — garbage table
+     * entries make the match finder non-deterministic and can crash. Zero
+     * them for a clean one-shot run. */
+    LZ6HC_reset_mem((LZ6HC_Data_Structure*)hc);
+    if (sp) LZ6HC_setSeqPrice(hc, sp);
+    rc = LZ6HC_compress_sequences(hc, src, srcSize, collect_seq, &sc);
+    if (sp) {
+        /* refinement re-parses per seq level (see LZ6HC_seqParameters) */
+        static const int seq_refine_passes[LZ6HC_MAX_CLEVEL + 1] =
+            { 0, 0,0,0,0,0, 0,0,0,0,0, 0,0,0,1,2 };   /* 2.0: each row runs the passes of the 1.7.1 row below it */
+        int passes = seq_refine_passes[level < 1 ? 1 : level > LZ6HC_MAX_CLEVEL ? LZ6HC_MAX_CLEVEL : level];
+        if (getenv("LZ6_SEQPRICE_PASSES")) passes = atoi(getenv("LZ6_SEQPRICE_PASSES"));
+        for (int ps = 0; ps < passes && !rc && sc.n > 0; ps++) {
+            build_seq_price(&sc, (const uint8_t*)src, sp);
+            sc.n = 0;
+            sc.lit_sum = 0;
+            LZ6HC_reset_mem((LZ6HC_Data_Structure*)hc);
+            LZ6HC_setSeqPrice(hc, sp);
+            rc = LZ6HC_compress_sequences(hc, src, srcSize, collect_seq, &sc);
+        }
+        LZ6HC_setSeqPrice(hc, NULL);
+        free(sp);
+    }
+    LZ6_free_mem_HC(hc);   /* free internal hash tables (64MB with max hashLog) */
+    free(hc);              /* free the state struct itself */
+    if (rc) { free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets); return 0; }
+    if (level >= 3 && !getenv("LZ6_NO_SEQGUARD")) seq_guard(&sc, src, srcSize);
+    fill_literals(&sc);
+parsed:;
+    if (seq_over_limits(&sc)) {   /* rare: see seq_fit_limits */
+        if (seq_fit_limits(&sc, (const uint8_t*)src, srcSize)) {
+            size_t stored = 0;   /* no parse the format can hold: store the block */
+            if (srcSize + 5 <= dstCap) { uint8_t* rop = (uint8_t*)dst; w8(&rop, 1); w32le(&rop, (uint32_t)srcSize); memcpy(rop, src, srcSize); stored = srcSize + 5; }
+            free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets);
+            return stored;
+        }
+        sc.lit_built = 0;         /* the literals follow the rewritten parse */
+        fill_literals(&sc);
+    }
+#ifdef LZ6_SEQ_DUMP
+    if (getenv("LZ6_SEQ_DUMP")) {   /* experiment hook: raw (ll, ml, offset) triples */
+        FILE* df = fopen(getenv("LZ6_SEQ_DUMP"), "ab");
+        if (df) {
+            for (size_t i = 0; i < sc.n; i++) {
+                int32_t t[3] = { sc.lit_lens[i], sc.match_lens[i], sc.offsets[i] };
+                fwrite(t, sizeof(t), 1, df);
+            }
+            fclose(df);
+        }
+    }
+#endif
+    int sc_cnt = (int)sc.n;
+
+    /* Phase 2: build the block into a temp buffer (so we can fall back
+     * to raw storage if the compressed block expands). */
+    size_t blk_cap = srcSize + (srcSize >> 1) + 65536;
+    if (blk_cap < 64) blk_cap = 64;
+    uint8_t* blk = (uint8_t*)malloc(blk_cap);
+    if (!blk) { free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets); return 0; }
+    uint8_t* p = blk;
+    uint8_t* out = (uint8_t*)dst;
+    uint8_t* out_end = out + dstCap;
+    (void)out_end;
+
+    w8(&p, SEQ_EPOCH_FLAG);   /* flags: not raw, table epochs */
+    w32le(&p, (uint32_t)srcSize);
+    size_t sz_hdr = (size_t)(p - blk);
+
+    /* literals: Huffman (lit_mode=5, fast table decode) vs FSE order-0
+     * (lit_mode=1), fall back to raw (lit_mode=0). Huffman's 257-byte
+     * header wins on large blocks; FSE's compact header on small ones —
+     * pick whichever is smaller. */
+    int lit_count = (int)sc.lit_built;
+    {
+        /* literal epochs: the literals cut where their statistics change. From level 4 the single
+         * section is coded too and the smaller one kept; below, the split's estimate decides alone. */
+        /* restricted: epochs need mode 8, and a mode whose size the split estimates (order-0: Huffman or rANS). With
+         * raw sections only, or order-1 ones alone, the cuts would be paid for nothing (and below level 4 nothing
+         * compares them with the single section). */
+        const int no_ep = getenv("LZ6_NO_EPOCHS") != NULL || !SEQ_LIT_OK(opt, LIT_EPOCHS) ||
+                          !(SEQ_LIT_OK(opt, 1) || SEQ_LIT_OK(opt, 5) || SEQ_LIT_OK(opt, 7));
+        const size_t cap = blk_cap - (size_t)(p - blk);
+        size_t ls = LITSEC_ERR;
+        if (level < 4 && !no_ep) ls = lit_epochs_encode(sc.lits, lit_count, level, fast_lits, opt, p, cap);
+        if (ls == LITSEC_ERR) {
+            ls = lit_section_encode(sc.lits, lit_count, level, fast_lits, opt, p, cap);
+            if (ls == LITSEC_ERR) { free(blk); free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets); return 0; }
+            /* the epochs candidate gets a buffer of its own: coded into what the single section left of blk it
+             * did not fit when the literals were most of the block, and was dropped without a word (2.0.0, 2.0.1) */
+            if (level >= 4 && !no_ep && lit_count >= 2 * LIT_EPOCH_MIN) {
+                const size_t ecap = (size_t)lit_count + ((size_t)lit_count >> 4) + 65536;
+                uint8_t* const eb = (uint8_t*)malloc(ecap);
+                if (eb) {
+                    const size_t le = lit_epochs_encode(sc.lits, lit_count, level, fast_lits, opt, eb, ecap);
+                    if (le != LITSEC_ERR && le < ls) { memcpy(p, eb, le); ls = le; }
+                    free(eb);
+                }
+            }
+        }
+        p += ls;
+    }
+
+    w32le(&p, (uint32_t)sc_cnt);
+    size_t sz_lits = (size_t)(p - blk) - sz_hdr;
+    int lit_mode_chosen = blk[sz_hdr];
+
+    /* Convert sequences to symbols + repcodes */
+    unsigned* ll_syms = (unsigned*)malloc(((size_t)sc_cnt + 1) * sizeof(unsigned));
+    unsigned* ml_syms = (unsigned*)malloc(((size_t)sc_cnt + 1) * sizeof(unsigned));
+    unsigned* of_syms = (unsigned*)malloc(((size_t)sc_cnt + 1) * sizeof(unsigned));
+    tans_ctable* cts = (tans_ctable*)malloc(3 * sizeof(tans_ctable));
+    if (!ll_syms || !ml_syms || !of_syms || !cts) {
+        free(ll_syms); free(ml_syms); free(of_syms); free(cts);
+        free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets);
+        return 0;
+    }
+    int rp[3] = {0, 0, 0};
+    size_t lz6_stat_rep[3] = {0, 0, 0}, lz6_stat_new = 0;
+    for (int i = 0; i < sc_cnt; i++) {
+        ll_syms[i] = (unsigned)ll_code(sc.lit_lens[i]);
+        if (sc.match_lens[i] > 0) {
+            ml_syms[i] = (unsigned)ml_code(sc.match_lens[i]) + 1;
+            int of = sc.offsets[i];
+            int pc = 0, ri = -1;
+            if (of == rp[0]) { pc = 1; ri = 0; }
+            else if (of == rp[1]) { pc = 2; ri = 1; }
+            else if (of == rp[2]) { pc = 3; ri = 2; }
+            of_syms[i] = pc == 0 ? (unsigned)of_code(of) : (unsigned)(OF_CODES + ri);
+            if (pc == 0) lz6_stat_new++; else lz6_stat_rep[pc - 1]++;
+            if (pc == 0) {
+                rp[2] = rp[1]; rp[1] = rp[0]; rp[0] = of;   /* of != rp[0]: an offset equal to rep0 is coded as rep0 above */
+            } else if (ri > 0) {
+                int t = rp[ri];
+                for (int k = ri; k > 0; k--) rp[k] = rp[k-1];
+                rp[0] = t;
+            }
+        } else {
+            ml_syms[i] = 0;
+            of_syms[i] = 0;
+        }
+    }
+
+    /* sequence section: three tANS tables, then ONE backward bitstream with
+     * the ll/ml/of states and every extra bit (offsets: a code for the
+     * small value or the bucket + low 3 bits, plus raw middle bits). Written last sequence first so the decoder reads
+     * sequence 0 first; within a sequence the decoder reads the offset
+     * bits, ml bits, ll bits, then the ll/ml/of state updates.
+     * With table epochs (format 2) the section starts with the epoch count and
+     * every epoch has its sequence count and three tables; the one bitstream
+     * holds the epochs in order, each opening with its own initial states.
+     *   [epochs:vlq] { [seqs:vlq][ll table][ml table][of table] }... [bits len:4][8 pad bytes][bits] */
+    size_t sz_tabs_start = (size_t)(p - blk);
+    size_t sz_tabs = 0, sz_bits = 0;
+    seq_epoch_t* ep = NULL;
+    if (sc_cnt > 0) {
+        const char* envn[3] = { "LZ6_TLOG_LL", "LZ6_TLOG_ML", "LZ6_TLOG_OF" };
+        static const int deflog[3] = { 10, 10, 11 };   /* 8-byte decode entries: 32KB of tables, L1-resident */
+        unsigned* syms[3] = { ll_syms, ml_syms, of_syms };
+        int lgs[3];
+        for (int t = 0; t < 3; t++) {
+            int lg = deflog[t];
+            const char* ev = getenv(envn[t]);
+            if (ev) lg = atoi(ev);
+            if (lg < TANS_MIN_LOG) lg = TANS_MIN_LOG;
+            if (lg > TANS_MAX_LOG) lg = TANS_MAX_LOG;
+            lgs[t] = lg;
+        }
+        int cuts[EPOCH_MAX];
+        int ncut = 0;
+        if (!getenv("LZ6_NO_EPOCHS"))
+            ncut = seq_epoch_cuts(syms, lgs, sc_cnt, cuts);
+        const int ne = ncut + 1;
+        ep = (seq_epoch_t*)malloc((size_t)ne * sizeof(seq_epoch_t));
+        if (!ep) goto oom;
+        p += wvar(p, ne);
+        for (int e = 0; e < ne; e++) {
+            ep[e].a = e ? cuts[e - 1] : 0;
+            ep[e].rep = 0;
+            ep[e].b = e < ncut ? cuts[e] : sc_cnt;
+            if ((size_t)(blk_cap - (size_t)(p - blk)) < 8 + 3 * (2 + 2 * TANS_MAX_SYMS)) goto oom;
+            p += wvar(p, ep[e].b - ep[e].a);
+            for (int t = 0; t < 3; t++) {
+                unsigned cnt[TANS_MAX_SYMS];
+                memset(cnt, 0, sizeof(cnt));
+                for (int i = ep[e].a; i < ep[e].b; i++) cnt[syms[t][i]]++;
+                int ms = 0;
+                for (int v = epoch_alpha[t]; v >= 0; v--) if (cnt[v]) { ms = v; break; }
+                /* a small epoch can do better with a coarser table: its header shrinks more than its symbols grow */
+                int lg = lgs[t];
+                if (!getenv("LZ6_FIXED_TLOG")) {
+                    ebits_t best = epoch_table_bits(cnt, epoch_alpha[t], lg);
+                    for (int l = lgs[t] - 1; l >= lgs[t] - 3 && l >= TANS_MIN_LOG; l--) {
+                        const ebits_t b = epoch_table_bits(cnt, epoch_alpha[t], l);
+                        if (b < best) { best = b; lg = l; }
+                    }
+                }
+                /* the previous epoch's table, when it codes this epoch about as well: one byte instead of the
+                 * header, and the decoder keeps the table it has (no rebuild) */
+                if (e > 0 && ms <= ep[e - 1].ms[t] && !getenv("LZ6_NO_TABLE_REPEAT")) {
+                    const uint16_t* pn = ep[e - 1].norm[t];
+                    const int pl = ep[e - 1].lg[t];
+                    ebits_t rb = EB(8);
+                    int usable = 1;
+                    for (int v = 0; v <= ms; v++)
+                        if (cnt[v]) { if (!pn[v]) { usable = 0; break; } rb += (ebits_t)cnt[v] * (EB(pl) - elog2(pn[v])); }
+                    if (usable && rb <= epoch_table_bits(cnt, epoch_alpha[t], lg) + EB(TABLE_REPEAT_BIAS)) {
+                        memcpy(ep[e].norm[t], pn, sizeof(ep[e].norm[t]));
+                        ep[e].ms[t] = ep[e - 1].ms[t];
+                        ep[e].lg[t] = (uint8_t)pl;
+                        ep[e].rep |= (uint8_t)(1u << t);
+                        *p++ = 0;
+                        continue;
+                    }
+                }
+                if (!tans_normalize(cnt, ms, lg, ep[e].norm[t])) goto oom;
+                ep[e].ms[t] = (uint8_t)ms;
+                ep[e].lg[t] = (uint8_t)lg;
+                p += tans_write_header2(p, ep[e].norm[t], ms, lg);
+            }
+        }
+        sz_tabs = (size_t)(p - blk) - sz_tabs_start;
+
+        if ((size_t)(blk_cap - (size_t)(p - blk)) < 16) goto oom;
+        uint8_t* lenp = p;
+        p += 4;
+        memset(p, 0, 8);
+        tbw_t w = { 0, 0, p + 8, blk + blk_cap, 0 };
+        for (int e = ne - 1; e >= 0 && !w.err; e--) {
+        for (int t = 0; t < 3; t++) tans_build_ctable(&cts[t], ep[e].norm[t], ep[e].ms[t], ep[e].lg[t]);
+        tans_cstate sLL, sML, sOF;
+        const int last = ep[e].b - 1;
+        tans_cinit(&sLL, &cts[0], ll_syms[last]);
+        tans_cinit(&sML, &cts[1], ml_syms[last]);
+        tans_cinit(&sOF, &cts[2], of_syms[last]);
+        /* bits per sequence: states 3 x <= 12, ll + ml extras <= 2 x 24,
+         * offset residual <= 24 -- one flush after each group keeps the
+         * 64-bit accumulator (<= 7 bits left over) from overflowing */
+        for (int n = last; n >= ep[e].a; n--) {
+            if (w.end - w.p < 32) { w.err = 1; break; }
+            if (n < last) {
+                tans_cencode(&sOF, &cts[2], &w, of_syms[n]);
+                tans_cencode(&sML, &cts[1], &w, ml_syms[n]);
+                tans_cencode(&sLL, &cts[0], &w, ll_syms[n]);
+                tbw_flush(&w);
+            }
+            const unsigned lc = ll_syms[n];
+            const uint32_t lx = (uint32_t)(sc.lit_lens[n] - LL_base[lc]);
+            LZ6SEQ_ASSERT(lx < (1u << LL_extra[lc]));   /* tbw_put would silently truncate it */
+            tbw_put(&w, lx, (unsigned)LL_extra[lc]);
+            if (ml_syms[n] > 0) {
+                const unsigned mr = ml_syms[n] - 1;
+                const uint32_t mx = (uint32_t)(sc.match_lens[n] - ML_base[mr]);
+                LZ6SEQ_ASSERT(mx < (1u << ML_extra[mr]));
+                tbw_put(&w, mx, (unsigned)ML_extra[mr]);
+                tbw_flush(&w);
+                const unsigned oc = of_syms[n];
+                if (oc < OF_CODES) { tbw_put(&w, (uint32_t)(sc.offsets[n] - OF_base[oc]) >> OF_LOW, OF_extra[oc]); tbw_flush(&w); }
+            } else tbw_flush(&w);
+        }
+        tans_cflush(&sML, &cts[1], &w);
+        tans_cflush(&sOF, &cts[2], &w);
+        tans_cflush(&sLL, &cts[0], &w);
+        tbw_flush(&w);
+        }
+        tbw_close(&w);
+        if (w.err) goto oom;
+        const uint32_t blen = (uint32_t)(w.p - p);
+        lenp[0] = (uint8_t)blen; lenp[1] = (uint8_t)(blen >> 8);
+        lenp[2] = (uint8_t)(blen >> 16); lenp[3] = (uint8_t)(blen >> 24);
+        p = w.p;
+        sz_bits = blen;
+    }
+
+    size_t blk_len = (size_t)(p - blk);
+    if (getenv("LZ6_SEQ_STATS")) {
+        /* match-length histogram: 4-7, 8-11, 12-15, 16-23, 24-31, 32-63, 64-127, 128+ */
+        size_t mh[8] = {0};
+        size_t ofsum = 0;
+        for (int i = 0; i < sc_cnt; i++) {
+            size_t ml = (size_t)sc.match_lens[i];
+            if (ml == 0) continue;
+            ofsum += (size_t)sc.offsets[i];
+            int b = ml < 8 ? 0 : ml < 12 ? 1 : ml < 16 ? 2 : ml < 24 ? 3
+                  : ml < 32 ? 4 : ml < 64 ? 5 : ml < 128 ? 6 : 7;
+            mh[b]++;
+        }
+        fprintf(stderr, "SEQSTAT src=%zu seqs=%zu lits=%d mode=%d out=%zu hdr=%zu litsz=%zu "
+                "tabs=%zu bits=%zu\n",
+                srcSize, (size_t)sc_cnt, lit_count, lit_mode_chosen, blk_len, sz_hdr,
+                sz_lits, sz_tabs, sz_bits);
+        fprintf(stderr, "SEQHIST src=%zu %zu %zu %zu %zu %zu %zu %zu %zu | meanoff=%zu | "
+                "litbytes=%zu rep0=%zu rep1=%zu rep2=%zu new=%zu\n",
+                srcSize, mh[0], mh[1], mh[2], mh[3], mh[4], mh[5], mh[6], mh[7],
+                sc_cnt ? ofsum / (size_t)sc_cnt : 0,
+                (size_t)lit_count, lz6_stat_rep[0], lz6_stat_rep[1], lz6_stat_rep[2], lz6_stat_new);
+    }
+    size_t result = 0;
+    if (blk_len < srcSize && blk_len <= dstCap) {
+        /* compressed block fits and helps — copy it */
+        memcpy(out, blk, blk_len);
+        result = blk_len;
+    } else if (srcSize + 5 <= dstCap) {
+        /* raw fallback: flags=1 + isize + payload */
+        uint8_t* rop = out;
+        w8(&rop, 1);
+        w32le(&rop, (uint32_t)srcSize);
+        memcpy(rop, src, srcSize);
+        result = srcSize + 5;
+    }
+
+    free(ep);
+    free(blk);
+    free(cts);
+    free(ll_syms); free(ml_syms); free(of_syms);
+    free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets);
+    return result;
+
+oom:
+    free(ep);
+    free(blk);
+    free(cts);
+    free(ll_syms); free(ml_syms); free(of_syms);
+    free(sc.lits); free(sc.lit_lens); free(sc.match_lens); free(sc.offsets);
+    return 0;
+}
+
+/* fast_lits = 1: literals only as Huffman (or raw), never the order-1 /
+ * order-0 rANS coders -- they decode several times slower (byte-plane lanes:
+ * mr at L8 decoded 780 -> 240 MB/s with order-1 lanes) */
+static size_t compress_normal_ex(const char* src, size_t srcSize, char* dst, size_t dstCap, int level, int fast_lits,
+                                 const seq_opt_t* opt)
+{
+    return compress_normal_x(src, srcSize, dst, dstCap, level, fast_lits, 0, opt);
+}
+
+static size_t compress_normal(const char* src, size_t srcSize,
+                              char* dst, size_t dstCap, int level, const seq_opt_t* opt)
+{
+    return compress_normal_ex(src, srcSize, dst, dstCap, level, 0, opt);
+}
+
+/* ---- byte-plane transform (stride 2/4) ----
+ * Files with one byte per value of low entropy (e.g. IEEE float exponent
+ * bytes, 16-bit image channels) compress poorly as an interleaved byte
+ * stream but each lane compresses well on its own. Split the input into
+ * `stride` lanes, compress the low-entropy lanes with the normal block,
+ * store the incompressible lanes raw. */
+static void lane_hist(const uint8_t* src, size_t n, int stride, uint32_t hist[4][256]) {
+    size_t i = 0;
+    if (stride == 4)
+        for (; i + 4 <= n; i += 4) {
+            hist[0][src[i]]++; hist[1][src[i + 1]]++; hist[2][src[i + 2]]++; hist[3][src[i + 3]]++;
+        }
+    else if (stride == 2)   /* not the generic loop below: its i % stride is a 64-bit division per byte (~20 cycles) */
+        for (; i + 2 <= n; i += 2) {
+            hist[0][src[i]]++; hist[1][src[i + 1]]++;
+        }
+    for (; i < n; i++) hist[i % (size_t)stride][src[i]]++;   /* the tail: fewer than `stride` bytes */
+}
+
+/* Per-lane order-0 entropy (x256) of `stride` interleaved lanes. Inputs
+ * over 1MB are sampled (16 evenly spaced 64KB chunks, stride-aligned):
+ * the values only gate the plane trial, and full passes cost ~4% of L2
+ * encode time. Lanes with < 256 samples report 0. */
+static void lane_entropy256(const uint8_t* src, size_t n, int stride, unsigned ent[4]) {
+    uint32_t hist[4][256];
+    memset(hist, 0, sizeof(hist));
+    const size_t chunk = 65536, nchunks = 16;
+    if (n <= chunk * nchunks) lane_hist(src, n, stride, hist);
+    else
+        for (size_t k = 0; k < nchunks; k++) {
+            size_t off = (n / nchunks) * k;
+            off -= off % (size_t)stride;
+            lane_hist(src + off, chunk, stride, hist);
+        }
+    for (int l = 0; l < stride; l++) {
+        uint32_t cnt = 0;
+        for (int b = 0; b < 256; b++) cnt += hist[l][b];
+        ent[l] = 0;
+        if (cnt < 256) continue;
+        uint64_t H = 0;
+        for (int b = 0; b < 256; b++) {
+            if (!hist[l][b]) continue;
+            double pr = (double)hist[l][b] / (double)cnt;
+            H += (uint64_t)(-pr * log2(pr) * 256.0);
+        }
+        ent[l] = (unsigned)H;
+    }
+}
+
+/* Codes one lane (a byte stream of n bytes with entropy ent, in 1/256 bits): *payload is the coded lane (malloc'd) with
+ * *csize bytes and *mode 1 (LZ) or 2 (Huffman), or NULL when the lane is better stored raw.
+ * Both lane modes belong to the plane block (LZ6SEQ_BLOCK_PLANE); opt restricts the literals of an LZ lane's block. */
+static void plane_lane_code(const uint8_t* lane, size_t plane_size, unsigned ent, int level, const seq_opt_t* opt,
+                            uint8_t** payload_out, size_t* csize_out, int* mode_out) {
+    uint8_t* payload = NULL;
+    size_t csize = 0;
+    int mode = 0;
+    if (ent < 3 * 256) {
+        /* very low entropy lane: try pure Huffman (small alphabet,
+         * random order — E's exponent plane) and LZ (long runs —
+         * G's constant lanes); pick the smaller. */
+        unsigned counts[256] = {0};
+        unsigned* syms = (unsigned*)malloc(plane_size * sizeof(unsigned));
+        uint8_t* hb = NULL;
+        if (syms) {
+            for (size_t j = 0; j < plane_size; j++) { syms[j] = lane[j]; counts[lane[j]]++; }
+            hb = (uint8_t*)malloc(plane_size + 1024);
+        }
+        if (hb) {
+            int k = 0;
+            size_t hhdr = huf_build_header(counts, 255, hb, plane_size + 1024, &k, NULL, 16);
+            if (hhdr > 0 && k <= 10) {
+                size_t hstr = huf_encode_stream(hb, syms, plane_size,
+                                                hb + hhdr, plane_size + 1024 - hhdr);
+                if (hstr > 0 && hhdr + hstr < plane_size) {
+                    payload = hb;
+                    csize = hhdr + hstr;
+                    mode = 2;
+                }
+            }
+        }
+        /* LZ candidate */
+        size_t lz_cap = plane_size + (plane_size >> 1) + 4096;
+        uint8_t* lz_buf = (uint8_t*)malloc(lz_cap);
+        if (lz_buf) {
+            size_t lz_size = compress_normal_ex((const char*)lane, plane_size,
+                                                (char*)lz_buf, lz_cap, level, 1, opt);
+            if (lz_size > 0 && lz_size < plane_size - 32 &&
+                (csize == 0 || lz_size < csize)) {
+                payload = lz_buf;   /* hb (if any) is freed below */
+                csize = lz_size;
+                mode = 1;
+            } else {
+                free(lz_buf);
+            }
+        }
+        if (payload != hb) free(hb);   /* Huffman built but LZ (or nothing) won */
+        free(syms);
+    } else if (ent < 7 * 256) {
+        size_t tmp_cap = plane_size + (plane_size >> 1) + 4096;
+        payload = (uint8_t*)malloc(tmp_cap);
+        if (payload) {
+            /* lanes are byte streams: L1 lazy matching is near-optimal
+             * and much faster than the outer level (which also hurts
+             * ratio here — F/G lanes compress best at L1) */
+            csize = compress_normal_ex((const char*)lane, plane_size,
+                                       (char*)payload, tmp_cap, 1, 1, opt);
+            /* no single lane level wins: F/G lanes are best at L1 (the
+             * single-pass parser), x-ray's at L4 (row hash, -3%). From
+             * outer level 4, try L4 too and keep the smaller. */
+            if (level >= 4) {
+                uint8_t* alt = (uint8_t*)malloc(tmp_cap);
+                if (alt) {
+                    const size_t a4 = compress_normal_ex((const char*)lane, plane_size,
+                                                         (char*)alt, tmp_cap, 4, 1, opt);
+                    if (a4 > 0 && (csize == 0 || a4 < csize)) {
+                        free(payload); payload = alt; csize = a4;
+                    } else free(alt);
+                }
+            }
+            if (csize == 0 || csize >= plane_size - 32) {
+                free(payload);
+                payload = NULL;
+                csize = 0;
+            }
+        }
+        if (payload) mode = 1;
+    }
+    *payload_out = payload; *csize_out = csize; *mode_out = mode;
+}
+
+/* byte delta along a lane: d[0] = b[0], d[j] = b[j] - b[j-1]; plane_undelta is its inverse (a prefix sum) */
+static void plane_delta(uint8_t* dst, const uint8_t* src, size_t n) {
+    if (!n) return;
+    dst[0] = src[0];
+    for (size_t j = 1; j < n; j++) dst[j] = (uint8_t)(src[j] - src[j - 1]);
+}
+static void plane_undelta(uint8_t* p, size_t n) {
+    size_t i = 0;
+#if defined(__SSE2__)
+    __m128i carry = _mm_setzero_si128();
+    for (; i + 16 <= n; i += 16) {
+        __m128i x = _mm_loadu_si128((const __m128i*)(p + i));
+        x = _mm_add_epi8(x, _mm_slli_si128(x, 1));
+        x = _mm_add_epi8(x, _mm_slli_si128(x, 2));
+        x = _mm_add_epi8(x, _mm_slli_si128(x, 4));
+        x = _mm_add_epi8(x, _mm_slli_si128(x, 8));
+        x = _mm_add_epi8(x, carry);
+        _mm_storeu_si128((__m128i*)(p + i), x);
+        carry = _mm_set1_epi8((char)_mm_cvtsi128_si32(_mm_srli_si128(x, 15)));
+    }
+#endif
+    uint8_t acc = i ? p[i - 1] : 0;
+    for (; i < n; i++) { acc = (uint8_t)(acc + p[i]); p[i] = acc; }
+}
+
+/* Returns bytes written to dst, or 0 if the plane transform does not help.
+ * *decisive_out (optional) is set to 1 when the lane skew is so extreme the
+ * plane block is guaranteed to beat the normal block — caller may skip the
+ * full normal encode to save time. */
+static size_t plane_encode(const uint8_t* src, size_t srcSize,
+                           uint8_t* dst, size_t dstCap, int level, const seq_opt_t* opt,
+                           int* decisive_out, int force_stride, int* stride_out) {
+    if (decisive_out) *decisive_out = 0;
+    int stride = 0;
+    unsigned lane_ent[4] = {0, 0, 0, 0};
+    if ((srcSize % 4) == 0) stride = 4;
+    else if ((srcSize % 2) == 0) stride = 2;
+    if (force_stride) stride = (srcSize % (size_t)force_stride) == 0 ? force_stride : 0;   /* the trial: the block's stride */
+    if (!stride) return 0;
+    lane_entropy256(src, srcSize, stride, lane_ent);
+    /* The stride comes from the data, not from the length: when lanes 0 and 2 look alike and so do 1 and 3 (within
+     * a quarter bit), the data has a period of 2 (16-bit samples) and stride 4 would cut each 16-bit lane in two halves
+     * with half the history each (Silesia mr, whose length is a multiple of 4: 2.5% larger at level 1, 13.6% at 13). */
+    if (stride == 4 && !force_stride) {
+        const unsigned d02 = lane_ent[0] > lane_ent[2] ? lane_ent[0] - lane_ent[2] : lane_ent[2] - lane_ent[0];
+        const unsigned d13 = lane_ent[1] > lane_ent[3] ? lane_ent[1] - lane_ent[3] : lane_ent[3] - lane_ent[1];
+        if (d02 < 64 && d13 < 64) {
+            /* ...and the merged lanes must be the same streams, not two that only share an entropy (two channels
+             * with different offsets): each stride-2 lane no worse than the mean of the two it is made of */
+            unsigned e2[4] = {0, 0, 0, 0};
+            lane_entropy256(src, srcSize, 2, e2);
+            if (e2[0] <= (lane_ent[0] + lane_ent[2]) / 2 + 16 && e2[1] <= (lane_ent[1] + lane_ent[3]) / 2 + 16) {
+                stride = 2;
+                lane_ent[0] = e2[0]; lane_ent[1] = e2[1]; lane_ent[2] = lane_ent[3] = 0;
+            }
+        }
+    }
+    if (stride_out) *stride_out = stride;
+    /* The win comes from lane skew: at least one lane must be very
+     * compressible (H < 5 b/B) while others stay near-incompressible. */
+    unsigned min_ent = 0xFFFFFFFFu;
+    for (int i = 0; i < stride; i++) if (lane_ent[i] < min_ent) min_ent = lane_ent[i];
+    unsigned max_ent = 0;
+    for (int i = 0; i < stride; i++) if (lane_ent[i] > max_ent) max_ent = lane_ent[i];
+    if (min_ent >= 5 * 256) return 0;
+    /* ...and the lanes must differ: equal lanes (text: every lane of a
+     * novel sits at ~4.4 b/B) only mean a costly trial encode that loses.
+     * Measured on Silesia + AIT: plane wins at spread >= 3.1 b/B (F,
+     * x-ray, E/G/mr) and loses at <= 2.3 (sao, mozilla, dickens). */
+    if (max_ent - min_ent < 27 * 256 / 10) return 0;
+    if (dstCap < 5 + (size_t)stride) return 0;
+    if (decisive_out && min_ent <= 2 * 256) *decisive_out = 1;
+
+    size_t plane_size = srcSize / (size_t)stride;
+    uint8_t* plane_buf = (uint8_t*)malloc(plane_size);
+    if (!plane_buf) return 0;
+
+    /* header: flags bit3=plane, bits0-1=stride code (0=2,2=4) + isize */
+    uint8_t* p = dst;
+    uint8_t* dst_end = dst + dstCap;
+    w8(&p, 0x08 | (stride == 4 ? 2 : 0));
+    w32le(&p, (uint32_t)srcSize);
+
+    /* from row 4 (level 2) up: below it the lanes are coded with the fast parser, whose delta lanes carry more sequences
+     * (mr: +11..17% decode cycles at levels -1 and 1; from level 2 it decodes 11% faster as well as smaller) */
+    /* restricted: without LZ6SEQ_BLOCK_PLANE_DELTA no lane is tried as deltas, and the test hook below is off with it */
+    const int delta_ok = level >= 4 && (opt->blocks & LZ6SEQ_BLOCK_PLANE_DELTA) && getenv("LZ6_NO_PLANEDELTA") == NULL;
+    const int delta_force = delta_ok && getenv("LZ6_PLANEDELTA_FORCE") != NULL;
+    for (int i = 0; i < stride; i++) {
+        for (size_t j = 0; j < plane_size; j++) plane_buf[j] = src[j * (size_t)stride + (size_t)i];
+        uint8_t* payload = NULL;
+        size_t csize = 0;
+        int mode = 0;
+        plane_lane_code(plane_buf, plane_size, lane_ent[i], level, opt, &payload, &csize, &mode);
+        /* a smooth lane (image samples, sensor values, a counter) codes smaller as byte deltas: try them when their entropy is
+         * clearly lower, keep the smaller; the mode byte's bit 7 tells the decoder to sum them back up. A lane that is already
+         * compressed needs the deltas to save 3% (a few percent is the price of more sequences for the decoder: x-ray's high
+         * bytes, -0.1..-1.7% of the file for +11..26% decode cycles); a raw lane needs 20% (turning a memcpy into an LZ decode
+         * is only worth it for a big gain: x-ray's noisy low bytes would save 6% of the file for nearly twice its decode cycles,
+         * a random walk saves 40-60%) */
+        int use_delta = 0;
+        if (delta_ok) {
+            uint8_t* db = (uint8_t*)malloc(plane_size);
+            if (db) {
+                plane_delta(db, plane_buf, plane_size);
+                unsigned dent[4] = {0, 0, 0, 0};
+                lane_entropy256(db, plane_size, 1, dent);
+                if (dent[0] + 77 < lane_ent[i] || delta_force) {
+                    uint8_t* p2 = NULL; size_t c2 = 0; int m2 = 0;
+                    plane_lane_code(db, plane_size, dent[0], level, opt, &p2, &c2, &m2);
+                    const size_t cost1 = payload ? csize : plane_size, cost2 = p2 ? c2 : plane_size;
+                    /* a few percent is the price of more sequences for the decoder (x-ray: -0.1..-1.7% of the file, +11..26% decode) */
+                    if (delta_force) {   /* test hook (planedelta.c): always code the deltas, raw or not, so the decoder's path is exercised */
+                        free(payload); payload = p2; csize = c2; mode = m2; use_delta = 1;
+                        if (!p2) memcpy(plane_buf, db, plane_size);
+                    }
+                    else if (p2 && cost2 + (payload ? cost1 / 32 : cost1 / 5) < cost1) { free(payload); payload = p2; csize = c2; mode = m2; use_delta = 1; }
+                    else free(p2);
+                }
+                free(db);
+            }
+        }
+        if (payload) {
+            if ((size_t)(dst_end - p) < 4 + csize) { free(payload); free(plane_buf); return 0; }
+            w8(&p, mode | (use_delta ? 0x80 : 0));   /* mode: 1=lz lane, 2=huffman lane, bit 7: byte deltas */
+            w32le(&p, (uint32_t)csize);
+            memcpy(p, payload, csize);
+            p += csize;
+            free(payload);
+        } else {
+            if ((size_t)(dst_end - p) < 1 + plane_size) { free(plane_buf); return 0; }
+            w8(&p, use_delta ? 0x80 : 0);    /* mode: raw (as deltas only under the test hook: the flag was missing there, so a
+                                              * forced raw delta lane did not decode; the encoder never picks one by itself) */
+            memcpy(p, plane_buf, plane_size);
+            p += plane_size;
+        }
+    }
+    free(plane_buf);
+    return (size_t)(p - dst);
+}
+
+
+/* ---- x86 branch filter (BCJ): CALL/JMP rel32 -> absolute ----
+ * Executable code repeats call targets; as relative displacements every
+ * call to one function looks different, as absolute addresses they repeat
+ * and the LZ matcher finds them. The converter is the classic E8/E9 one
+ * (xz / 7-Zip): it is its own bijection for ANY byte string, so the
+ * decoder inverts it exactly. Applied to detected code ranges only, and
+ * only where a trial compression says it pays (Silesia/ooffice -14%;
+ * non-x86 data would get worse). Block flag 0x10 wraps a normal block:
+ *   [0x10][isize:4][nr:vlq][nr x (start:4, len:4)][inner seq block] */
+#if defined(__SSE2__)
+#  include <emmintrin.h>
+#endif
+#define BCJ_T86(b) ((b) == 0 || (b) == 0xFF)
+#define BCJ_CHUNK      65536u
+#define BCJ_HITS_64K   128u        /* candidate chunk: >= 0.2% E8/E9 with a 00/FF high byte */
+#define BCJ_TRIAL_MAX  (512u * 1024u)
+
+/* index of the next E8/E9 byte in buf[i..limit], or limit + 1 */
+static inline size_t bcj_next(const uint8_t* buf, size_t i, size_t limit)
+{
+#if defined(__SSE2__)
+    const __m128i e8 = _mm_set1_epi8((char)0xE8), e9 = _mm_set1_epi8((char)0xE9);
+    while (i + 16 <= limit + 1) {
+        const __m128i v = _mm_loadu_si128((const __m128i*)(buf + i));
+        const int m = _mm_movemask_epi8(_mm_or_si128(_mm_cmpeq_epi8(v, e8), _mm_cmpeq_epi8(v, e9)));
+        if (m) return i + (size_t)__builtin_ctz((unsigned)m);
+        i += 16;
+    }
+#endif
+    while (i <= limit && buf[i] != 0xE8 && buf[i] != 0xE9) i++;
+    return i;
+}
+
+static void x86_bcj(uint8_t* buf, size_t size, int enc, uint32_t now_pos)
+{
+    static const int allowed[8] = { 1, 1, 1, 0, 1, 0, 0, 0 };
+    static const uint32_t bitnum[8] = { 0, 1, 2, 2, 3, 3, 3, 3 };
+    uint32_t prev_mask = 0, prev_pos = now_pos - 5;
+    if (size < 5) return;
+    const size_t limit = size - 5;
+    size_t i = 0;
+    for (;;) {
+        i = bcj_next(buf, i, limit);
+        if (i > limit) break;
+        uint8_t b;
+        const uint32_t offset = now_pos + (uint32_t)i - prev_pos;
+        prev_pos = now_pos + (uint32_t)i;
+        if (offset > 5) prev_mask = 0;
+        else for (uint32_t k = 0; k < offset; k++) { prev_mask &= 0x77; prev_mask <<= 1; }
+        b = buf[i + 4];
+        if (BCJ_T86(b) && allowed[(prev_mask >> 1) & 7] && (prev_mask >> 1) < 0x10) {
+            uint32_t src = ((uint32_t)b << 24) | ((uint32_t)buf[i + 3] << 16) | ((uint32_t)buf[i + 2] << 8) | buf[i + 1];
+            uint32_t dest;
+            for (;;) {
+                dest = enc ? src + (now_pos + (uint32_t)i + 5) : src - (now_pos + (uint32_t)i + 5);
+                if (prev_mask == 0) break;
+                const uint32_t k = bitnum[prev_mask >> 1];
+                b = (uint8_t)(dest >> (24 - k * 8));
+                if (!BCJ_T86(b)) break;
+                src = dest ^ ((1U << (32 - k * 8)) - 1);
+            }
+            buf[i + 4] = (uint8_t)(~(((dest >> 24) & 1) - 1));
+            buf[i + 3] = (uint8_t)(dest >> 16);
+            buf[i + 2] = (uint8_t)(dest >> 8);
+            buf[i + 1] = (uint8_t)dest;
+            i += 5; prev_mask = 0;
+        } else {
+            i++; prev_mask |= 1;
+            if (BCJ_T86(b)) prev_mask |= 0x10;
+        }
+    }
+}
+
+/* E8/E9 opcodes followed (4 bytes on) by a 00/FF byte: code-like density */
+static size_t bcj_hits(const uint8_t* p, size_t n)
+{
+    size_t hits = 0;
+    if (n < 5) return 0;
+    const size_t limit = n - 5;
+    size_t i = 0;
+    for (;;) {
+        i = bcj_next(p, i, limit);
+        if (i > limit) break;
+        if (BCJ_T86(p[i + 4])) hits++;
+        i++;
+    }
+    return hits;
+}
+
+/* x86 ranges worth filtering in src[0..n): chunks with code-like density,
+ * merged, then each kept only if a level-1 trial on its first 512 KB is
+ * >= 0.5% smaller filtered. Returns the count (<= max), 0 if none.
+ * The trial codes its literals under opt, like the block it decides for. */
+static int bcj_detect(const uint8_t* src, size_t n, uint32_t* rs, uint32_t* rl, size_t max, const seq_opt_t* opt)
+{
+    const size_t nch = (n + BCJ_CHUNK - 1) / BCJ_CHUNK;
+    int nr = 0;
+    for (size_t k = 0; k < nch && (size_t)nr < max; ) {
+        const size_t s0 = k * BCJ_CHUNK;
+        size_t len = n - s0 < BCJ_CHUNK ? n - s0 : BCJ_CHUNK;
+        if (bcj_hits(src + s0, len) * BCJ_CHUNK < (size_t)BCJ_HITS_64K * len) { k++; continue; }
+        size_t e = k + 1;
+        for (; e < nch; e++) {
+            const size_t t0 = e * BCJ_CHUNK;
+            const size_t tl = n - t0 < BCJ_CHUNK ? n - t0 : BCJ_CHUNK;
+            if (bcj_hits(src + t0, tl) * BCJ_CHUNK < (size_t)BCJ_HITS_64K * tl) break;
+        }
+        const size_t end = e * BCJ_CHUNK < n ? e * BCJ_CHUNK : n;
+        const size_t rlen = end - s0;
+        k = e;
+        if (rlen < 4096) continue;
+        /* trial: level-1 size of a sample, plain vs filtered */
+        const size_t sl = rlen < BCJ_TRIAL_MAX ? rlen : BCJ_TRIAL_MAX;
+        const size_t cap = sl + (sl >> 1) + 65536;
+        uint8_t* buf = (uint8_t*)malloc(sl + cap * 2);
+        if (!buf) continue;
+        uint8_t* flt = buf; uint8_t* o1 = buf + sl; uint8_t* o2 = o1 + cap;
+        memcpy(flt, src + s0, sl);
+        x86_bcj(flt, sl, 1, (uint32_t)s0);
+        size_t a = compress_normal_x((const char*)(src + s0), sl, (char*)o1, cap, 1, 0, 1, opt);
+        size_t b = compress_normal_x((const char*)flt, sl, (char*)o2, cap, 1, 0, 1, opt);
+        free(buf);
+        if (a == 0) a = sl;
+        if (b == 0) b = sl;
+        if (b + b / 200 < a) { rs[nr] = (uint32_t)s0; rl[nr] = (uint32_t)rlen; nr++; }
+    }
+    return nr;
+}
+
+/* 1 when the block is noise and is better stored than parsed. Up to 256 windows of 32 KB spread evenly
+ * (the first at 0, the last ending at n: a block of up to 8 MB is covered whole), order-0 entropy of each:
+ *  - the first window at 7.9 bits per byte or less: not noise. That is all v2.0.1 looked at, so every block
+ *    it compressed is still compressed (the test cannot see repeats, e.g. two copies of a compressed file
+ *    after a header: such a block must not start being stored);
+ *  - otherwise (v2.0.1 stored the block whatever followed): noise unless the windows promise a saving of at
+ *    least 1% of the block. Deflate output with a few softer windows gives 0.2-0.5% for 15 to 900 times the
+ *    time; a block that begins inside compressed data and goes on with compressible data gives 30-50%.
+ * Integer arithmetic: the decision must not depend on the FPU. n >= 32768. */
+#define NOISE_WIN 32768u
+#define NOISE_MAX_WINS 256u
+static int block_is_noise(const uint8_t* src, size_t n)
+{
+    size_t wins = (n + NOISE_WIN - 1) / NOISE_WIN;
+    if (wins > NOISE_MAX_WINS) wins = NOISE_MAX_WINS;
+    const size_t span = n - NOISE_WIN;
+    const int64_t full = (int64_t)8 * NOISE_WIN * 65536;   /* a window at 8 bits per byte, in 1/65536 bit */
+    int64_t saving = 0;
+    for (size_t w = 0; w < wins; w++) {
+        const size_t at = wins > 1 ? (size_t)(((uint64_t)span * w) / (wins - 1)) : 0;
+        uint32_t h[256];
+        memset(h, 0, sizeof(h));
+        for (size_t i = 0; i < NOISE_WIN; i++) h[src[at + i]]++;
+        /* H * n = n log2 n - sum c log2 c, in 1/65536 bit */
+        int64_t bits = (int64_t)NOISE_WIN * elog2(NOISE_WIN);
+        for (int b = 0; b < 256; b++) if (h[b]) bits -= (int64_t)h[b] * elog2(h[b]);
+        if (w == 0 && bits * 10 <= (int64_t)79 * NOISE_WIN * 65536) return 0;
+        if (bits < full) saving += full - bits;
+    }
+    return saving * 100 < full * (int64_t)wins;
+}
+
+static size_t compress_seq_core(const char* src, size_t srcSize,
+                                char* dst, size_t dstCap, int level, const seq_opt_t* opt) {
+    if (!src || !dst || dstCap < 64) return 0;
+    if (!code_tabs_ready) code_tabs_init();
+    if (level < 1) level = 9;
+    if (level > 15) level = 15;
+    if (srcSize > (size_t)INT_MAX) return 0;
+
+    if (srcSize == 0) {
+        /* empty input: raw block (flags=1 + isize=0) */
+        if (dstCap < 5) return 0;
+        uint8_t* rp = (uint8_t*)dst;
+        w8(&rp, 1);
+        w32le(&rp, 0);
+        return 5;
+    }
+
+    /* PRNG regeneration: pseudo-random files are incompressible as bytes,
+     * but a seed + length identifies them completely (Kolmogorov-style).
+     * Only try when the block looks random — the brute-force scan below
+     * is cheap per seed but 64K seeds on every file would waste time. */
+    if (srcSize >= 64 && (opt->blocks & LZ6SEQ_BLOCK_PRNG)) {   /* restricted: such a block is noise, stored below */
+        int shift = 0;
+        int seed = detect_glibc_prng((const uint8_t*)src, srcSize, &shift);
+        if (seed >= 0 && dstCap >= 8) {
+            uint8_t* rp = (uint8_t*)dst;
+            w8(&rp, 4 | (shift / 8));  /* flags: bit2 prng, bits0-1 byte-shift */
+            w32le(&rp, (uint32_t)srcSize);
+            w8(&rp, seed & 0xFF);
+            w8(&rp, (seed >> 8) & 0xFF);
+            return 7;
+        }
+    }
+
+    /* incompressible fast-path: random/high-entropy data (testing L/P,
+     * most of A) can't beat raw — skip the match finder entirely.
+     * The block is sampled whole (block_is_noise): up to 256 windows of
+     * 32 KB, which together must promise less than 1%.
+     * Until v2.0.1 only the first 32 KB were looked at, so a block that
+     * began with compressed data was stored whole (a 16 MiB piece of
+     * silesia.tar starting inside mozilla: stored instead of 54%). */
+    if (srcSize >= 32768 && srcSize + 5 <= dstCap && block_is_noise((const uint8_t*)src, srcSize)) {
+        uint8_t* rp = (uint8_t*)dst;
+        w8(&rp, 1);
+        w32le(&rp, (uint32_t)srcSize);
+        memcpy(rp, src, srcSize);
+        return srcSize + 5;
+    }
+
+    /* byte-plane candidate (only for large, divisible inputs).
+     * When the lane entropy skew is extreme (min lane <= 2 b/B), the
+     * plane block wins decisively — skip the full normal pass to save
+     * the encode time. */
+    uint8_t* plane_buf = NULL;
+    size_t plane_len = 0;
+    int plane_decisive = 0, plane_stride = 0;
+    if (srcSize >= 16384 && (srcSize % 2) == 0 && (opt->blocks & LZ6SEQ_BLOCK_PLANE)) {
+        plane_buf = (uint8_t*)malloc(srcSize + 64);
+        if (plane_buf) {
+            plane_len = plane_encode((const uint8_t*)src, srcSize,
+                                     plane_buf, srcSize + 64, level, opt,
+                                     &plane_decisive, 0, &plane_stride);
+            if (plane_len == 0) { free(plane_buf); plane_buf = NULL; }
+        }
+    }
+    /* A plane block wins without running the normal pass ONLY when the
+     * lane skew is extreme (min lane <= 2 b/B: float exponent planes —
+     * E/G, where the normal pass cannot compete). The old "plane <= 80%
+     * of input" gate also fired on TEXT (stride-2 lanes of a novel sit at
+     * 4-4.5 b/B), nuking a normal pass that would have compressed 15+
+     * points better with order-1 literals. Everything else: run the
+     * normal pass and keep the smaller. */
+    /* ...and only when a trial agrees. A nearly free lane is also what UTF-16 text has, and there the normal block
+     * can win by far at the high levels (the lanes are coded by the fast parsers whatever the level). Four 64 KB
+     * pieces from inside the block (at 1/8, 3/8, 5/8 and 7/8: a header at the start must not weigh a quarter of the
+     * sample) are coded both ways at the block's level and the block's stride; the shortcut is taken unless the
+     * normal coding wins the sample by more than 1/16 (a 256 KB sample flatters the normal block a little). Blocks
+     * under 1 MiB keep the shortcut as it was. */
+    /* restricted literals: no shortcut. Its thresholds were measured with every literal mode at hand; with fewer the
+     * lanes' blocks lose more than the normal block does (mr with raw literals only: the plane block 2.6% larger than
+     * the normal one), so both are coded and the smaller is kept. */
+    if (opt->lits != LZ6SEQ_LIT_ALL) plane_decisive = 0;
+    if (plane_decisive && plane_len > 0 && srcSize >= ((size_t)1 << 20)) {
+        enum { TR_CHUNK = 65536, TR_N = 4 };
+        const size_t tn = (size_t)TR_CHUNK * TR_N, tcap = tn + (tn >> 1) + 65536;
+        uint8_t* const tb = (uint8_t*)malloc(tn + 2 * tcap);
+        if (tb) {
+            for (size_t k = 0; k < TR_N; k++) {
+                size_t off = (size_t)(((uint64_t)(srcSize - TR_CHUNK) * (2 * k + 1)) / (2 * TR_N));
+                off -= off % 4;   /* keep the lanes in phase */
+                memcpy(tb + k * TR_CHUNK, src + off, TR_CHUNK);
+            }
+            const size_t tp = plane_encode(tb, tn, tb + tn, tcap, level, opt, NULL, plane_stride, NULL);
+            const size_t tl = compress_normal((const char*)tb, tn, (char*)(tb + tn + tcap), tcap, level, opt);
+            if (tp == 0 || (tl != 0 && tp > tl + tl / 16)) plane_decisive = 0;
+            free(tb);
+        }
+    }
+    if (plane_len > 0 && plane_len <= dstCap && plane_decisive &&
+        plane_len * 5 <= srcSize * 4) {
+        if (getenv("LZ6_SEQ_VERBOSE"))
+            fprintf(stderr, "seq: PLANE-DECISIVE len=%zu (src=%zu)\n", plane_len, (size_t)srcSize);
+        memcpy(dst, plane_buf, plane_len);
+        free(plane_buf);
+        return plane_len;
+    }
+
+    size_t normal_len = compress_normal(src, srcSize, dst, dstCap, level, opt);
+    if (getenv("LZ6_SEQ_VERBOSE"))
+        fprintf(stderr, "seq: plane=%zu normal=%zu -> %s\n", plane_len, normal_len,
+                (plane_len && plane_len < normal_len) ? "PLANE" : "NORMAL");
+    if (plane_len > 0 && plane_len <= dstCap &&
+        (normal_len == 0 || plane_len < normal_len)) {
+        memcpy(dst, plane_buf, plane_len);
+        free(plane_buf);
+        return plane_len;
+    }
+    free(plane_buf);
+    return normal_len;
+}
+
+/* ================= DECODER ================= */
+
+/* core block decode: flags (bit0=raw) | isize | ... */
+/* ---- literals streaming decoder: decode literal chunks on demand ---- */
+#define LIT_RAW     0
+#define LIT_FSE0    1
+#define LIT_HUF     5
+#define LIT_HUF4    7
+#if defined(__GNUC__)
+#  define LZ6SEQ_NOINLINE __attribute__((noinline))
+#elif defined(_MSC_VER)
+#  define LZ6SEQ_NOINLINE __declspec(noinline)
+#else
+#  define LZ6SEQ_NOINLINE
+#endif
+#define LIT_FSE1_6  6
+#define LIT_FSE1_3  3
+
+typedef struct {
+    int kind;
+    /* LIT_RAW */
+    const uint8_t *rp, *rend;
+    /* LIT_HUF, LIT_HUF4 (tables only; its 4 streams at [rp, rend)) */
+    huf_dstate huf;
+    /* LIT_FSE0 */
+    fse_dtable ft;
+    uint32_t fx;
+    const uint8_t *fsp, *fsend;
+    /* LIT_FSE1_6 (prev>>4): heap array of 16 tables — the struct stays
+     * small, else every block pays a ~530KB memset of the order-1 arrays */
+    fse_ctx_table* t6;
+    uint32_t x6;
+    const uint8_t *s6p, *s6e;
+    int prev6;
+    /* LIT_FSE1_3: heap array of 256 per-active tables + [256] = fallback */
+    fse_ctx_table* t3;
+    fse_ctx_table* gtab3;
+    uint8_t active3[256];
+    uint32_t x3;
+    const uint8_t *s3p, *s3e;
+    int prev3;
+} lit_dec_t;
+
+static void lit_dec_free(lit_dec_t* L)
+{
+    huf_dec_free(&L->huf);
+    fse_dtable_free(&L->ft);
+    if (L->t6) {
+        for (int c = 0; c < 16; c++) fse_ctx_table_free(&L->t6[c]);
+        free(L->t6);
+        L->t6 = NULL;
+    }
+    if (L->t3) {
+        for (int c = 0; c < 256; c++) fse_ctx_table_free(&L->t3[c]);
+        fse_ctx_table_free(L->gtab3);
+        free(L->t3);
+        L->t3 = NULL;
+        L->gtab3 = NULL;
+    }
+}
+
+/* rANS renorm without a loop: a valid state needs at most 2 bytes
+ * (x >= 2^16 and f >= 1 keep the advanced value >= 2^(16-L_bits) >= 16),
+ * so pick 0/1/2 bytes arithmetically. Caller guarantees 2 readable
+ * bytes at sp. Identical to the byte loop on every valid stream. */
+#define RANS_RENORM2(v, sp) do {                                         \
+        unsigned n_ = ((v) < 0x10000u) + ((v) < 0x100u);                 \
+        uint64_t w_ = ((uint64_t)(v) << 16)                              \
+                    | ((uint32_t)(sp)[0] << 8) | (uint32_t)(sp)[1];      \
+        (v) = (uint32_t)(w_ >> (16 - 8 * n_));                           \
+        (sp) += n_;                                                      \
+    } while (0)
+
+/* symbols decodable with RANS_RENORM2 before the stream needs checks */
+static size_t rans_budget(const uint8_t* sp, const uint8_t* se)
+{
+    return (size_t)(se - sp) / 2;
+}
+
+/* one symbol, unchecked renorm (caller holds a rans_budget), either
+ * table layout — the layout branch is loop-invariant and predicted */
+/* order-1 literal symbol, checked renorm (stream tail) */
+static int o1_dec_checked(const fse_ctx_table* t, uint32_t* x,
+                          const uint8_t** sp, const uint8_t* se, uint8_t* out)
+{
+    const fse_o1entry* e = &t->dcomp[*x & (t->M - 1)];
+    uint32_t v = e->f * (*x >> t->L_bits) + (uint32_t)e->off;
+    *out = e->s;
+    while (v < 0x10000u) {
+        if (*sp >= se) return -1;
+        v = (v << 8) | *(*sp)++;
+    }
+    *x = v;
+    return 0;
+}
+
+/* LIT_HUF4 header: [csize:vlq][k][256 lengths][4 x ([total:4][stream])].
+ * Out of line on purpose: an extra inlined branch in the decoder's setup
+ * changed GCC's register allocation of the whole function and cost the
+ * sequence loop ~12% (measured on identical input streams). */
+static LZ6SEQ_NOINLINE int lit_init_huf4(lit_dec_t* L, const uint8_t** pp, const uint8_t* end, int v2)
+{
+    const uint8_t* p = *pp;
+    int lit_csize = rvlq2(&p, end, v2);
+    if (lit_csize < 0 || (size_t)(end - p) < (size_t)lit_csize) return 0;
+    size_t hl = 257;
+    if (v2) {
+        uint8_t h257[257];
+        hl = huf_hdr2_read(p, (size_t)lit_csize, h257);
+        if (hl == 0 || huf_dec_tables(&L->huf, h257, 257) == 0) return 0;
+    } else if (huf_dec_tables(&L->huf, p, (size_t)lit_csize) == 0) return 0;
+    L->rp = p + hl;   /* the LIT_RAW fields, reused: no struct growth */
+    L->rend = p + lit_csize;
+    *pp = p + lit_csize;
+    return 1;
+}
+
+/* decode all n literals into out (non-raw modes). Decoding the whole
+ * stream in one tight loop instead of per-sequence chunks keeps the
+ * coder state in registers and lets the sequence loop copy literals
+ * with wide moves. Returns -1 on a corrupt/exhausted stream. */
+static int lit_setup(lit_dec_t* L, const uint8_t** pp, const uint8_t* end, int isize, int v2, int nested, int* lit_count_out);
+static void lit_dec_free(lit_dec_t* L);
+static int lit_decode_all(lit_dec_t* L, uint8_t* out, size_t n)
+{
+    size_t i = 0;
+    switch (L->kind) {
+    case LIT_EPOCHS: {
+        /* one section after another into consecutive parts of out (each may write up to 32 bytes past its
+         * part: the next part, decoded later, or the caller's padding) */
+        const uint8_t* q = L->rp;
+        const uint8_t* const qe = L->rend;
+        const int ne = rvar(&q, qe);
+        if (ne < 1 || ne > LIT_EPOCH_MAX) return -1;
+        size_t off = 0;
+        for (int e = 0; e < ne; e++) {
+            lit_dec_t S;
+            int c = 0;
+            if (!lit_setup(&S, &q, qe, (int)(n - off), 1, 1, &c)) return -1;
+            int r = 0;
+            if (S.kind == LIT_RAW) memcpy(out + off, S.rp, (size_t)c);
+            else r = lit_decode_all(&S, out + off, (size_t)c);
+            lit_dec_free(&S);
+            if (r) return -1;
+            off += (size_t)c;
+        }
+        return off == n && q == qe ? 0 : -1;
+    }
+    case LIT_HUF:
+        return huf_dec_n(&L->huf, out, n);
+    case LIT_HUF4:
+        /* the streams must be consumed exactly */
+        return huf_decode4(&L->huf, L->rp, (size_t)(L->rend - L->rp), out, n)
+               == (size_t)(L->rend - L->rp) ? 0 : -1;
+    case LIT_FSE0: {
+        const fse_dtable* t = &L->ft;
+        const unsigned mask = t->M - 1;
+        const int lb = t->L_bits;
+        uint32_t x = L->fx;
+        const uint8_t* sp = L->fsp;
+        const uint8_t* se = L->fsend;
+        while (i < n) {
+            size_t lim = i + rans_budget(sp, se);
+            if (lim > n) lim = n;
+            if (lim == i) {
+                if (seq_dec_sym(t, &x, &sp, se, &out[i])) return -1;
+                i++;
+                continue;
+            }
+            if (t->dcomp) {
+                for (; i < lim; i++) {
+                    const fse_dentry* e = &t->dcomp[x & mask];
+                    uint32_t v = e->f * (x >> lb) + (uint32_t)e->off;
+                    out[i] = t->dtab1[x & mask];
+                    RANS_RENORM2(v, sp);
+                    x = v;
+                }
+            } else {
+                for (; i < lim; i++) {
+                    unsigned sy = t->dtab1[x & mask];
+                    uint32_t v = t->freq_tab[sy] * (x >> lb) + (x & mask) - t->cumul[sy];
+                    out[i] = (uint8_t)sy;
+                    RANS_RENORM2(v, sp);
+                    x = v;
+                }
+            }
+        }
+        L->fx = x; L->fsp = sp;
+        return 0;
+    }
+    case LIT_FSE1_6:
+    case LIT_FSE1_3: {
+        const int six = L->kind == LIT_FSE1_6;
+        uint32_t x = six ? L->x6 : L->x3;
+        const uint8_t* sp = six ? L->s6p : L->s3p;
+        const uint8_t* se = six ? L->s6e : L->s3e;
+        int prev = six ? L->prev6 : L->prev3;
+        while (i < n) {
+            size_t lim = i + rans_budget(sp, se);
+            if (lim > n) lim = n;
+            if (lim == i) {
+                const fse_ctx_table* t = six ? &L->t6[prev >> 4]
+                                             : (L->active3[prev] ? &L->t3[prev] : L->gtab3);
+                if (o1_dec_checked(t, &x, &sp, se, &out[i])) return -1;
+                prev = out[i++];
+                continue;
+            }
+            if (six) {
+                for (; i < lim; i++) {
+                    const fse_ctx_table* t = &L->t6[prev >> 4];
+                    const fse_o1entry* e = &t->dcomp[x & (t->M - 1)];
+                    uint32_t v = e->f * (x >> t->L_bits) + (uint32_t)e->off;
+                    out[i] = e->s;
+                    RANS_RENORM2(v, sp);
+                    x = v;
+                    prev = e->s;
+                }
+            } else {
+                for (; i < lim; i++) {
+                    const fse_ctx_table* t = L->active3[prev] ? &L->t3[prev] : L->gtab3;
+                    const fse_o1entry* e = &t->dcomp[x & (t->M - 1)];
+                    uint32_t v = e->f * (x >> t->L_bits) + (uint32_t)e->off;
+                    out[i] = e->s;
+                    RANS_RENORM2(v, sp);
+                    x = v;
+                    prev = e->s;
+                }
+            }
+        }
+        if (six) { L->x6 = x; L->s6p = sp; L->prev6 = prev; }
+        else     { L->x3 = x; L->s3p = sp; L->prev3 = prev; }
+        return 0;
+    }
+    }
+    return -1;
+}
+
+
+#if defined(__GNUC__) || defined(__clang__)
+#  define LZ6SEQ_FORCE_INLINE static inline __attribute__((always_inline))
+#else
+#  define LZ6SEQ_FORCE_INLINE static inline
+#endif
+
+/* The bound for tbr_reload_fast: 24 bytes above the start of the stream. A stream shorter than 32 bytes
+ * gets `end` instead, which ptr (<= end - 8) never reaches, so it always takes the checked reload.
+ * Out of line on purpose: setup code inlined into decode_normal_body moves its register allocation. */
+/* Parses one literal section ([mode][count] and the mode's payload) and sets up its decoder.
+ * Returns 1, or 0 on a malformed section (L then holds nothing to free). */
+static LZ6SEQ_NOINLINE int lit_setup(lit_dec_t* L, const uint8_t** pp, const uint8_t* end, int isize, int v2, int nested, int* lit_count_out)
+{
+    const uint8_t* p = *pp;
+    memset(L, 0, sizeof(*L));
+    int lit_mode = r8(&p);
+    const int lit_count = rvlq2(&p, end, v2);
+    /* literals can never exceed the declared output size; this also keeps
+     * the per-literal allocations bounded on corrupt input */
+    if (lit_count < 0 || lit_count > isize) return 0;
+    *lit_count_out = lit_count;
+    L->kind = lit_mode;
+    if (lit_mode == LIT_EPOCHS && v2 && !nested) {
+        /* the sections are set up one at a time by lit_decode_all */
+        const int bsz = rvar(&p, end);
+        if (bsz < 0 || (size_t)(end - p) < (size_t)bsz) return 0;
+        L->rp = p;
+        L->rend = p + bsz;
+        p += bsz;
+    } else if (lit_mode == LIT_RAW) {
+        if ((size_t)(end - p) < (size_t)lit_count) return 0;
+        L->rp = p;
+        L->rend = p + lit_count;
+        p += lit_count;
+    } else if (lit_mode == LIT_FSE0) {
+        int lit_csize = rvlq2(&p, end, v2);
+        if (lit_csize < 0 || (size_t)(end - p) < (size_t)lit_csize) return 0;
+        size_t hdr = fse_dtable_prepare(&L->ft, p, (size_t)lit_csize, 255);
+        if (hdr == 0 || (size_t)lit_csize < hdr + 8) { lit_dec_free(L); return 0; }
+        uint32_t slen = (uint32_t)p[hdr] | ((uint32_t)p[hdr+1] << 8) | ((uint32_t)p[hdr+2] << 16) | ((uint32_t)p[hdr+3] << 24);
+        if (slen < 4 || (size_t)lit_csize < hdr + 4 + slen) { lit_dec_free(L); return 0; }
+        L->fsp = p + hdr + 4;
+        L->fsend = L->fsp + slen;
+        L->fx = ((uint32_t)L->fsp[0] << 24) | ((uint32_t)L->fsp[1] << 16) | ((uint32_t)L->fsp[2] << 8) | L->fsp[3];
+        L->fsp += 4;
+        p += lit_csize;
+    } else if (lit_mode == LIT_HUF) {
+        int lit_csize = rvlq2(&p, end, v2);
+        if (lit_csize < 0 || (size_t)(end - p) < (size_t)lit_csize) return 0;
+        if (v2) {
+            uint8_t h257[257];
+            const size_t hl = huf_hdr2_read(p, (size_t)lit_csize, h257);
+            if (hl == 0 || (size_t)lit_csize < hl + 4 || huf_dec_tables(&L->huf, h257, 257) == 0) return 0;
+            const uint8_t* q = p + hl;
+            const uint32_t total = (uint32_t)q[0] | ((uint32_t)q[1] << 8) | ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
+            const size_t nbytes = (total + 7) / 8;
+            if ((size_t)lit_csize - hl - 4 < nbytes) { huf_dec_free(&L->huf); return 0; }
+            L->huf.base = q + 4;
+            L->huf.nbytes = nbytes;
+            L->huf.bitpos = 0;
+        } else if (huf_dec_init(&L->huf, p, (size_t)lit_csize) == 0) return 0;
+        p += lit_csize;
+    } else if (lit_mode == LIT_HUF4) {
+        if (!lit_init_huf4(L, &p, end, v2)) return 0;
+    } else if (lit_mode == LIT_FSE1_6) {
+        /* [L_bits:1][16 tables][4B slen][x:4][stream] */
+        int lit_csize = rvlq2(&p, end, v2);
+        if (lit_csize < 0 || (size_t)(end - p) < (size_t)lit_csize) return 0;
+        const uint8_t* lp = p;
+        const uint8_t* lpe = lp + lit_csize;
+        if ((size_t)(lpe - lp) < 1 + 16 * 513) return 0;
+        L->t6 = (fse_ctx_table*)calloc(16, sizeof(fse_ctx_table));
+        if (!L->t6) return 0;
+        lp++;  /* L_bits (fixed per stream, same for every table) */
+        for (int c = 0; c < 16; c++) {
+            size_t rr = fse_ctx_table_read(&L->t6[c], lp, (size_t)(lpe - lp));
+            if (rr == 0) { lit_dec_free(L); return 0; }
+            lp += rr;
+        }
+        if ((size_t)(lpe - lp) < 8) { lit_dec_free(L); return 0; }
+        uint32_t slen = (uint32_t)lp[0] | ((uint32_t)lp[1] << 8) | ((uint32_t)lp[2] << 16) | ((uint32_t)lp[3] << 24);
+        lp += 4;
+        if (slen < 4 || (size_t)(lpe - lp) < slen) { lit_dec_free(L); return 0; }
+        L->s6p = lp;
+        L->s6e = L->s6p + slen;
+        L->x6 = ((uint32_t)L->s6p[0] << 24) | ((uint32_t)L->s6p[1] << 16) | ((uint32_t)L->s6p[2] << 8) | L->s6p[3];
+        L->s6p += 4;
+        L->prev6 = 0;
+        p += lit_csize;
+    } else if (lit_mode == LIT_FSE1_3) {
+        /* [32B bitmap][L_bits:1][order-0 table][per-active tables][4B slen][x:4][stream] */
+        int lit_csize = rvlq2(&p, end, v2);
+        if (lit_csize < 0 || (size_t)(end - p) < (size_t)lit_csize) return 0;
+        const uint8_t* lp = p;
+        const uint8_t* lpe = lp + lit_csize;
+        if ((size_t)(lpe - lp) < 33) return 0;
+        L->t3 = (fse_ctx_table*)calloc(257, sizeof(fse_ctx_table));
+        if (!L->t3) return 0;
+        L->gtab3 = &L->t3[256];
+        memset(L->active3, 0, sizeof(L->active3));
+        for (int c = 0; c < 256; c++) if (lp[c >> 3] & (1 << (c & 7))) L->active3[c] = 1;
+        lp += 32;
+        lp++;  /* L_bits */
+        size_t rr = fse_ctx_table_read(L->gtab3, lp, (size_t)(lpe - lp));
+        if (rr == 0) { lit_dec_free(L); return 0; }
+        lp += rr;
+        for (int c = 0; c < 256; c++) {
+            if (!L->active3[c]) continue;
+            rr = fse_ctx_table_read(&L->t3[c], lp, (size_t)(lpe - lp));
+            if (rr == 0) { lit_dec_free(L); return 0; }
+            lp += rr;
+        }
+        if ((size_t)(lpe - lp) < 8) { lit_dec_free(L); return 0; }
+        uint32_t slen = (uint32_t)lp[0] | ((uint32_t)lp[1] << 8) | ((uint32_t)lp[2] << 16) | ((uint32_t)lp[3] << 24);
+        lp += 4;
+        if (slen < 4 || (size_t)(lpe - lp) < slen) { lit_dec_free(L); return 0; }
+        L->s3p = lp;
+        L->s3e = L->s3p + slen;
+        L->x3 = ((uint32_t)L->s3p[0] << 24) | ((uint32_t)L->s3p[1] << 16) | ((uint32_t)L->s3p[2] << 8) | L->s3p[3];
+        L->s3p += 4;
+        L->prev3 = 0;
+        p += lit_csize;
+    } else {
+        return 0;
+    }
+    *pp = p;
+    return 1;
+}
+
+/* the decoder's switch to the next epoch's tables (those it does not repeat); returns the new split
+ * threshold. Out of line: inlined, the three table builds changed the register allocation of the
+ * sequence loop (measured at -O2) */
+static LZ6SEQ_NOINLINE unsigned epoch_tables(seq_dentry* dts, const seq_epoch_t* ep, unsigned lgs[3])
+{
+    for (int t = 0; t < 3; t++) {
+        if (ep->rep & (1u << t)) continue;   /* the table in place is this epoch's too */
+        seq_build_dtable(dts + ((size_t)t << TANS_MAX_LOG), ep->norm[t], ep->ms[t], ep->lg[t], t);
+        lgs[t] = ep->lg[t];
+    }
+    return 56u - (lgs[0] + lgs[1] + lgs[2]);
+}
+
+static LZ6SEQ_NOINLINE const uint8_t* tbr_fast_lim(const uint8_t* start, const uint8_t* end)
+{
+    return (size_t)(end - start) >= 32 ? start + 24 : end;
+}
+
+LZ6SEQ_FORCE_INLINE size_t decode_normal_body(const char* src, size_t srcSize,
+                                              char* dst, size_t dstCap, const int bmi) {
+    const uint8_t* p = (const uint8_t*)src;
+    const uint8_t* end = p + srcSize;
+    if (srcSize < 6) return 0;
+
+    int flags = r8(&p);
+    int is_raw = flags & 1;
+    int is_prng = (flags >> 2) & 1;
+    int shift = (flags & 3) * 8;
+    int isize = (int)r32le(&p);
+    if (isize < 0 || (size_t)isize > dstCap) return 0;
+
+    if (is_prng) {
+        if ((size_t)(end - p) < 2) return 0;
+        uint32_t seed = (uint32_t)r8(&p) | ((uint32_t)r8(&p) << 8);
+        uint32_t st[PRNG_DEG];
+        int f = 3, r = 0;
+        glibc_prng_init(st, &f, &r, seed);
+        uint8_t* op = (uint8_t*)dst;
+        for (int i = 0; i < isize; i++)
+            op[i] = (uint8_t)(glibc_rand31(st, &f, &r) >> shift);
+        return (size_t)isize;
+    }
+
+    if (is_raw) {
+        if ((size_t)(end - p) < (size_t)isize) return 0;
+        memcpy(dst, p, (size_t)isize);
+        return (size_t)isize;
+    }
+
+    /* ---- literals: build the streaming decoder state (no buffer) ---- */
+    lit_dec_t L;
+    int lit_count = 0;
+    const int v2 = (flags & SEQ_EPOCH_FLAG) != 0;
+    if (!lit_setup(&L, &p, end, isize, v2, 0, &lit_count)) return 0;
+
+    /* a block can end right after its literals: the seq_count field must exist */
+    if ((size_t)(end - p) < 4) { lit_dec_free(&L); return 0; }
+    int sc = (int)r32le(&p);
+    if (sc < 0 || sc > (1 << 24)) { lit_dec_free(&L); return 0; }
+
+    /* sequence section: three tANS tables + one backward bitstream */
+    uint8_t* litbuf = NULL;        /* both freed on every exit below */
+    seq_dentry* dts = NULL;
+    tbr_t br;
+    memset(&br, 0, sizeof(br));
+    unsigned lgs[3] = { 0, 0, 0 };
+    seq_epoch_t* ep = NULL;   /* format 2: the tables of every epoch */
+    int ne = 1;
+    if (sc > 0) {
+        dts = (seq_dentry*)malloc(3 * ((size_t)1 << TANS_MAX_LOG) * sizeof(seq_dentry));
+        if (!dts) goto fail;
+        if (flags & SEQ_EPOCH_FLAG) {
+            ne = rvar(&p, end);
+            if (ne < 1 || ne > EPOCH_MAX || ne > sc) goto fail;
+            ep = (seq_epoch_t*)malloc((size_t)ne * sizeof(seq_epoch_t));
+            if (!ep) goto fail;
+            int a = 0;
+            for (int e = 0; e < ne; e++) {
+                const int n = rvar(&p, end);
+                if (n < 1 || n > sc - a) goto fail;
+                ep[e].a = a; ep[e].b = a + n; a += n;
+                ep[e].rep = 0;
+                for (int t = 0; t < 3; t++) {
+                    if (p < end && *p == 0) {   /* the previous epoch's table */
+                        if (e == 0) goto fail;
+                        p++;
+                        memcpy(ep[e].norm[t], ep[e - 1].norm[t], sizeof(ep[e].norm[t]));
+                        ep[e].ms[t] = ep[e - 1].ms[t]; ep[e].lg[t] = ep[e - 1].lg[t];
+                        ep[e].rep |= (uint8_t)(1u << t);
+                        continue;
+                    }
+                    int ms, lg;
+                    size_t hl = tans_read_header2(p, (size_t)(end - p), epoch_alpha[t], ep[e].norm[t], &ms, &lg);
+                    if (hl == 0) goto fail;
+                    p += hl;
+                    ep[e].ms[t] = (uint8_t)ms; ep[e].lg[t] = (uint8_t)lg;
+                }
+            }
+            if (a != sc) goto fail;
+            for (int t = 0; t < 3; t++) {
+                seq_build_dtable(dts + ((size_t)t << TANS_MAX_LOG), ep[0].norm[t], ep[0].ms[t], ep[0].lg[t], t);
+                lgs[t] = ep[0].lg[t];
+            }
+        } else
+        for (int t = 0; t < 3; t++) {
+            uint16_t norm[TANS_MAX_SYMS];
+            int ms, lg;
+            size_t hl = tans_read_header(p, (size_t)(end - p), epoch_alpha[t], norm, &ms, &lg);
+            if (hl == 0) goto fail;
+            p += hl;
+            seq_build_dtable(dts + ((size_t)t << TANS_MAX_LOG), norm, ms, lg, t);
+            lgs[t] = (unsigned)lg;
+        }
+        if ((size_t)(end - p) < 4) goto fail;
+        uint32_t blen = (uint32_t)p[0] | ((uint32_t)p[1]<<8) | ((uint32_t)p[2]<<16) | ((uint32_t)p[3]<<24);
+        p += 4;
+        if ((size_t)(end - p) < blen || !tbr_init(&br, p, blen, bmi)) goto fail;
+        p += blen;
+    }
+
+    /* literals: raw ones are read in place; every other mode is decoded
+     * up front into a padded buffer. lit_hard bounds the over-read of the
+     * 16-byte literal moves (the source block itself for raw). */
+    const uint8_t *lit_ptr, *lit_end, *lit_hard;
+    if (L.kind == LIT_RAW && (size_t)(end - L.rend) >= 32) {
+        /* in place: the wide literal copies read up to 32 bytes behind the literals, still inside the block */
+        lit_ptr = L.rp;
+        lit_end = L.rend;
+        lit_hard = end;
+    } else {
+        litbuf = (uint8_t*)malloc((size_t)lit_count + 32);
+        if (!litbuf) goto fail;
+        if (L.kind == LIT_RAW) memcpy(litbuf, L.rp, (size_t)lit_count);   /* tiny block: padded copy */
+        else if (lit_decode_all(&L, litbuf, (size_t)lit_count)) goto fail;
+        lit_ptr = litbuf;
+        lit_end = litbuf + lit_count;
+        lit_hard = lit_end + 32;
+    }
+
+    uint8_t* const ostart = (uint8_t*)dst;
+    uint8_t* const oend = ostart + isize;
+    uint8_t* o = ostart;
+    /* offset history as scalars (an int[3] got SLP-vectorised into a movd/punpckldq/movq shuffle) */
+    size_t rp0 = 0, rp1 = 0, rp2 = 0;
+    /* one table base: every state carries its table's offset (seq_build_dtable adds it to .next) */
+    const seq_dentry* const dtab = dts;
+    size_t sLL = 0, sML = 0, sOF = 0;
+    if (sc > 0) {
+        sLL = tbr_read(&br, lgs[0], bmi);
+        sOF = tbr_read(&br, lgs[2], bmi) + ((size_t)2 << TANS_MAX_LOG);
+        sML = tbr_read(&br, lgs[1], bmi) + ((size_t)1 << TANS_MAX_LOG);
+    }
+
+    /* Two-stage pipeline: stage A turns symbols + bits into (ll, ml, md)
+     * SEQ_AHEAD sequences before stage B executes them, and prefetches
+     * each match source on the way. With a 32MB window far matches miss
+     * every cache level, and stage A never reads the output, so the
+     * misses overlap instead of stalling one by one. Stage A reads
+     * sequence i while stage B executes sequence i - (SEQ_AHEAD - 1). The
+     * last sequence has no state update, so it is read outside the loop:
+     * the loop carries no per-sequence "more" / "done" bookkeeping. */
+    /* 64: webster -17%, mozilla -4%, samba -3.5% of decode cycles against 16 (CPU 44, 12 interleaved rounds), weighted Silesia+AIT
+     * -2.6% (L1) .. -9.8% (L3); 128 gains 1-2% more on the weighted total but costs 1-3% on small, cache-resident files (xml, osdb),
+     * 32 gains half of 64; 256 was worse (+8% on cache-resident files). 8 and 4 measured 4-6% slower. A depth chosen at run time
+     * (16 for long sequences) cost 2.5-4% instructions and lost to the flat value. Power of two (slot = index & (SEQ_AHEAD - 1)). */
+    enum { SEQ_AHEAD = 64 };
+    uint32_t rll[SEQ_AHEAD], rml[SEQ_AHEAD], rmd[SEQ_AHEAD];   /* ll, ml, md < 2^26: from the fixed tables */
+    size_t vpos = 0;   /* output position after the sequences read so far */
+    /* The whole sequence's bits are known from the three entries: one refill covers them unless they
+     * exceed 56 (rare, then `split` refills in between). Every entry's nbBits is at most its table's
+     * log, so extras <= split_thr (computed once) guarantees extras + state bits <= 56. */
+    unsigned split_thr = 56u - (lgs[0] + lgs[1] + lgs[2]);
+    const uint8_t* const br_lim = tbr_fast_lim(br.start, br.end);
+    /* Stage A: the three entries are read through pointers (no struct copies: fewer spills). A
+     * literals-only sequence (ml symbol 0) reads no offset bits and leaves the offset history alone. */
+#define LZ6SEQ_STAGE_A(MORE, SLOT) do {                                                   \
+    const seq_dentry* const pL = &dtab[sLL];                                              \
+    const seq_dentry* const pM = &dtab[sML];                                              \
+    const seq_dentry* const pO = &dtab[sOF];                                              \
+    const int split = ((unsigned)pO->nbExtra + pM->nbExtra + pL->nbExtra) > split_thr;    \
+    tbr_reload_fast(&br, br_lim, bmi);                                                    \
+    size_t ml = 0, md = 0;                                                                \
+    if (pM->base) {   /* ML_base >= 3: a match */                                         \
+        if (!(pO->base & SEQ_REP)) {                                                      \
+            md = (size_t)pO->base + (tbr_read(&br, pO->nbExtra, bmi) << OF_LOW);          \
+            rp2 = rp1; rp1 = rp0; rp0 = md;                                               \
+            if (split) tbr_reload(&br, bmi);                                              \
+        } else {                                                                          \
+            const unsigned ri = pO->base & 3u;   /* <= 2: the header caps the alphabet */ \
+            if (ri == 0) md = rp0;                                                        \
+            else if (ri == 1) { md = rp1; rp1 = rp0; rp0 = md; }                          \
+            else { md = rp2; rp2 = rp1; rp1 = rp0; rp0 = md; }                            \
+        }                                                                                 \
+        ml = (size_t)pM->base + tbr_read(&br, pM->nbExtra, bmi);                          \
+    }                                                                                     \
+    const size_t ll = (size_t)pL->base + tbr_read(&br, pL->nbExtra, bmi);                 \
+    if (MORE) {                                                                           \
+        if (split) tbr_reload(&br, bmi);                                                  \
+        sLL = pL->next + tbr_read(&br, pL->nbBits, bmi);                                  \
+        sML = pM->next + tbr_read(&br, pM->nbBits, bmi);                                  \
+        sOF = pO->next + tbr_read(&br, pO->nbBits, bmi);                                  \
+    }                                                                                     \
+    rll[SLOT] = (uint32_t)ll; rml[SLOT] = (uint32_t)ml; rmd[SLOT] = (uint32_t)md;         \
+    vpos += ll;                                                                           \
+    /* prefetch never faults, so no range guard (wrapped arithmetic, as zstd's prefetch decoder) */ \
+    LZ6SEQ_PREFETCH((const void*)((uintptr_t)ostart + vpos - md));                        \
+    LZ6SEQ_PREFETCH((const void*)((uintptr_t)ostart + vpos - md + 64));                   \
+    vpos += ml;                                                                           \
+} while (0)
+    /* Stage B. Fast path = zstd's three tests: the sequence fits with room for the wide copies, the
+     * literals exist, and 1 <= md <= bytes already written (one unsigned compare: md == 0 wraps).
+     * The copies write up to 31 bytes past the match end and read up to 31 bytes past the literals:
+     * room >= ll + ml + 32, and lit_hard - lit_end >= 32 (true by construction above).
+     * Everything else (end of block, corrupt input, ml == 0 last sequence) takes the exact slow path. */
+#define LZ6SEQ_STAGE_B(SLOT, SEQNO) do { \
+    const size_t ll = rll[SLOT], ml = rml[SLOT], md = rmd[SLOT];                     \
+    if (LZ6SEQ_LIKELY(LZ6SEQ_STAGE_B_FAST_OK(SEQNO) && (size_t)(oend - o) >= ll + ml + 32 \
+                      && (size_t)(lit_end - lit_ptr) >= ll && md - 1 < (size_t)(o - ostart) + ll)) { \
+        memcpy(o, lit_ptr, 16);                                                      \
+        if (LZ6SEQ_UNLIKELY(ll > 16)) {                                              \
+            uint8_t* d = o + 16; const uint8_t* s = lit_ptr + 16; uint8_t* const de = o + ll; \
+            do { memcpy(d, s, 16); memcpy(d + 16, s + 16, 16); d += 32; s += 32; } while (d < de); \
+        }                                                                            \
+        o += ll;                                                                     \
+        lit_ptr += ll;                                                               \
+        const uint8_t* m = o - md;                                                   \
+        if (LZ6SEQ_LIKELY(md >= 16)) {                                               \
+            memcpy(o, m, 16);                                                        \
+            if (ml > 16) {                                                           \
+                uint8_t* d = o + 16; m += 16; uint8_t* const de = o + ml;            \
+                do { memcpy(d, m, 16); memcpy(d + 16, m + 16, 16); d += 32; m += 32; } while (d < de); \
+            }                                                                        \
+        } else {                                                                     \
+            uint8_t* d = o; uint8_t* const de = o + ml;                              \
+            if (md < 8) {                                                            \
+                /* spread the first 8 bytes so the source then trails the cursor by >= 8 (zstd's overlapCopy8) */ \
+                static const unsigned dec32[8] = { 0, 1, 2, 1, 4, 4, 4, 4 };         \
+                static const unsigned dec64[8] = { 8, 8, 8, 7, 8, 9, 10, 11 };       \
+                d[0] = m[0]; d[1] = m[1]; d[2] = m[2]; d[3] = m[3];                  \
+                m += dec32[md];                                                      \
+                memcpy(d + 4, m, 4);                                                 \
+                m -= dec64[md];                                                      \
+            } else {                                                                 \
+                memcpy(d, m, 8);                                                     \
+            }                                                                        \
+            d += 8; m += 8;                                                          \
+            while (d < de) { memcpy(d, m, 8); d += 8; m += 8; }                      \
+        }                                                                            \
+        o += ml;                                                                     \
+    } else {                                                                         \
+        /* exact, fully checked path */                                              \
+        if ((size_t)(lit_end - lit_ptr) < ll || (size_t)(oend - o) < ll) goto fail;  \
+        if ((size_t)(oend - o) >= ll + 16 && (size_t)(lit_hard - lit_ptr) >= ll + 16) { \
+            uint8_t* d = o;                                                          \
+            const uint8_t* s = lit_ptr;                                              \
+            uint8_t* const de = o + ll;                                              \
+            do { memcpy(d, s, 16); d += 16; s += 16; } while (d < de);               \
+        } else {                                                                     \
+            memcpy(o, lit_ptr, ll);                                                  \
+        }                                                                            \
+        o += ll;                                                                     \
+        lit_ptr += ll;                                                               \
+        /* the literals-only last sequence; stage A read every sequence whatever this one holds, so an ml == 0 \
+         * before the last is told apart by the output not being complete */          \
+        if (ml == 0) { if (o != oend) goto fail; goto seq_done; }                    \
+        if (md < 1 || md > (size_t)(o - ostart) || (size_t)(oend - o) < ml) goto fail; \
+        const uint8_t* m = o - md;                                                   \
+        if ((size_t)(oend - o) >= ml + 16) {                                         \
+            /* wide copy: may write up to 15 bytes past the match end, all inside the output \
+             * and overwritten by what follows */                                    \
+            uint8_t* d = o;                                                          \
+            uint8_t* const de = o + ml;                                              \
+            if (md >= 16) {                                                          \
+                do { memcpy(d, m, 16); d += 16; m += 16; } while (d < de);           \
+            } else {                                                                 \
+                if (md < 8) {                                                        \
+                    static const unsigned dec32[8] = { 0, 1, 2, 1, 4, 4, 4, 4 };     \
+                    static const unsigned dec64[8] = { 8, 8, 8, 7, 8, 9, 10, 11 };   \
+                    d[0] = m[0]; d[1] = m[1]; d[2] = m[2]; d[3] = m[3];              \
+                    m += dec32[md];                                                  \
+                    memcpy(d + 4, m, 4);                                             \
+                    m -= dec64[md];                                                  \
+                } else {                                                             \
+                    memcpy(d, m, 8);                                                 \
+                }                                                                    \
+                d += 8; m += 8;                                                      \
+                while (d < de) { memcpy(d, m, 8); d += 8; m += 8; }                  \
+            }                                                                        \
+        } else if (md == 1) {                                                        \
+            memset(o, o[-1], ml);                                                    \
+        } else if (md >= ml) {                                                       \
+            memcpy(o, m, ml);                                                        \
+        } else {                                                                     \
+            memcpy(o, m, md);                                                        \
+            size_t filled = md;                                                      \
+            while (filled + filled <= ml) {                                          \
+                memcpy(o + filled, o, filled);                                       \
+                filled += filled;                                                    \
+            }                                                                        \
+            if (filled < ml) memcpy(o + filled, o, ml - filled);                     \
+        }                                                                            \
+        o += ml;                                                                     \
+    }                                                                                \
+} while (0)
+    if (sc > 0) {
+        const int nlast = sc - 1;   /* sequences that are followed by another one */
+        int i = 0;
+        for (int e = 0;; e++) {
+            /* the last sequence of an epoch has no state update: the next epoch starts from fresh states */
+            const int stop = ep ? ep[e].b - 1 : nlast;
+            const int pre = stop < SEQ_AHEAD - 1 ? stop : SEQ_AHEAD - 1;
+            for (; i < pre; i++) LZ6SEQ_STAGE_A(1, i & (SEQ_AHEAD - 1));
+            for (; i < stop; i++) {
+                LZ6SEQ_STAGE_A(1, i & (SEQ_AHEAD - 1));
+                LZ6SEQ_STAGE_B((i + 1) & (SEQ_AHEAD - 1), i - (SEQ_AHEAD - 1));
+            }
+            if (stop == nlast) break;
+            LZ6SEQ_STAGE_A(0, i & (SEQ_AHEAD - 1));
+            if (i >= SEQ_AHEAD - 1) LZ6SEQ_STAGE_B((i + 1) & (SEQ_AHEAD - 1), i - (SEQ_AHEAD - 1));
+            i++;
+            split_thr = epoch_tables(dts, &ep[e + 1], lgs);
+            tbr_reload(&br, bmi);
+            sLL = tbr_read(&br, lgs[0], bmi);
+            sOF = tbr_read(&br, lgs[2], bmi) + ((size_t)2 << TANS_MAX_LOG);
+            sML = tbr_read(&br, lgs[1], bmi) + ((size_t)1 << TANS_MAX_LOG);
+        }
+        LZ6SEQ_STAGE_A(0, i & (SEQ_AHEAD - 1)); i++;   /* the last sequence: no state update */
+        for (int e = i > SEQ_AHEAD ? i - SEQ_AHEAD : 0; e < i; e++) LZ6SEQ_STAGE_B(e & (SEQ_AHEAD - 1), e);
+        if (o != oend) goto fail;   /* the sequences must fill the declared size exactly */
+    }
+seq_done:
+#undef LZ6SEQ_STAGE_A
+#undef LZ6SEQ_STAGE_B
+    if (sc > 0 && !tbr_exact(&br, bmi)) goto fail;
+    size_t op = (size_t)(o - ostart);
+
+    free(litbuf);
+    free(dts);
+    free(ep);
+    lit_dec_free(&L);
+    return (size_t)op;
+
+fail:
+    free(litbuf);
+    free(dts);
+    free(ep);
+    lit_dec_free(&L);
+    return 0;
+}
+
+/* The decoder is dominated by variable-count shifts (bit reads); with BMI2
+ * (shlx/shrx: 1 uop instead of 3) it runs ~5% faster. Compile the body
+ * twice and pick at run time, like zstd's DYNAMIC_BMI2; other compilers and
+ * targets get the plain build only. */
+static size_t decode_normal_default(const char* src, size_t srcSize, char* dst, size_t dstCap)
+{
+    return decode_normal_body(src, srcSize, dst, dstCap, 0);
+}
+#if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(_M_X64)) \
+    && !defined(LZ6SEQ_NO_DYNAMIC_BMI2)
+#  define LZ6SEQ_DYNAMIC_BMI2 1
+__attribute__((target("bmi2")))
+static size_t decode_normal_bmi2(const char* src, size_t srcSize, char* dst, size_t dstCap)
+{
+    return decode_normal_body(src, srcSize, dst, dstCap, 1);
+}
+#endif
+
+static size_t decode_normal(const char* src, size_t srcSize, char* dst, size_t dstCap)
+{
+#ifdef LZ6SEQ_DYNAMIC_BMI2
+    /* no cached flag: a static would be a data race between threads, and
+     * the libgcc check is a load of its own (already initialised) state */
+    __builtin_cpu_init();
+    if (__builtin_cpu_supports("bmi2")) return decode_normal_bmi2(src, srcSize, dst, dstCap);
+#endif
+    return decode_normal_default(src, srcSize, dst, dstCap);
+}
+
+
+/* The public level scale and the rows of LZ6HC_seqParameters. Rows 1-2 are the fast tier (the fast1 parser), rows 3-15 the
+ * entry tier and up (row-hash, lazy and optimal parsers). Level 1 is row 3, ..., level 13 is row 15: level 1 is the first level
+ * that compresses like the LZMA family's first (Silesia 28.8%). The fast tier is level -N (`--fast=N` in the CLI; a larger N is
+ * faster, as in LZ4 and zstd): -1 is row 2, -2 and below row 1. Levels 14 and 15 are the strongest row for now (reserved for
+ * stronger levels); 0 is the default, row 9 (level 7). Everything inside this file works on rows. */
+static int seq_row(int level)
+{
+    if (level == 0) return 9;
+    if (level < 0) return level == -1 ? 2 : 1;
+    return level + 2 > LZ6HC_MAX_CLEVEL ? LZ6HC_MAX_CLEVEL : level + 2;
+}
+
+/* The restricted encoder: see lz6seq.h. The masks become a seq_opt_t on this stack and every function below reads it
+ * through a const pointer; the bits that have no meaning are dropped here. */
+size_t LZ6_compress_seq_opt(const char* src, size_t srcSize,
+                            char* dst, size_t dstCap, int level,
+                            unsigned blockMask, unsigned litMask) {
+    seq_opt_t o;
+    o.blocks = blockMask & LZ6SEQ_BLOCK_ALL;
+    o.lits = litMask & LZ6SEQ_LIT_ALL;
+    const seq_opt_t* const opt = &o;
+    level = seq_row(level);
+    if (!code_tabs_ready) code_tabs_init();   /* the BCJ trial below runs the encoder before compress_seq_core would build them */
+    if ((opt->blocks & LZ6SEQ_BLOCK_X86) && srcSize >= 16384 && srcSize <= 0x7FFFFFFFu && dstCap > 64) {
+        const size_t maxr = srcSize / BCJ_CHUNK + 1;
+        uint32_t* rs = (uint32_t*)malloc(maxr * 2 * sizeof(uint32_t));
+        if (rs) {
+            uint32_t* rl = rs + maxr;
+            const int nr = bcj_detect((const uint8_t*)src, srcSize, rs, rl, maxr, opt);
+            if (nr > 0) {
+                uint8_t* tmp = (uint8_t*)malloc(srcSize);
+                const size_t hl = 1 + 4 + (size_t)(nr / 255 + 1) + (size_t)nr * 8;
+                if (tmp && dstCap > hl + 64) {
+                    memcpy(tmp, src, srcSize);
+                    for (int k = 0; k < nr; k++) x86_bcj(tmp + rs[k], rl[k], 1, rs[k]);
+                    const size_t r = compress_seq_core((const char*)tmp, srcSize, dst + hl, dstCap - hl, level, opt);
+                    free(tmp);
+                    if (r > 0) {
+                        uint8_t* q = (uint8_t*)dst;
+                        w8(&q, 0x10);
+                        w32le(&q, (uint32_t)srcSize);
+                        q += wvlq(q, nr);
+                        for (int k = 0; k < nr; k++) { w32le(&q, rs[k]); w32le(&q, rl[k]); }
+                        /* wvlq may use fewer bytes than the hl estimate: close the gap */
+                        const size_t used = (size_t)(q - (uint8_t*)dst);
+                        if (used != hl) memmove(dst + used, dst + hl, r);
+                        free(rs);
+                        return used + r;
+                    }
+                } else free(tmp);
+            }
+            free(rs);
+        }
+    }
+    return compress_seq_core(src, srcSize, dst, dstCap, level, opt);
+}
+
+size_t LZ6_compress_seq(const char* src, size_t srcSize,
+                        char* dst, size_t dstCap, int level) {
+    return LZ6_compress_seq_opt(src, srcSize, dst, dstCap, level, LZ6SEQ_BLOCK_ALL, LZ6SEQ_LIT_ALL);
+}
+
+/* flag 0x10: x86-filtered block, see x86_bcj */
+static size_t decode_x86_wrapper(const uint8_t* p, size_t srcSize, char* dst, size_t dstCap)
+{
+    const uint8_t* const end = p + srcSize;
+    const uint8_t* q = p + 1;
+    if (srcSize < 1 + 4 + 1 + 8 + 5) return 0;
+    const uint32_t isize = r32le(&q);
+    if (isize > dstCap || isize > 0x7FFFFFFFu) return 0;
+    const int nr = rvlq(&q, end);
+    if (nr < 1 || (size_t)nr > (size_t)isize / BCJ_CHUNK + 1) return 0;
+    if ((size_t)(end - q) < (size_t)nr * 8 + 5) return 0;
+    const uint8_t* rt = q;
+    q += (size_t)nr * 8;
+    {
+        uint32_t prev_end = 0;
+        const uint8_t* t = rt;
+        for (int k = 0; k < nr; k++) {
+            const uint32_t st = r32le(&t), ln = r32le(&t);
+            if (st < prev_end || ln < 5 || ln > isize || st > isize - ln) return 0;
+            prev_end = st + ln;
+        }
+    }
+    if (q[0] & 0x10) return 0;          /* no nesting */
+    if (LZ6_decompress_seq((const char*)q, (size_t)(end - q), dst, isize) != isize) return 0;
+    for (int k = 0; k < nr; k++) {
+        const uint32_t st = r32le(&rt), ln = r32le(&rt);
+        x86_bcj((uint8_t*)dst + st, ln, 0, st);
+    }
+    return isize;
+}
+
+/* Byte-plane merge: out[stride*j + i] = lane_i[j] for j < n, so it writes
+ * stride*n bytes and reads n bytes of each lane. The SSE2 loop does 16
+ * lane bytes per step (unpack = interleave) and only runs while a whole
+ * 16-byte window of every lane is in range; the scalar loop is the tail
+ * and, without SSE2, the whole merge. Both give the same bytes. */
+static void plane_merge2(uint8_t* out, const uint8_t* l0, const uint8_t* l1, size_t n)
+{
+    size_t j = 0;
+#if defined(__SSE2__)
+    for (; j + 16 <= n; j += 16) {
+        const __m128i a = _mm_loadu_si128((const __m128i*)(l0 + j));
+        const __m128i b = _mm_loadu_si128((const __m128i*)(l1 + j));
+        _mm_storeu_si128((__m128i*)(out + 2 * j), _mm_unpacklo_epi8(a, b));
+        _mm_storeu_si128((__m128i*)(out + 2 * j + 16), _mm_unpackhi_epi8(a, b));
+    }
+#endif
+    for (; j < n; j++) {
+        out[2 * j] = l0[j];
+        out[2 * j + 1] = l1[j];
+    }
+}
+
+static void plane_merge4(uint8_t* out, const uint8_t* l0, const uint8_t* l1,
+                         const uint8_t* l2, const uint8_t* l3, size_t n)
+{
+    size_t j = 0;
+#if defined(__SSE2__)
+    for (; j + 16 <= n; j += 16) {
+        const __m128i a = _mm_loadu_si128((const __m128i*)(l0 + j));
+        const __m128i b = _mm_loadu_si128((const __m128i*)(l1 + j));
+        const __m128i c = _mm_loadu_si128((const __m128i*)(l2 + j));
+        const __m128i d = _mm_loadu_si128((const __m128i*)(l3 + j));
+        const __m128i ab_lo = _mm_unpacklo_epi8(a, b), ab_hi = _mm_unpackhi_epi8(a, b);
+        const __m128i cd_lo = _mm_unpacklo_epi8(c, d), cd_hi = _mm_unpackhi_epi8(c, d);
+        _mm_storeu_si128((__m128i*)(out + 4 * j), _mm_unpacklo_epi16(ab_lo, cd_lo));
+        _mm_storeu_si128((__m128i*)(out + 4 * j + 16), _mm_unpackhi_epi16(ab_lo, cd_lo));
+        _mm_storeu_si128((__m128i*)(out + 4 * j + 32), _mm_unpacklo_epi16(ab_hi, cd_hi));
+        _mm_storeu_si128((__m128i*)(out + 4 * j + 48), _mm_unpackhi_epi16(ab_hi, cd_hi));
+    }
+#endif
+    for (; j < n; j++) {
+        out[4 * j] = l0[j];
+        out[4 * j + 1] = l1[j];
+        out[4 * j + 2] = l2[j];
+        out[4 * j + 3] = l3[j];
+    }
+}
+
+size_t LZ6_decompress_seq(const char* src, size_t srcSize,
+                          char* dst, size_t dstCap) {
+    const uint8_t* p = (const uint8_t*)src;
+    if (!code_tabs_ready) code_tabs_init();
+    if (srcSize < 5) return 0;
+    int flags = p[0];
+    if (flags & 0x10) return decode_x86_wrapper(p, srcSize, dst, dstCap);
+    if (flags & 0x08) {  /* byte-plane block */
+        const uint8_t* q = p + 1;
+        if (srcSize < 6) return 0;
+        const uint32_t usize = (uint32_t)q[0] | ((uint32_t)q[1] << 8) | ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
+        q += 4;
+        if (usize > (uint32_t)INT_MAX || (size_t)usize > dstCap) return 0;
+        const int isize = (int)usize;
+        int stride = (flags & 3) == 2 ? 4 : 2;
+        /* the encoder only planes stride-divisible blocks; a remainder
+         * would leave the tail unwritten yet report it as decoded */
+        if (isize % stride) return 0;
+        size_t plane_size = (size_t)isize / (size_t)stride;
+        const uint8_t* end = p + srcSize;
+        /* all lanes decode into one buffer, then a single interleave pass
+         * (a strided scatter per lane walked the whole output per lane) */
+        uint8_t* planes = (uint8_t*)malloc(plane_size * (size_t)stride + 1);
+        if (!planes) return 0;
+        uint8_t* plane_buf = planes;
+        uint8_t* out = (uint8_t*)dst;
+        for (int lane = 0; lane < stride; lane++, plane_buf += plane_size) {
+            if (q >= end) { free(planes); return 0; }
+            int mode = *q++;
+            const int delta = mode & 0x80;   /* the lane was coded as byte deltas */
+            mode &= 0x7f;
+            if (mode == 1) {  /* compressed lane */
+                if ((size_t)(end - q) < 4) { free(planes); return 0; }
+                uint32_t csize = (uint32_t)q[0] | ((uint32_t)q[1] << 8) |
+                                 ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
+                q += 4;
+                if ((size_t)(end - q) < csize) { free(planes); return 0; }
+                if (decode_normal((const char*)q, csize, (char*)plane_buf, plane_size) != plane_size) {
+                    free(planes); return 0;
+                }
+                q += csize;
+            } else if (mode == 2) {  /* pure huffman lane */
+                if ((size_t)(end - q) < 4) { free(planes); return 0; }
+                uint32_t csize = (uint32_t)q[0] | ((uint32_t)q[1] << 8) |
+                                 ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
+                q += 4;
+                if ((size_t)(end - q) < csize) { free(planes); return 0; }
+                if (huf_decode(q, csize, plane_size, plane_buf) != csize) {
+                    free(planes); return 0;
+                }
+                q += csize;
+            } else if (mode == 0) {  /* raw lane */
+                if ((size_t)(end - q) < plane_size) { free(planes); return 0; }
+                memcpy(plane_buf, q, plane_size);
+                q += plane_size;
+            } else { free(planes); return 0; }
+            if (delta) plane_undelta(plane_buf, plane_size);
+        }
+        const uint8_t *l0 = planes, *l1 = planes + plane_size;
+        if (stride == 2) {
+            plane_merge2(out, l0, l1, plane_size);
+        } else {
+            const uint8_t *l2 = l1 + plane_size, *l3 = l2 + plane_size;
+            plane_merge4(out, l0, l1, l2, l3, plane_size);
+        }
+        free(planes);
+        return (size_t)isize;
+    }
+    return decode_normal(src, srcSize, dst, dstCap);
+}
