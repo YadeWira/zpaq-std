@@ -2,7 +2,7 @@
 
 **`-ma:lz6` is lz6's seq engine. What it was is `-ma:lz6hc`.**
 
-- **`-ma:lz6:N` now uses lz6's seq engine** (lz6 2.1.0, levels 1 to 13, 7 by default): an LZ match finder with tANS and Huffman coding, which is what lz6 is about. EXPERIMENTAL (00603): its format is frozen and every block carries its decoder, but the encoder, and so the bytes and what each level gives, may change.
+- **`-ma:lz6:N` now uses lz6's seq engine** (lz6 2.1.0, levels 1 to 13, 7 by default): an LZ match finder with tANS and Huffman coding, which is what lz6 is about. Its format is frozen and every block carries its decoder.
   - Any zpaq extracts it: each block carries **ZPAQLZ6SEQ**, a new ZPAQL decoder (6,810 bytes), and zpaq-std 2.9.0 and older run it too. Another zpaq needs 64 MiB a block to extract.
   - A block is written as self-contained seq blocks of up to 16 MiB each, so the decoder's memory is bounded. zpaq-std asks lz6 for the parts of its format that the decoder covers (normal, stored and x86 blocks; literal modes 0, 1, 5, 7 and 8).
   - lz6's seq engine reads experiment switches from the environment; zpaq-std builds it so that it does not, and the bytes never depend on the environment.

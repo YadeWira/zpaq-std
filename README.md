@@ -98,6 +98,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:ppmd:N` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)) | 2–32 | 6 |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
 | `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 1.0.0 | 1–7 | 3 |
+| `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) 2.1.0, its seq engine (since 2.10.0; other zpaqs need 64 MiB a block to extract) | 1–13 | 7 |
 | `-ma:lz6hc:N` | [lz6](https://github.com/YadeWira/lz6) 2.1.0, its LZ5 v1.5 profile (0 fast, 1–15 HC): what `-ma:lz6` was up to 2.9.0 | 0–15 | 0 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.1 | 1–12 | 9 |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.2 | 0–1 | 1 |
@@ -109,7 +110,6 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 
 | Switch | Library | Levels | Default |
 |---|---|---|---|
-| `-ma:lz6:N` | [lz6](https://github.com/YadeWira/lz6) 2.1.0, its seq engine (since 2.10.0; other zpaqs need 64 MiB a block to extract) | 1–13 | 7 |
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) 517948e | 1–9 | 9 |
 | `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.6.0), plugin only | 0–10 | 1 |
 | `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.6.0, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
