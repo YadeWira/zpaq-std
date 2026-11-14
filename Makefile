@@ -586,7 +586,7 @@ PJASRC := $(wildcard compressors/pja/pas/*.pas compressors/pja/pas/*.inc compres
 plugins/codecs/pja$(PLUGEXT): $(PJASRC)
 	@mkdir -p plugins/codecs plugins/fpc-pja
 	CC="$(SYLZC_CC) $(filter -m32,$(CFLAGS))" sh compressors/pja/pas/build_c.sh plugins/fpc-pja $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
-	PJA_COMMIT=ae5270c $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
+	PJA_COMMIT=9b4f04a $(FPC) -O3 -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/pja/pas -Ficompressors/pja/pas \
 	  -Fucompressors/pja/pas/plugin -Ficompressors/pja/pas/plugin -FUplugins/fpc-pja -Foplugins/fpc-pja -oplugins/fpc-pja/pja$(PLUGEXT) compressors/pja/pas/plugin/pja_zpaqstd.pas
 	mv -f plugins/fpc-pja/pja$(PLUGEXT) $@
 

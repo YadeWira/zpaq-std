@@ -1,8 +1,28 @@
-# PJA 0.9.11: the zpaq-std plugin, vendored
+# PJA 0.9.12: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.11`, commit `ae5270c`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.12`, commit `9b4f04a`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.9.12
+
+The 31 codecs write and read the same streams with the same ZPAQL. What
+they take changes at the edges, from the parser they share with the
+command:
+
+- `pja`, `pjax` and theirs may now take a JPEG whose sequential scan has
+  Ss or Se other than 0 and 63 (a DICOM encoder writes Se = 0): libjpeg
+  ignores them, and so does the parser now. The ZPAQL never read them.
+- `pjall` and theirs refuse a lossless JPEG with subsampled components
+  (the parser now reads them, the ZPAQL does not) and one whose encoder
+  wraps predictor 5 or 6 (the command keeps that in stream version 6).
+  Detect answers 2 for them, so `+rcmd` takes them.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k`,
+`tests/jpg` (with the new samples `sos_se_zero.jpg` and
+`lossless_{wrap,sub,subscans}.jpg`) and `tests/jls`; pjax7's ZPAQL
+decodes `sos_se_zero.jpg` in PJA's interpreter.
 
 ## What is new in 0.9.11
 
@@ -248,7 +268,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` and `{$L b3chunks.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=ae5270c
+export PJA_COMMIT=9b4f04a
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):
