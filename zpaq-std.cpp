@@ -180448,11 +180448,16 @@ void Jidac::scandir(bool i_checkifselected, DTMap &i_edt, string filename, bool 
 	if (h == INVALID_HANDLE_VALUE)
 	{
 		const DWORD erroretroppo= GetLastError();
-		if ((utow(t.c_str()).size() >= 248) && (t.substr(0, 4) != "//?/") &&
+		/// zpaq-std 2.11.0: the limit of Windows is on the full path. A folder given as relative
+		/// (a x.zpaq src) had a short name here and a long one on the disk: skipped with no word, rc 0.
+		size_t lungotroppo= utow(t.c_str()).size();
+		if (!iswindowspath(t) && (t.size() > 0) && (t[0] != '/') && (t[0] != '\\'))
+			lungotroppo+= (size_t)GetCurrentDirectoryW(0, NULL);
+		if ((lungotroppo >= 248) && (t.substr(0, 4) != "//?/") &&
 			((erroretroppo == ERROR_PATH_NOT_FOUND) || (erroretroppo == ERROR_FILENAME_EXCED_RANGE) || (erroretroppo == ERROR_FILE_NOT_FOUND)))
 		{
 			g_scantroppolunghi++;
-			myprintf("66861$ <<%Z>>: path too long (%s characters) without -longpath: skipped\n", t.c_str(), migliaia(utow(t.c_str()).size()));
+			myprintf("66861$ <<%Z>>: path too long (%s characters) without -longpath: skipped\n", t.c_str(), migliaia((int64_t)lungotroppo));
 		}
 		SetLastError(erroretroppo);
 	}
