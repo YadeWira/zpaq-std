@@ -1,7 +1,10 @@
-PJA 0.9.11 (tag v0.9.11, commit ae5270c), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.9.11-zpaqstd.tar.gz (sha256
-10d12d9d9c71d21fd48a42562b4f10c4d904acc87f8a62ada9d7799f42ab09e5), copied unmodified.
-0.9.11: the fallback_ma lists of the JPEG-LS and JPEG 2000 codecs say lz6hc:15 where they said
+PJA 0.9.12 (tag v0.9.12, commit 9b4f04a), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.12-zpaqstd.tar.gz (sha256
+b801a809fc878cd7191cbca36c9bbf4a2e3a9fe050f23b2223c942a271ec6cc4), copied unmodified.
+0.9.12: the same streams and ZPAQL. pja/pjax and theirs take a JPEG whose sequential scan has Ss or
+Se other than 0 and 63 (a DICOM encoder writes Se = 0); pjall and theirs refuse a lossless JPEG with
+subsampled components or with a predictor that wraps (detect answers 2: +rcmd takes them).
+Before: 0.9.11 (commit ae5270c, tarball sha256 10d12d9d...), never in a release: the fallback_ma lists of the JPEG-LS and JPEG 2000 codecs say lz6hc:15 where they said
 lz6:15 (zpaq-std 2.10.0 renamed that codec; lz6:15 is out of range there and was skipped).
 Streams, ZPAQL and detect are unchanged. Before: 0.9.10 (commit 68f25f8, tarball sha256 075a65d7...),
 in zpaq-std 2.10.0:

@@ -44,7 +44,7 @@
   levels 1 and 9), and leave 8-12% of sequences extended. Exact pairs fit
   fixed 16-byte literal and 32-byte match copies.
 
-  Formats v4 and v5 (SYLZ_V4; provisional until frozen): three streams,
+  Formats v4 and v5 (SYLZ_V4; frozen at syc v0.8.0, the layout of 0.7.0): three streams,
   tokens, offsets and literals, so that a token is one byte and a
   sequence takes two offset bytes only when it needs them; v5 is v4 with
   the literals in chunks like v3's, whose Huffman chunks have eight
@@ -318,6 +318,7 @@ uses
 
 const
   HEADER_SIZE  = 4;
+  SMALL_BLOCK4 = 65536;   { SylzCompressEx: v4/v5 blocks this small are also tried as v2/v3 }
   HEADER4_SIZE = 8;                   { SylzBound's share for a header; v4's
                                         is HEADER_SIZE, and the offset count
                                         (OFFCOUNT_MAX bytes) after the tokens }
@@ -1319,9 +1320,19 @@ type
     p, off: PByte;             { in/out: token and offset write pointers }
     prev: SizeInt;             { in/out: the distance before the records }
     codes: Pointer;            { TCodes4 }
+    memo: PByte;               { levels 0-3: the C loops' memo of split tokens, or nil }
+  end;
+
+  { sylzc_count4 in sylzc.c: fixed field order }
+  TCount4C = record
+    rec, rend: PUInt16;
+    prev: SizeInt;             { the distance before the records }
+    codes: Pointer;            { TCodes4 }
+    cnt: PUInt32;              { TPairCounts4 }
   end;
 
 procedure sylzc_put_chunk4(st: Pointer); cdecl; external name 'sylzc_put_chunk4';
+procedure sylzc_count_chunk4(st: Pointer); cdecl; external name 'sylzc_count_chunk4';
 {$endif}
 
 { The header of the chunk at e.head, whose tokens start at e.body (after
@@ -1377,6 +1388,7 @@ var
   open: Boolean;
 {$ifdef SYLZ_C}
   pc: TPut4C;
+  cc: TCount4C;
 {$endif}
 begin
   Result := True;
@@ -1412,6 +1424,19 @@ begin
   prev := e.tokRep;
   if e.counted and not e.whole then
     Move(e.cnt, cnt, SizeOf(cnt))   { counted as recorded; no v2 layout to weigh }
+{$ifdef SYLZ_C}
+  else if open and SylzUseAsm then
+  begin
+    { an open chunk wants only the count: in C (FPC's aarch64 code for
+      CountAll4 took 1% of level 0 on GitHub's linux-arm64) }
+    cc.rec := r;
+    cc.rend := rend;
+    cc.prev := prev;
+    cc.codes := @e.codes;
+    cc.cnt := @cnt[0, 0, 0];
+    sylzc_count_chunk4(@cc);
+  end
+{$endif}
   else
   begin
     CountAll4(r, rend, prev, e.codes, cnt, sums);
@@ -1472,6 +1497,11 @@ begin
     pc.off := off;
     pc.prev := prev;
     pc.codes := @e.codes;
+    { levels 0-3: the memo of the C loops (sylzc.c), 8 words past the
+      records, cleared and filled here for the chunk's table }
+    pc.memo := nil;
+    if e.prefix > 0 then
+      pc.memo := PByte(e.recs + 3 * FAST_PREFIX4 + 8);
     sylzc_put_chunk4(@pc);
     p := pc.p;
     off := pc.off;
@@ -1746,6 +1776,35 @@ begin
   end;
 end;
 
+{ Move for EmitFinish's copies into dst (from buffers that do not overlap
+  it). FPC 3.2.2 has no Move of its own for aarch64: the generic one goes
+  a byte at a time unless source and destination have the same alignment
+  mod 8, which for the literals and offsets is chance (on GitHub's
+  linux-arm64, silesia.tar: 8% of format v2's compression at level 0, 4%
+  of v4's at level 2). Unaligned 8-byte moves are fine there. }
+procedure CopyOut(src, dst: PByte; n: SizeInt);{$ifndef CPUAARCH64} inline;{$endif}
+begin
+{$ifdef CPUAARCH64}
+  while n >= 16 do
+  begin
+    PUInt64(dst)^ := PUInt64(src)^;
+    PUInt64(dst + 8)^ := PUInt64(src + 8)^;
+    Inc(src, 16);
+    Inc(dst, 16);
+    Dec(n, 16);
+  end;
+  while n > 0 do
+  begin
+    dst^ := src^;
+    Inc(src);
+    Inc(dst);
+    Dec(n);
+  end;
+{$else}
+  Move(src^, dst^, n);
+{$endif}
+end;
+
 function EmitFinish(var e: TEmit; lit: PByte; litLen: SizeInt): SizeInt;
 var
   ctrlLen, litTotal, v3, offLen: SizeInt;
@@ -1842,24 +1901,24 @@ begin
         e.ctrl^ := Byte(v3);
         Inc(e.ctrl);
       end;
-      Move(e.offs^, e.ctrl^, offLen);
+      CopyOut(e.offs, e.ctrl, offLen);
       Inc(e.ctrl, offLen);
       PUInt32(e.dst)^ := hdr;
       if e.entropy and (litTotal > 0) then
       begin
-        Move(lit^, e.lit^, litLen);
+        CopyOut(lit, e.lit, litLen);
         v3 := EncodeLiteralChunks(e.lits, litTotal, e.ctrl, e.oend - e.ctrl, True);
         if (v3 >= 0) and (v3 < litTotal) then
         begin
           PUInt32(e.dst)^ := hdr or HDR_ENTROPY;
           Exit(e.ctrl - e.dst + v3);
         end;
-        Move(e.lits^, e.ctrl^, litTotal);
+        CopyOut(e.lits, e.ctrl, litTotal);
         Exit(e.ctrl - e.dst + litTotal);
       end;
       { the tail straight from the input: incompressible data is all tail }
-      Move(e.lits^, e.ctrl^, e.lit - e.lits);
-      Move(lit^, (e.ctrl + (e.lit - e.lits))^, litLen);
+      CopyOut(e.lits, e.ctrl, e.lit - e.lits);
+      CopyOut(lit, e.ctrl + (e.lit - e.lits), litLen);
       Exit(e.ctrl - e.dst + litTotal);
     end;
   end;
@@ -1871,7 +1930,7 @@ begin
   begin
     { all literals in the scratch stream (it holds n + slack bytes), then
       code them; only kept when smaller than the v2 layout }
-    Move(lit^, e.lit^, litLen);
+    CopyOut(lit, e.lit, litLen);
     v3 := EncodeLiteralChunks(e.lits, litTotal, e.ctrl, e.oend - e.ctrl, False);
     if (v3 >= 0) and (v3 < litTotal) then
     begin
@@ -1879,12 +1938,12 @@ begin
       Exit(HEADER_SIZE + ctrlLen + v3);
     end;
     PUInt32(e.dst)^ := UInt32(ctrlLen);
-    Move(e.lits^, e.ctrl^, litTotal);
+    CopyOut(e.lits, e.ctrl, litTotal);
     Exit(HEADER_SIZE + ctrlLen + litTotal);
   end;
   PUInt32(e.dst)^ := UInt32(ctrlLen);
-  Move(e.lits^, e.ctrl^, e.lit - e.lits);
-  Move(lit^, (e.ctrl + (e.lit - e.lits))^, litLen);
+  CopyOut(e.lits, e.ctrl, e.lit - e.lits);
+  CopyOut(lit, e.ctrl + (e.lit - e.lits), litLen);
   Result := HEADER_SIZE + ctrlLen + litTotal;
 end;
 
@@ -2823,6 +2882,15 @@ type
     codes: Pointer;            { TCodes4 }
   end;
   PEmitC = ^TEmitC;
+
+const
+  { sylzc.c's v4 levels 0-3 keep a memo of split tokens in the record
+    buffer, 8 words after their recEnd (3 * FAST_PREFIX4 words, a long
+    record started before it reaching 6 more) }
+  SPLIT4_MEMO_BYTES = 2 * (LIT_SPLIT4 + 1) * (ML_SPLIT4 + 1) * 4;
+{$if (3 * FAST_PREFIX4 + 8) * 2 + SPLIT4_MEMO_BYTES > 3 * 2 * CHUNK4_SEQS}
+  {$error the split token memo does not fit after the levels 0-3 records}
+{$endif}
 
 { sylzc.c's v4 emitters call this when their records or their open chunk
   are full. The C compressors run only with room for SylzBound(n), so the
@@ -5037,6 +5105,8 @@ const
   OPT_MAXCAND = 64;
   OPT_NOSKIP  = High(Int32);
   OPT_FORCED_KEEP4 = 64;   { see CompressOptCore }
+  OPT_FORCED_STEP4 = 4;
+
 
 type
   TSylzOptParams = record
@@ -6044,13 +6114,24 @@ begin
         lastDist := forcedDist;
         anchor := pos + forcedLen;
         start := anchor;
-        { format v4: of a match taken as is, only the last positions go
-          into the tree. Each one inside it costs a walk and a long
-          compare, and what they would find later the match's source
-          mostly has too (level 9: silesia.tar -6% cycles for +0.05
-          points, the mixed corpus -11% for +0.01) }
+        { format v4: of a match taken as is, only every
+          OPT_FORCED_STEP4-th position and the last ones go into the tree.
+          Each one costs a walk and a long compare, and what they would
+          find later the match's source mostly has too. With none of
+          them (level 9: silesia.tar -7% cycles), a 1 MiB piece of samba
+          came out 7% bigger than with all of them: later matches into
+          the long match's bytes went unfound. Every 4th: silesia.tar -4%
+          cycles, mixed corpus -8%, that piece within 0.6% }
         if e.v4 and (anchor - OPT_FORCED_KEEP4 > b.nextToInsert) then
+        begin
+          k := b.nextToInsert;
+          while k < anchor - OPT_FORCED_KEEP4 do
+          begin
+            BtInsert(b, k, nil);
+            Inc(k, OPT_FORCED_STEP4);
+          end;
           b.nextToInsert := anchor - OPT_FORCED_KEEP4;
+        end;
       end
       else
         start := start + w;
@@ -6313,8 +6394,30 @@ end;
 
 function SylzCompressEx(var ctx: TSylzCtx; src: PByte; n: SizeInt; dst: PByte;
   cap: SizeInt; level: Integer; flags: Integer): SizeInt;
+var
+  alt: PByte;
+  r: SizeInt;
 begin
   Result := CompressAny(ctx, src, n, dst, cap, level, flags);
+  { formats v4 and v5, a small block: the format below's block too (v2,
+    or v3 for v5), and the smaller of the two. On a few KiB of text, with
+    few matches at the previous offset, v4's table and parse can lose a
+    few bytes to v2's; on large blocks v4 is always the smaller, and the
+    second compression would cost time for nothing }
+  if (flags and SYLZ_V4 <> 0) and (n <= SMALL_BLOCK4) and (n > 0) then
+  begin
+    alt := GetMem(SylzBound(n));
+    try
+      r := CompressAny(ctx, src, n, alt, SylzBound(n), level, flags and not SYLZ_V4);
+      if (r >= 0) and (r <= cap) and ((Result < 0) or (r < Result)) then
+      begin
+        Move(alt^, dst^, r);
+        Result := r;
+      end;
+    finally
+      FreeMem(alt);
+    end;
+  end;
   { formats v4 and v5: a block bigger than its input, or one that did not
     fit cap, goes out as a block with no sequences: its header and the
     input as the tail literals }
@@ -8042,6 +8145,9 @@ begin
     begin
       { one chunk; its header's flag and the offsets' count are in hdr }
       one := Ord(hdr and HDR4_UPDATE <> 0) * CHUNK4_UPDATE;
+      { an update needs bytes to be in: with no tokens, the flag is wrong }
+      if (one <> 0) and (ctrlLen = 0) then
+        Exit(-1);
       count := (hdr shr HDR4_BITS) and (1 shl HDR4_BITS - 1);
       if count > UInt32((send - cend) shr 1) then
         Exit(-1);

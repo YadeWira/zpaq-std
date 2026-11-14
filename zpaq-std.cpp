@@ -93875,10 +93875,11 @@ inline int ZLZ4_decompress_safe(const char* s, char* d, int n, int c) { return L
 #include <dlfcn.h>
 #endif
 static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6","lz6seq","snappy","hs","lzfse","bzip3","brotli","bsc","lzh","ppmd","kanzi","zxc"};
-static const char* const ZS_PLUGIN_ONLY[]={"sylz","sylzec"};
+static const char* const ZS_PLUGIN_ONLY[]={"sylz","sylzec","sylz4","sylz5"};
 /// The file each plugin-only codec comes from: sylzec lives in sylz's file (its
-/// zpaqstd_codecs_v1), and in a sylzec file of its own only with syc up to 0.3.x
-static const char* const ZS_PLUGIN_ONLY_FILE[]={"sylz","sylz"};
+/// zpaqstd_codecs_v1), and in a sylzec file of its own only with syc up to 0.3.x.
+/// sylz4 and sylz5 (sylz formats v4 and v5, syc v0.8.0) are in sylz's file too.
+static const char* const ZS_PLUGIN_ONLY_FILE[]={"sylz","sylz","sylz","sylz"};
 static const zs_codec* g_zs_plugin_only[sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0])];
 static const char* g_zs_plugin_only_from[sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0])];	/// the file it came from
 static std::string g_zs_dir;
@@ -94017,9 +94018,12 @@ const zs_codec* zs_get(const char* i_name)
 /// profile that -ma:lz6 was, the codec "lz6". The TAGS keep their meaning (a block tagged
 /// "lz6" is the profile's, one tagged "lz6seq" the seq engine's): a tag goes through
 /// zs_plugin_name_tag().
+/// The same with sylz: -ma:sylz is the codec "sylz4" (sylz format v4) and -ma:sylzec the
+/// codec "sylz5" (format v5); the codecs "sylz" and "sylzec" (formats v2 and v3, what those
+/// switches wrote before) stay in the plugin to read the blocks tagged sylz2 and sylzec3.
 static std::string zs_plugin_name(const std::string& i_ma)
 {
-	const std::string n=(i_ma=="lz5hc"||i_ma=="lz5f") ? std::string("lz5") : (i_ma=="lz5-lz6"||i_ma=="lz6hc") ? std::string("lz6") : (i_ma=="lz6") ? std::string("lz6seq") : (i_ma=="sylz2") ? std::string("sylz") : (i_ma=="sylzec3") ? std::string("sylzec") : (i_ma=="zxc9") ? std::string("zxc") : i_ma;
+	const std::string n=(i_ma=="lz5hc"||i_ma=="lz5f") ? std::string("lz5") : (i_ma=="lz5-lz6"||i_ma=="lz6hc") ? std::string("lz6") : (i_ma=="lz6") ? std::string("lz6seq") : (i_ma=="sylz") ? std::string("sylz4") : (i_ma=="sylzec") ? std::string("sylz5") : (i_ma=="zxc9") ? std::string("zxc") : i_ma;
 	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
 		if (n==ZS_NAMES[i])
 			return n;
@@ -94040,6 +94044,12 @@ static std::string zs_plugin_dir() { return g_zs_dir; }
 /// format, the block's own ZPAQL decoder runs.
 static std::string zs_plugin_name_tag(const std::string& i_tag)
 {
+	if (i_tag=="sylz2")
+		return "sylz";
+	if (i_tag=="sylzec3")
+		return "sylzec";
+	if (i_tag=="sylz4" || i_tag=="sylz5")
+		return i_tag;
 	return zs_plugin_name(i_tag=="lz6" ? std::string("lz6hc") : i_tag=="lz6seq" ? std::string("lz6") : i_tag);
 }
 static bool zs_format_ok(const std::string& i_tag, const zs_codec* i_c)
@@ -94048,6 +94058,10 @@ static bool zs_format_ok(const std::string& i_tag, const zs_codec* i_c)
 		return i_c && i_c->library && strncmp(i_c->library, "sylz format v2 ", 15)==0;
 	if (i_tag=="sylzec3")
 		return i_c && i_c->library && strncmp(i_c->library, "sylz format v3 ", 15)==0;
+	if (i_tag=="sylz4")
+		return i_c && i_c->library && strncmp(i_c->library, "sylz format v4 ", 15)==0;
+	if (i_tag=="sylz5")
+		return i_c && i_c->library && strncmp(i_c->library, "sylz format v5 ", 15)==0;
 	if (i_tag=="zxc9")
 		return i_c && i_c->library && strncmp(i_c->library, "zxc format 9 ", 13)==0;
 	return true;
@@ -98598,6 +98612,8 @@ const std::string& zpaqbzip2_bytecode();   /// ZPAQBZIP2, idem
 const std::string& zpaqbz2_bytecode();     /// ZPAQBZ2, idem
 const std::string& zpaqsylz_bytecode();    /// ZPAQSYLZ, idem
 const std::string& zpaqsylz3_bytecode();   /// ZPAQSYLZ3, idem
+const std::string& zpaqsylz4_bytecode();   /// ZPAQSYLZ4, idem
+const std::string& zpaqsylz5_bytecode();   /// ZPAQSYLZ5, idem
 const std::string& zpaqzxc_bytecode();     /// ZPAQZXC, idem
 const std::string& zpaqzstd_bytecode();    /// ZPAQZSTD, idem
 const std::string& zpaqlzfse_bytecode();   /// ZPAQLZFSE, idem
@@ -98727,6 +98743,8 @@ int PostProcessor::write(int c) {
           const std::string& bng=zpaqbz2_bytecode();
           const std::string& bsy=zpaqsylz_bytecode();
           const std::string& bs3=zpaqsylz3_bytecode();
+          const std::string& bs4=zpaqsylz4_bytecode();
+          const std::string& bs5=zpaqsylz5_bytecode();
           const std::string& bzx=zpaqzxc_bytecode();
           const std::string& bzs=zpaqzstd_bytecode();
           const std::string& blf=zpaqlzfse_bytecode();
@@ -98763,6 +98781,8 @@ int PostProcessor::write(int c) {
            || (int(bng.size())==hsize && memcmp(&z.header[z.hbegin], bng.data(), hsize)==0)
            || (int(bsy.size())==hsize && memcmp(&z.header[z.hbegin], bsy.data(), hsize)==0)
            || (int(bs3.size())==hsize && memcmp(&z.header[z.hbegin], bs3.data(), hsize)==0)
+           || (int(bs4.size())==hsize && memcmp(&z.header[z.hbegin], bs4.data(), hsize)==0)
+           || (int(bs5.size())==hsize && memcmp(&z.header[z.hbegin], bs5.data(), hsize)==0)
            || (int(bzx.size())==hsize && memcmp(&z.header[z.hbegin], bzx.data(), hsize)==0)
            || (int(bzs.size())==hsize && memcmp(&z.header[z.hbegin], bzs.data(), hsize)==0)
            || (int(blf.size())==hsize && memcmp(&z.header[z.hbegin], blf.data(), hsize)==0)
@@ -98800,7 +98820,7 @@ int PostProcessor::write(int c) {
           /// (ZPAQLZ6 difiere de ZPAQLZ5 en el tamano, ZPAQUFLZMA2 de ZPAQFLZMA2 y ZPAQBZ2 de ZPAQBZIP2 tambien). Si algun dia se deriva uno nuevo de
           /// uno viejo, que difiera en el tamano o en mas de 32 bytes.
           {
-            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bng,&bsy,&bs3,&bzx,&bzs,&blf,&bl6s,&bbr,&bb3,&blh,&blh10,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b,&bk8,&bk1r,&bk3r,&bk5r,&bk7r,&bk8r};
+            const std::string* conocidos[]={&bc,&bl,&b2,&bs,&bv,&bd,&bh,&bz,&bzh,&bb2,&bng,&bsy,&bs3,&bs4,&bs5,&bzx,&bzs,&blf,&bl6s,&bbr,&bb3,&blh,&blh10,&bbs,&bpp,&bl6,&bu2,&bkz,&bk5,&bk3,&bk7,&bk5b,&bk8,&bk1r,&bk3r,&bk5r,&bk7r,&bk8r};
             for (const std::string* k: conocidos) {
               if (int(k->size())!=hsize) continue;
               int dif=0;
@@ -103349,6 +103369,51 @@ const std::string& zpaqsylz3_bytecode() {
   return b;
 }
 
+/// ZPAQSYLZ4 and ZPAQSYLZ5: the decoders of -ma:sylz and -ma:sylzec since syc v0.8.0
+/// (sylz formats v4 and v5, frozen; ZPAQSYLZ4 also reads a v2 block and ZPAQSYLZ5 v2, v3
+/// and v4, which those encoders write where they are smaller). See compressors/zpaqsylz45/.
+/// Both keep the segment in M and decode at its end; the output goes through a window
+/// of 65536 bytes at the top of M, so pm follows the segment alone. H: the token table
+/// (ph 8), and in ZPAQSYLZ5 the Huffman table too (ph 12).
+#include "compressors/zpaqsylz45/zpaqsylz4_body.h"
+#include "compressors/zpaqsylz45/zpaqsylz5_body.h"
+std::string zpaqsylz4_config(int pm) {
+  return std::string("comp 0 0 8 ")+itos(pm)+" 0\n"+ZPAQSYLZ4_CUERPO;
+}
+std::string zpaqsylz5_config(int pm) {
+  return std::string("comp 0 0 12 ")+itos(pm)+" 0\n"+ZPAQSYLZ5_CUERPO;
+}
+/// pm for a segment of i_seg bytes that gives i_orig
+int zpaqsylz4_pm(int64_t i_seg, int64_t i_orig) {
+  (void)i_orig;
+  const int64_t need=i_seg+65536;      /// the segment and the output window
+  int pm=17;
+  while (pm<31 && ((int64_t)1<<pm)<need) pm++;
+  return pm;
+}
+int zpaqsylz5_pm(int64_t i_seg, int64_t i_orig) {
+  (void)i_orig;
+  const int64_t need=i_seg+131072;     /// the segment, one literal chunk and the output window
+  int pm=17;
+  while (pm<31 && ((int64_t)1<<pm)<need) pm++;
+  return pm;
+}
+static std::string zpaqsylz45_compilar(const std::string& i_cfg) {
+  ZPAQL hz, pz;
+  StringBuffer cmd;
+  int args[9]={0};
+  Compiler c(i_cfg.c_str(), args, hz, pz, &cmd);
+  return std::string((const char*)&pz.header[pz.hbegin], pz.hend-pz.hbegin);
+}
+const std::string& zpaqsylz4_bytecode() {
+  static const std::string b=zpaqsylz45_compilar(zpaqsylz4_config(24));
+  return b;
+}
+const std::string& zpaqsylz5_bytecode() {
+  static const std::string b=zpaqsylz45_compilar(zpaqsylz5_config(24));
+  return b;
+}
+
 /// ZPAQZXC: el decodificador de -ma:zxc (formato 9 de zxc). Ver
 /// compressors/zpaqzxc/zpaqzxc_body.h. ph=12 (el arbol de Huffman), pm para la
 /// entrada, dos buferes de un bloque zxc y la salida.
@@ -105686,6 +105751,8 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   const bool es_kz8 = strncmp(method_, "zpaqkanzi8:", 11)==0;   /// ZPAQKANZI8, nivel 8
   const bool es_kz9 = strncmp(method_, "zpaqkanzi9:", 11)==0;   /// ZPAQKANZI8, nivel 9 (ph mayor)
   const bool es_syl = strncmp(method_, "zpaqsylz:", 9)==0;      /// ZPAQSYLZ: el primer numero es ph, no pm
+  const bool es_sy4 = strncmp(method_, "zpaqsylz4:", 10)==0;    /// ZPAQSYLZ4 (-ma:sylz since syc v0.8.0, pm 17..31)
+  const bool es_sy5 = strncmp(method_, "zpaqsylz5:", 10)==0;    /// ZPAQSYLZ5 (-ma:sylzec since syc v0.8.0, pm 17..31)
   const bool es_sy3 = strncmp(method_, "zpaqsylz3:", 10)==0;    /// ZPAQSYLZ3 (-ma:sylzec, pm 17..31)
   const bool es_zxc = strncmp(method_, "zpaqzxc:", 8)==0;       /// ZPAQZXC (pm 17..31)
   /// -mae/-mat: "zpaqext:<$1>:<$2>:<original>:<sha1>", with the codec's own
@@ -105761,13 +105828,13 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
     co.endBlock();
     return;
   }
-  if (es_sy3 || es_zxc || es_syl || es_kz8 || es_kz9 || es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_l6s || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
+  if (es_sy4 || es_sy5 || es_sy3 || es_zxc || es_syl || es_kz8 || es_kz9 || es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_sn || es_lzv || es_dfl || es_hs || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_l6s || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm || es_lz6 || strncmp(method_, "zpaqlz5:", 8)==0) {
     int pm=0;
     unsigned long long orig=0;
     char hex[41]={0};
-    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2 || es_k5b || es_l10) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz || es_sy3) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm || es_syl) ? 9 : (es_fl2 || es_l6s || es_sn || es_liz || es_bro || es_kz5 || es_kz3 || es_kz7 || es_kz8 || es_kz9) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
-        || (!es_sy3 && !es_zxc && !es_syl && !es_kz8 && !es_kz9 && !es_k5b && !es_kz7 && !es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_l6s && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_kz8 || es_kz9 || es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_l6s || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
-        || (es_l6s && pm!=26) || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)) || (es_syl && (pm<9 || pm>31)) || (es_zxc && (pm<17 || pm>31)) || (es_sy3 && (pm<17 || pm>31)))
+    if (sscanf(method_+(es_hs ? 7 : (es_dfl || es_lzh || es_uf2 || es_k5b || es_l10) ? 12 : (es_bz2 || es_lzf || es_bz3 || es_lzm || es_knz || es_sy3 || es_sy4 || es_sy5) ? 10 : (es_lzma || es_lzv || es_zst || es_ppm || es_syl) ? 9 : (es_fl2 || es_l6s || es_sn || es_liz || es_bro || es_kz5 || es_kz3 || es_kz7 || es_kz8 || es_kz9) ? 11 : 8), "%d:%llu:%40s", &pm, &orig, hex)!=3 || strlen(hex)!=40
+        || (!es_sy4 && !es_sy5 && !es_sy3 && !es_zxc && !es_syl && !es_kz8 && !es_kz9 && !es_k5b && !es_kz7 && !es_kz3 && !es_kz5 && !es_knz && !es_uf2 && !es_lzma && !es_fl2 && !es_sn && !es_lzv && !es_dfl && !es_hs && !es_liz && !es_lzh && !es_bz2 && !es_zst && !es_lzf && !es_l6s && !es_bro && !es_bz3 && !es_lzm && !es_bsc && !es_ppm && (pm<16 || pm>24)) || ((es_kz8 || es_kz9 || es_k5b || es_kz7 || es_kz3 || es_kz5 || es_knz || es_uf2 || es_lzma || es_fl2 || es_dfl || es_liz || es_lzh || es_bz2 || es_zst || es_lzf || es_l6s || es_bro || es_bz3 || es_lzm || es_bsc || es_ppm) && (pm<17 || pm>31))
+        || (es_l6s && pm!=26) || (es_sn && pm!=16) || (es_lzv && (pm<16 || pm>31)) || (es_hs && (pm<4 || pm>15)) || (es_syl && (pm<9 || pm>31)) || (es_zxc && (pm<17 || pm>31)) || (es_sy3 && (pm<17 || pm>31)) || ((es_sy4 || es_sy5) && (pm<17 || pm>31)))
       error("bad zpaqlz5/zpaqlzma/zpaqflzma2/zpaqsnappy method");
     char sha1bin[20];
     for (int i=0; i<20; ++i) {
@@ -105775,7 +105842,7 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
       sscanf(hex+2*i, "%2x", &v);
       sha1bin[i]=(char)v;
     }
-    const std::string cfg=es_sy3 ? zpaqsylz3_config(pm) : es_zxc ? zpaqzxc_config(pm) : es_syl ? zpaqsylz_config(pm) : (es_kz8||es_kz9) ? zpaqkanzi8b_config(zpaqkanzi8_ph((int64_t)orig, es_kz9 ? 9 : 8), pm) : es_k5b ? zpaqkanzi5c_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7b_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3b_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi1b_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
+    const std::string cfg=es_sy4 ? zpaqsylz4_config(pm) : es_sy5 ? zpaqsylz5_config(pm) : es_sy3 ? zpaqsylz3_config(pm) : es_zxc ? zpaqzxc_config(pm) : es_syl ? zpaqsylz_config(pm) : (es_kz8||es_kz9) ? zpaqkanzi8b_config(zpaqkanzi8_ph((int64_t)orig, es_kz9 ? 9 : 8), pm) : es_k5b ? zpaqkanzi5c_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_kz7 ? zpaqkanzi7b_config(zpaqkanzi7_ph((int64_t)orig), pm) : es_kz3 ? zpaqkanzi3b_config(zpaqkanzi3_ph((int64_t)orig), pm) : es_kz5 ? zpaqkanzi5_config(zpaqkanzi5_ph((int64_t)orig), pm) : es_knz ? zpaqkanzi1b_config(pm) : es_uf2 ? zpaquflzma2_config(pm) : es_lzma ? zpaqlzma_config(pm) : es_fl2 ? zpaqflzma2_config(pm)
                          : es_sn ? zpaqsnappy_config(pm) : es_lzv ? zpaqlzav_config(pm)
                          : es_dfl ? zpaqdeflate_config(pm) : es_hs ? zpaqhs_config(pm)
                          : es_liz ? zpaqlizard_config(pm) : es_lzh ? zpaqlizardh_config(pm)
@@ -106302,11 +106369,12 @@ static const zs_info_row ZS_INFO[]=
 	 "MIT; parts BSD-style, MIT and Apache-2.0 WITH LLVM-exception", "commit 517948e (no release yet)", "bzip2 stream", "libbz2 1.0.8's format with a new encoder and decoder"},
 	{"zxc", false, 1, 7, 3, "ZPAQZXC", "zxc 1.0.0", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
 	 "BSD-3-Clause; rapidhash MIT", "v1.0.0, commit d237221", "zxc format 9", "levels 6 and 7 add Huffman"},
-	{"sylz", true, 0, 10, 1, "ZPAQSYLZ", "sylz (syc v0.7.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
-	 "MIT", "syc v0.7.0, commit 1fa0ffa", "sylz format v2", "Free Pascal, so a plugin only (codecs/sylz)"},
-	{"sylzec", true, 0, 10, 1, "ZPAQSYLZ3", "sylzec (syc v0.7.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
-	 "MIT", "syc v0.7.0, commit 1fa0ffa", "sylz format v3 (frozen at syc v0.2.14): sylz with Huffman-coded literals; a block may be plain v2",
-	 "Free Pascal, so a plugin only (codecs/sylz, with sylz)"},
+	{"sylz", true, 0, 10, 1, "ZPAQSYLZ4", "sylz (syc v0.8.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
+	 "MIT", "syc v0.8.0, commit 0dd2bc0", "sylz format v4 (frozen at syc v0.8.0); a block may be plain v2",
+	 "Free Pascal, so a plugin only (codecs/sylz). Up to 2.10.0 it wrote format v2 (ZPAQSYLZ), which is still read"},
+	{"sylzec", true, 0, 10, 1, "ZPAQSYLZ5", "sylzec (syc v0.8.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
+	 "MIT", "syc v0.8.0, commit 0dd2bc0", "sylz format v5 (frozen at syc v0.8.0): v4 with Huffman-coded literals; a block may be v2, v3 or v4",
+	 "Free Pascal, so a plugin only (codecs/sylz, with sylz). Up to 2.10.0 it wrote format v3 (ZPAQSYLZ3), which is still read"},
 	{"lz4", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.1", "Yann Collet", "https://github.com/lz4/lz4",
 	 "BSD-2-Clause", "1.11.1, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "1-4 fast, 5-12 HC"},
 	{"lz4hc", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.1", "Yann Collet", "https://github.com/lz4/lz4",
@@ -106353,8 +106421,8 @@ static void zs_info_bytecodes(const std::string& i_ma, std::vector<std::pair<std
 		o_bc.push_back(std::make_pair("ZPAQKANZI7B", &zpaqkanzi7b_bytecode()));
 		o_bc.push_back(std::make_pair("ZPAQKANZI8B", &zpaqkanzi8b_bytecode()));
 	}
-	else if (m=="sylz") o_bc.push_back(std::make_pair("ZPAQSYLZ", &zpaqsylz_bytecode()));
-	else if (m=="sylzec") o_bc.push_back(std::make_pair("ZPAQSYLZ3", &zpaqsylz3_bytecode()));
+	else if (m=="sylz") o_bc.push_back(std::make_pair("ZPAQSYLZ4", &zpaqsylz4_bytecode()));
+	else if (m=="sylzec") o_bc.push_back(std::make_pair("ZPAQSYLZ5", &zpaqsylz5_bytecode()));
 	else if (m=="zxc") o_bc.push_back(std::make_pair("ZPAQZXC", &zpaqzxc_bytecode()));
 }
 static std::string zs_sha256_hex(const char* i_p, size_t i_n)
@@ -166224,11 +166292,11 @@ losetup -d /dev/loop0
 	HRU(1576, 0xCD3AF326, "Блоки по 2^B MiB (0..11, по умолчанию: 04, 14, 26..56)"),
 	HES(1576, 0xCD3AF326, "Usa bloques de 2^B MiB (0..11, default: 04, 14, 26..56)"),
 	HPT(1576, 0xCD3AF326, "Usa blocos de 2^B MiB (0..11, padrão: 04, 14, 26..56)"),
-	HRIGA(9848, "*voodoo", 'o', "-ma:algo:N", "External compression algo:level (all bundled, no system deps)|  lz4: auto (1-4 fast, 5-12 HC). lz4hc: always HC. lz4f: always fast|  zstd: ZPAQZSTD, levels 1..22 (1=fast, 3=default, 22=max); opens in any zpaq|  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=default;|    11 also picks lc/lp/pb per block); opens in any zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, pinned (1=LZX, 2=DNA+LZ+Huffman,|    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    opens in any zpaq (8-9: slow and large memory there)|  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq|  lz6: ZPAQLZ6SEQ. lz6's seq engine, 1-13 (7=default); opens in any zpaq|  lz6hc: ZPAQLZ6. lz6's LZ5 v1.5 profile (-ma:lz6 up to 2.9.0): 0=fast/low CPU|    (default), 1-15=HC; opens in any zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=fast/100K, 9=best/900K, default 9); opens in any zpaq|  zxc: ZPAQZXC, zxc's fast LZ (very fast to decompress); levels 1-7,|    default 3 (6-7 with Huffman); opens in any zpaq|  sylz: ZPAQSYLZ, EXPERIMENTAL. syc's fast LZ (Free Pascal), only as a plugin:|    codecs/sylz.dll or sylz.so; levels 0-10 (0 the fastest), default 1;|    opens in any zpaq|  sylzec: ZPAQSYLZ3, EXPERIMENTAL. sylz with Huffman-coded literals (format v3),|    only as a plugin: codecs/sylz.dll or .so (with sylz); levels 0-10, default 1; opens in any zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. bzip2's format with bz2-ng, faster (levels as bzip2);|    opens in any zpaq|  bzip3: ZPAQBZIP3, BWT+CM (level=block_size/100K, default 9); opens in any zpaq|  brotli: ZPAQBROTLI, Google (0=fast, 11=default/max); opens in any zpaq|  snappy: ZPAQSNAPPY, Google (very fast, like lz4; 1=fastest, 2=default); opens in any zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=stored, 6=default, 12=best); opens in any zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq|  hs: ZPAQHS, heatshrink (0..2: 2KB/8KB/16KB window; tiny); opens in any zpaq|  lzfse: ZPAQLZFSE, LZFSE by lzfse-ex (no levels); opens in any zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: sort transform ST3..ST5, default 3); opens in any zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 by lzham-ex (1..4: fastest..better, default 4); opens in any zpaq|  ppmd: ZPAQPPMD, PPMd var.H (level = model order 2..32, default 6; 64 MB); opens in any zpaq"),
-	HIT(9848, 0x6B655A20, "Algoritmo di compressione esterno:livello (tutto incluso, senza dipendenze di sistema)|  lz4: auto (1-4 veloce, 5-12 HC). lz4hc: sempre HC. lz4f: sempre veloce|  zstd: ZPAQZSTD, livelli 1..22 (1=veloce, 3=default, 22=max); si apre con qualsiasi zpaq|  flzma2: ZPAQFLZMA2, LZMA2 veloce (1..10, 5=default); si apre con qualsiasi zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=default;|    11 sceglie anche lc/lp/pb per blocco); si apre con qualsiasi zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, fissato (1=LZX, 2=DNA+LZ+Huffman,|    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    si apre con qualsiasi zpaq (8-9: li' lento e con molta memoria)|  lz5: ZPAQLZ5 (1-4 veloce, 5-15 HC; lz5hc, lz5f); si apre con qualsiasi zpaq|  lz6: ZPAQLZ6SEQ. Il motore seq di lz6, 1-13 (7=default); si apre con qualsiasi zpaq|  lz6hc: ZPAQLZ6. Il profilo LZ5 v1.5 di lz6 (-ma:lz6 fino alla 2.9.0): 0=veloce/poca CPU|    (default), 1-15=HC; si apre con qualsiasi zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); si apre con qualsiasi zpaq (decoder: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): tutti si aprono con qualsiasi zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=veloce/100K, 9=migliore/900K, default 9); si apre con qualsiasi zpaq|  zxc: ZPAQZXC, LZ veloce di zxc (velocissimo a decomprimere); livelli 1-7,|    default 3 (6-7 con Huffman); si apre con qualsiasi zpaq|  sylz: ZPAQSYLZ, SPERIMENTALE. LZ veloce di syc (Free Pascal), solo come plugin:|    codecs/sylz.dll / sylz.so; livelli 0-10 (0 il piu' veloce), default 1;|    si apre con qualsiasi zpaq|  sylzec: ZPAQSYLZ3, SPERIMENTALE. sylz con letterali codificati Huffman (formato v3),|    solo come plugin: codecs/sylz.dll / .so (con sylz); livelli 0-10, default 1;|    si apre con qualsiasi zpaq|  bz2: ZPAQBZ2, SPERIMENTALE. formato di bzip2 con bz2-ng, piu' veloce (livelli come bzip2);|    si apre con qualsiasi zpaq|  bzip3: ZPAQBZIP3, BWT+CM (livello=block_size/100K, default 9); si apre con qualsiasi zpaq|  brotli: ZPAQBROTLI, Google (0=veloce, 11=default/max); si apre con qualsiasi zpaq|  snappy: ZPAQSNAPPY, Google (velocissimo, come lz4; 1=il piu' veloce, 2=default);|    si apre con qualsiasi zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=non compresso, 6=default, 12=migliore);|    si apre con qualsiasi zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=veloce/64K, 6=default/8M, 9=migliore/32M); si apre con qualsiasi zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=veloce, 1=alto rapporto, default 1); si apre con qualsiasi zpaq|  hs: ZPAQHS, heatshrink (0..2: finestra 2KB/8KB/16KB; minuscolo); si apre con qualsiasi zpaq|  lzfse: ZPAQLZFSE, LZFSE di lzfse-ex (senza livelli); si apre con qualsiasi zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: trasformata di ordinamento ST3..ST5, default 3);|    si apre con qualsiasi zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 di lzham-ex (1..4: il piu' veloce..migliore, default 4);|    si apre con qualsiasi zpaq|  ppmd: ZPAQPPMD, PPMd var.H (livello = ordine del modello 2..32, default 6; 64 MB);|    si apre con qualsiasi zpaq"),
-	HRU(9848, 0x6B655A20, "Внешний алгоритм сжатия:уровень (всё встроено, без системных зависимостей)|  lz4: авто (1-4 быстро, 5-12 HC). lz4hc: всегда HC. lz4f: всегда быстро|  zstd: ZPAQZSTD, уровни 1..22 (1=быстро, 3=по умолч., 22=max); открывается любым zpaq|  flzma2: ZPAQFLZMA2, быстрый LZMA2 (1..10, 5=по умолч.); открывается любым zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=по умолч.;|    11 также выбирает lc/lp/pb для каждого блока); открывается любым zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, зафиксирован (1=LZX, 2=DNA+LZ+Huffman,|    по умолч.; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    открывается любым zpaq (8-9: там медленно и много памяти)|  lz5: ZPAQLZ5 (1-4 быстро, 5-15 HC; lz5hc, lz5f); открывается любым zpaq|  lz6: ZPAQLZ6SEQ. Движок seq из lz6, 1-13 (7=по умолч.); открывается любым zpaq|  lz6hc: ZPAQLZ6. Профиль LZ5 v1.5 из lz6 (-ma:lz6 до 2.9.0): 0=быстро/мало CPU|    (по умолч.), 1-15=HC; открывается любым zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=по умолч.); открывается любым zpaq (декодер: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): все открываются любым zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=быстро/100K, 9=лучше/900K, по умолч. 9); открывается любым zpaq|  zxc: ZPAQZXC, быстрый LZ от zxc (очень быстрая распаковка); уровни 1-7,|    по умолч. 3 (6-7 с Huffman); открывается любым zpaq|  sylz: ZPAQSYLZ, ЭКСПЕРИМЕНТАЛЬНЫЙ. быстрый LZ от syc (Free Pascal), только как плагин:|    codecs/sylz.dll / sylz.so; уровни 0-10 (0 самый быстрый), по умолч. 1;|    открывается любым zpaq|  sylzec: ZPAQSYLZ3, ЭКСПЕРИМЕНТАЛЬНЫЙ. sylz с литералами в коде Huffman (формат v3),|    только как плагин: codecs/sylz.dll / .so (вместе с sylz); уровни 0-10, по умолч. 1;|    открывается любым zpaq|  bz2: ZPAQBZ2, ЭКСПЕРИМЕНТАЛЬНЫЙ. формат bzip2 через bz2-ng, быстрее (уровни как у bzip2);|    открывается любым zpaq|  bzip3: ZPAQBZIP3, BWT+CM (уровень=block_size/100K, по умолч. 9); открывается любым zpaq|  brotli: ZPAQBROTLI, Google (0=быстро, 11=по умолч./max); открывается любым zpaq|  snappy: ZPAQSNAPPY, Google (очень быстро, как lz4; 1=самый быстрый, 2=по умолч.);|    открывается любым zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=без сжатия, 6=по умолч., 12=лучше); открывается любым zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=быстро/64K, 6=по умолч./8M, 9=лучше/32M); открывается любым zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=быстро, 1=высокое сжатие, по умолч. 1); открывается любым zpaq|  hs: ZPAQHS, heatshrink (0..2: окно 2KB/8KB/16KB; крошечный); открывается любым zpaq|  lzfse: ZPAQLZFSE, LZFSE от lzfse-ex (без уровней); открывается любым zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: сортирующее преобразование ST3..ST5, по умолч. 3);|    открывается любым zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 от lzham-ex (1..4: самый быстрый..лучше, по умолч. 4);|    открывается любым zpaq|  ppmd: ZPAQPPMD, PPMd var.H (уровень = порядок модели 2..32, по умолч. 6; 64 MB);|    открывается любым zpaq"),
-	HES(9848, 0x6B655A20, "Algoritmo de compresión externo:nivel (todo incluido, sin dependencias del sistema)|  lz4: auto (1-4 rápido, 5-12 HC). lz4hc: siempre HC. lz4f: siempre rápido|  zstd: ZPAQZSTD, niveles 1..22 (1=rápido, 3=predet., 22=max); se abre en cualquier zpaq|  flzma2: ZPAQFLZMA2, LZMA2 rápido (1..10, 5=predet.); se abre en cualquier zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=predet.;|    11 también elige lc/lp/pb por bloque); se abre en cualquier zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, fijado (1=LZX, 2=DNA+LZ+Huffman,|    predet.; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    se abre en cualquier zpaq (8-9: allí lento y con mucha memoria)|  lz5: ZPAQLZ5 (1-4 rápido, 5-15 HC; lz5hc, lz5f); se abre en cualquier zpaq|  lz6: ZPAQLZ6SEQ. El motor seq de lz6, 1-13 (7=por defecto); se abre con cualquier zpaq|  lz6hc: ZPAQLZ6. El perfil LZ5 v1.5 de lz6 (-ma:lz6 hasta 2.9.0): 0=rápido/poca CPU|    (predet.), 1-15=HC; se abre en cualquier zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=predet.); se abre en cualquier zpaq (decodificador: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): todos se abren en cualquier zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=rápido/100K, 9=mejor/900K, predet. 9); se abre en cualquier zpaq|  zxc: ZPAQZXC, LZ rápido de zxc (muy rápido al descomprimir); niveles 1-7,|    predet. 3 (6-7 con Huffman); se abre en cualquier zpaq|  sylz: ZPAQSYLZ, EXPERIMENTAL. LZ rápido de syc (Free Pascal), solo como plugin:|    codecs/sylz.dll / sylz.so; niveles 0-10 (0 el más rápido), predet. 1;|    se abre en cualquier zpaq|  sylzec: ZPAQSYLZ3, EXPERIMENTAL. sylz con literales codificados con Huffman (formato v3),|    solo como plugin: codecs/sylz.dll / .so (con sylz); niveles 0-10, predet. 1;|    se abre en cualquier zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. formato de bzip2 con bz2-ng, más rápido (niveles como bzip2);|    se abre en cualquier zpaq|  bzip3: ZPAQBZIP3, BWT+CM (nivel=block_size/100K, predet. 9); se abre en cualquier zpaq|  brotli: ZPAQBROTLI, Google (0=rápido, 11=predet./max); se abre en cualquier zpaq|  snappy: ZPAQSNAPPY, Google (muy rápido, como lz4; 1=el más rápido, 2=predet.);|    se abre en cualquier zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=sin comprimir, 6=predet., 12=mejor);|    se abre en cualquier zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=rápido/64K, 6=predet./8M, 9=mejor/32M); se abre en cualquier zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=rápido, 1=alta compresión, predet. 1); se abre en cualquier zpaq|  hs: ZPAQHS, heatshrink (0..2: ventana 2KB/8KB/16KB; diminuto); se abre en cualquier zpaq|  lzfse: ZPAQLZFSE, LZFSE de lzfse-ex (sin niveles); se abre en cualquier zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: transformada de ordenación ST3..ST5, predet. 3);|    se abre en cualquier zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 de lzham-ex (1..4: el más rápido..mejor, predet. 4);|    se abre en cualquier zpaq|  ppmd: ZPAQPPMD, PPMd var.H (nivel = orden del modelo 2..32, predet. 6; 64 MB);|    se abre en cualquier zpaq"),
-	HPT(9848, 0x6B655A20, "Algoritmo de compressão externo:nível (tudo embutido, sem dependências do sistema)|  lz4: auto (1-4 rápido, 5-12 HC). lz4hc: sempre HC. lz4f: sempre rápido|  zstd: ZPAQZSTD, níveis 1..22 (1=rápido, 3=padrão, 22=max); abre em qualquer zpaq|  flzma2: ZPAQFLZMA2, LZMA2 rápido (1..10, 5=padrão); abre em qualquer zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=padrão;|    11 também escolhe lc/lp/pb por bloco); abre em qualquer zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, fixado (1=LZX, 2=DNA+LZ+Huffman,|    padrão; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    abre em qualquer zpaq (8-9: lá lento e com muita memória)|  lz5: ZPAQLZ5 (1-4 rápido, 5-15 HC; lz5hc, lz5f); abre em qualquer zpaq|  lz6: ZPAQLZ6SEQ. O motor seq do lz6, 1-13 (7=padrão); abre em qualquer zpaq|  lz6hc: ZPAQLZ6. O perfil LZ5 v1.5 do lz6 (-ma:lz6 até 2.9.0): 0=rápido/pouca CPU|    (padrão), 1-15=HC; abre em qualquer zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=padrão); abre em qualquer zpaq (decodificador: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): todos abrem em qualquer zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=rápido/100K, 9=melhor/900K, padrão 9); abre em qualquer zpaq|  zxc: ZPAQZXC, LZ rápido do zxc (muito rápido para descompactar); níveis 1-7,|    padrão 3 (6-7 com Huffman); abre em qualquer zpaq|  sylz: ZPAQSYLZ, EXPERIMENTAL. LZ rápido do syc (Free Pascal), só como plugin:|    codecs/sylz.dll / sylz.so; níveis 0-10 (0 o mais rápido), padrão 1;|    abre em qualquer zpaq|  sylzec: ZPAQSYLZ3, EXPERIMENTAL. sylz com literais codificados em Huffman (formato v3),|    só como plugin: codecs/sylz.dll / .so (com sylz); níveis 0-10, padrão 1; abre em qualquer zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. formato do bzip2 com bz2-ng, mais rápido (níveis como bzip2);|    abre em qualquer zpaq|  bzip3: ZPAQBZIP3, BWT+CM (nível=block_size/100K, padrão 9); abre em qualquer zpaq|  brotli: ZPAQBROTLI, Google (0=rápido, 11=padrão/max); abre em qualquer zpaq|  snappy: ZPAQSNAPPY, Google (muito rápido, como lz4; 1=o mais rápido, 2=padrão);|    abre em qualquer zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=sem compressão, 6=padrão, 12=melhor); abre em qualquer zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=rápido/64K, 6=padrão/8M, 9=melhor/32M); abre em qualquer zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=rápido, 1=alta taxa, padrão 1); abre em qualquer zpaq|  hs: ZPAQHS, heatshrink (0..2: janela 2KB/8KB/16KB; minúsculo); abre em qualquer zpaq|  lzfse: ZPAQLZFSE, LZFSE do lzfse-ex (sem níveis); abre em qualquer zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: transformada de ordenação ST3..ST5, padrão 3);|    abre em qualquer zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 do lzham-ex (1..4: o mais rápido..melhor, padrão 4);|    abre em qualquer zpaq|  ppmd: ZPAQPPMD, PPMd var.H (nível = ordem do modelo 2..32, padrão 6; 64 MB);|    abre em qualquer zpaq"),
+	HRIGA(9848, "*voodoo", 'o', "-ma:algo:N", "External compression algo:level (all bundled, no system deps)|  lz4: auto (1-4 fast, 5-12 HC). lz4hc: always HC. lz4f: always fast|  zstd: ZPAQZSTD, levels 1..22 (1=fast, 3=default, 22=max); opens in any zpaq|  flzma2: ZPAQFLZMA2, LZMA2 fast (1..10, 5=default); opens in any zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=default;|    11 also picks lc/lp/pb per block); opens in any zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, pinned (1=LZX, 2=DNA+LZ+Huffman,|    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    opens in any zpaq (8-9: slow and large memory there)|  lz5: ZPAQLZ5 (1-4 fast, 5-15 HC; lz5hc, lz5f); opens in any zpaq|  lz6: ZPAQLZ6SEQ. lz6's seq engine, 1-13 (7=default); opens in any zpaq|  lz6hc: ZPAQLZ6. lz6's LZ5 v1.5 profile (-ma:lz6 up to 2.9.0): 0=fast/low CPU|    (default), 1-15=HC; opens in any zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); opens in any zpaq (decoder: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): all open in any zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=fast/100K, 9=best/900K, default 9); opens in any zpaq|  zxc: ZPAQZXC, zxc's fast LZ (very fast to decompress); levels 1-7,|    default 3 (6-7 with Huffman); opens in any zpaq|  sylz: ZPAQSYLZ4, EXPERIMENTAL. syc's fast LZ (Free Pascal), only as a plugin:|    codecs/sylz.dll or sylz.so; levels 0-10 (0 the fastest), default 1;|    opens in any zpaq|  sylzec: ZPAQSYLZ5, EXPERIMENTAL. sylz with Huffman-coded literals (format v5),|    only as a plugin: codecs/sylz.dll or .so (with sylz); levels 0-10, default 1; opens in any zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. bzip2's format with bz2-ng, faster (levels as bzip2);|    opens in any zpaq|  bzip3: ZPAQBZIP3, BWT+CM (level=block_size/100K, default 9); opens in any zpaq|  brotli: ZPAQBROTLI, Google (0=fast, 11=default/max); opens in any zpaq|  snappy: ZPAQSNAPPY, Google (very fast, like lz4; 1=fastest, 2=default); opens in any zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=stored, 6=default, 12=best); opens in any zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=fast/64K, 6=default/8M, 9=best/32M); opens in any zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=fast, 1=hi-ratio, default 1); opens in any zpaq|  hs: ZPAQHS, heatshrink (0..2: 2KB/8KB/16KB window; tiny); opens in any zpaq|  lzfse: ZPAQLZFSE, LZFSE by lzfse-ex (no levels); opens in any zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: sort transform ST3..ST5, default 3); opens in any zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 by lzham-ex (1..4: fastest..better, default 4); opens in any zpaq|  ppmd: ZPAQPPMD, PPMd var.H (level = model order 2..32, default 6; 64 MB); opens in any zpaq"),
+	HIT(9848, 0x8FBF02A6, "Algoritmo di compressione esterno:livello (tutto incluso, senza dipendenze di sistema)|  lz4: auto (1-4 veloce, 5-12 HC). lz4hc: sempre HC. lz4f: sempre veloce|  zstd: ZPAQZSTD, livelli 1..22 (1=veloce, 3=default, 22=max); si apre con qualsiasi zpaq|  flzma2: ZPAQFLZMA2, LZMA2 veloce (1..10, 5=default); si apre con qualsiasi zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=default;|    11 sceglie anche lc/lp/pb per blocco); si apre con qualsiasi zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, fissato (1=LZX, 2=DNA+LZ+Huffman,|    default; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    si apre con qualsiasi zpaq (8-9: li' lento e con molta memoria)|  lz5: ZPAQLZ5 (1-4 veloce, 5-15 HC; lz5hc, lz5f); si apre con qualsiasi zpaq|  lz6: ZPAQLZ6SEQ. Il motore seq di lz6, 1-13 (7=default); si apre con qualsiasi zpaq|  lz6hc: ZPAQLZ6. Il profilo LZ5 v1.5 di lz6 (-ma:lz6 fino alla 2.9.0): 0=veloce/poca CPU|    (default), 1-15=HC; si apre con qualsiasi zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=default); si apre con qualsiasi zpaq (decoder: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): tutti si aprono con qualsiasi zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=veloce/100K, 9=migliore/900K, default 9); si apre con qualsiasi zpaq|  zxc: ZPAQZXC, LZ veloce di zxc (velocissimo a decomprimere); livelli 1-7,|    default 3 (6-7 con Huffman); si apre con qualsiasi zpaq|  sylz: ZPAQSYLZ4, SPERIMENTALE. LZ veloce di syc (Free Pascal), solo come plugin:|    codecs/sylz.dll / sylz.so; livelli 0-10 (0 il piu' veloce), default 1;|    si apre con qualsiasi zpaq|  sylzec: ZPAQSYLZ5, SPERIMENTALE. sylz con letterali codificati Huffman (formato v5),|    solo come plugin: codecs/sylz.dll / .so (con sylz); livelli 0-10, default 1;|    si apre con qualsiasi zpaq|  bz2: ZPAQBZ2, SPERIMENTALE. formato di bzip2 con bz2-ng, piu' veloce (livelli come bzip2);|    si apre con qualsiasi zpaq|  bzip3: ZPAQBZIP3, BWT+CM (livello=block_size/100K, default 9); si apre con qualsiasi zpaq|  brotli: ZPAQBROTLI, Google (0=veloce, 11=default/max); si apre con qualsiasi zpaq|  snappy: ZPAQSNAPPY, Google (velocissimo, come lz4; 1=il piu' veloce, 2=default);|    si apre con qualsiasi zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=non compresso, 6=default, 12=migliore);|    si apre con qualsiasi zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=veloce/64K, 6=default/8M, 9=migliore/32M); si apre con qualsiasi zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=veloce, 1=alto rapporto, default 1); si apre con qualsiasi zpaq|  hs: ZPAQHS, heatshrink (0..2: finestra 2KB/8KB/16KB; minuscolo); si apre con qualsiasi zpaq|  lzfse: ZPAQLZFSE, LZFSE di lzfse-ex (senza livelli); si apre con qualsiasi zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: trasformata di ordinamento ST3..ST5, default 3);|    si apre con qualsiasi zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 di lzham-ex (1..4: il piu' veloce..migliore, default 4);|    si apre con qualsiasi zpaq|  ppmd: ZPAQPPMD, PPMd var.H (livello = ordine del modello 2..32, default 6; 64 MB);|    si apre con qualsiasi zpaq"),
+	HRU(9848, 0x8FBF02A6, "Внешний алгоритм сжатия:уровень (всё встроено, без системных зависимостей)|  lz4: авто (1-4 быстро, 5-12 HC). lz4hc: всегда HC. lz4f: всегда быстро|  zstd: ZPAQZSTD, уровни 1..22 (1=быстро, 3=по умолч., 22=max); открывается любым zpaq|  flzma2: ZPAQFLZMA2, быстрый LZMA2 (1..10, 5=по умолч.); открывается любым zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=по умолч.;|    11 также выбирает lc/lp/pb для каждого блока); открывается любым zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, зафиксирован (1=LZX, 2=DNA+LZ+Huffman,|    по умолч.; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    открывается любым zpaq (8-9: там медленно и много памяти)|  lz5: ZPAQLZ5 (1-4 быстро, 5-15 HC; lz5hc, lz5f); открывается любым zpaq|  lz6: ZPAQLZ6SEQ. Движок seq из lz6, 1-13 (7=по умолч.); открывается любым zpaq|  lz6hc: ZPAQLZ6. Профиль LZ5 v1.5 из lz6 (-ma:lz6 до 2.9.0): 0=быстро/мало CPU|    (по умолч.), 1-15=HC; открывается любым zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=по умолч.); открывается любым zpaq (декодер: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): все открываются любым zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=быстро/100K, 9=лучше/900K, по умолч. 9); открывается любым zpaq|  zxc: ZPAQZXC, быстрый LZ от zxc (очень быстрая распаковка); уровни 1-7,|    по умолч. 3 (6-7 с Huffman); открывается любым zpaq|  sylz: ZPAQSYLZ4, ЭКСПЕРИМЕНТАЛЬНЫЙ. быстрый LZ от syc (Free Pascal), только как плагин:|    codecs/sylz.dll / sylz.so; уровни 0-10 (0 самый быстрый), по умолч. 1;|    открывается любым zpaq|  sylzec: ZPAQSYLZ5, ЭКСПЕРИМЕНТАЛЬНЫЙ. sylz с литералами в коде Huffman (формат v5),|    только как плагин: codecs/sylz.dll / .so (вместе с sylz); уровни 0-10, по умолч. 1;|    открывается любым zpaq|  bz2: ZPAQBZ2, ЭКСПЕРИМЕНТАЛЬНЫЙ. формат bzip2 через bz2-ng, быстрее (уровни как у bzip2);|    открывается любым zpaq|  bzip3: ZPAQBZIP3, BWT+CM (уровень=block_size/100K, по умолч. 9); открывается любым zpaq|  brotli: ZPAQBROTLI, Google (0=быстро, 11=по умолч./max); открывается любым zpaq|  snappy: ZPAQSNAPPY, Google (очень быстро, как lz4; 1=самый быстрый, 2=по умолч.);|    открывается любым zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=без сжатия, 6=по умолч., 12=лучше); открывается любым zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=быстро/64K, 6=по умолч./8M, 9=лучше/32M); открывается любым zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=быстро, 1=высокое сжатие, по умолч. 1); открывается любым zpaq|  hs: ZPAQHS, heatshrink (0..2: окно 2KB/8KB/16KB; крошечный); открывается любым zpaq|  lzfse: ZPAQLZFSE, LZFSE от lzfse-ex (без уровней); открывается любым zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: сортирующее преобразование ST3..ST5, по умолч. 3);|    открывается любым zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 от lzham-ex (1..4: самый быстрый..лучше, по умолч. 4);|    открывается любым zpaq|  ppmd: ZPAQPPMD, PPMd var.H (уровень = порядок модели 2..32, по умолч. 6; 64 MB);|    открывается любым zpaq"),
+	HES(9848, 0x8FBF02A6, "Algoritmo de compresión externo:nivel (todo incluido, sin dependencias del sistema)|  lz4: auto (1-4 rápido, 5-12 HC). lz4hc: siempre HC. lz4f: siempre rápido|  zstd: ZPAQZSTD, niveles 1..22 (1=rápido, 3=predet., 22=max); se abre en cualquier zpaq|  flzma2: ZPAQFLZMA2, LZMA2 rápido (1..10, 5=predet.); se abre en cualquier zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=predet.;|    11 también elige lc/lp/pb por bloque); se abre en cualquier zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, fijado (1=LZX, 2=DNA+LZ+Huffman,|    predet.; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    se abre en cualquier zpaq (8-9: allí lento y con mucha memoria)|  lz5: ZPAQLZ5 (1-4 rápido, 5-15 HC; lz5hc, lz5f); se abre en cualquier zpaq|  lz6: ZPAQLZ6SEQ. El motor seq de lz6, 1-13 (7=por defecto); se abre con cualquier zpaq|  lz6hc: ZPAQLZ6. El perfil LZ5 v1.5 de lz6 (-ma:lz6 hasta 2.9.0): 0=rápido/poca CPU|    (predet.), 1-15=HC; se abre en cualquier zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=predet.); se abre en cualquier zpaq (decodificador: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): todos se abren en cualquier zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=rápido/100K, 9=mejor/900K, predet. 9); se abre en cualquier zpaq|  zxc: ZPAQZXC, LZ rápido de zxc (muy rápido al descomprimir); niveles 1-7,|    predet. 3 (6-7 con Huffman); se abre en cualquier zpaq|  sylz: ZPAQSYLZ4, EXPERIMENTAL. LZ rápido de syc (Free Pascal), solo como plugin:|    codecs/sylz.dll / sylz.so; niveles 0-10 (0 el más rápido), predet. 1;|    se abre en cualquier zpaq|  sylzec: ZPAQSYLZ5, EXPERIMENTAL. sylz con literales codificados con Huffman (formato v5),|    solo como plugin: codecs/sylz.dll / .so (con sylz); niveles 0-10, predet. 1;|    se abre en cualquier zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. formato de bzip2 con bz2-ng, más rápido (niveles como bzip2);|    se abre en cualquier zpaq|  bzip3: ZPAQBZIP3, BWT+CM (nivel=block_size/100K, predet. 9); se abre en cualquier zpaq|  brotli: ZPAQBROTLI, Google (0=rápido, 11=predet./max); se abre en cualquier zpaq|  snappy: ZPAQSNAPPY, Google (muy rápido, como lz4; 1=el más rápido, 2=predet.);|    se abre en cualquier zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=sin comprimir, 6=predet., 12=mejor);|    se abre en cualquier zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=rápido/64K, 6=predet./8M, 9=mejor/32M); se abre en cualquier zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=rápido, 1=alta compresión, predet. 1); se abre en cualquier zpaq|  hs: ZPAQHS, heatshrink (0..2: ventana 2KB/8KB/16KB; diminuto); se abre en cualquier zpaq|  lzfse: ZPAQLZFSE, LZFSE de lzfse-ex (sin niveles); se abre en cualquier zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: transformada de ordenación ST3..ST5, predet. 3);|    se abre en cualquier zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 de lzham-ex (1..4: el más rápido..mejor, predet. 4);|    se abre en cualquier zpaq|  ppmd: ZPAQPPMD, PPMd var.H (nivel = orden del modelo 2..32, predet. 6; 64 MB);|    se abre en cualquier zpaq"),
+	HPT(9848, 0x8FBF02A6, "Algoritmo de compressão externo:nível (tudo embutido, sem dependências do sistema)|  lz4: auto (1-4 rápido, 5-12 HC). lz4hc: sempre HC. lz4f: sempre rápido|  zstd: ZPAQZSTD, níveis 1..22 (1=rápido, 3=padrão, 22=max); abre em qualquer zpaq|  flzma2: ZPAQFLZMA2, LZMA2 rápido (1..10, 5=padrão); abre em qualquer zpaq|  uflzma2: ZPAQUFLZMA2. ultra-fast-lzma2 (1..11, 5=padrão;|    11 também escolhe lc/lp/pb por bloco); abre em qualquer zpaq|  kanzi: ZPAQKANZI(1B,3B,5C,7B,8B). kanzi 2.6.0, fixado (1=LZX, 2=DNA+LZ+Huffman,|    padrão; 3=TEXT+LZX+Huffman, 4=TEXT+EXE+ROLZ, 5=TEXT+BWT+ANS,|    6=TEXT+BWT+FPAQ, 7=LZP+TEXT+BWT+CM, 8=TEXT+TPAQ, 9=TEXT+TPAQX);|    abre em qualquer zpaq (8-9: lá lento e com muita memória)|  lz5: ZPAQLZ5 (1-4 rápido, 5-15 HC; lz5hc, lz5f); abre em qualquer zpaq|  lz6: ZPAQLZ6SEQ. O motor seq do lz6, 1-13 (7=padrão); abre em qualquer zpaq|  lz6hc: ZPAQLZ6. O perfil LZ5 v1.5 do lz6 (-ma:lz6 até 2.9.0): 0=rápido/pouca CPU|    (padrão), 1-15=HC; abre em qualquer zpaq|  lzma: ZPAQLZMA, LZMA SDK 0..9 (6=padrão); abre em qualquer zpaq (decodificador: kaitz)|  lizard: ZPAQLIZARD 10-29, ZPAQLIZARDH 30-49 (+Huffman): todos abrem em qualquer zpaq|  bzip2: ZPAQBZIP2, BWT+HF (1=rápido/100K, 9=melhor/900K, padrão 9); abre em qualquer zpaq|  zxc: ZPAQZXC, LZ rápido do zxc (muito rápido para descompactar); níveis 1-7,|    padrão 3 (6-7 com Huffman); abre em qualquer zpaq|  sylz: ZPAQSYLZ4, EXPERIMENTAL. LZ rápido do syc (Free Pascal), só como plugin:|    codecs/sylz.dll / sylz.so; níveis 0-10 (0 o mais rápido), padrão 1;|    abre em qualquer zpaq|  sylzec: ZPAQSYLZ5, EXPERIMENTAL. sylz com literais codificados em Huffman (formato v5),|    só como plugin: codecs/sylz.dll / .so (com sylz); níveis 0-10, padrão 1; abre em qualquer zpaq|  bz2: ZPAQBZ2, EXPERIMENTAL. formato do bzip2 com bz2-ng, mais rápido (níveis como bzip2);|    abre em qualquer zpaq|  bzip3: ZPAQBZIP3, BWT+CM (nível=block_size/100K, padrão 9); abre em qualquer zpaq|  brotli: ZPAQBROTLI, Google (0=rápido, 11=padrão/max); abre em qualquer zpaq|  snappy: ZPAQSNAPPY, Google (muito rápido, como lz4; 1=o mais rápido, 2=padrão);|    abre em qualquer zpaq|  deflate: ZPAQDEFLATE, libdeflate (0=sem compressão, 6=padrão, 12=melhor); abre em qualquer zpaq|  lz: ZPAQLZIP, lzlib/LZMA (0=rápido/64K, 6=padrão/8M, 9=melhor/32M); abre em qualquer zpaq|  lzav: ZPAQLZAV, avaneev LZAV (0=rápido, 1=alta taxa, padrão 1); abre em qualquer zpaq|  hs: ZPAQHS, heatshrink (0..2: janela 2KB/8KB/16KB; minúsculo); abre em qualquer zpaq|  lzfse: ZPAQLZFSE, LZFSE do lzfse-ex (sem níveis); abre em qualquer zpaq|  bsc: ZPAQBSC, IlyaGrebnov libbsc (1..9: transformada de ordenação ST3..ST5, padrão 3);|    abre em qualquer zpaq|  lzh: ZPAQLZHAM10, LZHAM 1.0 do lzham-ex (1..4: o mais rápido..melhor, padrão 4);|    abre em qualquer zpaq|  ppmd: ZPAQPPMD, PPMd var.H (nível = ordem do modelo 2..32, padrão 6; 64 MB);|    abre em qualquer zpaq"),
 	HRIGA(9849, "*voodoo", 'o', "-mae:file:codec:N", "A codec that is NOT part of zpaq-std, from codecs/file.dll or .so|    (external, finished codecs): it must give its ZPAQL decoder, which every block|    carries, so the archive opens in any zpaq. zpaq-std does not guarantee its support"),
 	HIT(9849, 0xB4B2DEC9, "Un codec che NON fa parte di zpaq-std, da codecs/file.dll o .so (codec esterni,|    finiti): deve dare il suo decoder ZPAQL, che ogni blocco porta con se', cosi'|    l'archivio si apre con qualsiasi zpaq. zpaq-std non ne garantisce il supporto"),
 	HRU(9849, 0xB4B2DEC9, "Кодек, который НЕ входит в zpaq-std, из codecs/файл.dll или .so (внешние, готовые|    кодеки): он должен дать свой декодер ZPAQL, который несёт каждый блок, чтобы архив|    открывался любым zpaq. zpaq-std не гарантирует его поддержку"),
@@ -173723,7 +173791,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		                 : (g_ma_algorithm=="flzma2") ? "ZPAQFLZMA2" : (g_ma_algorithm=="snappy") ? "ZPAQSNAPPY"
 		                 : (g_ma_algorithm=="lzav") ? "ZPAQLZAV" : (g_ma_algorithm=="deflate") ? "ZPAQDEFLATE"
 		                 : (g_ma_algorithm=="hs") ? "ZPAQHS" : (g_ma_algorithm=="lizard") ? (g_ma_level>=30 ? "ZPAQLIZARDH" : "ZPAQLIZARD")
-		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="bz2") ? "ZPAQBZ2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6SEQ" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM10" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6hc") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="sylz") ? "ZPAQSYLZ" : (g_ma_algorithm=="sylzec") ? "ZPAQSYLZ3" : (g_ma_algorithm=="zxc") ? "ZPAQZXC" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=8 ? "ZPAQKANZI8B" : g_ma_level>=7 ? "ZPAQKANZI7B" : g_ma_level>=5 ? "ZPAQKANZI5C" : g_ma_level>=3 ? "ZPAQKANZI3B" : "ZPAQKANZI1B") : "ZPAQLZ5";
+		                 : (g_ma_algorithm=="bzip2") ? "ZPAQBZIP2" : (g_ma_algorithm=="bz2") ? "ZPAQBZ2" : (g_ma_algorithm=="zstd") ? "ZPAQZSTD" : (g_ma_algorithm=="lzfse") ? "ZPAQLZFSE" : (g_ma_algorithm=="lz6") ? "ZPAQLZ6SEQ" : (g_ma_algorithm=="brotli") ? "ZPAQBROTLI" : (g_ma_algorithm=="bzip3") ? "ZPAQBZIP3" : (g_ma_algorithm=="lzh") ? "ZPAQLZHAM10" : (g_ma_algorithm=="bsc") ? "ZPAQBSC" : (g_ma_algorithm=="ppmd") ? "ZPAQPPMD" : (g_ma_algorithm=="lz6hc") ? "ZPAQLZ6" : (g_ma_algorithm=="uflzma2") ? "ZPAQUFLZMA2" : (g_ma_algorithm=="sylz") ? "ZPAQSYLZ4" : (g_ma_algorithm=="sylzec") ? "ZPAQSYLZ5" : (g_ma_algorithm=="zxc") ? "ZPAQZXC" : (g_ma_algorithm=="kanzi") ? (g_ma_level>=8 ? "ZPAQKANZI8B" : g_ma_level>=7 ? "ZPAQKANZI7B" : g_ma_level>=5 ? "ZPAQKANZI5C" : g_ma_level>=3 ? "ZPAQKANZI3B" : "ZPAQKANZI1B") : "ZPAQLZ5";
 		myprintf("00602: -ma:%s blocks carry their own ZPAQL decoder (%s): any zpaq can extract them\n",
 		         g_ma_algorithm.c_str(), zname);
 		/// bz2: bz2-ng aun no tiene version publicada. El formato es el de bzip2 y no
@@ -173731,15 +173799,12 @@ int Jidac::loadparameters(int argc, const char** argv)
 		if (g_ma_algorithm=="bz2")
 			myprintf("00603! bz2 is EXPERIMENTAL: bz2-ng has no release yet, and its version may change\n"
 			         "       in future releases. Archives already written stay readable (bzip2's format)\n");
-		/// sylz: formato v2 de syc 0.2.2, todavia experimental. Un formato nuevo lleva
-		/// otro decodificador; lo escrito sigue legible con el suyo.
-		if (g_ma_algorithm=="sylzec")
-			myprintf("00603! sylzec is EXPERIMENTAL: its compression and levels may change in future\n"
+		/// sylz and sylzec: formats v4 and v5 of syc v0.8.0, frozen; still experimental
+		/// (the encoder may change). What is written stays readable with its decoder.
+		if (g_ma_algorithm=="sylzec" || g_ma_algorithm=="sylz")
+			myprintf("00603! %s is EXPERIMENTAL: its compression and levels may change in future\n"
 			         "       releases. Archives already written stay readable (frozen format, each block\n"
-			         "       carries its decoder)\n");
-		if (g_ma_algorithm=="sylz")
-			myprintf("00603! sylz is EXPERIMENTAL: its format may change in future releases. Archives\n"
-			         "       already written stay readable (each block carries its decoder)\n");
+			         "       carries its decoder)\n", g_ma_algorithm.c_str());
 		/// zxc salio de experimental (2026-10-21): bloques de hasta 163 MB, 1.424
 		/// archivos reales, 33.600 bloques danados y Win7 x64/x86. Si zxc cambia de
 		/// formato, el nuevo lleva otro decodificador y otra etiqueta (zxc10).
@@ -183146,7 +183211,9 @@ ThreadReturn decompressThread(void *arg)
 			int64_t bz2p_orig= 0;
 			int64_t bzngp_orig= 0;  /// ZPAQBZ2 (-ma:bz2)
 			int64_t sylzp_orig= 0;  /// ZPAQSYLZ (-ma:sylz)
-			int64_t sy3p_orig= 0;   /// ZPAQSYLZ3 (-ma:sylzec)
+			int64_t sy3p_orig= 0;   /// ZPAQSYLZ3 (-ma:sylzec up to 2.10.0)
+			int64_t sy4p_orig= 0;   /// ZPAQSYLZ4 (-ma:sylz)
+			int64_t sy5p_orig= 0;   /// ZPAQSYLZ5 (-ma:sylzec)
 			int64_t zxcp_orig= 0;   /// ZPAQZXC (-ma:zxc)
 			int64_t extp_orig= 0;   /// -mae / -mat
 			char	extp_mode= 0;
@@ -183267,6 +183334,19 @@ ThreadReturn decompressThread(void *arg)
 					{
 						int lvl;
 						sscanf(cs.c_str() + msy3 + 20, "%d:%" SCNd64, &lvl, &sy3p_orig);
+					}
+					/// ZPAQSYLZ4: "zpaqstd-ma2:sylz4:<nivel>:<original>", ZPAQSYLZ5: "...:sylz5:..."
+					auto msy4 = cs.find("zpaqstd-ma2:sylz4:");
+					if (msy4 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + msy4 + 18, "%d:%" SCNd64, &lvl, &sy4p_orig);
+					}
+					auto msy5 = cs.find("zpaqstd-ma2:sylz5:");
+					if (msy5 != string::npos)
+					{
+						int lvl;
+						sscanf(cs.c_str() + msy5 + 18, "%d:%" SCNd64, &lvl, &sy5p_orig);
 					}
 					auto msyl = cs.find("zpaqstd-ma2:sylz2:");
 					if (msyl != string::npos)
@@ -183828,6 +183908,31 @@ ThreadReturn decompressThread(void *arg)
 				out.reset();
 				out.write(decomp2.data(), decomp2.size());
 				output_size = sy3p_orig;
+			}
+			// ZPAQSYLZ4 and ZPAQSYLZ5: the same, with the plugin's codecs sylz4 (formats v2
+			// and v4) and sylz5 (v2 to v5).
+			else if (sy4p_orig > 0 && (int64_t)out.size() == sy4p_orig)
+			{
+				output_size = sy4p_orig;
+			}
+			else if (sy5p_orig > 0 && (int64_t)out.size() == sy5p_orig)
+			{
+				output_size = sy5p_orig;
+			}
+			else if (sy4p_orig > 0 || sy5p_orig > 0)
+			{
+				const int64_t so=sy4p_orig > 0 ? sy4p_orig : sy5p_orig;
+				if (so > 0x7FFFFFFF || out.size() < 8)
+					error("31319 sylz decompression failed");
+				string decomp2;
+				decomp2.resize(so);
+				const zs_codec* zc=zs_get(sy4p_orig > 0 ? "sylz4" : "sylz5");
+				const long long zr=zc ? zc->decompress(out.data()+4, out.size()-4, &decomp2[0], (size_t)so, 0) : -1;
+				if (zr!=so)
+					error("31319 sylz decompression failed");
+				out.reset();
+				out.write(decomp2.data(), decomp2.size());
+				output_size = so;
 			}
 			// ZPAQLIZARD: igual; nativo es Lizard_decompress_safe sobre lo que sigue a los 4 bytes.
 			else if (lizp_orig > 0 && (int64_t)out.size() == lizp_orig)
@@ -266402,45 +266507,13 @@ static void ma_comprimir_con(StringBuffer& sb, string& m, string& ma_comment, co
 			}
 		}
 	}
-	/// sylz (plugin only): the segment is the original size (u32le) and the sylz
-	/// block, which ZPAQSYLZ decodes; ph follows the block's control length.
-	else if (i_ma_algorithm=="sylz" && sb.size()>16 && sb.size()<=0x7FFFFFFF && zs_get("sylz"))
+	/// sylz and sylzec (plugin only; since syc v0.8.0 the codecs sylz4 and sylz5, sylz
+	/// formats v4 and v5): the segment is the original size (u32le) and the block, which
+	/// ZPAQSYLZ4 or ZPAQSYLZ5 decodes; pm holds what each keeps in M.
+	else if ((i_ma_algorithm=="sylz" || i_ma_algorithm=="sylzec") && sb.size()>16 && sb.size()<=0x7FFFFFFF && zs_get(i_ma_algorithm=="sylz" ? "sylz4" : "sylz5"))
 	{
-		const zs_codec* zc=zs_get("sylz");
-		int64_t orig_size=sb.size();
-		size_t dstCap=zc->bound((size_t)orig_size,i_ma_level);
-		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
-		{
-			char* sybuf=new(std::nothrow) char[dstCap+4];
-			if (sybuf)
-			{
-				const long long zr=zc->compress(sb.data(),(size_t)orig_size,sybuf+4,dstCap,i_ma_level);
-				if (zr>=4 && zr+4<orig_size-16)
-				{
-					const uint32_t o=(uint32_t)orig_size;
-					sybuf[0]=(char)(o&255); sybuf[1]=(char)((o>>8)&255); sybuf[2]=(char)((o>>16)&255); sybuf[3]=(char)(o>>24);
-					const int64_t ctrl=(int64_t)((unsigned char)sybuf[4] | ((unsigned)(unsigned char)sybuf[5]<<8) | ((unsigned)(unsigned char)sybuf[6]<<16) | ((uint32_t)(unsigned char)sybuf[7]<<24));
-					libzpaq::SHA1 sh1;
-					sh1.write((const char*)sb.data(), orig_size);
-					const char* r1=sh1.result();
-					char hx[41];
-					for (int q=0; q<20; ++q)
-						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
-					sb.reset();
-					sb.write(sybuf,(size_t)zr+4);
-					m="zpaqsylz:"+itos(libzpaq::zpaqsylz_ph(ctrl))+":"+itos(orig_size)+":"+hx;
-					ma_comment="zpaqstd-ma2:sylz2:"+(i_ma_level<0 ? "-"+itos(-i_ma_level) : itos(i_ma_level))+":"+itos(orig_size);
-				}
-				delete[] sybuf;
-			}
-		}
-	}
-	/// sylzec (plugin only): the segment is the original size (u32le) and the sylzec
-	/// block (format v3, or v2 when v3 is not smaller), which ZPAQSYLZ3 decodes; pm
-	/// holds the segment, the literals and the output.
-	else if (i_ma_algorithm=="sylzec" && sb.size()>16 && sb.size()<=0x7FFFFFFF && zs_get("sylzec"))
-	{
-		const zs_codec* zc=zs_get("sylzec");
+		const bool v5=(i_ma_algorithm=="sylzec");
+		const zs_codec* zc=zs_get(v5 ? "sylz5" : "sylz4");
 		int64_t orig_size=sb.size();
 		size_t dstCap=zc->bound((size_t)orig_size,i_ma_level);
 		if (dstCap>0&&dstCap<(size_t)256*1024*1024)
@@ -266461,8 +266534,8 @@ static void ma_comprimir_con(StringBuffer& sb, string& m, string& ma_comment, co
 						snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
 					sb.reset();
 					sb.write(sybuf,(size_t)zr+4);
-					m="zpaqsylz3:"+itos(libzpaq::zpaqsylz3_pm(zr+4, orig_size))+":"+itos(orig_size)+":"+hx;
-					ma_comment="zpaqstd-ma2:sylzec3:"+(i_ma_level<0 ? "-"+itos(-i_ma_level) : itos(i_ma_level))+":"+itos(orig_size);
+					m=std::string(v5 ? "zpaqsylz5:" : "zpaqsylz4:")+itos(v5 ? libzpaq::zpaqsylz5_pm(zr+4, orig_size) : libzpaq::zpaqsylz4_pm(zr+4, orig_size))+":"+itos(orig_size)+":"+hx;
+					ma_comment=std::string(v5 ? "zpaqstd-ma2:sylz5:" : "zpaqstd-ma2:sylz4:")+(i_ma_level<0 ? "-"+itos(-i_ma_level) : itos(i_ma_level))+":"+itos(orig_size);
 				}
 				delete[] sybuf;
 			}
