@@ -110,8 +110,8 @@ readable. See [issue #3](https://github.com/YadeWira/zpaq-std/issues/3).
 | Switch | Library | Levels | Default |
 |---|---|---|---|
 | `-ma:bz2:N` | [bz2-ng](https://github.com/tfenne/bz2-ng) 517948e | 1–9 | 9 |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.7.0), plugin only | 0–10 | 1 |
-| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.7.0, format v3), plugin only (in sylz.dll) | 0–10 | 1 |
+| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.8.0, format v4), plugin only | 0–10 | 1 |
+| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.8.0, format v5), plugin only (in sylz.dll) | 0–10 | 1 |
 
 What each codec's levels mean, and notes on some of them (kanzi, lzh, bz2):
 [wiki: Usage](https://github.com/YadeWira/zpaq-std/wiki/Usage#codec-notes). `codecinfo` lists them all; `codecinfo <codec>`
@@ -135,7 +135,7 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:pja` / `pjax78` / `pja78` / `pjall8` / `pjals8` / `pjalsx8` / `pja2k` | [PJA](https://github.com/YadeWira/PJA) 0.9.11, plugin only (`pja.dll` or `.so`) | JPEG, lossless JPEG, JPEG-LS, JPEG 2000 | 2 | 2 |
+| `-sa:pja` / `pjax78` / `pja78` / `pjall8` / `pjals8` / `pjalsx8` / `pja2k` | [PJA](https://github.com/YadeWira/PJA) 0.9.12, plugin only (`pja.dll` or `.so`) | JPEG, lossless JPEG, JPEG-LS, JPEG 2000 | 2 | 2 |
 
 `pja` is the family: its six codecs, tried in this order. Each name alone is that codec:
 

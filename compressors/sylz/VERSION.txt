@@ -1,12 +1,19 @@
-sylz (format v2) and sylzec (format v3), from syc v0.7.0 (tag v0.7.0, commit 1fa0ffa, 2026-11-13),
-https://github.com/YadeWira/syc. v0.7.0 fixes the decoders on 32-bit targets (Linux x86, Windows x86):
+sylz, sylzec, sylz4 and sylz5 (sylz formats v2, v3, v4 and v5), from syc v0.8.0 (tag v0.8.0, commit
+0dd2bc0, 2026-11-13), https://github.com/YadeWira/syc. v0.8.0 FREEZES formats v4 and v5 and brings
+their codecs to the plugin: zpaqstd_codecs_v1(2) is sylz4 (library "sylz format v4 (syc 0.8.0)": it
+writes v4, or a v2 block where that is smaller, and reads v2 and v4) and zpaqstd_codecs_v1(3) is
+sylz5 ("sylz format v5 (syc 0.8.0)": it writes v5, or a v2, v3 or v4 block, and reads all four).
+Levels 0 to 10, blocks of up to 512 MiB. In zpaq-std, -ma:sylz is sylz4 and -ma:sylzec is sylz5
+(blocks tagged sylz4 and sylz5, with ZPAQSYLZ4 and ZPAQSYLZ5, compressors/zpaqsylz45); the codecs
+sylz and sylzec stay to read the blocks tagged sylz2 and sylzec3 that those switches wrote up to
+zpaq-std 2.10.0, and write v0.7.0's very bytes.
+Before: syc v0.7.0 (tag v0.7.0, commit 1fa0ffa, 2026-11-13). v0.7.0 fixes the decoders on 32-bit targets (Linux x86, Windows x86):
 a block made on purpose, with a length extension of about 16.8 MB of 0xFF bytes, made the length
 wrap to a negative number and the v2 decoder could write before the output buffer; in v3 a litCount
 of 2^31 or more was read as negative. Those blocks are refused now. No block syc writes does it, and
 the 64-bit code does not change there. What sylz and sylzec write is byte for byte v0.6.0's (checked
 here: the 22 archives of levels 0 to 10 of each on a 49 MB set are identical, and each plugin reads
 the other's). The library text is "sylz format v2 (syc 0.7.0)" and "sylz format v3 (syc 0.7.0)".
-syc's formats v4 and v5 are still provisional, with no codec in the plugin.
 Before: syc v0.6.0 (tag v0.6.0, commit 427ea5e, 2026-11-12): it brought the code of formats v4 and v5,
 and both decoders refuse a block with bit 30 of its first u32 set (a v4/v5 block), as sylz refused
 bit 31; the same bytes as v0.5.4.
