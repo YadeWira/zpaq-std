@@ -62,7 +62,7 @@ BUNDLED = [
     ('libdivsufsort', '2.0 (stripped)', 'MIT', 'Yuta Mori', ['libdivsufsort/LICENSE'], ''),
     ('zxc', '1.0.0', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
      ['compressors/zxc/LICENSE', 'compressors/zxc/LICENSE-rapidhash'], ''),
-    ('sylz and sylzec', 'syc v0.7.0', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
+    ('sylz and sylzec', 'syc v0.8.0', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
     ('PJA', '0.9.12', 'MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)', 'Yade Bravo (YadeWira)',

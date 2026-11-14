@@ -1,6 +1,32 @@
-### [unreleased]
+### [2.11.0] - 2026-11-14
 
-- **PJA 0.9.11** (`-sa`): its lists of recommended methods (`+rcmd`) for JPEG-LS and JPEG 2000 say `lz6hc:15` where they said `lz6:15`, which 2.10.0 renamed (and skipped, as a level out of range). Codecs, streams and ZPAQL decoders are unchanged: `-sa` and `-sa -rcmd` write the same archives.
+**zpaqfranz 65.20: a full disk no longer ruins an archive, and exit codes that tell the truth. `-ma:sylz` and `-ma:sylzec` write syc's new formats, v4 and v5. PJA 0.9.12.**
+
+- **Base: zpaqfranz 65.20** (65.20z). Everything of its open build since 65.18 is in. It is a release of fixes, all over the program:
+  - **A full disk during `a` no longer ruins the archive.** The version written half way stayed in the archive: `t` said DAMAGED for ever, and every backup written after it could not be extracted. Now the archive is cut back to what it was before the run (66858), or removed if the run created it. With `-chunk`, `-index` and Franzen it is not touched, and 66860 says to check it with `t`.
+  - **The archive is never added to itself** when it is inside the folder being archived (66862); nor its `.franzen`, its `-index` file or the parts of a multipart archive.
+  - **An empty argument is refused** (66841, exit code 2): `d "$FOLDER" -force` with an empty variable was `d / -force`, the duplicates of the whole disk. The archive to write can still be `""`.
+  - **Exit codes:** `i`, `ls`, `v`, `crop`, `fzf`, `tui`, `gui` on a damaged archive give 1 (they gave 0); `a x.zpaq` with nothing to add gives 2 (the help and 0); `sync` with a wrong path or nothing compared gives 2; `testbackup` gives 2 when the index is missing or damaged or a part is not in the list; `a -m5` with a compression job killed for lack of RAM gives 2; `versum` on a folder gives 2 everywhere.
+  - **Crashes fixed:** `s` with no folder, `-until -1` on an archive that does not exist, a wrong date or more than 19 digits in `-until`, `-ramsize 0` (a division by zero in `x`), a damaged block header asking for 2^77 bytes, and MD5 and SHA-3 reading unaligned words (a crash or a wrong hash on some ARM hardware).
+  - **`xc` with big blocks** (zpaqfranz issue 357): a restored disk image could come out short without a word when the RAM was not enough for the blocks. A thread with no memory now tries again with a smaller cache, and fragments that do not come out are counted (03876, exit code 2).
+  - **Dates after 2038** (Linux, macOS): `x` restored them wrong (2040 became 1904).
+  - **Long paths on Windows:** without `-longpath`, a path over 260 characters is listed (66861) and the exit code is 1, where it was a yellow line and 0. With `-longpath`, a folder given as relative is stored relative (it was stored absolute, so `t archive folder -longpath` called every file missing), `t ... -longpath` scans in the extended form, and `x -longpath` without `-to` writes in the extended form. That last one is the fix zpaq-std 2.7.1 had of its own; zpaqfranz's is used now.
+  - **No console, no waiting** (Windows): `ls`, `tui` and `gui` with a pipe or a file as input read it and end; `pause` is skipped.
+  - `d` takes more than one folder (one copy in all of them); `x -sameperms` (not root: the modes exactly as in the archive).
+  - **What can change for a script:** the exit codes above, `""` refused, and `a` into a folder that holds the archive.
+  - Not here, as always: what zpaqfranz has only in its full build (`update`, `-thunderbird`, SFTP).
+- **`-ma:sylz:N` writes sylz format v4 and `-ma:sylzec:N` format v5** ([syc](https://github.com/YadeWira/syc) v0.8.0, which freezes both). The same switches and levels (0 to 10, default 1), smaller archives and a faster codec: three streams (tokens, offsets, literals), matches at the previous offset, and a token table that each chunk can change; v5 is v4 with Huffman-coded literals in eight streams. Still **experimental**.
+  - On Silesia (212 MB, 64 MB blocks): `-ma:sylz:1` 90.9 MB (2.10.0: 94.5), `-ma:sylz:9` 74.1 MB (76.5), `-ma:sylzec:1` 77.5 MB (80.6), `-ma:sylzec:9` 68.7 MB (71.4).
+  - Any zpaq extracts them: the blocks carry **ZPAQSYLZ4** (2,361 bytes) or **ZPAQSYLZ5** (3,234 bytes), two new ZPAQL decoders (`compressors/zpaqsylz45/`), smaller than the one before (4,488). zpaq-std 2.10.0 and older run them too. The output goes through a window of 64 KiB, so another zpaq needs little more memory than the block's compressed size.
+  - **What is already written is read as before:** blocks written with `-ma:sylz` (format v2) and `-ma:sylzec` (v3) up to 2.10.0 keep their tags and decoders, and the plugin still has their codecs. The encoders may write a block in an older format where that is smaller (a small block of text), which the new decoders read.
+  - **The plugin `codecs/sylz` must be this version's**: with an older one, `-ma:sylz` and `-ma:sylzec` stop with 00605 (the plugin is missing or not valid).
+  - **A script that wrote `-ma:sylz` or `-ma:sylzec` now writes another format.**
+- **PJA 0.9.12** (`-sa`): the same streams and ZPAQL decoders. `pja`, `pjax` and theirs take a JPEG whose sequential scan has Ss or Se other than 0 and 63 (a DICOM encoder writes Se = 0); `pjall` and theirs refuse a lossless JPEG with subsampled components or with a predictor that wraps, which go to `-m` (or to `+rcmd`). Its lists of recommended methods (`+rcmd`) for JPEG-LS and JPEG 2000 say `lz6hc:15` where they said `lz6:15`, which 2.10.0 renamed and skipped.
+- The help of the new and changed lines is in the five languages.
+
+#### Checked
+
+@@CHECKED@@
 
 ### [2.10.0] - 2026-11-13
 
