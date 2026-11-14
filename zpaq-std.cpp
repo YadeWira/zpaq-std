@@ -57,6 +57,14 @@ OTHER DEALINGS IN THE SOFTWARE.
 #define _WIN32_WINNT 0x0600
 #endif
 
+/// 65.19p: the XP build (zpaqfranzxp.exe) is the only 32 bit one built with -D__USE_MINGW_ANSI_STDIO=1
+/// (rella.bat, rellaxp.bat, xp.bat). HERE, before any #include, that macro exists only if it is on the
+/// command line: mingw-w64 sets it later, in _mingw.h, the compiler never does. It has no update
+/// (it would put zpaqfranz32.exe in its place): see update_nonqui()
+#if defined(_WIN32) && !defined(_WIN64) && defined(__USE_MINGW_ANSI_STDIO)
+#define ZPAQXPBUILD
+#endif
+
 #define ZPAQFULL ///NOSFTPSTART
 ///NOSFTPEND
 
@@ -78,8 +86,38 @@ OTHER DEALINGS IN THE SOFTWARE.
 #undef ZPAQLIBSODIUM
 #endif
 
-#define ZPAQ_VERSION "65.18r"
-#define ZPAQ_DATE "(2026-11-07)"
+/// 65.20a: -DBUILD_FEDORA, the build for the Fedora package (and for whoever wants the same): no cryptography
+/// of its own in the binary. The sum of four switches, each one can be used alone:
+///   NOAES      no AES and no scrypt: no -key -key2 -keyfile FRANZKEY, no password and checkpassword,
+///              an archive encrypted with -key cannot be read (03870-03874, exit code 2)
+///   NOFRANZEN  no Franzen: no franzsodium (from Monocypher), no libsodium (00574 00576 00590)
+///   NOEMAIL    no Mbed TLS: no work email, no TLS of work prox and work proxmox
+///   NOUPDATE   no update, and so no RSA to check the signature of its .p7m (03875)
+/// and (65.20c) no SFTP, even with -DSFTP on the command line: no libcurl and no libssh loaded at run time
+/// What stays, on purpose:
+///   - the hashes. SHA-1 is the zpaq format (the deduplication); SHA-2, SHA-3, BLAKE3, MD5, XXH3... check the
+///     integrity of the files, they do not encrypt anything
+///   - the random numbers of the system
+/// The archives in clear are the same as in any other build
+#ifdef BUILD_FEDORA
+#ifndef NOAES
+#define NOAES
+#endif
+#ifndef NOFRANZEN
+#define NOFRANZEN
+#endif
+#ifndef NOEMAIL
+#define NOEMAIL
+#endif
+#ifndef NOUPDATE
+#define NOUPDATE
+#endif
+#undef ZPAQLIBSODIUM /// no Franzen, so no libsodium (on Windows: not even its .dll among the resources)
+#undef SFTP			 /// 65.20c: whatever the command line says (Fedora's spec gives -DSFTP)
+#endif // BUILD_FEDORA
+
+#define ZPAQ_VERSION "65.20z"
+#define ZPAQ_DATE "(2026-11-11)"
 
 
 /*
@@ -97,6 +135,8 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 #ifdef OPEN ///NOSFTPSTART
 	#undef ZPAQFULL
 	#undef ZPAQMOUNT /// open: no FUSE, no WinFsp
+	#undef ZPAQLIBSODIUM /// 65.20z: as the purged source (the #ifndef ZPAQFULL above came too early for -DOPEN):
+						 /// with it, on Windows, the libsodium code called kickstart_resources(), that is ZPAQFULL
 #endif ///NOSFTPEND
 
 ///	optional align for malloc (sparc64,HPPA) via -DALIGNMALLOC
@@ -104,7 +144,9 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 #define XSTR(a) STR(a)
 
 #ifdef ALIGNMALLOC
-#define	MALLOC_ALIGN 4
+/// 65.20z: was 4. aligned_malloc() refuses an alignment smaller than a pointer: on every 64 bit system (sparc64
+/// too, the one the Makefile gives it to) each allocation was NULL, a crash at once. 8 is right on 32 and 64 bit
+#define	MALLOC_ALIGN 8
 #endif // corresponds to #ifdef (#ifdef ALIGNMALLOC)
 
 #ifdef MALLOC_ALIGN
@@ -129,6 +171,7 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 	#undef	ESX
 	#undef	ALIGNMALLOC
 	#undef	unix
+	#undef	IPV6 /// 65.20z: for the http client of *nix only (Windows downloads with its own): it included sys/socket.h
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 
 #ifdef _WIN64
@@ -230,6 +273,8 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 	#undef  ZPAQLIBSODIUM /// 65.18e: Franzen with franzsodium only
 #endif // corresponds to #ifdef (#ifdef ESX)
 
+
+/// ARM-based NAS: how to build https://github.com/fcorbelli/zpaqfranz/blob/main/NONWINDOWS/NAS.md
 #ifdef NAS
 	#define ANCIENT
 	#undef HWSHA1
@@ -952,27 +997,7 @@ Credits and copyrights and licenses and links and internal bookmarks
 	OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 	EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
 
-17 [almost-unrestricted]		  Twofish implementation,(c) 2002 by Niels Ferguson   https://github.com/wernerd/ZRTPCPP/blob/master/cryptcommon/twofish.c
-	**** This is part of currently not released zpaqfranz (future zpaq-over-IP)
-	* Fast, portable, and easy-to-use Twofish implementation,
-	* Version 0.3.
-	* Copyright (c) 2002 by Niels Ferguson.
-
-	The author hereby grants a perpetual license to everybody to
-	use this code for any purpose as long as the copyright message is included
-	in the source code of this or any derived work.
-
-	Yes, this means that you, your company, your club, and anyone else
-	can use this code anywhere you want. You can change it and distribute it
-	under the GPL, include it in your commercial product without releasing
-	the source code, put it on the web, etc.
-	The only thing you cannot do is remove my copyright message,
-	or distribute any source code based on this implementation that does not
-	include my copyright message.
-
-	I appreciate a mention in the documentation or credits,
-	but I understand if that is difficult to do.
-	I also appreciate it if you tell me where and why you used my code.
+17 (removed in 65.20a: the Twofish implementation, for a client-server version never released, is no longer in the source)
 
 18 [Apache License 2.0] HighWay64 hasher                                       https://github.com/google/highwayhash
  /// LICENSE_START.18
@@ -1296,8 +1321,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 29 [MIT License]               postami 0.3.0 (SMTP client with TLS) and zippami (one file into a .zip) by ... me
  /// LICENSE_START.29
  /// LICENSE_END.29
-    The e-mail client of "work email" and the .zip of "work zip": written for zpaqfranz,
-    same author and same license (the MIT License at the top of this file).
+    The e-mail client of "work email" and the .zip of "work zip": written by me for zpaqfranz,
+    same license (the MIT License at the top of this file).
     Its block (from POSTAMI BEGIN to POSTAMI END) holds a subset of Mbed TLS: see 30.
     Left out of the build by -DNOEMAIL (-DOPEN sets it).
 
@@ -1363,7 +1388,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  8 Thanks to https://github.com/Piqlet          		for non-x86 help
  9 Thanks to https://github.com/osmano807       		for non-x86 help
 10 Thanks to Stephen Kitt <skitt@debian.org>    		for supporting Debian "packaging"
-11 Thanks to Niels Ferguson                     		for the Twofish implementation
+11 (removed in 65.20a: the Twofish implementation is no longer in the source)
 12 Thanks to Newcastle University						for some winsock related issues, Master Degree, Game Engineering
 13 Thanks to https://github.com/akumiszcza      		for OneDrive issue
 14 Thanks to https://github.com/ratay           		for help help fix, longpath
@@ -1518,7 +1543,16 @@ A universal Makefile is impossible, especially with older systems.
 If you’re using reasonably modern operating systems, 
 you can try the fairly complete Makefile I’ve provided here.
 
-https://github.com/fcorbelli/zpaqfranz/blob/main/Makefile 
+https://github.com/fcorbelli/zpaqfranz/blob/main/Makefile
+
+make help shows everything. In short (gmake on the BSDs and Solaris):
+make                          JIT and HWSHA2 on x86, NOJIT elsewhere, -DBIG on big endian CPUs, SFTP
+make ENABLE_ZPAQMOUNT=yes     with the mount command (FUSE)
+make static                   static, no SFTP and no mount (NAS, containers, rescue)
+make BUILD_FEDORA=yes         no cryptography of its own (see -DBUILD_FEDORA), or one at a time:
+                              ENABLE_AES=no ENABLE_FRANZEN=no ENABLE_EMAIL=no ENABLE_UPDATE=no
+make install ENABLE_STRIP=no ENABLE_DIRLINK=no PREFIX=/usr DESTDIR=...   for a package
+make CROSS_COMPILE=aarch64-linux-gnu-   the flags are the ones of the target, not of this machine
 ===============================================================================
 
 
@@ -1592,7 +1626,21 @@ DEFINEs at compile-time: IT IS UP TO YOU NOT TO MIX LOGICAL INCOMPATIBLE DEFINIT
 
 -DALIGNMALLOC 						// Force malloc to be aligned at something (sparc64). Use naive CRC-32
 	
--DIPV6								// Do not force IPv4 (the current default)
+-DIPV6								// Do not force IPv4 (the current default). *nix only: Windows ignores it
+
+-DNOAES								// No AES and no scrypt: no -key -key2 -keyfile FRANZKEY, no password
+									// and checkpassword. An archive encrypted with -key cannot be read
+									// (it says so, exit code 2: it never asks for a password)
+-DNOFRANZEN							// No Franzen: no franzsodium (built in), no libsodium (loaded at run time)
+-DNOEMAIL							// No Mbed TLS: no work email (the reports by e-mail)
+-DNOUPDATE							// No update, and so no RSA to check the signature of its .p7m
+									// (whoever installed it updates it: a package manager)
+-DBUILD_FEDORA						// The build of the Fedora package (and of whoever wants the same):
+									// NOAES + NOFRANZEN + NOEMAIL + NOUPDATE, and no SFTP even with -DSFTP.
+									// No cryptography of its own in the binary: the hashes stay (they encrypt
+									// nothing), and so do the archives in clear, the same as any other build.
+									// Banner: FEDORA. Each of the four can be used alone (NOAES, NOUPDATE...)
+									// Makefile: make BUILD_FEDORA=yes (or ENABLE_AES=no ENABLE_UPDATE=no...)
 
 #ifdef ZPAQFULL ///NOSFTPSTART
 -DSFTP								// Enable SFTP support via curl (needs the library!)
@@ -1966,7 +2014,7 @@ SFTP AND LIBCURL
 If you define -DSFTP during compilation, the program will dynamically use the 
 libcurl library, if it is available. 
 On Windows systems, this refers to the libcurl-x64.dll/libcurl.dll. 
-This DLL can be downloaded from the author's website simply by running zpaqfranz sftp. 
+This DLL can be downloaded from my website simply by running zpaqfranz sftp.
 For *nix systems, it is typically named libcurl.so (or something similar) and must be 
 installed manually, for example, using pkg add libcurl (on FreeBSD) or equivalent commands. 
 If it cannot be made to work, zpaqfranz will return an error.
@@ -2028,9 +2076,6 @@ g++ -O3 -DHWBLAKE3 -DHWSHA2 blake3_windows_gnu.s zpaqfranz.cpp -o zpaqfranzhw -p
 
 Windows 32 (g++ 7.3.0 64 bit)
 c:\mingw32\bin\g++ -m32 -O3 zpaqfranz.cpp -o zpaqfranz32 -pthread -static -lurlmon
-
-Windows 64 (g++ 7.3.0), WITH cloud paq
-g++ -O3 -DSERVER zpaqfranz.cpp -o zpaqfranz -lwsock32 -lws2_32 -lurlmon
 
 #ifdef ZPAQFULL ///NOSFTPSTART
 Windows 64 (g++ 7.3.0) WITH SFTP (everything)
@@ -2230,9 +2275,9 @@ g++ -O3 -DBIG -DALIGNMALLOC zpaqfranz.cpp -o zpaqfranz -pthread
 PowerPC (Debian gcc 4.9.1)
 g++ -O3 -DBIG -DANCIENT zpaqfranz.cpp -o zpaqfranz -pthread -static -s
 
-Alpine Linux
-Sorry, cannot make pthread work
-Just run with -t1 (aka: multithread is disabled)
+Alpine Linux (gcc version 15.2.0 (Alpine 15.2.0))
+On newer one (3.24.4) it is possible to compile with a straight
+g++ -O3 zpaqfranz.cpp -o zpaqfranz
 
 Windows XP 
 Newer zpaqfranz32.exe (>=60.10) more or less works on XP
@@ -2248,7 +2293,7 @@ This gets a DYNAMIC LOADING of curl library: you must have (somewhere) a libcurl
 g++ -O3 -DSFTP -DHWSHA2 zpaqfranz.cpp -o zpaqfranz  -pthread -s -ldl -Wall -Wpedantic
 
 Making DLL on Windows (highly experimental)
-g++ -O3 -shared -static -static-libgcc -static-libstdc++ -s -DDLL -DSFTP -DGUI -DHWSHA2 -DHWBLAKE3 ^
+g++ -O3 -shared -static -static-libgcc -static-libstdc++ -s -DDLL -DSFTP -DHWSHA2 -DHWBLAKE3 ^
 blake3_windows_gnu.S ^
 c:\zpaqfranz\zpaqfranz.cpp ^
 -o c:\zpaqfranz\zpaqfranz.dll ^
@@ -40110,7 +40155,10 @@ void __msan_print_shadow(const volatile void *x, size_t size);
  * include the header file... */
 } /* namespace zzstd (zpaqfranz) */
 #include <stddef.h>  /* size_t */
-namespace zzstd {
+/// 65.20m: the ASan runtime has these two with C names, outside any namespace. Declared inside namespace zzstd
+/// (C++ names, as they were) a -fsanitize=address build did not link: "undefined reference to
+/// zzstd::__asan_poison_memory_region", and ZSTD_ASAN_DONT_POISON_WORKSPACE given from outside is #undef above
+extern "C" {
 
 /**
  * Marks a memory region (<c>[addr, addr+size)</c>) as unaddressable.
@@ -40142,6 +40190,8 @@ void __asan_poison_memory_region(void const volatile *addr, size_t size);
  * \param addr Start of memory region.
  * \param size Size of memory region. */
 void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+} /* extern "C" */
+namespace zzstd {
 #endif
 
 #endif /* ZSTD_COMPILER_H */
@@ -85322,6 +85372,8 @@ void* zpaqmount_winfsp_load(const char** why);
 #endif // corresponds to #if (#if !defined(ZPAQMOUNT_FUSE2) && ...)
 #include <sys/statvfs.h>
 #include <sys/mman.h>
+#include <signal.h> /// 65.20z: sigaction() (mount_signals_to_default). It came from Mbed TLS or the unix block, both out of
+					/// an ANCIENT -DNOEMAIL build: on FreeBSD it did not build
 #define fuse_stat    stat
 #define fuse_statvfs statvfs
 typedef off_t  fuse_off_t;
@@ -87888,6 +87940,14 @@ typedef CURLcode (*_curl_seek_callback2)(const void *, curl_off_t, int);
 #endif ///NOSFTPEND
 
 int64_t g_GLOBAL_RAM_LIMIT= 1 * 1024LL * 1024 * 1024; // 1 GB
+/// 65.20d (issue 357): the cache of xc (and of the restores of image) was ALL the free physical RAM. With blocks of
+/// 64 MB the workers had no room left for their own buffers (std::bad_alloc), a block came out empty and its
+/// fragments were skipped with no word: a piece shorter than the backup (66180). g_ramsizeauto: the limit is the
+/// automatic one (prepare_extract_to_disk), extractstdout takes it less the buffers of its workers and 1 GB.
+/// g_ramtetto: a worker found no memory and the limit was halved; what comes after (the next piece of xc) does not
+/// start again above it. 0 = it never happened
+bool	g_ramsizeauto= false;
+int64_t g_ramtetto	 = 0;
 
 std::string g_franzen;
 std::string g_franzen2; /// 65.13n: password -franzen2, the new password of a Franzen archive
@@ -87929,6 +87989,7 @@ DWORD g_rp_filo= 0; /// the thread of repack
 #endif
 int	 g_incomplete_version= 0;
 int64_t g_frammentiorfani= 0; /// read_archive: fragments that no file uses (a lost i block, 72414): a warning
+int64_t g_crcdiversi= 0;	  /// 65.19n: add -verify/-collision, files whose fragments do not give the CRC-32 read (02108): an ERROR
 
 int64_t g_starting_zpaqdate = 0;
 int64_t g_starting_zpaqsize = 0;
@@ -88111,6 +88172,14 @@ int64_t	 g_filescanned	= 0;
 int64_t	 g_worked		= 0;
 int64_t	 g_fwritten		= 0;
 int64_t	 g_fexpected	= 0;
+/// 65.20v: a puts the archive back as it was when its writes did not all go (a full disk): the file written, where
+/// this run began in it, if this run made it, and if it can be done safely (set in gestisciwrite)
+std::string g_rollback_file;
+int64_t		g_rollback_pos	 = -1;
+bool		g_rollback_creato= false;
+bool		g_rollback_ok	 = false;
+/// 65.20y: a -thunderbird [-all]: the users (or folders) whose mail could not be taken, and why (summary, rc 1)
+std::vector<std::string> g_thunderbird_saltati;
 int64_t	 g_fwrittencrc32= 0;
 
 int64_t	 g_header_pos	= 0;
@@ -88289,6 +88358,8 @@ bool flagpakka;
 bool flagcatpaqmode;
 bool flagdistinct;
 bool flagparanoid;
+bool flagnohttps;	/// 65.19c: Windows, the files of www.francocorbelli.it via http only (default: https, then http by itself)
+bool flaghttpsfake;	/// 65.19c (hidden, for the tests): the https attempt of downloadfile_sito() goes to a closed port
 int64_t g_nomicollisi	  = 0; /// 65.16i: files renamed: for Windows their name was the one of another file (a WARNING)
 int64_t g_closefalliti	  = 0; /// 65.16i: the date or the attributes of a file not set by close(), 00163 00165 (a WARNING)
 int64_t g_closedispositivi= 0; /// 65.16i: "files" that were devices, their data gone: 03808 (an ERROR)
@@ -88328,6 +88399,7 @@ bool flagstdout;
 bool flagstore;
 bool flagtar;
 bool flagnumeric; /// x -tar: owners by number only (as tar --numeric-owner)
+bool flagsameperms; /// 65.19h: x on *nix, not root: the modes of the archive exactly (as tar -p)
 struct franz_posix; /// -tar: see "-tar (*nix)"
 struct franz_tar;
 bool flagtest;
@@ -88354,18 +88426,19 @@ volatile bool g_usbtest_stop  = false;
 int			  g_fermatafatale= 0; /// not 0: my_handler called by an error (a -image whose reader cannot go on), not by Ctrl+C: its exit code
 int	 g_turbothreads= 0; /// -turbo N: threads of the parallel fragmenter of add2(); 0 = as many as -t (up to 32)
 uint64_t g_turbochunk= 0; /// 65.18l: -turbochunk X, not in the help (for the tests): the batch of -turbo; 0 = automatic
+uint64_t g_updatefake= 0; /// 65.19j: -updatefake YYYYMMDD, not in the help (for the tests): update as on that day (the expiry of the keys of the signature); 0 = today
 bool g_turbodetto= false; /// 65.18o: -turbo written (on the command line or in a -ini): -lean does not turn it off
 /// 65.18o: the levels by name, from the lightest to the strongest. One only, and not with -m (03995, rc 2).
 /// -lean is -m80 -t2 -noturbo, but a -t or a -turbo written wins (the command line always wins)
 /// 65.18q: a build without zstd (ESX, ANCIENT but NAS) has no -m7 -m8 -m9: there -m80 -m8 -m9 -m7 were "method >5"
-/// = -m5 (-lean was -m5 -t2, -normal -m5). There the zpaq models, in the same order (decided by the author)
+/// = -m5 (-lean was -m5 -t2, -normal -m5). There the zpaq models, in the same order (I decided)
 struct livellonome
 {
 	const char *nome;
 	const char *metodo;
 	const char *senzazstd; /// 65.18q: the method in a build without ZPAQZSTD
-	const char *aiuto; /// as in h a (HU 1923...) and in the flags (@flag 1930...): the same words. The words of the
-					   /// author (65.18o): hints for who does not know what -m80 or -m7 are, not a contract
+	const char *aiuto; /// as in h a (HU 1923...) and in the flags (@flag 1930...): the same words. My words
+					   /// (65.18o): hints for who does not know what -m80 or -m7 are, not a contract
 };
 static const livellonome g_livelli[]= {
 	{"-lean", "80", "1", "Minimal resources, slower (e.g. NAS)"},		/// -m80 -t2 -noturbo (the -t2 -noturbo in loadparameters)
@@ -88451,6 +88524,7 @@ int			g_rescuemb		   = 16;	/// -rescue N: the longest jump, MB
 int			g_rescuetime	   = 2;		/// -rescuetime S: a read slower than this (seconds) is a sick zone. 0: errors only
 std::string g_rescuefake;				/// -rescuefake (hidden, for the tests): "start:bytes[:slow],..." of the source that fail (or are slow)
 std::string g_cpfake;					/// 65.13d: -cpfake (hidden, for the tests): "piece[:times],...": cp -verify, a byte of the destination changed after the write of that piece (from 0, in this run)
+std::string g_p7mfake;					/// 65.19l: -signfake (hidden, for the tests): "byte[:xor],...": update, the .p7m just downloaded changed on the disk (xor in hex, 01 if not given)
 int64_t		g_rescue_buco	   = -1;	/// the hole: [g_rescue_buco, g_rescue_finebuco) of the source is not to be read
 int64_t		g_rescue_finebuco  = -1;
 int64_t		g_rescue_salti	   = 0;		/// jumps
@@ -95530,6 +95604,7 @@ void SHA256::write(const char* buf, int64_t n)
 }
 #endif // corresponds to #ifdef (#ifdef HWSHA2)
 //////////////////////////// AES /////////////////////////////
+#ifndef NOAES
 // For encrypting with AES in CTR mode.
 // The i'th 16 byte block is encrypted by XOR with AES(i)
 // (i is big endian or MSB first, starting with 0).
@@ -95553,6 +95628,17 @@ void scrypt(const char* pw, int pwlen,
 // Generate a strong key out[0..31] key[0..31] and salt[0..31].
 // Calls scrypt(key, 32, salt, 32, 16384, 8, 1, out, 32);
 void stretchKey(char* out, const char* key, const char* salt);
+#else
+/// 65.20a: -DNOAES (BUILD_FEDORA sets it): no AES and no scrypt in the build. An empty shell with the same
+/// interface, so that every "if (aes) aes->encrypt(...)" stays as it is. Never made: -key, -key2, -keyfile,
+/// FRANZKEY and an encrypted archive are refused before (03870-03875). If it were, an error: never a wrong output
+class AES_CTR {
+public:
+  AES_CTR(const char*, int, const char* =0) {error("this build has no AES (NOAES)");}
+  void encrypt(char*, int, U64) {error("this build has no AES (NOAES)");}
+};
+void stretchKey(char* out, const char* key, const char* salt);
+#endif
 //////////////////////////// random //////////////////////////
 // Fill buf[0..n-1] with n cryptographic random bytes. The first
 // byte is never '7' or 'z'.
@@ -96163,6 +96249,7 @@ void protectx(U8* i_p, int i_n)
 #endif // corresponds to #ifdef (#ifdef unix)
 }
 
+#ifndef NOAES /// 65.20a: AES (LICENSE 1) and scrypt (LICENSE 2) out of a -DNOAES build
 /// LICENSE_START.1
 //////////////////////////// AES /////////////////////////////
 // Some AES code is derived from libtomcrypt 1.17 (public domain).
@@ -96503,6 +96590,9 @@ void stretchKey(char* out, const char* in, const char* salt) {
   scrypt(in, 32, salt, 32, 1<<14, 8, 1, out, 32);
 }
 /// LICENSE_END.2
+#else
+void stretchKey(char*, const char*, const char*) {error("this build has no AES (NOAES)");}
+#endif // NOAES
 
 
 
@@ -105440,7 +105530,10 @@ void SHA3::processBlock(const void* data)
 #else
 #define MYLITTLEENDIAN2(x) (x)
 #endif // corresponds to #ifdef (#ifdef BIG)
-  const uint64_t* data64 = (const uint64_t*) data;
+  /// 65.20l: copied, not cast, as MD5::processBlock (65.20k): data is not always aligned to 8 bytes (UBSan:
+  /// "load of misaligned address ... uint64_t"): on ARM an unaligned 64-bit load is a SIGBUS or a wrong word
+  uint64_t data64[MaxBlockSize / 8];
+  memcpy(data64, data, m_blockSize);
   for (unsigned int i = 0; i < m_blockSize / 8; i++)
     m_hash[i] ^= MYLITTLEENDIAN2(data64[i]);
   for (unsigned int round = 0; round < Rounds; round++)
@@ -105677,7 +105770,11 @@ void MD5::processBlock(const void* data)
   uint32_t c = m_hash[2];
   uint32_t d = m_hash[3];
   // data represented as 16x 32-bit words
-  const uint32_t* words = (uint32_t*) data;
+  /// 65.20k: copied, not cast. data is not always aligned to 4 bytes (UBSan: "load of misaligned address"):
+  /// nothing on x86, but on ARMv5 an unaligned LDR gives a rotated word (a wrong MD5, silently) and on ARMv7
+  /// two loads joined in LDM/LDRD are a SIGBUS (as crc32_16bytes, 65.3z4). The compiler makes the copy free
+  uint32_t words[16];
+  memcpy(words, data, sizeof(words));
   // computations are little endian, swap data if necessary
 #if defined(__BYTE_ORDER) && (__BYTE_ORDER != 0) && (__BYTE_ORDER == __BIG_ENDIAN)
 #define MYLITTLEENDIAN(x) swap(x)
@@ -112619,8 +112716,8 @@ bool getcaptcha(const string &i_captcha, const string &i_reason)
 	color_green();
 	printf("%s\n", i_captcha.c_str());
 	color_restore();
-	char myline[81]= {0};
-	int	 dummy		= scanf("%80s", myline);
+	char myline[1025]= {0}; /// 65.19o: an URL can be the captcha (update -force -kill), and longer than 80
+	int	 dummy		  = scanf("%1024s", myline);
 	if (dummy != 1) /// nothing read (stdin closed): never the captcha
 		myline[0]= 0;
 	if (myline != i_captcha)
@@ -114103,7 +114200,10 @@ time_t unix_time(int64_t date)
 	const int		 sec	 = date % 100;
 	if (month < 0)
 		return 0;
-	return (day - 1 + days[month] + (year % 4 == 0 && month > 1) + ((year - 1970) * 1461 + 1) / 4) * 86400 + hour * 3600 + min * 60 + sec;
+	/// 65.20r: the days times 86400 were an int: over INT_MAX from 2038-01-19 on (UBSan "signed integer overflow").
+	/// x on *nix gave a file of 2040-06-01 the date 1904-04-26, one of 2100 the date 1964. In 64 bits
+	const int64_t giorni= (int64_t)(day - 1 + days[month] + (year % 4 == 0 && month > 1)) + ((int64_t)(year - 1970) * 1461 + 1) / 4;
+	return (time_t)(giorni * 86400 + hour * 3600 + min * 60 + sec);
 }
 /// 65.13m: a decimal date typed by the user (-datefrom, -dateto) is local time, as the dates shown: the files
 /// have it in UTC. A file shown at 13:00 (12:00 UTC) was out of -datefrom 2017-01-01_12:30
@@ -116101,6 +116201,26 @@ class downcallback : public IBindStatusCallback
 #endif // corresponds to #ifdef (#ifdef _WIN64)
 
 #ifdef _WIN32
+/// 65.19c: the WinINet errors one meets, in words (the number alone said little). The https
+/// ones are what an old Windows says to www.francocorbelli.it (TLS 1.2 and 1.3, ECDSA only)
+static const char *wininet_errore(DWORD i_codice)
+{
+	switch (i_codice)
+	{
+		case 12002: return "timeout";											/// ERROR_INTERNET_TIMEOUT
+		case 12007: return "name not resolved";									/// ERROR_INTERNET_NAME_NOT_RESOLVED
+		case 12029: return "cannot connect";									/// ERROR_INTERNET_CANNOT_CONNECT
+		case 12030: return "connection aborted";								/// ERROR_INTERNET_CONNECTION_ABORTED
+		case 12031: return "connection reset";									/// ERROR_INTERNET_CONNECTION_RESET
+		case 12037: return "certificate date not valid: is the clock right?";	/// ERROR_INTERNET_SEC_CERT_DATE_INVALID
+		case 12038: return "certificate name not valid";						/// ERROR_INTERNET_SEC_CERT_CN_INVALID
+		case 12045: return "certificate authority not trusted (old root certificates?)"; /// ERROR_INTERNET_INVALID_CA
+		case 12057: return "certificate revocation check failed";				/// ERROR_INTERNET_SEC_CERT_REV_FAILED
+		case 12157: return "secure channel error (no TLS 1.2?)";				/// ERROR_INTERNET_SECURITY_CHANNEL_ERROR
+		case 12169: return "certificate not valid";								/// ERROR_INTERNET_SEC_INVALID_CERT
+	}
+	return "";
+}
 /// Fallback used when URLDownloadToFileW() fails: urlmon gives up on a
 /// dual-stack host whose IPv6 address does not answer (INET_E_DOWNLOAD_FAILURE
 /// 0x800C0008), WinINet instead falls back to IPv4.
@@ -116118,7 +116238,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 	if (hwininet == NULL)
 	{
 		if (flagdebug)
-			myprintf("03190: cannot load wininet.dll\n");
+			myprintf("03810: cannot load wininet.dll\n");
 		return false;
 	}
 	t_open	  p_open   = (t_open)	(void*)GetProcAddress(hwininet, "InternetOpenW");
@@ -116129,7 +116249,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 	if (p_open == NULL || p_openurl == NULL || p_read == NULL || p_query == NULL || p_close == NULL)
 	{
 		if (flagdebug)
-			myprintf("03191: wininet.dll without the expected functions\n");
+			myprintf("03811: wininet.dll without the expected functions\n");
 		FreeLibrary(hwininet);
 		return false;
 	}
@@ -116140,7 +116260,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 	FILE*	  outfile	= NULL;
 	if (hsession == NULL)
 	{
-		myprintf("03192! WinINet: cannot start a session\n");
+		myprintf("03812! WinINet: cannot start a session\n");
 		goto uscita;
 	}
 	/// NOTE: utow() by default turns every / into \: for an URL the slashes
@@ -116149,7 +116269,9 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 					INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_KEEP_CONNECTION, 0);
 	if (hurl == NULL)
 	{
-		myprintf("03193! WinINet: cannot open %s (error %u)\n", i_verurl.c_str(), (unsigned)GetLastError());
+		const DWORD	errore= GetLastError();
+		const char *testo = wininet_errore(errore);
+		myprintf("03813! WinINet: cannot open %s (error %u%s%s)\n", i_verurl.c_str(), (unsigned)errore, (*testo != 0) ? ": " : "", testo);
 		goto uscita;
 	}
 	{
@@ -116159,7 +116281,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 		if (p_query(hurl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statuscode, &lunghezza, &indice))
 			if (statuscode < 200 || statuscode > 299)
 			{
-				myprintf("03194! WinINet: HTTP status %u for %s\n", (unsigned)statuscode, i_verurl.c_str());
+				myprintf("03814! WinINet: HTTP status %u for %s\n", (unsigned)statuscode, i_verurl.c_str());
 				goto uscita;
 			}
 		int64_t attesi= 0;
@@ -116172,7 +116294,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 		outfile= _wfopen(utow(i_verfile.c_str()).c_str(), L"wb");
 		if (outfile == NULL)
 		{
-			myprintf("03195! WinINet: cannot write %s\n", i_verfile.c_str());
+			myprintf("03815! WinINet: cannot write %s\n", i_verfile.c_str());
 			goto uscita;
 		}
 		const DWORD	   dimbuffer= 65536;
@@ -116185,7 +116307,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 			DWORD letti= 0;
 			if (!p_read(hurl, &buffer[0], dimbuffer, &letti))
 			{
-				myprintf("03196! WinINet: read error (%u)\n", (unsigned)GetLastError());
+				myprintf("03816! WinINet: read error (%u)\n", (unsigned)GetLastError());
 				errore= true;
 				break;
 			}
@@ -116193,7 +116315,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 				break;
 			if (fwrite(&buffer[0], 1, letti, outfile) != letti)
 			{
-				myprintf("03197! WinINet: write error on %s\n", i_verfile.c_str());
+				myprintf("03817! WinINet: write error on %s\n", i_verfile.c_str());
 				errore= true;
 				break;
 			}
@@ -116202,9 +116324,9 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 			{
 				ultimo= mtime();
 				if (attesi > 0)
-					myprintf("03198: Downloaded %s of %s bytes\r", migliaia(scaricati), migliaia2(attesi));
+					myprintf("03818: Downloaded %s of %s bytes\r", migliaia(scaricati), migliaia2(attesi));
 				else
-					myprintf("03198: Downloaded %s bytes\r", migliaia(scaricati));
+					myprintf("03818: Downloaded %s bytes\r", migliaia(scaricati));
 			}
 		}
 		if (i_showupdate)
@@ -116214,7 +116336,7 @@ bool downloadfile_wininet(const string& i_verurl, const string& i_verfile, bool 
 		if (!errore && (attesi <= 0 || scaricati == attesi))
 			risultato= true;
 		else if (!errore)
-			myprintf("03199! WinINet: got %s bytes instead of %s\n", migliaia(scaricati), migliaia2(attesi));
+			myprintf("03819! WinINet: got %s bytes instead of %s\n", migliaia(scaricati), migliaia2(attesi));
 		if (!risultato)
 			delete_file(i_verfile.c_str());
 	}
@@ -116272,7 +116394,7 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 		/// urlmon failed: retry with WinINet before giving up (typically an
 		/// unreachable IPv6 address on a dual-stack host)
 		if (flagverbose)
-			myprintf("03178: urlmon download failed, retrying with WinINet\n");
+			myprintf("03820: urlmon download failed, retrying with WinINet\n");
 		if (!downloadfile_wininet(i_verurl, i_verfile, i_showupdate))
 		{
 			myprintf("03175: Download failed C5 (no internet?)  %s\n", i_verurl.c_str());
@@ -116281,7 +116403,14 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	}
 #else
 #define INTERNET_BUFFER_SIZE 1024
-
+	/*
+		65.19c: *nix speaks http only (no TLS here, on purpose: the files are signed or hashed).
+		- HTTP/1.0: an HTTP/1.1 answer can be "chunked", and the sizes of the chunks ended in the file
+		- the status line is read: a 404 page, or a redirect, was written as if it were the file (true)
+		- Content-Length checked (a download cut in the middle was good)
+		- 30 s timeouts on the socket: a server that accepts and does not answer hung forever
+		- host:port, User-Agent, the socket closed and the file deleted on every error
+	*/
 	if (i_showupdate)
 		if (i_verurl == "be quiet")
 			myprintf("be quiet\n");
@@ -116320,6 +116449,25 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	if (flagdebug3)
 		myprintf("03181: path |%s|\n", path);
 
+	int	  porta	  = 80;
+	char *duepunti= strchr(hostname, ':');
+	if (duepunti != NULL)
+	{
+		*duepunti= '\0';
+		porta	 = atoi(duepunti + 1);
+		if ((porta <= 0) || (porta > 65535))
+		{
+			myprintf("03832! bad port in %s\n", i_verurl.c_str());
+			free(hostname);
+			return false;
+		}
+	}
+	char portatesto[16];
+	snprintf(portatesto, sizeof(portatesto), "%d", porta);
+	struct timeval tempolimite;
+	tempolimite.tv_sec = 30;
+	tempolimite.tv_usec= 0;
+
 #ifndef IPV6
 	int sockfd= socket(AF_INET, SOCK_STREAM, 0);
 	if (sockfd < 0)
@@ -116333,6 +116481,7 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	if (server == NULL)
 	{
 		myprintf("03183$ cannot resolve %s\n", hostname);
+		close(sockfd);
 		free(hostname);
 		return false;
 	}
@@ -116341,11 +116490,14 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	memset((char *)&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family= AF_INET;
 	bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
-	serv_addr.sin_port= htons(80);
+	serv_addr.sin_port= htons(porta);
+	setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tempolimite, sizeof(tempolimite));
+	setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tempolimite, sizeof(tempolimite));
 
 	if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
 	{
-		myprintf("03184$ C5 on connect\n");
+		myprintf("03184$ C5 on connect to %s port %d\n", hostname, porta);
+		close(sockfd);
 		free(hostname);
 		return false;
 	}
@@ -116362,7 +116514,7 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	hints.ai_next	  = NULL;
 
 	struct addrinfo *addresses= NULL;
-	int				 ret	  = getaddrinfo(hostname, "80", &hints, &addresses);
+	int				 ret	  = getaddrinfo(hostname, portatesto, &hints, &addresses);
 	if (ret)
 	{
 		myprintf("03183$ IPV6 cannot resolve %s: %s\n", hostname, gai_strerror(ret));
@@ -116370,13 +116522,15 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 		return false;
 	}
 
-	int				 sockfd;
+	int				 sockfd= -1;
 	struct addrinfo *address;
 	for (address= addresses; address; address= address->ai_next)
 	{
 		sockfd= socket(address->ai_family, address->ai_socktype, address->ai_protocol);
 		if (sockfd == -1)
 			continue;
+		setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tempolimite, sizeof(tempolimite));
+		setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, (const char *)&tempolimite, sizeof(tempolimite));
 		if (!connect(sockfd, address->ai_addr, address->ai_addrlen))
 			break;
 		close(sockfd);
@@ -116384,13 +116538,16 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	freeaddrinfo(addresses);
 	if (address == NULL)
 	{
-		myprintf("39345$ IPV6 C5 on connect\n");
+		myprintf("39345$ IPV6 C5 on connect to %s port %d\n", hostname, porta);
 		free(hostname); // Added free here
 		return false;
 	}
 #endif
 
-	snprintf(buffer, INTERNET_BUFFER_SIZE, "GET /%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, hostname);
+	if (porta == 80)
+		snprintf(buffer, INTERNET_BUFFER_SIZE, "GET /%s HTTP/1.0\r\nHost: %s\r\nUser-Agent: zpaqfranz\r\nConnection: close\r\n\r\n", path, hostname);
+	else
+		snprintf(buffer, INTERNET_BUFFER_SIZE, "GET /%s HTTP/1.0\r\nHost: %s:%d\r\nUser-Agent: zpaqfranz\r\nConnection: close\r\n\r\n", path, hostname, porta);
 
 	free(hostname);
 	if (write(sockfd, buffer, strlen(buffer)) < 0)
@@ -116410,48 +116567,147 @@ bool downloadfile(const string& i_verurl, const string& i_verfile, bool i_showup
 	ssize_t n;
 	// Strip HTTP response headers: accumulate until \r\n\r\n, then write only the body.
 	std::vector<char> hdrBuf;
-	bool headerDone= false;
+	bool			  headerDone= false;
+	bool			  errore	= false;
+	int64_t			  attesi	= -1; /// Content-Length (-1: not given)
+	int64_t			  scritti	= 0;
 	while ((n= read(sockfd, buffer, INTERNET_BUFFER_SIZE)) > 0)
 	{
 		if (flagdebug3)
 			myprintf("03187: read %s from socket\n", migliaia(n));
+		const char *dati= buffer;
+		size_t		lung= (size_t)n;
 		if (!headerDone)
 		{
 			hdrBuf.insert(hdrBuf.end(), buffer, buffer + n);
 			// Search for end-of-headers marker \r\n\r\n
-			const char *body= NULL;
-			for (size_t k= 0; k + 3 < hdrBuf.size(); k++)
-			{
-				if (hdrBuf[k]=='\r' && hdrBuf[k+1]=='\n' && hdrBuf[k+2]=='\r' && hdrBuf[k+3]=='\n')
+			size_t k	  = 0;
+			bool   trovato= false;
+			for (k= 0; k + 3 < hdrBuf.size(); k++)
+				if (hdrBuf[k] == '\r' && hdrBuf[k + 1] == '\n' && hdrBuf[k + 2] == '\r' && hdrBuf[k + 3] == '\n')
 				{
-					body= &hdrBuf[0] + k + 4;
+					trovato= true;
 					break;
 				}
-			}
-			if (body)
+			if (!trovato)
 			{
-				headerDone= true;
-				size_t bodyLen= (&hdrBuf[0] + hdrBuf.size()) - body;
-				if (bodyLen > 0)
-					fwrite(body, 1, bodyLen, file);
+				if (hdrBuf.size() > 65536)
+				{
+					myprintf("03829! HTTP headers too long from %s\n", i_verurl.c_str());
+					errore= true;
+					break;
+				}
+				continue;
 			}
+			headerDone= true;
+			const string testata(&hdrBuf[0], k);
+			const string minuscola= stringtolower(testata);
+			if (flagdebug3)
+				myprintf("03833: HTTP headers |%s|\n", testata.c_str());
+			const string stato	= testata.substr(0, testata.find("\r\n"));
+			int			 codice = 0;
+			size_t		 spazio = stato.find(' ');
+			if (spazio != string::npos)
+				codice= atoi(stato.c_str() + spazio + 1);
+			if ((codice < 200) || (codice > 299))
+			{
+				myprintf("03827! HTTP answer |%s| for %s\n", stato.c_str(), i_verurl.c_str());
+				size_t dove= minuscola.find("\r\nlocation:");
+				if (dove != string::npos)
+				{
+					size_t inizio= dove + 11;
+					while ((inizio < testata.size()) && (testata[inizio] == ' '))
+						inizio++;
+					size_t		 fine = testata.find("\r\n", inizio);
+					const string verso= testata.substr(inizio, (fine == string::npos) ? string::npos : fine - inizio);
+					myprintf("03828: redirected to %s (here the download is http only)\n", verso.c_str());
+				}
+				errore= true;
+				break;
+			}
+			size_t dove= minuscola.find("\r\ncontent-length:");
+			if (dove != string::npos)
+				attesi= atoll(testata.c_str() + dove + 17);
+			dati= &hdrBuf[0] + k + 4;
+			lung= hdrBuf.size() - (k + 4);
 		}
-		else
-			fwrite(buffer, 1, n, file);
+		if (lung > 0)
+		{
+			if (fwrite(dati, 1, lung, file) != lung)
+			{
+				myprintf("03831! write error on %s\n", i_verfile.c_str());
+				errore= true;
+				break;
+			}
+			scritti+= (int64_t)lung;
+		}
 	}
-	if (n < 0)
+	if ((n < 0) && (!errore))
 	{
-		myprintf("03188: socket negative!\n");
-		fclose(file);
-		close(sockfd);
-		return false;
+		myprintf("03188! socket read error (or no answer in %d s) from %s\n", (int)tempolimite.tv_sec, i_verurl.c_str());
+		errore= true;
+	}
+	if ((!errore) && (!headerDone))
+	{
+		myprintf("03834! no complete HTTP answer from %s\n", i_verurl.c_str());
+		errore= true;
+	}
+	if ((!errore) && (attesi >= 0) && (scritti != attesi))
+	{
+		myprintf("03830! got %s bytes instead of %s from %s\n", migliaia(scritti), migliaia2(attesi), i_verurl.c_str());
+		errore= true;
 	}
 	fclose(file);
 	close(sockfd);
+	if (errore)
+	{
+		delete_file(i_verfile.c_str());
+		return false;
+	}
 	return (prendidimensionefile(i_verfile.c_str()) > 0);
 #endif
 #endif
 	return true;
+}
+
+/// 65.19c: the address of a file of www.francocorbelli.it/zpaqfranz/ (i_path: "win64/zpaqfranz.exe").
+/// Windows https (-nohttps: http); *nix always http (its client, in downloadfile(), speaks http only)
+string franzsito(const string &i_path)
+{
+#ifdef _WIN32
+	if (!flagnohttps)
+		return "https://www.francocorbelli.it/zpaqfranz/" + i_path;
+#endif
+	return "http://www.francocorbelli.it/zpaqfranz/" + i_path;
+}
+
+/// 65.19c: the download of a file of the site (franzsito). Who calls this ALWAYS checks the file
+/// afterwards: the SHA-256 signed (update), or hard-coded (DLL, WinFsp, kickstart). On Windows the
+/// https that fails (XP, 2008 without updates, old root certificates, a wrong clock) goes on with
+/// http by itself: it is that check, not the channel, that makes the file good
+bool downloadfile_sito(const string &i_url, const string &i_file, bool i_showupdate)
+{
+	string primo= i_url;
+#ifdef _WIN32
+	const bool https= (i_url.compare(0, 8, "https://") == 0);
+	/// -httpsfake: the https attempt goes to a port nobody listens to, as on a system that cannot do it
+	if (flaghttpsfake && https)
+		primo= "https://127.0.0.1:1/" + i_url.substr(8);
+#endif
+	if (downloadfile(primo, i_file, i_showupdate))
+		return true;
+#ifdef _WIN32
+	if (https)
+	{
+		if (fileexists(i_file))
+			delete_file(i_file.c_str());
+		color_yellow();
+		myprintf("03826: https failed, now http (the file is verified anyway; -nohttps: straight http)\n");
+		color_restore();
+		return downloadfile("http://" + i_url.substr(8), i_file, i_showupdate);
+	}
+#endif
+	return false;
 }
 
 
@@ -117289,6 +117545,8 @@ class franz_do_hash
 		isfinalized= false;
 	}
 
+	/// 65.20j: this one and the next did not set what 65.15a added (i_identita...) nor ffinalize: hash (that
+	/// takes this one) read an i_identita of garbage in filehash() (UBSan: "load of value 66 ... bool")
 	franz_do_hash(int i_franzotype) : ihashtype(-1),
 									  flagcalccrc32(false),
 									  i_filehash(true),
@@ -117298,8 +117556,14 @@ class franz_do_hash
 									  i_chunksize(0),
 									  o_thefilesize(0),
 									  o_crc32(0),
-									  o_crc32c(0)
+									  o_crc32c(0),
+									  i_identita(false),
+									  o_identita(false),
+									  o_volume(0),
+									  o_file(0),
+									  o_nomi(0)
 	{
+		ffinalize= NULL;
 		MAPPATIPOHASH::iterator p= g_mappatipohash.find(i_franzotype);
 		if (p == g_mappatipohash.end())
 		{
@@ -117310,6 +117574,7 @@ class franz_do_hash
 
 		i_hashtype2= p->second.hashname;
 		ihashtype  = i_franzotype;
+		ffinalize  = p->second.ffinalize;
 		o_status   = "";
 		o_hexhash  = "";
 		o_hexcrc32 = "";
@@ -117327,8 +117592,14 @@ class franz_do_hash
 					  i_chunksize(0),
 					  o_thefilesize(0),
 					  o_crc32(0),
-					  o_crc32c(0)
+					  o_crc32c(0),
+					  i_identita(false),
+					  o_identita(false),
+					  o_volume(0),
+					  o_file(0),
+					  o_nomi(0)
 	{
+		ffinalize  = NULL;
 		i_hashtype2= "";
 		o_status   = "";
 		o_hexhash  = "";
@@ -118174,7 +118445,7 @@ int getdllfrominternet(std::string &i_filename, const std::string &i_sha256)
 	}
 
 	std::string		  filepath= includetrailingbackslash(getwinexedir()) + i_filename;
-	const std::string base_url= "http://www.francocorbelli.it/zpaqfranz/win64/"; // Configurabile
+	const std::string base_url= franzsito("win64/"); /// 65.19c: https (-nohttps: http)
 
 	for (int attempt= 0; attempt < 2; ++attempt)
 	{
@@ -118215,7 +118486,7 @@ int getdllfrominternet(std::string &i_filename, const std::string &i_sha256)
 			myprintf("01412: Download %20s from %s\n", i_filename.c_str(), dllurl.c_str());
 			color_restore();
 
-			if (!downloadfile(dllurl, filepath, true))
+			if (!downloadfile_sito(dllurl, filepath, true))
 			{
 				/// error already printed
 				/// myprintf("01413: Something wrong downloading %Z, sorry (no Internet?)\n", filepath.c_str());
@@ -118501,6 +118772,16 @@ void kickstart_elenco(std::vector<risorse> &elenco_risorse)
 	/// WinFsp's installer: the mount command takes it from here (see kickstart_mount)
 	/// instead of downloading it, whenever this is a zpaqfranz-full
 	elenco_risorse.push_back(risorse(12, "WINFSP", "winfsp-2.1.25156.msi", 2191360, "073A70E00F77423E34BED98B86E600DEF93393BA5822204FAC57A29324DB9F7A"));
+}
+
+/// 65.19p: a zpaqfranz-full has the resources linked in, one is enough to know (as kickstart does).
+/// update leaves it alone: it would put zpaqfranz.exe, without them, in its place
+bool zpaqfranz_full()
+{
+	std::vector<risorse> elenco;
+	kickstart_elenco(elenco);
+	HMODULE hExe= GetModuleHandle(NULL);
+	return (hExe != NULL) && (!elenco.empty()) && (FindResource(hExe, MAKEINTRESOURCE(elenco[0].number), RT_RCDATA) != NULL);
 }
 
 int kickstart_resources(std::string i_package)
@@ -130433,6 +130714,33 @@ bool wintouch(string i_filename, int64_t i_date, int64_t i_creationdate)
 }
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 
+#ifdef unix
+/*
+	65.19h: the mode given on *nix to what is extracted (i_modo: what the archive says).
+	As tar: root gets it exactly; a user (not root) gets it with its own umask, and without
+	setuid, setgid and sticky (-sameperms: exactly, for a user too, as tar -p).
+	Before: exactly for everybody, the umask ignored: whoever made the archive decided. A file
+	0777 in the archive was 0777 (anybody could replace it) for the admin who extracted it, a
+	setuid one stayed setuid. An archive made on Windows was never touched (attributes 'w':
+	no chmod, the umask decides) and is not touched now
+	The umask is read ONCE, before main: umask() has to change it to read it, and the
+	extraction is multithreaded (a file created in that moment would get 0666)
+*/
+static mode_t leggi_umask()
+{
+	const mode_t u= umask(0);
+	umask(u);
+	return u;
+}
+static const mode_t g_umask= leggi_umask();
+mode_t modo_estratto(mode_t i_modo)
+{
+	i_modo&= 07777;
+	if (flagsameperms || (geteuid() == 0))
+		return i_modo;
+	return i_modo & 0777 & ~g_umask;
+}
+#endif
 // Close fp if open. Set date and attributes unless 0
 bool close(const char *filename, int64_t date, int64_t attr, FP fp= FPNULL)
 {
@@ -130450,7 +130758,7 @@ bool close(const char *filename, int64_t date, int64_t attr, FP fp= FPNULL)
 		utime(filename, &ub);
 	}
 	if ((attr & 255) == 'u')
-		chmod(filename, attr >> 8); ///(CWE-362). Use fchmod( ) instead.
+		chmod(filename, modo_estratto((mode_t)(attr >> 8))); ///(CWE-362). Use fchmod( ) instead. 65.19h: as tar
 	return true;
 #else
 	const bool ads	= strstr(filename, ":$DATA") != 0; // alternate data stream?
@@ -130579,7 +130887,7 @@ bool touch(const char *filename, int64_t date, int64_t attr)
 	}
 	if (attr != -1)
 		if ((attr & 255) == 'u')
-			chmod(filename, attr >> 8);
+			chmod(filename, modo_estratto((mode_t)(attr >> 8))); /// 65.19h: as tar
 	return true;
 #else
 	bool allok= true;
@@ -130765,8 +131073,9 @@ string g_gettempdirectory()
 	wchar_t charpath[MAX_PATH];
 	if (GetTempPathW(MAX_PATH, charpath))
 	{
-		wstring ws(charpath);
-		string	str(ws.begin(), ws.end());
+		/// 65.19e: wtou, not one char per wchar_t: a TEMP with an accent (C:\Users\Niccolo'\...) became
+		/// Latin-1 bytes in a string that is UTF-8 everywhere else, and every run died here (00181)
+		string	str= wtou(charpath);
 		/// 65.15y: and the PID: two zpaqfranz that start in the same moment had the same folder, and one took away the
 		/// test file of the other (00181, x "cannot write": 5 of 590,366 in a work probe with 8 at a time)
 		string	randomfolder= str + "_zpaqfranz\\" + myto_string(g_start) + "_" + myto_string((int64_t)GetCurrentProcessId()) + '\\';
@@ -132546,6 +132855,14 @@ InputArchive::InputArchive(const char *filename) : fn(filename), uses_franzen(fa
 	// Initialize AES if needed (65.13g: not for work quadra, g_letturacruda)
 	if ((archive_type == ARCHIVE_ZPAQ_AES || archive_type == ARCHIVE_ZPAQ_AES_FRANZEN) && (!g_letturacruda))
 	{
+#ifdef NOAES
+		/// 65.20a: no AES here, so no password asked (a script would wait for it): said, and stop (rc 2)
+		if (archive_type == ARCHIVE_ZPAQ_AES_FRANZEN)
+			myprintf("03870! <<%Z>> is Franzen + AES: this build has no AES (NOAES), it cannot read it\n", filename);
+		else
+			myprintf("03870! <<%Z>> is AES-encrypted (or it is not a zpaq archive at all): this build has no AES (NOAES), it cannot read it\n", filename);
+		error("this build has no AES (NOAES)");
+#endif
 		// Ask for AES password if not provided
 		if (!g_flagcreating)
 			if (g_password == NULL)
@@ -147635,6 +147952,8 @@ struct ThreadContext
 
 	std::set<int> *blocks_still_needed;
 	volatile int   priority_block;
+	/// 65.20b: these three are written x= x + 1 (not x++ x--): ++ and -- on a volatile are deprecated in C++20,
+	/// gcc 16 says so (-Wvolatile). The same read and the same write as before
 	volatile int   blocks_decompressed;
 	volatile int   blocks_waiting_ram;
 	volatile int   main_waiting_blocks;
@@ -147653,7 +147972,10 @@ struct ThreadContext
 	std::set<int>		   blocchi_eccezione; /// 65.15x: the blocks whose decompression failed (09188), under cache_mutex
 	bool				   controllablocchi;  /// 65.15y: pp, a test: the name, comment, SHA-1 of every block (03745)
 	std::set<int>		   blocchi_anomali;	  /// the blocks with one of them not right, under cache_mutex
-	ThreadContext() : frag_stato(NULL), controllablocchi(false)
+	std::map<int, int>	   tentativiram;	  /// 65.20d: how many times a block found no memory (bad_alloc), under cache_mutex
+	std::set<int>		   blocchi_senzaram;  /// 65.20d: the blocks given up for lack of memory (09189), under cache_mutex
+	int64_t				   memoria_finita;	  /// 65.20d: how many times a worker found no memory, under cache_mutex
+	ThreadContext() : frag_stato(NULL), controllablocchi(false), memoria_finita(0)
 	{
 	}
 };
@@ -148450,6 +148772,7 @@ class Jidac
 #endif
 	int	 gestisciexternal();
 	int	 gestiscithunderbird();
+	int	 xthunderbird(); /// 65.20y
 	int	 gestiscidataset();
 	int	 gestisciifexist();
 	int	 gestisciflagimage();
@@ -148610,6 +148933,75 @@ static void coda_in_testa(std::deque<int> &io_coda, int i_blocco)
 }
 #endif
 
+/// 65.20d (issue 357): a worker found no memory for a block (09190, std::bad_alloc: the cache had taken it all).
+/// Called by the thread that waits for i_blocco, with cache_mutex held: the cache is emptied but for the block it
+/// waits for (the others are decompressed again when needed: slower, never wrong), the read ahead slows down (the
+/// worker has halved the limit) and i_blocco, if nobody has it, is asked again at the head of the queue.
+/// Its users, as coda_in_testa: franzimage (Windows) and extractstdout (not ANCIENT)
+#if defined(_WIN32) || !defined(ANCIENT)
+static void cache_svuota_per_memoria(ThreadContext *ctx, int i_blocco)
+{
+	std::map<int, string *>::iterator it= ctx->block_cache.begin();
+	while (it != ctx->block_cache.end())
+	{
+		if (it->first == i_blocco)
+		{
+			++it;
+			continue;
+		}
+		ctx->current_cache_size-= (int64_t)it->second->size();
+		delete it->second;
+		ctx->block_access_time.erase(it->first);
+		pthread_mutex_lock(ctx->queue_mutex);
+		ctx->pending_jobs.erase(it->first);
+		pthread_mutex_unlock(ctx->queue_mutex);
+		ctx->block_cache.erase(it++);
+	}
+	pthread_mutex_lock(ctx->queue_mutex);
+	if ((ctx->block_cache.find(i_blocco) == ctx->block_cache.end()) && (ctx->pending_jobs.count(i_blocco) == 0))
+	{
+		ctx->job_queue.push_front(i_blocco);
+		ctx->pending_jobs.insert(i_blocco);
+		pthread_cond_signal(ctx->cond_new_job);
+	}
+	pthread_mutex_unlock(ctx->queue_mutex);
+	pthread_cond_broadcast(ctx->cond_cache_not_full);
+}
+#endif
+
+/// 65.20d (issue 357): the end of extractstdout. Fragments that did not come out (no -recover: their block was not
+/// decompressed, or it ends before them) and blocks given up for lack of memory are an ERROR: they were rc 0, a file
+/// (or a piece of xc) shorter than it should be, with no word. After the workers ended (no lock). 2 or 0
+#ifndef ANCIENT /// its user: extractstdout (not ANCIENT)
+static int estrazione_mancanti(int64_t i_frammenti, int64_t i_byte, const ThreadContext &i_ctx, bool i_parla)
+{
+	int esito= 0;
+	if (i_frammenti > 0)
+	{
+		if (i_parla)
+		{
+			color_red();
+			myprintf("03876! %s fragment(s), %s bytes, did not come out (09188 09189 above): what was extracted is NOT complete\n", migliaia(i_frammenti), migliaia2(i_byte));
+			color_restore();
+		}
+		esito= 2;
+	}
+	if (!i_ctx.blocchi_senzaram.empty())
+	{
+		if (i_parla)
+		{
+			color_red();
+			myprintf("03877! %s block(s) could not be decompressed for lack of memory (09189): NOT a damaged archive. Try with a smaller cache (-ramsize 4GB) or fewer threads (-t2)\n", migliaia(i_ctx.blocchi_senzaram.size()));
+			color_restore();
+		}
+		esito= 2;
+	}
+	else if ((i_ctx.memoria_finita > 0) && i_parla)
+		myprintf("03878$ A block found no memory %s time(s) (09190): decompressed again with a smaller cache (%s), what came out is good\n", migliaia(i_ctx.memoria_finita), tohuman(g_GLOBAL_RAM_LIMIT));
+	return esito;
+}
+#endif // ANCIENT
+
 void *worker_routine(void *arg)
 {
 	ThreadContext *ctx		= (ThreadContext *)arg;
@@ -148660,6 +149052,7 @@ void *worker_routine(void *arg)
 		StringBuffer		  out_sb;
 		bool				  read_success= false;
 		bool				  eccezione	  = false; /// 65.15x
+		bool				  senzamemoria= false; /// 65.20d: std::bad_alloc (libzpaq turns its "Out of memory" into it)
 		string				  anomalia	  = "";	   /// 65.15y: pp, what is not right in the block (its data good)
 		vector<char>		  raw_data;
 
@@ -148747,9 +149140,14 @@ void *worker_routine(void *arg)
 			}
 
 			vector<char>().swap(raw_data);
-			ctx->blocks_decompressed++;
+			ctx->blocks_decompressed= ctx->blocks_decompressed + 1;
 			if (flagdebug3)
 				myprintf("09185: Worker %d: decompressed block %d (%d bytes)", thread_id, block_idx, (int)out_sb.size());
+		}
+		catch (std::bad_alloc &) /// 65.20d: no memory is not a damaged block: handled below, never an empty block
+		{
+			read_success= false;
+			senzamemoria= true;
 		}
 		catch (std::exception &e)
 		{
@@ -148766,8 +149164,60 @@ void *worker_routine(void *arg)
 			block with no model) are good, and they are written: one by one the
 			main thread knows which are not
 		*/
-		const bool			  recupero= (ctx->frag_stato != NULL);
-		string				 *res	  = (read_success || recupero) ? new string(out_sb.c_str(), out_sb.size()) : new string("");
+		const bool recupero= (ctx->frag_stato != NULL);
+		string	  *res	   = NULL;
+		if (!senzamemoria)
+		{
+			try /// 65.20d: the copy for the cache can find no memory too (it was a crash, 0xC0000409)
+			{
+				res= (read_success || recupero) ? new string(out_sb.c_str(), out_sb.size()) : new string("");
+			}
+			catch (std::bad_alloc &)
+			{
+				res			= NULL;
+				senzamemoria= true;
+			}
+		}
+		/*
+			65.20d (issue 357): no memory for this block, the cache had taken it all (xc gave the cache all
+			the free RAM: blocks of 64 MB, the buffers of the workers did not fit any more). It was an EMPTY
+			block in the cache, and the main thread skipped its fragments with no word (no -recover): a piece
+			of the restore shorter than the backup. Now: the limit of the cache is halved, the block is taken
+			out of the jobs and who waits for it is woken (cache_svuota_per_memoria: the cache emptied, the
+			block asked again). Four times; then it is given up (09189): an empty block, and the main thread
+			says that its fragments are missing (03876), an ERROR
+		*/
+		if (senzamemoria)
+		{
+			vector<char>().swap(raw_data);
+			pthread_mutex_lock(ctx->cache_mutex);
+			const int tentativi= ++ctx->tentativiram[block_idx];
+			ctx->memoria_finita++;
+			/// half of what the cache holds now (more workers without memory at the same time: the same value, not
+			/// halved again and again), never below 128 MB
+			const int64_t prima= g_GLOBAL_RAM_LIMIT;
+			int64_t		  nuovo= ((ctx->current_cache_size < prima) ? ctx->current_cache_size : prima) / 2;
+			if (nuovo < ((int64_t)128 << 20))
+				nuovo= (int64_t)128 << 20;
+			if (nuovo < prima)
+				g_GLOBAL_RAM_LIMIT= nuovo;
+			g_ramtetto= g_GLOBAL_RAM_LIMIT;
+			if (tentativi <= 4)
+			{
+				myprintf("09190$ Block %d: no memory to decompress it (%d of 4): the cache goes from %s to %s, it is read again\n", block_idx, tentativi, tohuman(prima), tohuman2(g_GLOBAL_RAM_LIMIT));
+				pthread_mutex_lock(ctx->queue_mutex);
+				ctx->pending_jobs.erase(block_idx);
+				pthread_mutex_unlock(ctx->queue_mutex);
+				pthread_cond_broadcast(ctx->cond_block_ready);
+				pthread_cond_broadcast(ctx->cond_cache_not_full);
+				pthread_mutex_unlock(ctx->cache_mutex);
+				continue;
+			}
+			ctx->blocchi_senzaram.insert(block_idx);
+			myprintf("09189! Block %d: no memory to decompress it, %d times: given up\n", block_idx, tentativi);
+			pthread_mutex_unlock(ctx->cache_mutex);
+			res= new string("");
+		}
 		vector<unsigned char> stati;
 		unsigned			  primofrag= 0;
 		unsigned			  nonbuoni = 0;
@@ -148853,7 +149303,7 @@ void *worker_routine(void *arg)
 			{
 				if (flagdebug)
 					myprintf("09212: Worker %d: WAITING for RAM (block %d, cache: %d MB)", thread_id, block_idx, (int)(ctx->current_cache_size / (1024 * 1024)));
-				ctx->blocks_waiting_ram++;
+				ctx->blocks_waiting_ram= ctx->blocks_waiting_ram + 1;
 			}
 			wait_count++;
 
@@ -148869,7 +149319,7 @@ void *worker_routine(void *arg)
 			is_priority= (block_idx == ctx->priority_block);
 		}
 		if (wait_count > 0)
-			ctx->blocks_waiting_ram--;
+			ctx->blocks_waiting_ram= ctx->blocks_waiting_ram - 1;
 
 		if (buttato) /// 65.18f: see above. Lock order as in the main thread: cache_mutex, then queue_mutex
 		{
@@ -148883,6 +149333,11 @@ void *worker_routine(void *arg)
 			continue;
 		}
 
+		if (!senzamemoria) /// 65.20d: decompressed: its tries without memory start again from 0, it is not lost
+		{
+			ctx->tentativiram.erase(block_idx);
+			ctx->blocchi_senzaram.erase(block_idx);
+		}
 		if (ctx->block_cache.find(block_idx) == ctx->block_cache.end())
 		{
 			ctx->block_cache[block_idx]		 = res;
@@ -149468,16 +149923,22 @@ size_t leggi(void *buffer, size_t size)
 			pthread_mutex_unlock(&m_queue_mutex);
 
 			m_ctx->priority_block= current_needed_block;
-			m_ctx->main_waiting_blocks++;
+			m_ctx->main_waiting_blocks= m_ctx->main_waiting_blocks + 1;
 			pthread_cond_broadcast(&m_cond_cache_not_full);
 
+			int64_t memoriavista= m_ctx->memoria_finita; /// 65.20d
 			while (m_ctx->block_cache.find(current_needed_block) == m_ctx->block_cache.end() && !m_ctx->shutdown)
 			{
 				pthread_cond_wait(&m_cond_block_ready, &m_cache_mutex);
+				if (m_ctx->memoria_finita != memoriavista) /// 65.20d: a worker found no memory (09190)
+				{
+					memoriavista= m_ctx->memoria_finita;
+					cache_svuota_per_memoria(m_ctx, current_needed_block);
+				}
 			}
 
 			m_ctx->priority_block= -1;
-			m_ctx->main_waiting_blocks--;
+			m_ctx->main_waiting_blocks= m_ctx->main_waiting_blocks - 1;
 		}
 
 		if (m_ctx->block_cache.find(current_needed_block) != m_ctx->block_cache.end())
@@ -154027,6 +154488,7 @@ const char* unzSHA256::result() {
   return hbuf;
 }
 //////////////////////////// AES /////////////////////////////
+#ifndef NOAES /// 65.20a: the AES and scrypt of unzpaq too, out of a -DNOAES build
 // For encrypting with AES in CTR mode.
 // The i'th 16 byte block is encrypted by XOR with AES(i)
 // (i is big endian or MSB first, starting with 0).
@@ -154375,6 +154837,15 @@ void unzscrypt(const char* pw, int pwlen,
 void stretchKey(char* out, const char* in, const char* salt) {
   unzscrypt(in, 32, salt, 32, 1<<14, 8, 1, out, 32);
 }
+#else
+/// the same empty shell as libzpaq::AES_CTR (never made: g_password is never set in a -DNOAES build)
+class unzAES_CTR {
+public:
+  unzAES_CTR(const char*, int, const char* =0) {unzerror("this build has no AES (NOAES)");}
+  void encrypt(char*, int, uint64_t) {unzerror("this build has no AES (NOAES)");}
+};
+void stretchKey(char*, const char*, const char*) {unzerror("this build has no AES (NOAES)");}
+#endif // NOAES
 //////////////////////////// unzZPAQL ///////////////////////////
 // Symbolic instructions and their sizes
 typedef enum {NONE,CONS,CM,ICM,MATCH,AVG,MIX2,MIX,ISSE,SSE} CompType;
@@ -158805,7 +159276,7 @@ static const franz_helpriga g_helprighetutte[]=
 	HIT(474, 0x7DFC4D30, "Modalita' store: niente deduplica, niente compressione"),
 	HRU(474, 0x7DFC4D30, "Режим store: без дедупликации, без сжатия"),
 	/// 65.18o: the levels by name (g_livelli), from the lightest to the strongest. What they are, there: here
-	/// the words of the author, for who does not know -m80 or -m7 (-lean -m80 -t2 -noturbo, -fast -m80,
+	/// my words, for who does not know -m80 or -m7 (-lean -m80 -t2 -noturbo, -fast -m80,
 	/// -normal -m8, -good -m9, -better -m7, -ultra -m6, -max -m5)
 	HU(1923, "a", "-lean", "Minimal resources, slower (e.g. NAS)"),
 	HIT(1923, 0xC4A7A8CA, "Risorse minime, piu' lento (es. NAS)"),
@@ -159037,6 +159508,15 @@ static const franz_helpriga g_helprighetutte[]=
 	HU(534, "a", "-thunderbird", "Take appdata local\\roaming thunderbird"),
 	HIT(534, 0x5E0C4474, "Prende appdata local\\roaming di thunderbird"),
 	HRU(534, 0x5E0C4474, "Брать appdata local\\roaming thunderbird"),
+	HU(1954, "a", "-thunderbird -all", "Every user of the PC (an elevated administrator): the mail of all"),
+	HIT(1954, 0xC579932D, "Ogni utente del PC (un amministratore elevato): la posta di tutti"),
+	HRU(1954, 0xC579932D, "Все пользователи ПК (повышенный администратор): почта всех"),
+	HU(1955, "a", "-thunderbird -kill", "Close Thunderbird first (of every user)"),
+	HIT(1955, 0x94E731C8, "Chiude prima Thunderbird (di ogni utente)"),
+	HRU(1955, 0x94E731C8, "Сначала закрыть Thunderbird (всех пользователей)"),
+	HU(1956, "a", "-thunderbird -frugal", "Leave out what Thunderbird makes again|(caches, crash reports, locks, *.tmp)"),
+	HIT(1956, 0x675A4FFF, "Lascia fuori quello che Thunderbird rifa' da solo|(cache, crash report, lock, *.tmp)"),
+	HRU(1956, 0x675A4FFF, "Не брать то, что Thunderbird создаст заново|(кэши, отчёты о сбоях, блокировки, *.tmp)"),
 #endif // corresponds to #if (#if defined(_WIN32))
 	HU(535, "a", "-date", "Store creation date (slower)"),
 	HIT(535, 0xC6D16A3A, "Salva la data di creazione (piu' lento)"),
@@ -159317,6 +159797,12 @@ losetup -d /dev/loop0
 	HE(615, "a", "Close and take Thunderbird email", "a z:\\1.zpaq c:\\users\\utente -thunderbird -kill"),
 	HIT(615, 0x4999053C, "Chiude e prende la posta Thunderbird"),
 	HRU(615, 0x4999053C, "Закрыть и взять почту Thunderbird"),
+	HE(1959, "a", "Take the Thunderbird email of every user", "a z:\\copia.zpaq -thunderbird -all -kill"),
+	HIT(1959, 0xAE10BE3D, "Prende la posta Thunderbird di ogni utente"),
+	HRU(1959, 0xAE10BE3D, "Взять почту Thunderbird всех пользователей"),
+	HE(1960, "a", "Take your Thunderbird email, no caches", "a z:\\copia.zpaq -thunderbird -frugal"),
+	HIT(1960, 0xF04FC12A, "Prende la tua posta Thunderbird, senza cache"),
+	HRU(1960, 0xF04FC12A, "Взять свою почту Thunderbird, без кэшей"),
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 	HE(616, "a", "Store creation date (slower)", "a z:\\1.zpaq c:\\users\\utente -date"),
 	HIT(616, 0xC6D16A3A, "Salva la data di creazione (piu' lento)"),
@@ -159425,6 +159911,19 @@ losetup -d /dev/loop0
 	HIT(646, 0xCD31A33F, "Dettagli della firma p7m (CF,|chiave RSA, catena dei digest)|Il file .sha256 viene sempre|verificato con una firma digitale|PKCS#7/CAdES (il CF del firmatario|deve essere CRBFNC72T25H294X)"),
 	HRU(646, 0xCD31A33F, "Подробности подписи p7m (CF, ключ RSA, цепочка дайджестов)|Файл .sha256 всегда проверяется по цифровой подписи|PKCS#7/CAdES (CF подписавшего должен быть CRBFNC72T25H294X)"),
 #endif // corresponds to #ifdef (#ifdef _WIN64)
+#ifdef _WIN32
+	HU(1945, "update", "-nohttps", "Plain http (default: https, then http by itself if|https fails; the files are verified anyway)"),
+	HIT(1945, 0xB98771C0, "Solo http (di default https, poi da solo http se|https fallisce; i file sono verificati comunque)"),
+	HRU(1945, 0xB98771C0, "Только http (по умолчанию https, затем сам http,|если https не работает; файлы проверяются всегда)"),
+	/// 65.19o: update_senzafirma
+	HU(1951, "update", "-force -kill", "Also with a signature NOT verified (my certificate|expired or renewed): a captcha, the URL of the exe typed|EXACTLY, then it is installed AS IT IS, from that URL only|(always asked, also with -nocaptcha). At your own risk"),
+	HIT(1951, 0xD48E83A2, "Anche con una firma NON verificata (il mio certificato|scaduto o rinnovato): un captcha, l'URL dell'exe scritto|ESATTAMENTE, poi viene installato COSI' COM'E', solo da|quell'URL (chiesto sempre, anche con -nocaptcha).|A tuo rischio"),
+	HRU(1951, 0xD48E83A2, "Даже с НЕпроверенной подписью (мой сертификат|истёк или обновлён): капча — URL exe, набранный|ТОЧНО, затем он устанавливается КАК ЕСТЬ, только|с этого URL (спрашивается всегда, даже с -nocaptcha).|На ваш риск"),
+	/// 65.19p: update_nonqui
+	HU(1952, "update", " ", "Only zpaqfranz.exe, zpaqfranzhw.exe, zpaqfranz32.exe update|themselves: not zpaqfranz-full, not the XP build (by hand)"),
+	HIT(1952, 0x1E0C0D54, "Si aggiornano solo zpaqfranz.exe, zpaqfranzhw.exe,|zpaqfranz32.exe: non zpaqfranz-full, non la build|per XP (a mano)"),
+	HRU(1952, 0x1E0C0D54, "Сами обновляются только zpaqfranz.exe, zpaqfranzhw.exe,|zpaqfranz32.exe: не zpaqfranz-full, не сборка|для XP (вручную)"),
+#endif
 	HESEMPI("update", 'b'),
 	HE(647, "update", "Check for updates", "update"),
 	HIT(647, 0x70AD7706, "Cerca aggiornamenti"),
@@ -159498,6 +159997,9 @@ losetup -d /dev/loop0
 	HU(667, "kickstart", "-space", "Do not check the output folder"),
 	HIT(667, 0xEB38A461, "Non controlla la cartella di output"),
 	HRU(667, 0xEB38A461, "Не проверять папку вывода"),
+	HU(1946, "kickstart", "-nohttps", "Plain http (default: https, then http by itself if|https fails; the files are verified anyway)"),
+	HIT(1946, 0xB98771C0, "Solo http (di default https, poi da solo http se|https fallisce; i file sono verificati comunque)"),
+	HRU(1946, 0xB98771C0, "Только http (по умолчанию https, затем сам http,|если https не работает; файлы проверяются всегда)"),
 	HESEMPI("kickstart", 'b'),
 	HE(668, "kickstart", "Into the current folder", "kickstart"),
 	HIT(668, 0x948D7083, "Nella cartella corrente"),
@@ -159862,6 +160364,14 @@ losetup -d /dev/loop0
 	HU(762, "x", "-all -comment", "Restore all versions with DATETIME and comment (if any)"),
 	HIT(762, 0x7D8699BA, "Ripristina tutte le versioni con|  DATA e ORA e commento (se c'e')"),
 	HRU(762, 0x7D8699BA, "Восстановить все версии с ДАТОЙ-ВРЕМЕНЕМ|  и комментарием (если есть)"),
+#if defined(_WIN32)
+	HU(1957, "x", "-thunderbird", "Thunderbird mail back (from a -thunderbird): what is|there renamed Thunderbird.001, never overwritten"),
+	HIT(1957, 0x374DF863, "Rimette la posta di Thunderbird (da un a -thunderbird):|cio' che c'e' diventa Thunderbird.001, mai sovrascritto"),
+	HRU(1957, 0x374DF863, "Вернуть почту Thunderbird (из a -thunderbird): существующее|переименовывается в Thunderbird.001, без перезаписи"),
+	HU(1958, "x", "-thunderbird -to user", "Into this user of the PC (one user in the archive):|paths in prefs.js, profiles.ini corrected (.bak)"),
+	HIT(1958, 0xD92F14BD, "Dentro questo utente del PC (un solo utente nell'archivio):|percorsi di prefs.js e profiles.ini corretti (.bak)"),
+	HRU(1958, 0xD92F14BD, "В этого пользователя ПК (в архиве один пользователь):|пути в prefs.js и profiles.ini исправляются (.bak)"),
+#endif // corresponds to #if (#if defined(_WIN32))
 	HU(763, "x", "-checksum", "force a full hash-code verify (if added with -checksum)"),
 	HIT(763, 0xA36D81E1, "forza una verifica completa degli|  hash (se aggiunti con -checksum)"),
 	HRU(763, 0xA36D81E1, "принудительная полная проверка хешей|  (если добавлено с -checksum)"),
@@ -159935,6 +160445,9 @@ losetup -d /dev/loop0
 	HU(785, "x", "-numeric", "With -tar: owner by uid/gid only (as tar --numeric-owner)"),
 	HIT(785, 0x9DA9E417, "Con -tar: proprietario solo per|  uid/gid (come tar --numeric-owner)"),
 	HRU(785, 0x9DA9E417, "С -tar: владелец только по uid/gid|  (как tar --numeric-owner)"),
+	HU(1947, "x", "-sameperms", "Not root: the modes exactly as in the archive|(setuid, setgid, sticky too; the umask ignored)|Default, as tar: umask, no setuid/setgid/sticky; root: exact"),
+	HIT(1947, 0xE08AC10D, "Non root: i permessi esattamente come nell'archivio|(anche setuid, setgid, sticky; umask ignorata)|Default, come tar: umask, niente setuid/setgid/|sticky; root: sempre esatti"),
+	HRU(1947, 0xE08AC10D, "Не root: права точно как в архиве|(и setuid, setgid, sticky; umask не учитывается)|По умолчанию, как tar: umask, без setuid/setgid/|sticky; root: всегда точно"),
 #endif
 #ifdef _WIN32
 	HGENERA(786, "x", 'u', 's', "-sparse", "Files >= %s as sparse files, the zeros are not written (default)"),
@@ -160083,6 +160596,14 @@ losetup -d /dev/loop0
 	HE(826, "x", "Restore in place, delete nothing", "x z:\\1.zpaq -force -backupdir z:\\archiv -extras"),
 	HIT(826, 0x1F477269, "Ripristino sul posto, senza cancellare nulla"),
 	HRU(826, 0x1F477269, "Восстановление на месте, ничего не удаляя"),
+#if defined(_WIN32)
+	HE(1961, "x", "Thunderbird email back, nothing overwritten", "x z:\\copia.zpaq -thunderbird"),
+	HIT(1961, 0x61D23B5B, "Rimette la posta Thunderbird, senza sovrascrivere"),
+	HRU(1961, 0x61D23B5B, "Вернуть почту Thunderbird, ничего не перезаписывая"),
+	HE(1962, "x", "Thunderbird email of tizio into caio", "x z:\\copia.zpaq -thunderbird -to caio"),
+	HIT(1962, 0x5CEB66EE, "La posta Thunderbird di tizio dentro caio"),
+	HRU(1962, 0x5CEB66EE, "Почта Thunderbird пользователя tizio в caio"),
+#endif // corresponds to #if (#if defined(_WIN32))
 	HBREVE(827, "x", "Extract file(s)"),
 	HIT(827, 0xF289F67C, "Estrae file"),
 	HRU(827, 0xF289F67C, "Извлечь файлы"),
@@ -161597,9 +162118,12 @@ losetup -d /dev/loop0
 	HIT(1245, 0x54EDD919, "Unisce un archivio multiparte in uno solo"),
 	HRU(1245, 0x54EDD919, "Объединить многотомный архив в один"),
 	/// d
-	HU(1246, "d", "CMD d", "Deduplicate|Find and delete duplicate files in a single folder, and in all that is below.|WARNING: This operation is destructive!|A folder, or a folder and what to search: d c:\\dir\\*.mp4, or (as find) d c:\\dir\\ *.mp4|Of the files with the same content the first one by name stays, the others go"),
-	HIT(1246, 0x5FFB6063, "Deduplica|Trova e cancella i file duplicati in una cartella, e in tutto cio' che sta sotto.|ATTENZIONE: questa operazione e' distruttiva!|Una cartella, o una cartella e cosa cercare:|d c:\\dir\\*.mp4, o (come find) d c:\\dir\\ *.mp4|Dei file con lo stesso contenuto resta il primo per nome, gli altri se ne vanno"),
-	HRU(1246, 0x5FFB6063, "Дедупликация|Находит и удаляет файлы-дубликаты в папке и во всём, что ниже.|ВНИМАНИЕ: операция разрушительная!|Папка, или папка и что искать: d c:\\dir\\*.mp4, или (как find) d c:\\dir\\ *.mp4|Из файлов с одинаковым содержимым остаётся первый по имени, остальные удаляются"),
+	HU(1246, "d", "CMD d", "Deduplicate|Find and delete duplicate files in a folder (or more), and in all that is below.|WARNING: This operation is destructive!|A folder, or a folder and what to search: d c:\\dir\\*.mp4, or (as find) d c:\\dir\\ *.mp4|Of the files with the same content the first one by name stays, the others go"),
+	HIT(1246, 0x0B67BD82, "Deduplica|Trova e cancella i file duplicati in una cartella (o piu'),|e in tutto cio' che sta sotto.|ATTENZIONE: questa operazione e' distruttiva!|Una cartella, o una cartella e cosa cercare:|d c:\\dir\\*.mp4, o (come find) d c:\\dir\\ *.mp4|Dei file con lo stesso contenuto resta il primo per nome, gli altri se ne vanno"),
+	HRU(1246, 0x0B67BD82, "Дедупликация|Находит и удаляет файлы-дубликаты в папке (или нескольких)|и во всём, что ниже.|ВНИМАНИЕ: операция разрушительная!|Папка, или папка и что искать: d c:\\dir\\*.mp4, или (как find) d c:\\dir\\ *.mp4|Из файлов с одинаковым содержимым остаётся первый по имени, остальные удаляются"),
+	HU(1949, "d", " ", "More folders, each written with its final \\ (or /): one copy in all of them.|The first folder wins, then the first by name.|Never the same folder twice, nor one inside another."),
+	HIT(1949, 0x9C8F9303, "Piu' cartelle, ognuna scritta con la \\ (o /) finale: una copia in tutte.|Vince la prima cartella, poi il primo per nome.|Mai la stessa cartella due volte, ne' una dentro l'altra."),
+	HRU(1949, 0x9C8F9303, "Несколько папок, каждая с \\ (или /) в конце: одна копия во всех.|Побеждает первая папка, затем первый по имени.|Никогда одна папка дважды или одна внутри другой."),
 	HU(1247, "d", "-ssd", "Multithread run"),
 	HIT(1247, 0xE3CA2673, "Esecuzione multithread"),
 	HRU(1247, 0xE3CA2673, "Многопоточный запуск"),
@@ -161629,6 +162153,9 @@ losetup -d /dev/loop0
 	HE(1255, "d", "Deduplicate d0 (dry run, w/xxh3)", "d c:\\d0\\"),
 	HIT(1255, 0x3372B847, "Deduplica d0 (prova a secco, con xxh3)"),
 	HRU(1255, 0x3372B847, "Дедупликация d0 (пробный прогон, xxh3)"),
+	HE(1950, "d", "One copy in two drives (dry run)", "d c:\\video\\ d:\\film\\"),
+	HIT(1950, 0x62E853ED, "Una copia in due unita' (prova a secco)"),
+	HRU(1950, 0x62E853ED, "Одна копия на двух дисках (пробный прогон)"),
 	HE(1256, "d", "Only the .mp4 of u: (dry run)", "d u:\\*.mp4"),
 	HIT(1256, 0x7138477A, "Solo gli .mp4 di u: (prova a secco)"),
 	HRU(1256, 0x7138477A, "Только .mp4 на u: (пробный прогон)"),
@@ -162772,6 +163299,9 @@ losetup -d /dev/loop0
 	HTESTO(1584, "@frasi", 'a', 0, "Secure archiver w/dedup"),
 	HIT(1584, 0xB217138E, "Archiviatore sicuro con deduplica"),
 	HRU(1584, 0xB217138E, "Надёжный архиватор с дедупликацией"),
+	HTESTO(1953, "@frasi", 'a', 0, "Archiver w/dedup, no encryption"), /// 65.20b: the usage of BUILD_FEDORA
+	HIT(1953, 0x81766F39, "Archiviatore con deduplica, senza cifratura"),
+	HRU(1953, 0x81766F39, "Архиватор с дедупликацией, без шифрования"),
 	HTESTO(1585, "@frasi", 'a', 0, "Help"),
 	HIT(1585, 0xB89DF01A, "Aiuto"),
 	HRU(1585, 0xB89DF01A, "Справка"),
@@ -163426,6 +163956,12 @@ losetup -d /dev/loop0
 	HTESTO(1775, "@flag", 'a', 0, "Fix CAse"),
 	HIT(1775, 0xC73CFE74, "Sistema maiuscole/minuscole"),
 	HRU(1775, 0xC73CFE74, "Исправлять регистр"),
+	HTESTO(1948, "@flag", 'a', 0, "*nix, not root: extract the modes exactly (as root does)"),
+	HIT(1948, 0x968474BB, "*nix, non root: estrae i permessi esatti (come fa root)"),
+	HRU(1948, 0x968474BB, "*nix, не root: извлекать права точно (как root)"),
+	HTESTO(1944, "@flag", 'a', 0, "www.francocorbelli.it via http, not https"),
+	HIT(1944, 0xF6C2EC8E, "www.francocorbelli.it in http, non in https"),
+	HRU(1944, 0xF6C2EC8E, "www.francocorbelli.it по http, не по https"),
 	HTESTO(0, "@flag", 'a', 0, "fixreserved"),
 	HTESTO(1776, "@flag", 'a', 0, "Do NOT fix Windows-invalid filenames"),
 	HIT(1776, 0x7577E7DF, "NON sistema i nomi non validi per Windows"),
@@ -163736,7 +164272,9 @@ static const franz_helpcomando g_helpcomandi[]=
 #ifndef NOEMAIL
 	{"mailreport", "mailreport", "Admin    ", 7},
 #endif
+#ifndef NOAES /// 65.20b: the commands this build does not have are not listed
 	{"password", "setpassword", "Admin    ", 7},
+#endif
 	{"redu", "redu", "Admin    ", 7},
 	{"trim", "trim", "Admin    ", 7},
 #ifndef NOFRANZEN
@@ -163749,11 +164287,15 @@ static const franz_helpcomando g_helpcomandi[]=
 #endif
 	{"ads", "ads", "Admin    ", 7},
 #endif // corresponds to #if (#if defined(_WIN32))
+#ifndef NOUPDATE /// 65.20b
 	{"update", "update", "Admin    ", 7},
 	{"upgrade", "update", "Admin    ", 7},
+#endif
 #endif /// NOSFTPEND
 	// Utils
+#ifndef NOAES /// 65.20b
 	{"checkpassword", "checkpassword", "Utils    ", 8},
+#endif
 	{"comparehex", "comparehex", "Utils    ", 8},
 	{"count", "count", "Utils    ", 8},
 	{"f", "f", "Utils    ", 8},
@@ -164591,7 +165133,7 @@ int help_controlla()
 	for (size_t i= 0; i < sizeof(amano) / sizeof(amano[0]); i++)
 		help_aggiungi(parser, amano[i]);
 	std::set<string>   nascosti; /// on purpose: the flags with no description, and these
-	static const char *senza[]= {"-elevatedpid", "-rescuefake", "-cpfake", "-turbochunk"};
+	static const char *senza[]= {"-elevatedpid", "-rescuefake", "-cpfake", "-turbochunk", "-updatefake", "-signfake"};
 	for (size_t i= 0; i < sizeof(senza) / sizeof(senza[0]); i++)
 		nascosti.insert(help_chiave(senza[i]));
 	for (MAPPAFLAGS::iterator p= g_programflags.mappaflags.begin(); p != g_programflags.mappaflags.end(); ++p)
@@ -164865,7 +165407,9 @@ void Jidac::usage(bool i_flagdie= true)
 	const char *base="DLL archiver";
 #else
 	const char *base=
-#ifdef ZPAQFULL
+#if defined(BUILD_FEDORA)
+		"Archiver w/dedup, no encryption"; /// 65.20b: no AES, no Franzen, no TLS
+#elif defined(ZPAQFULL)
 		"Top tier archiver w/dedup";
 #else
 		"Secure archiver w/dedup";
@@ -164951,6 +165495,7 @@ void Jidac::usage(bool i_flagdie= true)
 #endif // corresponds to #ifdef (#ifdef HWSHA1)
 
 #ifdef ZPAQFULL /// NOSFTPSTART
+#ifndef NOUPDATE /// 65.20b: no update to tell about
 #if defined(_WIN32)
 	color_cyan();
 	moreprint(help_colonna(help_t("Update"), 9).c_str(), true);
@@ -164962,6 +165507,7 @@ void Jidac::usage(bool i_flagdie= true)
 #else
 	moreprint((string(help_t("Look for newer version  (Internet):")) + "    zpaqfranz update").c_str());
 #endif // corresponds to #if (#if defined(_WIN32))
+#endif // NOUPDATE
 #endif /// NOSFTPEND
 
 	if (i_flagdie)
@@ -165126,6 +165672,53 @@ void open_output(string i_filename)
 				printf("28342: ERROR OPENING LOG FILE %s\n", i_filename.c_str());
 		}
 }
+#ifdef _WIN32
+/// 65.20v (B024): the current folder in the extended form (//?/w:/here/ or //?/UNC/server/share/here/), for x
+/// -longpath without -to. Asked once: x does not change folder
+static string cartellacorrente_lunga()
+{
+	static string risultato= "";
+	if (risultato != "")
+		return risultato;
+	static wchar_t cartella[32768];
+	if (GetCurrentDirectoryW(32768, cartella) == 0)
+		return "";
+	string c= wtou(cartella);
+	myreplaceall(c, "\\", "/");
+	if ((c == "") || (c[c.size() - 1] != '/'))
+		c+= "/";
+	if ((c.size() > 4) && (c.substr(0, 4) == "//?/"))
+		risultato= c;
+	else if ((c.size() > 2) && (c[0] == '/') && (c[1] == '/'))
+		risultato= "//?/UNC/" + c.substr(2);
+	else
+		risultato= "//?/" + c;
+	return risultato;
+}
+/// 65.20v (B024): -longpath turned a relative folder (lunghi) into an absolute one, and the archive got
+/// w:/where/i/was/lunghi/... while without -longpath the names are relative (lunghi/...). This gives back the
+/// relative name as it was written, forward slashes, no ./ in front; "" when it is not a plain relative name
+/// (drive, root, UNC, wildcards, . or .. inside): then I keep the absolute name, as before
+static string longpath_relativo(const string &i_originale)
+{
+	string s= i_originale;
+	myreplaceall(s, "\\", "/");
+	while ((s.size() >= 2) && (s[0] == '.') && (s[1] == '/'))
+		s= s.substr(2);
+	if (s == "")
+		return "";
+	if ((s[0] == '/') || (mypos(":", s) != -1))
+		return "";
+	if ((mypos("*", s) != -1) || (mypos("?", s) != -1))
+		return "";
+	vector<string> pezzi;
+	explode(s, '/', pezzi);
+	for (unsigned int i= 0; i < pezzi.size(); i++)
+		if ((pezzi[i] == ".") || (pezzi[i] == ".."))
+			return "";
+	return s;
+}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
 // Rename name using tofiles[]
 string Jidac::rename(string name)
 {
@@ -165221,7 +165814,30 @@ string Jidac::rename(string name)
 	}
 	myreplaceall(name, "/./", "/_/");
 	myreplaceall(name, "/../", "/__/");
-
+#ifdef _WIN32
+	/*
+		65.20v (B024): a -longpath now stores lunghi/... (relative, as without -longpath). x -longpath without -to
+		wrote that name as it was, and Windows stops at MAX_PATH (00699 DIRNOTEX, 00966 UKONE): the same place
+		in the extended form, //?/w:/here/lunghi/... (w:/... => //?/w:/...). Not a name starting with / or ../,
+		not the virtual files: as before
+	*/
+	if (flaglongpath)
+		if ((command == 'x') || (command == 'w'))
+			if ((tofiles.size() == 0) && (!flagstdout) && (name != ""))
+				if ((mypos("VFILE-", name) == -1) && (mypos("MFILE-", name) == -1) && (mypos("VCOMMENT ", name) == -1))
+				{
+					if (iswindowspath(name))
+						name= "//?/" + name;
+					else if ((name[0] != '/') && (name[0] != '\\') && (mypos(":", name) == -1) && (name.substr(0, 3) != "../"))
+					{
+						while (name.substr(0, 2) == "./")
+							name= name.substr(2);
+						const string qui= cartellacorrente_lunga();
+						if ((qui != "") && (name != ""))
+							name= qui + name;
+					}
+				}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
 	return name;
 }
 #ifdef _WIN32
@@ -166439,6 +167055,9 @@ void programflags_riempi(bool *i_flagtest)
 	g_programflags.add(&flagdeflate,		"-zip",					"zip: the same as -deflate",							"");
 	g_programflags.add(&flagtar,			"-tar",					"TAR mode (store/show Posix metadata)",							"");
 	g_programflags.add(&flagnumeric,		"-numeric",				"x -tar: owners by uid/gid only, not by name",			"");
+#ifdef unix
+	g_programflags.add(&flagsameperms,		"-sameperms",			"*nix, not root: extract the modes exactly (as root does)",	""); /// 65.19h
+#endif
 	g_programflags.add(&flagtmp,			"-tmp",					"Use .tmp instead of .zpaq during backup",			"");
 	g_programflags.add(i_flagtest,			"-test",				"Only do test",										"");
 	g_programflags.add(&flagtouch,			"-touch",				"Re-hash files without a usable hash (7.15 to zpaqfranz)",		"");
@@ -166484,6 +167103,8 @@ void programflags_riempi(bool *i_flagtest)
 	g_programflags.add(&flagacfake,			"-acfake",				"",												""); /// not in the help: for the tests of xc (ac on a disk that is not the one of Windows)
 	g_programflags.add(&flagwinpefake,		"-winpefake",			"",												""); /// not in the help: ac as from a Windows PE (the tests of 65.14j)
 	g_programflags.add(&flaggui,			"-gui",					"ac, xc, f: choose on a screen (what to take, where to restore, what f does)",	"");
+	g_programflags.add(&flagnohttps,		"-nohttps",				"www.francocorbelli.it via http, not https",		""); /// 65.19c
+	g_programflags.add(&flaghttpsfake,		"-httpsfake",			"",												""); /// not in the help: the https attempt fails (the tests of the fallback to http)
 #endif
 	g_programflags.add(&flagelevatefake,	"-elevatefake",			"",												""); /// not in the help: for the tests of the relaunch of cloud -image
 	g_programflags.add(&flagraw,			"-raw",					"Image of the whole partition (or disk)",			"");
@@ -167069,6 +167690,17 @@ int Jidac::loadparameters(int argc, const char** argv)
 	textnojit+="+M"; /// the mount command (-DZPAQMOUNT, FUSE/WinFsp)
 #endif // corresponds to #ifdef (#ifdef ZPAQMOUNT) ///NOSFTPEND
 	textnojit+=",";
+	/// 65.20a: what was left out on purpose, at once: -key, update... are refused, and here is why
+#ifdef BUILD_FEDORA
+	textnojit+="FEDORA,"; /// NOAES NOFRANZEN NOEMAIL NOUPDATE
+#else
+#ifdef NOAES
+	textnojit+="NOAES,";
+#endif
+#ifdef NOUPDATE
+	textnojit+="NOUPDATE,";
+#endif
+#endif
 
 	if (flag715)
 		myprintf("52511: zpaq v7.15 journaling archiver, compiled Aug 17 2016\n");
@@ -167841,6 +168473,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_getint(opt, "-rescuetime", false, "", argc, argv, &i, 2, &g_rescuetime));
 		else if (cli_onlystring(opt, "-rescuefake", "", g_rescuefake, argc, argv, &i, NULL)); /// not in the help: for the tests
 		else if (cli_onlystring(opt, "-cpfake", "", g_cpfake, argc, argv, &i, NULL)); /// 65.13d: not in the help: for the tests
+		else if (cli_onlystring(opt, "-signfake", "", g_p7mfake, argc, argv, &i, NULL)); /// 65.19l: not in the help: for the tests. NOT -p7mfake: a letter and a digit (-p7...) is the short -p (password of mysql) with "7mfake" as value
 		else if (opt == "-turbo") /// the flag is set by g_programflags; a number after it (only digits: a folder "2024_photos" stays a folder) are its threads
 		{
 			g_turbodetto= true; /// 65.18o: -lean does not turn it off
@@ -167856,6 +168489,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 		}
 		else if (cli_getuint64	(opt,"-turbochunk",	false,	"",								argc,argv,&i,g_turbochunk,		&g_turbochunk)); /// 65.18l: not in the help: for the tests
+		else if (cli_getuint64	(opt,"-updatefake",	false,	"",								argc,argv,&i,0,					&g_updatefake)); /// 65.19j: not in the help: for the tests
 		else if (cli_getint		(opt,"-summary",	true, 	"",								argc,argv,&i,1,					&summary));
 		///else if (cli_getint		(opt,"-red4",		false, 	"",								argc,argv,&i,-1,				&red4));
 		else if (cli_onlystring	(opt,"-snapshot",			"",				snapmark,		argc,argv,&i,					NULL));
@@ -167873,6 +168507,15 @@ int Jidac::loadparameters(int argc, const char** argv)
 		else if (cli_onlystring	(opt,"-copy",				"",				g_copy,			argc,argv,&i,					NULL));
 		else if (cli_onlystring	(opt,"-freeze",				"",				g_freeze,		argc,argv,&i,					NULL));
 		else if (cli_onlystring	(opt,"-output",				"-out",			g_output,		argc,argv,&i,					NULL));
+#ifdef NOAES
+		/// 65.20a: no AES in this build. The switches of the AES key are said, and nothing done: a plain archive
+		/// for who believed it encrypted, or a password asked for nothing, would be worse
+		else if ((opt == "-key") || (opt == "-key2") || (opt == "-keyfile"))
+		{
+			myprintf("03871! %s: this build has no AES (NOAES): nothing done\n", opt.c_str());
+			return 2;
+		}
+#endif
 		else if (cli_onlystring	(opt,"-keyfile",			"",				g_keyfile,		argc,argv,&i,					NULL));
 		else if (cli_onlystring	(opt,"-errorlog",			"-error",		g_error,		argc,argv,&i,					NULL));
 		else if (cli_onlystring	(opt,"-ifexist",			"-ifexists",	g_ifexist,		argc,argv,&i,					NULL));
@@ -167947,13 +168590,17 @@ int Jidac::loadparameters(int argc, const char** argv)
 		{
 			index =g_indexname.c_str();
 		}
-		else if (cli_getuint64	(opt,"-ramsize",	false,	"",								argc,argv,&i,g_ramsize,			&g_ramsize))
+		else if ((cli_getuint64	(opt,"-ramsize",	false,	"",								argc,argv,&i,g_ramsize,			&g_ramsize)) ||
+				 (cli_getuint64	(opt,"-ram",	false,	"",								argc,argv,&i,g_ramsize,			&g_ramsize)))
 		{
 			flagramsize=true;
-		}
-		else if (cli_getuint64	(opt,"-ram",	false,	"",								argc,argv,&i,g_ramsize,			&g_ramsize))
-		{
-			flagramsize=true;
+			/// 65.20n: -ramsize 0 (or -1, or with no value) was a cache of 0 bytes: x and xx divided by it, a
+			/// SIGFPE (core dumped)
+			if (g_ramsize==0)
+			{
+				myprintf("66844! %s wants a size (more than 0, as 8GB): nothing done\n",opt.c_str());
+				return 2;
+			}
 		}
 		else if (cli_getstring	(opt,"-external",		false,	"",								argc,argv,&i,"",				&g_externalname))
 		{
@@ -168040,6 +168687,13 @@ int Jidac::loadparameters(int argc, const char** argv)
 					{
 						if (isdigit(argv[i][j]))
 						{
+							/// 65.20n: 20 digits went over int64_t (UBSan: signed integer overflow), a version or a
+							/// date of 14 digits never comes near it
+							if (version>(INT64_MAX-9)/10)
+							{
+								myprintf("66847! -until %s: too many digits (a version, or a date YYYY-MM-DD HH:MM:SS): nothing done\n",argv[i]);
+								return 2;
+							}
 							version=version*10+argv[i][j]-'0';
 							++digits;
 						}
@@ -168105,6 +168759,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 		const char *env_key = getenv("FRANZKEY");
 		if (env_key != NULL && env_key[0] != '\0')
 		{
+#ifdef NOAES
+			/// 65.20a: ignored, it would be a plain archive for who believed it encrypted
+			myprintf("03872! FRANZKEY is set, but this build has no AES (NOAES): nothing done\n");
+			return 2;
+#endif
 			libzpaq::SHA256 sha256;
 			for (const char *p = env_key; *p; ++p)
 			{
@@ -168379,6 +169038,28 @@ int Jidac::loadparameters(int argc, const char** argv)
 			snapmark=newmark;
 		}
 	}
+	/// 65.20k: an empty argument ("", an empty variable in a script) as a file or a folder: refused here, once, for
+	/// every command. "" + "/" is the root: d "" deduplicated the whole disk, sum "" read it all (65.20h).
+	/// I decided: not for the archive, the output (a "" *.cpp is right). Not -to either: with no value it is ""
+	/// (as zpaq 7.15), and -to "" takes the path away
+	/// 65.20x: work printbar "" (65.17n: a bar of -) gave rc 2 here. For the nouns of work that take a TEXT, not a
+	/// path (printbar big pad, the dates, devart) "" is a value like any other: not refused
+	bool testolibero=false;
+	if ((command==']') && (files.size()>0))
+	{
+		static const char* nomitesto[]={"printbar","big","pad","date","datetime","time","datebig","datetimebig","timebig",
+			"devart","devart-red","devart-green","devart-yellow","devart-cyan",NULL};
+		for (int n=0; nomitesto[n]!=NULL; n++)
+			if (files[0]==nomitesto[n])
+				testolibero=true;
+	}
+	if (!testolibero)
+		for (unsigned int k=0; k<files.size(); k++)
+			if (files[k]=="")
+			{
+				myprintf("66841! An empty argument (\"\", an empty variable?) is not a file nor a folder: nothing done\n");
+				return 2;
+			}
 	/// 65.13m: -out (written over) and -errorlog (deleted here) on the archive itself: refused
 	if (archive!="")
 	{
@@ -168432,15 +169113,29 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if (howmanythreads<1)
 		howmanythreads=numberOfProcessors();
 
+	/// 65.20n: here we are before the try around doCommand(): an error() (an exception) was an abort with a core
+	/// dump (a nuovo.zpaq dati -until -1: "Archive not found" when read_archive opened an archive not there yet).
+	/// As every wrong parameter: a message and exit code 2
   // Test date
 	if (nowz==-1 || date<19000000000000LL || date>30000000000000LL)
-		error("date is incorrect, use -until YYYY-MM-DD HH:MM:SS to set");
+	{
+		myprintf("66845! The date is not right: use -until YYYY-MM-DD HH:MM:SS: nothing done\n");
+		return 2;
+	}
   // Adjust negative version
 	if (version<0)
 	{
 		Jidac jidac(*this);
 		jidac.version=DEFAULT_VERSION;
-		jidac.read_archive(NULL,archive.c_str());
+		try
+		{
+			jidac.read_archive(NULL,archive.c_str());
+		}
+		catch (std::exception &e)
+		{
+			myprintf("66846! -until %1.0f counts back from the last version, but <<%Z>> cannot be read (%s): nothing done\n", version+.0, archive.c_str(), e.what());
+			return 2;
+		}
 		version+=jidac.ver.size()-1;
 		myprintf("00575: Version %1.0f\n", version+.0);
 	}
@@ -168548,6 +169243,8 @@ int Jidac::loadparameters(int argc, const char** argv)
 		flagutf				=false;
 		flagflat			=false;
 		flagparanoid		=false;
+		flagnohttps			=false;
+		flaghttpsfake		=false;
 		///flagpaq				=false;
 		flagcollision		=false;
 		flagnodedup			=false;
@@ -171516,7 +172213,7 @@ int kickstart_mount()
 	const string  msiname	= "winfsp-2.1.25156.msi";
 	const int64_t msisize	= 2191360;
 	const string  msisha256	= "073A70E00F77423E34BED98B86E600DEF93393BA5822204FAC57A29324DB9F7A";
-	const string  msiurl	= "http://www.francocorbelli.it/zpaqfranz/win64/" + msiname;
+	const string  msiurl	= franzsito("win64/" + msiname); /// 65.19c: https (-nohttps: http)
 
 	color_yellow();
 	myprintf("94200: WinFsp is not installed (or cannot be loaded)\n");
@@ -171606,7 +172303,7 @@ int kickstart_mount()
 				color_cyan();
 				myprintf("94205: Downloading WinFsp installer from %s\n", msiurl.c_str());
 				color_restore();
-				if (!downloadfile(msiurl + "?" + generaterandomstring(10), msifile, true))
+				if (!downloadfile_sito(msiurl + "?" + generaterandomstring(10), msifile, true))
 				{
 					myprintf("94206! download of %s failed\n", msiname.c_str());
 					exit(2);
@@ -172721,7 +173418,13 @@ int Jidac::doCommand()
 	}
 #endif
 
-	if ( (command=='a')  && files.size()>0) // enforce: we do not want to change anything when adding
+	bool thunderbirdsenzacartelle=false; /// 65.20y: a x.zpaq -thunderbird [-all]: the folders come later (gestiscithunderbird)
+#ifdef ZPAQFULL ///NOSFTPSTART
+#ifdef _WIN32
+	thunderbirdsenzacartelle=flagthunderbird && (files.size()==0);
+#endif
+#endif ///NOSFTPEND
+	if ( (command=='a')  && ((files.size()>0) || thunderbirdsenzacartelle)) // enforce: we do not want to change anything when adding
 	{
 		if (flagstore)
 		{
@@ -172768,6 +173471,14 @@ int Jidac::doCommand()
 #endif // corresponds to #ifdef (#ifdef ANCIENT)
 		else
 			return add(); /// 65.11k: add2() everywhere (ac too), but in the ANCIENT builds: see add()
+	}
+	/// 65.20i: a with nothing to add (a "" or a x.zpaq alone, with no x here) went down to the usage() at the
+	/// end: the help and exit code 0, so a backup script with an empty variable "worked". The help, then 2
+	if (command == 'a')
+	{
+		usage(false);
+		myprintf("66840! a wants an archive and something to add: nothing done\n");
+		return 2;
 	}
 #ifdef _WIN32 /// a .vhd .vhdx .iso: attached by Windows, in every build (no WinFsp)
 	else if ((command=='V') && (files.size()>0) && isdiscovirtuale(files[0].c_str())) return montadisco();
@@ -172911,6 +173622,11 @@ int Jidac::doCommand()
 	else if (command=='u') return utf();
 	else if (command=='v') return verify(true);
 	else if (command=='w') return multisomething(); /// 65.16g: w and tw with a * in the name, every archive (65.15t: tw is a test)
+#ifdef ZPAQFULL ///NOSFTPSTART
+#ifdef _WIN32
+	else if ((command=='x') && flagthunderbird) return xthunderbird(); /// 65.20y
+#endif
+#endif ///NOSFTPEND
 	else if (command=='x') return multisomething();
 #ifdef ZPAQFULL ///NOSFTPSTART
 	else if (command=='y') return sfx();
@@ -175292,6 +176008,20 @@ void Jidac::scandir(bool i_checkifselected, DTMap &i_edt, string filename, bool 
 	if (t.size() > 0 && t[t.size() - 1] == '/')
 		t+= "*";
 	HANDLE h= FindFirstFile(utow(t.c_str()).c_str(), &ffd);
+	/// 65.20v: without -longpath a folder over the limit of Windows cannot be opened (path not found, name too long):
+	/// it was skipped in silence and a ended rc 0, the files below it NOT archived. Counted as ENAMETOOLONG on *nix:
+	/// the line 72411 at the end, and rc 1. I decided
+	if (h == INVALID_HANDLE_VALUE)
+	{
+		const DWORD erroretroppo= GetLastError();
+		if ((utow(t.c_str()).size() >= 248) && (t.substr(0, 4) != "//?/") &&
+			((erroretroppo == ERROR_PATH_NOT_FOUND) || (erroretroppo == ERROR_FILENAME_EXCED_RANGE) || (erroretroppo == ERROR_FILE_NOT_FOUND)))
+		{
+			g_scantroppolunghi++;
+			myprintf("66861$ <<%Z>>: path too long (%s characters) without -longpath: skipped\n", t.c_str(), migliaia(utow(t.c_str()).size()));
+		}
+		SetLastError(erroretroppo);
+	}
 
 	if (!flagverbose)
 		if (h == INVALID_HANDLE_VALUE)
@@ -175738,7 +176468,9 @@ ThreadReturn compressThread(void *arg)
 		myprintf("00647: job %d: %s\n", jobNumber + 1, e.what());
 		g_exec_text= "job error";
 		release(job.mutex);
-		exit(1);
+		/// 65.20u: it was exit(1), an error for zpaq 7.15 but a WARNING here: a -m5 with little RAM (a job killed by
+		/// bad_alloc) ended rc 1 with NOTHING in the archive. The run is cut short: an error
+		exit(2);
 	}
 	return 0;
 }
@@ -175798,7 +176530,7 @@ ThreadReturn writeThread(void *arg)
 		{
 			myprintf("00649: zpaqfranz exiting from writeThread: %s\n", e.what());
 			g_exec_text= "exiting from writethread";
-			exit(1);
+			exit(2); /// 65.20u: was 1 (a WARNING here): the run is cut short, as in compressThread
 		}
 		else
 		{
@@ -176548,7 +177280,8 @@ int restorefilemetadata(const char *filepath, const struct franz_posix *metadata
 	const char	 tipo = metadata->typeflag[0];
 	const uid_t	 uid  = tar_restoreuid(metadata);
 	const gid_t	 gid  = tar_restoregid(metadata);
-	const mode_t mode = (mode_t)(strtol(tar_field(metadata->mode, sizeof(metadata->mode)).c_str(), NULL, 8) & 07777);
+	/// 65.19h: as tar, a user (not root) with its umask and without setuid, setgid, sticky (-sameperms: exactly)
+	const mode_t mode = modo_estratto((mode_t)(strtol(tar_field(metadata->mode, sizeof(metadata->mode)).c_str(), NULL, 8) & 07777));
 	const time_t ctime= (time_t)atoll(tar_field(metadata->ctime, sizeof(metadata->ctime)).c_str());
 	const bool	 root = (geteuid() == 0);
 
@@ -177400,6 +178133,17 @@ struct ExtractJob
 		destroy_mutex(write_mutex);
 	}
 };
+/// 65.20q: the memory a block asks for (a double, 2^n from its header) as an int64_t that is never undefined
+/// behaviour: a damaged header asks for 1e77, and the cast was out of range (UBSan "outside the range of
+/// representable values of type long"; x86 gives INT64_MIN, ARM saturates). Capped, nothing else changes
+inline int64_t memoria_int64(double i_d)
+{
+	if (!(i_d > 0)) /// NaN too
+		return 0;
+	if (i_d >= 4.0e18)
+		return 4000000000000000000LL;
+	return (int64_t)i_d;
+}
 /*
 	65.15a: a block is decompressed only if the RAM can take it with the others being decompressed (the memory of
 	its model, from the header, and its data). Otherwise its thread waits: fewer threads at a time, down to one,
@@ -177872,7 +178616,7 @@ ThreadReturn decompressThread(void *arg)
 				error("archive block not found");
 			if (mem > job.maxMemory)
 				job.maxMemory= mem;
-			permesso.prendi((int64_t)mem + 2 * (int64_t)output_size); /// 65.15a: if the RAM can take it (the data: up to twice, StringBuffer doubles)
+			permesso.prendi(memoria_int64(mem) + 2 * (int64_t)output_size); /// 65.15a: if the RAM can take it (the data: up to twice, StringBuffer doubles)
 			bool ancora= true; /// 65.15y: the segment not over yet (blocco_controllafine)
 			while (d.findFilename(job.controllablocchi ? &nomeblocco : NULL))
 			{
@@ -178543,7 +179287,7 @@ ThreadReturn decompressthreadramdisk(void *arg)
 				error("31284 archive block not found");
 			if (mem > job.maxMemory)
 				job.maxMemory= mem;
-			permesso.prendi((int64_t)mem + 2 * (int64_t)output_size); /// 65.15a: if the RAM can take it (the data: up to twice, StringBuffer doubles)
+			permesso.prendi(memoria_int64(mem) + 2 * (int64_t)output_size); /// 65.15a: if the RAM can take it (the data: up to twice, StringBuffer doubles)
 			bool ancora= true; /// 65.15y: the segment not over yet (blocco_controllafine)
 			while (d.findFilename(job.controllablocchi ? &nomeblocco : NULL))
 			{
@@ -178914,6 +179658,12 @@ void Jidac::printsanitizeflags()
 }
 int Jidac::info()
 {
+	/// 65.20k: i "" was an empty table and exit code 0: the archive to read is not there
+	if (archive == "")
+	{
+		myprintf("66842! i wants an archive to read: nothing done\n");
+		return 2;
+	}
 	versioncomment= "";
 	g_acmetatutti = (all != 0); /// 65.9t: -all as it was given: with -verbose every backup of ac, not the last one
 	all			  = 8;
@@ -179340,7 +180090,9 @@ int Jidac::list()
 	flagchecksum= ischecksum() || flagchecksum;
 
 	int thesizesize= 19;
-	if (!flagattr)
+	/// 65.19g: -attr too (it had Size 19 wide, always, and no header: -terse sets flagattr to drop the
+	/// header, and -attr went with it). -terse stays as it was, for the scripts: Size 19 wide, no header
+	if (!flagterse)
 	{
 		int64_t largest= 0;
 		for (unsigned int i= 0; i < filelist.size(); i++)
@@ -179394,38 +180146,42 @@ int Jidac::list()
 			/// return 0;
 		}
 
+		/*
+			65.19g: the header built column by column, as the lines are (list_datetime, tabba,
+			list_creationdate, list_attributes, list_filesize, list_compressedfilesize...): with -attr
+			the column Attr, and every title over its column. Before, from Size on everything was one
+			character to the left: the [ (or space) before the size was not counted
+			date+time 19 +1 | -date: " creation " 21 +1 | -attr: 5 +1 | [size 1+thesizesize +1 | ratio 5 +1 | -all: ver all, |
+		*/
+		string testa= "   Date      Time   ";
+		string riga = "---------- -------- ";
+		if (flagdate)
+		{
+			testa+= "      Creation        ";
+			riga += " -------------------  ";
+		}
+		if (flagattr)
+		{
+			testa+= "Attr  ";
+			riga += "----- ";
+		}
 		char lineatemp[200];
+		snprintf(lineatemp, sizeof(lineatemp), "%*s Ratio ", thesizesize + 1, "Size");
+		testa+= lineatemp;
+		riga += string(thesizesize + 1, '-') + " ----- ";
 		if (all)
 		{
-			string verheader(all, '-');
-			if (flagdate)
-			{
-				snprintf(lineatemp, sizeof(lineatemp), "    Date     Time           Creation      %*s Ratio %*s Name/Info", thesizesize, "Size", all, "Ver");
-				myprintf("00757: %s\n", lineatemp);
-				myprintf("00758: ---------- --------  -------------------- %s ----- %s ----------\n", sizeheader.c_str(), verheader.c_str());
-			}
-			else
-			{
-				snprintf(lineatemp, sizeof(lineatemp), "   Date      Time   %*s Ratio %*s Name/Info", thesizesize, "Size", all, "Ver");
-				myprintf("00759: %s\n", lineatemp);
-				myprintf("00760: ---------- --------  %s ----- %s ----------\n", sizeheader.c_str(), verheader.c_str());
-			}
+			snprintf(lineatemp, sizeof(lineatemp), "%*s Name/Info", all, "Ver");
+			testa+= lineatemp;
+			riga += string(all, '-') + " ----------";
 		}
 		else
 		{
-			if (flagdate)
-			{
-				snprintf(lineatemp, sizeof(lineatemp), "    Date      Time          Creation      %*s Ratio Name", thesizesize, "Size");
-				myprintf("00761: %s\n", lineatemp);
-				myprintf("00762: ---------- --------  -------------------- %s ----- -----\n", sizeheader.c_str());
-			}
-			else
-			{
-				snprintf(lineatemp, sizeof(lineatemp), "   Date      Time   %*s Ratio Name", thesizesize, "Size");
-				myprintf("00763: %s\n", lineatemp);
-				myprintf("00764: ---------- --------  %s ----- -----\n", sizeheader.c_str());
-			}
+			testa+= "Name";
+			riga += "-----";
 		}
+		myprintf("00757: %s\n", testa.c_str());
+		myprintf("00758: %s\n", riga.c_str());
 	}
 
 	t_prep= mtime() - t_start - t_read;
@@ -180002,6 +180758,11 @@ int Jidac::setpassword()
 	/// 65.13n: -franzen2, the Franzen password: a branch of its own (the franzen file, not the archive inside)
 	if (g_franzen2 != "")
 		return setpassword_franzen();
+#ifdef NOAES
+	/// 65.20a: the rest is the AES key (-key -key2): not in this build
+	myprintf("03873! password: this build has no AES (NOAES), there is no AES password to set, change or remove\n");
+	return 2;
+#endif
 	/// 65.13m: never an output on its own input (-force deleted the output = the source, before reading it)
 	if (stessoarchivio(archive, repack))
 	{
@@ -180302,6 +181063,11 @@ int Jidac::setpassword_franzen()
 
 int Jidac::checkpassword()
 {
+#ifdef NOAES
+	/// 65.20a: an AES password to check needs AES
+	myprintf("03874! checkpassword: this build has no AES (NOAES): nothing done\n");
+	return 2;
+#endif
 	archive= getbackupnameifany(archive);
 	if (archive == "")
 	{
@@ -180778,7 +181544,8 @@ int Jidac::enumeratecomments()
 
 			}
 	}
-	return 0;
+	/// 65.20k: i of a damaged archive wrote 72415! DAMAGED ARCHIVE and then exit code 0. As l: a WARNING
+	return (errors > 0) ? 1 : 0;
 }
 /// 65.13j: k compares the names from the two folders down (the one in the archive, the -to one)
 string kill_cartella(string i_cartella)
@@ -180974,6 +181741,69 @@ int Jidac::kill()
 	section: multithread
 */
 /// 65.15a: d, a file on the disk as franz_qualefile() says it, taken by the thread that hashes it
+/// 65.19i: d on more folders (each written with its final \ or /): their order decides who stays (the
+/// first folder wins, then the first by name, as with one). Empty with one folder
+static std::vector<std::string> g_dedupradici;
+/// which of the folders of d a name is in (0: the first); how many they are, if none
+static size_t dedup_rango(const string &i_nome)
+{
+	for (size_t r= 0; r < g_dedupradici.size(); r++)
+	{
+		const string &radice= g_dedupradici[r];
+		if (i_nome.size() < radice.size())
+			continue;
+#ifdef _WIN32
+		if (stringtolower(i_nome.substr(0, radice.size())) == stringtolower(radice))
+			return r;
+#else
+		if (i_nome.compare(0, radice.size(), radice) == 0)
+			return r;
+#endif
+	}
+	return g_dedupradici.size();
+}
+/// the real folder (subst, junction, symlink resolved; Windows: lower case), with "/" and the final "/":
+/// the same folder written twice, or one inside another, would give d the same files twice
+static string dedup_reale(const string &i_cartella)
+{
+	string reale= "";
+#ifdef _WIN32
+	typedef DWORD(WINAPI * t_finale)(HANDLE, LPWSTR, DWORD, DWORD);
+	t_finale finale= (t_finale)(void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetFinalPathNameByHandleW"); /// not on XP
+	HANDLE	 h	   = CreateFileW(utow(i_cartella.c_str()).c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	if (h != INVALID_HANDLE_VALUE)
+	{
+		if (finale != NULL)
+		{
+			std::vector<wchar_t> buf(33000);
+			const DWORD			 n= finale(h, &buf[0], 32999, 0); /// FILE_NAME_NORMALIZED, VOLUME_NAME_DOS
+			if ((n > 0) && (n < 32999))
+				reale= wtou(std::wstring(&buf[0], n).c_str());
+		}
+		CloseHandle(h);
+	}
+	if (reale == "")
+	{
+		std::vector<wchar_t> buf(33000);
+		const DWORD			 n= GetFullPathNameW(utow(i_cartella.c_str()).c_str(), 32999, &buf[0], NULL);
+		if ((n > 0) && (n < 32999))
+			reale= wtou(std::wstring(&buf[0], n).c_str());
+	}
+	myreplaceall(reale, "\\", "/");
+	if (reale.compare(0, 8, "//?/UNC/") == 0)
+		reale= "//" + reale.substr(8);
+	else if (reale.compare(0, 4, "//?/") == 0)
+		reale= reale.substr(4);
+	reale= stringtolower(reale);
+#else
+	reale= my_realpath(i_cartella);
+#endif
+	if (reale == "")
+		reale= i_cartella;
+	if (reale[reale.size() - 1] != '/')
+		reale+= "/";
+	return reale;
+}
 struct franzidentita
 {
 	uint64_t volume;
@@ -181088,19 +181918,83 @@ int Jidac::deduplicate()
 		myprintf("01038: Sorry, works only on exactly 1 dir (d c:\\dir\\), or 1 dir and what to search (d c:\\dir\\*.mp4)\n");
 		return 1;
 	}
-	if (files.size() > 2)
+	/// 65.20h: d "" was the root of the disk: "" + "/" exists (taken for a folder written without its
+	/// slash), and d "" -force deleted the copies found in the whole disk. An empty name is never a folder
+	for (unsigned int i= 0; i < files.size(); i++)
+		if (files[i] == "")
+		{
+			myprintf("66836! An empty name is not a folder (d \"\" was the root of the disk): nothing done\n");
+			return 2;
+		}
+	/// 65.19i: more folders, one copy in all of them (d c:\video\ d:\film\). If and only if they are
+	/// really folders: each one written with its final \ (or /), and there (I decided: a typo must not
+	/// become something to search). The first folder wins, then the first by name
+	g_dedupradici.clear();
+	bool piucartelle= (files.size() >= 2);
+	for (unsigned int i= 0; i < files.size(); i++)
+		if ((files[i] == "") || ((files[i][files[i].size() - 1] != '/') && (files[i][files[i].size() - 1] != '\\')))
+			piucartelle= false;
+	if (piucartelle)
+	{
+		vector<string> reali;
+		for (unsigned int i= 0; i < files.size(); i++)
+		{
+			myreplaceall(files[i], "\\", "/");
+			if (!direxists(files[i]))
+			{
+				myprintf("65944! <<%Z>> is not a folder\n", files[i].c_str());
+				return 2;
+			}
+			reali.push_back(dedup_reale(files[i]));
+		}
+		for (unsigned int i= 0; i < files.size(); i++)
+			for (unsigned int j= 0; j < files.size(); j++)
+			{
+				if (i == j)
+					continue;
+				bool stessa= (reali[i] == reali[j]);
+#ifdef unix
+				/// the same folder by another way (a bind mount): the same device and inode
+				struct stat si, sj;
+				if ((stat(files[i].c_str(), &si) == 0) && (stat(files[j].c_str(), &sj) == 0) && (si.st_dev == sj.st_dev) && (si.st_ino == sj.st_ino))
+					stessa= true;
+#endif
+				if (stessa && (i < j))
+				{
+					myprintf("65945! <<%Z>> and <<%Z>> are the same folder (%s): no\n", files[i].c_str(), files[j].c_str(), reali[i].c_str());
+					return 2;
+				}
+				if ((!stessa) && (reali[j].size() > reali[i].size()) && (reali[j].compare(0, reali[i].size(), reali[i]) == 0))
+				{
+					myprintf("65946! <<%Z>> is inside <<%Z>> (%s): no\n", files[j].c_str(), files[i].c_str(), reali[j].c_str());
+					return 2;
+				}
+			}
+		myprintf("65947: %d folders, one copy in all of them: the first folder wins, then the first by name\n", (int)files.size());
+		for (unsigned int i= 0; i < files.size(); i++)
+			myprintf("65948: %3d) %Z\n", (int)i + 1, files[i].c_str());
+		g_dedupradici= files;
+	}
+	if ((!piucartelle) && (files.size() > 2))
 	{
 		myprintf("01039: Sorry, works only on exactly 1 dir, and one thing to search at most (d c:\\dir\\ *.mp4)\n");
+		myprintf("65949: More folders: each one with its final \\ (d c:\\video\\ d:\\film\\)\n");
 		return 1;
+	}
+	/// 65.19i: d c:\video\ d:\film (the second without its \): a folder, not something to search
+	if ((!piucartelle) && (files.size() == 2) && direxists(files[1] + "/"))
+	{
+		myprintf("65950! <<%Z>> is a folder: more folders, each one with its final \\ (d c:\\video\\ d:\\film\\)\n", files[1].c_str());
+		return 2;
 	}
 	string cerca;	  /// as find: a pattern on the whole name (*.mp4, *2019*)
 	string nomecerca; /// in one piece: a name or a pattern, without the folder
-	if (files.size() == 2)
+	if ((!piucartelle) && (files.size() == 2))
 	{
 		cerca= files[1];
 		files.pop_back();
 	}
-	if (!isdirectory(files[0]))
+	if ((!piucartelle) && (!isdirectory(files[0])))
 	{
 		const string nome	  = extractfilename(files[0]);
 		const bool	 unpattern= (nome.find('*') != string::npos) || (nome.find('?') != string::npos);
@@ -182803,6 +183697,13 @@ int Jidac::pause()
 	}
 	else
 	{
+		/// 65.20p: with no console (a script, ssh, a pipe) no key can ever come, and it waited for ever. I decided:
+		/// skipped. Not -n X above: that one is a wait of X seconds, and it ends by itself
+		if (isInputRedirected())
+		{
+			myprintf("66852: pause: stdin is not a console, nobody can hit a key: skipped\n");
+			return 0;
+		}
 		myprintf("\n\n");
 
 		if (thekey != 0)
@@ -184424,7 +185325,7 @@ int Jidac::autotest()
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 		filebatch= nomefileseesistegia(filebatch);
 		if (fileexists(filebatch))
-			if (remove(filebatch.c_str()) != 0)
+			if (!delete_file(filebatch.c_str()))
 			{
 				myprintf("01218: Highlander batch  %s\n", filebatch.c_str());
 				franz_free(buffer8bit);
@@ -184500,7 +185401,7 @@ int Jidac::autotest()
 		}
 #endif // corresponds to #if (#if defined(ZPAQMOUNT))
 
-		FILE *batch= fopen(filebatch.c_str(), "wb");
+		FILE *batch= cri_fopen(filebatch.c_str(), "wb"); /// 65.19e: UTF-8 name (a TEMP with an accent)
 		if (batch == NULL)
 		{
 			myprintf("01222: cannot write on %s\n", filebatch.c_str());
@@ -185671,9 +186572,38 @@ int zpaq_main_internal(int argc, const char **argv)
             myprintf("01297: EXPECTED       %19s\n", migliaia(g_fexpected));
             printbar('*');
             errorcode = 2;
+            /// 65.20v: the version written half way STAYED: t said DAMAGED for ever (trim: "not necessary") and the
+            /// next runs, with the space back, wrote versions x could not extract. I decided: back as it was. zpaq only
+            /// appends, so the bytes before this run are untouched: cut there (a file this run made: removed)
+            if ((command == 'a') && g_rollback_ok && (g_rollback_file != "") && (g_rollback_pos >= 0))
+            {
+                bool fatto = false;
+                if (g_rollback_creato)
+                    fatto = delete_file(g_rollback_file.c_str());
+                else
+                    fatto = (truncate(g_rollback_file.c_str(), g_rollback_pos) == 0) && (prendidimensionefile(g_rollback_file.c_str()) == g_rollback_pos);
+                if (fatto)
+                {
+                    if (g_rollback_creato)
+                        myprintf("66858! <<%Z>> made by this run and not written whole: removed. Nothing of this run is stored\n", g_rollback_file.c_str());
+                    else
+                        myprintf("66858! <<%Z>> put back as it was before this run (%s bytes): nothing of this run is stored, the next run goes on from there\n", g_rollback_file.c_str(), migliaia(g_rollback_pos));
+                }
+                else
+                    myprintf("66859! <<%Z>> could NOT be put back as it was: the version of this run is half written (crop it)\n", g_rollback_file.c_str());
+            }
+            else if (command == 'a')
+                myprintf("66860! The archive was not put back as it was (-chunk, -index, franzen): check it with t, crop if needed\n");
         }
     if ((g_frammentiorfani > 0) && (errorcode == 0)) /// 72414: the last archive read has files missing from a version
         errorcode = 1;
+    if (g_crcdiversi > 0) /// 65.19n: add -verify/-collision saw it (02108, GURU-C) and ended "all OK", rc 0
+    {
+        color_red();
+        myprintf("03856! %s file(s) stored with fragments that do not give the CRC-32 of the data read: the archive is NOT good\n", migliaia(g_crcdiversi));
+        color_restore();
+        errorcode = 2;
+    }
 #ifndef NOFRANZEN
     if (g_franzen_lettirotti > 0) /// 65.11l: whatever the command made of it, a franzen file is damaged
     {
@@ -187792,7 +188722,7 @@ int Jidac::test()
 	{
 		if (!flagpakka)
 			myprintf("01408: 7.15 stage time %10.2f no error detected (RAM ~%s), try CRC-32 (if any)\n",
-					 (mtime() - starttest) / 1000.0, tohuman((int64_t)((job.ram_atteso ? (size_t)job.ram_maxattivi : tid.size()) * job.maxMemory))); /// 65.15a: the blocks at the same time
+					 (mtime() - starttest) / 1000.0, tohuman(memoria_int64((double)(job.ram_atteso ? (size_t)job.ram_maxattivi : tid.size()) * job.maxMemory))); /// 65.15a: the blocks at the same time
 	}
 	//// OK now check against CRC32 and the entire World (if any)
 	/// 65.12h: the files this stage could not decompress. The CRC-32 stage below does not see them:
@@ -190867,6 +191797,10 @@ int Jidac::robocopy()
 /// do a s (get size) or c (compare). The second flag is for output when called by robocopy
 int Jidac::dircompare(bool i_flagonlysize, bool i_flagrobocopy)
 {
+	/// 65.20g: s with no folder read files[0] of an empty list (segfault, nothing printed).
+	/// I decided: the current folder, the same as s .
+	if (i_flagonlysize && files.empty())
+		files.push_back("./");
 	if (!i_flagonlysize)
 		if (files.size() < 2)
 		{
@@ -195267,6 +196201,7 @@ struct franzdoppio
 	uint64_t volume, file, nomi; /// which file on the disk it is, and how many names that file has
 	bool	 noto;				 /// ...if the system said so
 	bool	 libera;			 /// deleting this name gives its space back
+	bool	 resta;				 /// 65.19i: the same file as the one that stays (a symlink, a bind mount...): never deleted
 };
 struct franzdoppi
 {
@@ -195322,14 +196257,21 @@ void Jidac::dedup_elenco(const vector<s_stringpair> &i_vec, bool i_mostra, unsig
 				j++;
 		if (j - i >= 2)
 		{
+			/// 65.19i: more folders: the first folder wins, then (as with one) the first by name, as the
+			/// group is sorted by name: (folder, position) keeps that order inside each folder
+			std::vector<std::pair<size_t, size_t> > ordine;
+			for (size_t k= i; k < j; k++)
+				ordine.push_back(std::make_pair((g_dedupradici.size() > 1) ? dedup_rango(i_vec[k].first) : (size_t)0, k));
+			std::sort(ordine.begin(), ordine.end());
 			franzdoppi g;
 			g.da	   = tutti.size();
 			g.hash	   = i_vec[i].second;
-			g.primo	   = i_vec[i].first;
+			g.primo	   = i_vec[ordine[0].second].first;
 			g.risparmio= 0;
-			for (size_t k= i; k < j; k++)
+			for (size_t o= 0; o < ordine.size(); o++)
 			{
-				franzdoppio d;
+				const size_t k= ordine[o].second;
+				franzdoppio	 d;
 				d.nome				= i_vec[k].first;
 				DTMap::iterator p	= edt.find(d.nome);
 				d.size				= (p != edt.end()) ? p->second.size : 0;
@@ -195347,6 +196289,7 @@ void Jidac::dedup_elenco(const vector<s_stringpair> &i_vec, bool i_mostra, unsig
 				else
 					d.noto= franz_qualefile(d.nome, d.volume, d.file, d.nomi) && (d.file != 0) && (d.nomi > 0);
 				d.libera			= true;
+				d.resta				= false;
 				tutti.push_back(d);
 			}
 			g.a= tutti.size();
@@ -195363,7 +196306,13 @@ void Jidac::dedup_elenco(const vector<s_stringpair> &i_vec, bool i_mostra, unsig
 				{
 					const std::pair<uint64_t, uint64_t> chi= std::make_pair(d.volume, d.file);
 					if (vivo.noto && (d.volume == vivo.volume) && (d.file == vivo.file))
-						d.libera= false; /// another name of the file that stays
+					{
+						/// 65.19i: another name of the file that stays: it STAYS too. Before it was deleted:
+						/// a hard link lost a name (nothing freed), but a symlink of a file (Windows) or a
+						/// bind mount (Linux) first by name stayed, and the file itself went (all OK, rc 0)
+						d.libera= false;
+						d.resta = true;
+					}
 					else if ((vanno[chi] < d.nomi) || (!contati.insert(chi).second))
 						d.libera= false; /// one of its names is left somewhere, or its space is already counted
 				}
@@ -195396,12 +196345,12 @@ void Jidac::dedup_elenco(const vector<s_stringpair> &i_vec, bool i_mostra, unsig
 				printUTF8(d.nome.c_str());
 				if ((k != g.da) && (!d.libera))
 				{
-					myprintf(" [hard link]");
+					myprintf(d.resta ? " [the same file as the first: it stays]" : " [hard link]");
 					color_restore();
 				}
 				myprintf("\n");
 			}
-			if (k != g.da)
+			if ((k != g.da) && (!d.resta))
 			{
 				o_files++;
 				if (flagforce)
@@ -195423,6 +196372,13 @@ void Jidac::dedup_elenco(const vector<s_stringpair> &i_vec, bool i_mostra, unsig
 }
 int Jidac::summa()
 {
+	/// 65.20h: sum "" read the whole disk ("" + "/" = the root); d ends here too, with -kill
+	for (unsigned int i= 0; i < files.size(); i++)
+		if (files[i] == "")
+		{
+			myprintf("66837! An empty name is not a folder (sum \"\" was the root of the disk): nothing done\n");
+			return 2;
+		}
 	if (flaghome)
 		return sumhome();
 
@@ -196596,9 +197552,12 @@ int Jidac::verify(bool i_readfile)
 	summary		  = 1;
 	bool myflagall= all;
 	all			  = false;
+	/// 65.20k: v of a damaged archive (72415! DAMAGED ARCHIVE) was "(all OK)" and exit code 0: v is a test, OK
+	/// only if all is really OK. As l: at least a WARNING
+	int erroriarchivio= 0;
 	if (i_readfile)
 	{
-		const int64_t sz= read_archive(NULL, archive.c_str());
+		const int64_t sz= read_archive(NULL, archive.c_str(), &erroriarchivio);
 		if (sz < 1)
 			error("archive not found");
 	}
@@ -196879,6 +197838,8 @@ int Jidac::verify(bool i_readfile)
 		if (flagverbose)
 			myprintf("02436: Total hashed bytes %s @ %s B/s\n", migliaia(byteshashed), migliaia2((int64_t)(byteshashed / ((mtime() - startrunning) / 1000.0))));
 	}
+	if ((erroriarchivio > 0) && (risultato == 0))
+		risultato= 1;
 	return risultato;
 }
 void Jidac::handleflaglongpath()
@@ -198493,7 +199454,7 @@ int Jidac::extractqueue2(int i_chunk, int i_chunksize, int64_t i_windowoffset, i
 			fflush(stdout);
 			myprintf("\n");
 			myprintf("02499: Extracted %s files (%s errors) using %s bytes x %d threads\n",
-					 migliaia((int64_t)extracted), migliaia3(errors), migliaia4((int64_t)job.maxMemory),
+					 migliaia((int64_t)extracted), migliaia3(errors), migliaia4(memoria_int64(job.maxMemory)),
 					 int(tid.size()));
 		}
 		block= preblock; /// AARRRGHHH!!
@@ -204093,7 +205054,9 @@ int Jidac::testbackup()
 		/// myprintf("+++++++++++++++ %s\n",hashfromfile.c_str());
 		if (hashfromfile != stringtolower(tobehasheddest_hashname[i].first))
 		{
-			myprintf("02781! ERROR: real hash %s vs expected %s on %Z\n", tobehasheddest_hashname[i].first.c_str(), filehashes[i].c_str(), tobehasheddest_hashname[i].second.c_str());
+			/// 65.20q: the expected one is the hash it was compared with (the quick one without -verify): it showed
+			/// the MD5 of the manifest next to the quick hash ("real AB9D99A38DFA533B vs expected 54f5206808e1...")
+			myprintf("02781! ERROR: real hash %s vs expected %s on %Z\n", tobehasheddest_hashname[i].first.c_str(), hashfromfile.c_str(), tobehasheddest_hashname[i].second.c_str());
 			flagallok= false;
 		}
 		else
@@ -204122,6 +205085,79 @@ int Jidac::testbackup()
 	}
 	if (filedate.size() > 0)
 		myprintf("02787: Last date %s\n", filedate[filedate.size() - 1].c_str());
+	/// 65.20s: as t, OK only if all is right. I decided. Every part can be good and the backup not readable: l t x
+	/// need the index (without it: "Archive not found"), the next backup starts from it, and t x read every part on
+	/// the disk (one more, not in the list, as after a run stopped half way: "cannot read_archive"). Always checked;
+	/// -paranoid still compares the index with the parts
+	if ((!fileexists(indexname)) && (!fileexists(franzenname(indexname))))
+	{
+		myprintf("66853! The index <<%Z>> is not there: l t x on this backup say \"archive not found\"\n", indexname.c_str());
+		flagallok= false;
+	}
+	else
+	{
+		/// its content only when it can be opened: in clear, or with its password (-key for AES, -franzen for a
+		/// .franzen). testbackup of an encrypted backup with no password checks the parts only, as before
+		const bool franzenindice= (!fileexists(indexname));
+		const bool apribile		= franzenindice ? (g_franzen != "") : (is_file_zpaq(indexname) || (g_password != NULL));
+		if (!apribile)
+			myprintf("66857: The index is encrypted and its password was not given: only its presence is checked\n");
+		else
+		{
+			Jidac copiaindice(*this);
+			/// 65.20x: the copy took the tables of this run too. testbackup alone has them empty, but consolidate -to
+			/// calls it after reading the parts: the index read on top of them gave "Unordered fragment tables",
+			/// 72401 and 66854, rc 2 on a consolidated backup that was right. Empty, as a new archive
+			copiaindice.ver.clear();
+			copiaindice.block.clear();
+			copiaindice.dt.clear();
+			copiaindice.ht.clear();
+			copiaindice.edt.clear();
+			copiaindice.ht.resize(1);  // element 0 not used
+			copiaindice.ver.resize(1); // version 0
+			copiaindice.dhsize= copiaindice.dcsize= 0;
+			int		   erroriindice= 0;
+			int64_t	   dimindice   = 0;
+			bool	   password	   = false;
+			const bool prima	   = g_tantiarchivi;
+			g_tantiarchivi		   = true; /// a password still missing (AES inside a .franzen, no -key): thrown, not exit(2)
+			try
+			{
+				dimindice= copiaindice.read_archive(NULL, indexname.c_str(), &erroriindice, 0, true);
+			}
+			catch (std::exception &e)
+			{
+				if (strstr(e.what(), "password") != NULL)
+					password= true;
+				else
+					erroriindice++;
+			}
+			g_tantiarchivi= prima;
+			if (password)
+				myprintf("66857: The index is encrypted and its password was not given: only its presence is checked\n");
+			else if ((dimindice <= 0) || (erroriindice > 0))
+			{
+				myprintf("66854! The index <<%Z>> cannot be read whole (damaged?): the next backup starts from it\n", indexname.c_str());
+				flagallok= false;
+			}
+		}
+	}
+	int64_t ultimaparte= 0;
+	for (size_t k= 0; k < filenumbers.size(); k++)
+		if (filenumbers[k] > ultimaparte)
+			ultimaparte= filenumbers[k];
+	for (int64_t k= ultimaparte + 1; k <= ultimaparte + 3; k++) /// a part or two more: a run stopped before the list
+	{
+		char numero[32];
+		snprintf(numero, sizeof(numero), "%08lld", (long long)k);
+		string parte= zpaqchunks;
+		myreplace(parte, "????????", numero);
+		if (fileexists(parte) || fileexists(franzenname(parte)))
+		{
+			myprintf("66855! The part <<%Z>> is on the disk but not in the list of the backup: t and x read it too\n", parte.c_str());
+			flagallok= false;
+		}
+	}
 	if (flagparanoid)
 	{
 		if (fileexists(indexname) || fileexists(franzenname(indexname))) /// 65.11l: or the index as a franzen file
@@ -205786,6 +206822,14 @@ int Jidac::versum()
 			risultato= 2;
 			continue;
 		}
+		/// 65.20w (B028): a folder in place of the file of hashes. On *nix fopen takes it and reads 0 lines: "no files
+		/// to be checked", rc 1; on Windows "cannot open", rc 2. The same everywhere: nothing can be checked, rc 2
+		if (direxists(filename))
+		{
+			myprintf("66864! <<%Z>> is a folder, not a file of hashes: nothing checked\n", filename.c_str());
+			risultato= 2;
+			continue;
+		}
 		if (flaghashdeep)
 			myprintf("02902: Working on hashdeep  format <<%Z>>\n", filename.c_str());
 		else
@@ -206248,12 +207292,20 @@ int Jidac::fzf()
 {
 	vector<DTMap::iterator> localfilelist;
 
+	/// 65.20o: these two were exit code 255 (-1) with nothing printed. The message on stderr: what fzf prints goes
+	/// to the fzf of a pipe, a line more on stdout would be a file name
 	if (!fileexists(archive))
-		return -1;
+	{
+		fprintf(stderr, "66850! fzf: archive <<%s>> not found: nothing done\n", archive.c_str());
+		return 2;
+	}
 	if (flagcomment)
 	{
 		if (versioncomment == "")
-			return -1;
+		{
+			fprintf(stderr, "66851! fzf: -comment wants the comment of a version: nothing done\n");
+			return 2;
+		}
 		const int versione= versionedicommento(versioncomment);
 		if (versione == 0)
 		{
@@ -206288,7 +207340,7 @@ int Jidac::fzf()
 				myprintf("%Z\n", temp.c_str());
 			}
 	}
-	return 0;
+	return (errors > 0) ? 1 : 0; /// 65.20o: a damaged archive (72401!, 72415!) was exit code 0. As l (B002, 65.20k)
 }
 
 int Jidac::addhome()
@@ -208256,7 +209308,12 @@ void Jidac::buildindexchunks(vector<string> &o_chunks)
 					for (unsigned i= 0; i < p->second.ptr.size(); ++i)
 						currentcrc32= crc32_combine(currentcrc32, ht[p->second.ptr[i]].crc32, ht[p->second.ptr[i]].crc32size);
 					if (currentcrc32 != p->second.file_crc32)
+					{
+						/// 65.19n: seen, printed, and then "all OK" with rc 0 (issue 355: -stdin -longpath -paranoid,
+						/// the stream stored as a folder, GURU-C, all OK). Now counted: rc 2 at the end (03856)
 						myprintf("02108: SOMETHING WRONG ON %s\n", p->first.c_str());
+						g_crcdiversi++;
+					}
 				}
 
 				++added;
@@ -209150,6 +210207,19 @@ static bool scantroppolunghi()
 	color_restore();
 	return true;
 }
+/// 65.20y: a -thunderbird [-all]: the mail of some user (or a profile of profiles.ini) not taken. At the end, in one
+/// place, and a warning (rc 1): the backup is not the whole mail of the PC
+static bool thunderbird_saltati()
+{
+	if (g_thunderbird_saltati.empty())
+		return false;
+	color_yellow();
+	myprintf("66876$ -thunderbird: %s skipped, their mail is NOT in the archive:\n", migliaia((int64_t)g_thunderbird_saltati.size()));
+	for (size_t i= 0; i < g_thunderbird_saltati.size(); i++)
+		myprintf("66877$   %s\n", g_thunderbird_saltati[i].c_str());
+	color_restore();
+	return true;
+}
 
 /////////////////////////// read_archive //////////////////////////////
 // Read arc up to -date into ht, dt, ver. Return place to
@@ -209511,7 +210581,7 @@ int64_t Jidac::read_archive(callback_function i_advance, const char *arc, int *e
 							if (mem > 1.5e9)
 							/// if (mem>100)
 							{
-								myprintf("98003! too much mem for block %s %18s\n", lastfile.c_str(), migliaia(int64_t(mem)));
+								myprintf("98003! too much mem for block %s %18s\n", lastfile.c_str(), migliaia(memoria_int64(mem)));
 								if (errors)
 									(*errors)++;
 							}
@@ -212962,6 +214032,12 @@ int Jidac::pakkalist()
 	list_ver.resize(1); // version 0
 	dhsize= dcsize= 0;
 
+	/// 65.20k: pakka "" was exit code 0: the archive to read is not there
+	if (archive == "")
+	{
+		myprintf("66843! pakka wants an archive to read: nothing done\n");
+		return 2;
+	}
 	int64_t csize	 = 0;
 	list_outputlog	 = stdout;
 	list_global_start= mtime(); // get start time
@@ -213154,6 +214230,7 @@ bool isurl(const string& i_url)
 
 
 #ifdef ZPAQFULL /// NOSFTPSTART
+#ifndef NOUPDATE /// 65.20a: -DNOUPDATE (BUILD_FEDORA sets it): no update, and so no RSA of the .p7m, up to Jidac::update
 
 
 // P7M / PKCS#7 CMS signature verification — pure C++, no deps.
@@ -213287,14 +214364,17 @@ static int p7m_der_read_len(const uint8_t *d, int dn, int &pos)
 	int n= first & 0x7F;
 	if (n == 0 || n > 4)
 		return -1;
-	int r= 0;
+	/// 65.19k: unsigned (the shift of 4 bytes went into the sign of an int), and at most INT_MAX
+	uint32_t r= 0;
 	for (int i= 0; i < n; i++)
 	{
 		if (pos >= dn)
 			return -1;
-		r= (r << 8) | (int)d[pos++];
+		r= (r << 8) | (uint32_t)d[pos++];
 	}
-	return r;
+	if (r > 0x7FFFFFFFu)
+		return -1;
+	return (int)r;
 }
 
 static bool p7m_der_read_node(const uint8_t *d, int dn, int &pos,
@@ -213307,7 +214387,9 @@ static bool p7m_der_read_node(const uint8_t *d, int dn, int &pos,
 	if (expectedTag >= 0 && (int)tag != expectedTag)
 		return false;
 	int len= p7m_der_read_len(d, dn, pos);
-	if (len < 0 || pos + len > dn)
+	/// 65.19k: not pos + len > dn: with a length of 0x7FFFFFF0 the sum overflowed, the check passed and the
+	/// reads went outside the file (a .p7m made on purpose: zpaqfranz crashed, rc 139)
+	if (len < 0 || len > dn - pos)
 		return false;
 	cs= pos;
 	cl= len;
@@ -213410,6 +214492,8 @@ static bool p7m_der_read_bitstr(const uint8_t *d, int dn, int &pos, int &off, in
 	int cs, cl;
 	if (!p7m_der_read_node(d, dn, pos, 0x03, cs, cl))
 		return false;
+	if ((cl < 1) || (d[cs] != 0)) /// 65.19k: the count of unused bits, 0 for a key (an empty one gave len -1)
+		return false;
 	off= cs + 1;
 	len= cl - 1;
 	pos= cs + cl;
@@ -213495,18 +214579,157 @@ static const uint8_t P7M_SHA256_DIGESTINFO[19]= {
 	0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01,
 	0x05, 0x00, 0x04, 0x20};
 
+/// 65.19j: my keys, the only ones zpaqfranz trusts. Before, the RSA key was taken from the certificate
+/// inside the .p7m itself, and only the CF of its subject was checked: a self-signed certificate with
+/// serialNumber=TINIT-CRBFNC72T25H294X, that anyone makes with openssl, gave "Digital signature OK" (tried:
+/// update -force went on until "OK => updating"). Now the certificate must be one of these.
+/// 65.19m: the SHA-256 of the WHOLE certificate (its "fingerprint"), not only of its key (65.19j-l): every
+/// byte of it counts (issuer, dates, extensions...: a byte changed there was "Digital signature OK")
+/// A qualified signature certificate lasts 3 years at most: when I renew it (a new SIM), the new
+/// one is ADDED here (the old one stays); a zpaqfranz built before does not know it, and its update stops
+/// with 00552 and 03840-03850 (download it by hand). The SHA-256 of the certificate of a .p7m, its expiry:
+/// openssl pkcs7 -inform DER -in x.p7m -print_certs | openssl x509 -outform DER | sha256sum
+/// openssl pkcs7 -inform DER -in x.p7m -print_certs | openssl x509 -noout -enddate
+struct p7m_chiave
+{
+	const char *certsha256;	   ///< SHA-256 of the DER of the certificate, lowercase hex
+	int64_t		scadenza;	   ///< notAfter of the certificate, seconds from 1970 UTC
+	const char *scadenzatesto; ///< the same, to print
+};
+static const p7m_chiave g_p7mchiavi[]= {
+	/// FRANCO CORBELLI, ArubaPEC EU Qualified Certificates CA G1, 2025-12-24 16:21:08 => 2028-12-24 16:21:08 UTC
+	{"c3294652aaf8d9d30a06ec7033289b72e2072f8d507fadb925c8239406274b30", 1861287668, "2028-12-24"},
+};
+static const int g_p7mquantechiavi= (int)(sizeof(g_p7mchiavi) / sizeof(g_p7mchiavi[0]));
+
+/// the key with the latest expiry: after it, this zpaqfranz cannot verify a new signature of mine
+static int p7m_ultimachiave()
+{
+	int ultima= 0;
+	for (int i= 1; i < g_p7mquantechiavi; i++)
+		if (g_p7mchiavi[i].scadenza > g_p7mchiavi[ultima].scadenza)
+			ultima= i;
+	return ultima;
+}
+
+/// now, in seconds from 1970 UTC; -updatefake YYYYMMDD: that day at noon (the tests of the expiry)
+static int64_t p7m_adesso()
+{
+	if (g_updatefake == 0)
+		return (int64_t)time(NULL);
+	int64_t y= (int64_t)(g_updatefake / 10000);
+	int64_t m= (int64_t)((g_updatefake / 100) % 100);
+	int64_t d= (int64_t)(g_updatefake % 100);
+	if ((y < 1970) || (y > 9999) || (m < 1) || (m > 12) || (d < 1) || (d > 31))
+		return (int64_t)time(NULL);
+	/// days from 1970-01-01 of a Gregorian date (days_from_civil of H. Hinnant)
+	y-= (m <= 2);
+	const int64_t era= (y >= 0 ? y : y - 399) / 400;
+	const int64_t yoe= y - era * 400;
+	const int64_t doy= (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+	const int64_t doe= yoe * 365 + yoe / 4 - yoe / 100 + doy;
+	return (era * 146097 + doe - 719468) * 86400 + 12 * 3600;
+}
+
+/// 65.19j: the keys expire, and the user has to know it, with the date (as with an expired https
+/// certificate). i_buona: signature good, key known => only when the last key of this zpaqfranz has expired
+/// or expires within 180 days, in yellow. Not good: a good signature made with a key this zpaqfranz does not
+/// know (a new key of mine, or a fake): always, in red (65.19k: the colors, the explanation in a box)
+static void p7m_spiegascadenza(bool i_buona)
+{
+	const p7m_chiave &ultima = g_p7mchiavi[p7m_ultimachiave()];
+	const int64_t	  adesso = p7m_adesso();
+	const bool		  scaduta= adesso > ultima.scadenza;
+	const int64_t	  giorni = scaduta ? 0 : (ultima.scadenza - adesso) / 86400;
+	if (i_buona && (!scaduta) && (giorni > 180))
+		return;
+	if (i_buona)
+		color_yellow();
+	else
+		color_red();
+	printbar('-');
+	if (i_buona)
+	{
+		if (scaduta)
+			myprintf("03840: The key of my signature EXPIRED on %s\n", ultima.scadenzatesto);
+		else
+			myprintf("03841: The key of my signature expires on %s (in %s days)\n", ultima.scadenzatesto, migliaia(giorni));
+	}
+	else
+	{
+		myprintf("03842: This zpaqfranz trusts only my key, written in it, valid until %s\n", ultima.scadenzatesto);
+		if (scaduta)
+			myprintf("03845: That date is PAST: the key has EXPIRED (as an https certificate does)\n");
+		else
+			myprintf("03846: That date is not past: a new key of mine before it, OR A FAKE SIGNATURE\n");
+	}
+	myprintf("03843: It is a qualified signature, on a SIM: it lasts 3 years at most. Then I\n");
+	myprintf("03844: sign with a new SIM, a new key, that a zpaqfranz built before cannot know:\n");
+	if (i_buona)
+		myprintf("03850: the versions signed with the new key are REFUSED (they cannot be told from a fake)\n");
+	else
+		myprintf("03850: they are REFUSED, as a fake is: nothing has been installed\n");
+	myprintf("03847: => %s download zpaqfranz BY HAND, once, from %s\n", i_buona ? "then" : "now", franzsito("").c_str());
+	myprintf("03848:    or https://github.com/fcorbelli/zpaqfranz/releases: the new one updates by itself again\n");
+	printbar('-');
+	color_restore();
+}
+
+/// 65.19m: the parts of the .p7m that the signature does not cover (the CMS "envelope": versions,
+/// algorithms, type of the content, sid, lengths) were skipped, whatever they said: a byte changed there
+/// (the 47, the type of the content) was "Digital signature OK". Now each one must be what it has to be
+static const char *P7M_OID_DATA	  = "1.2.840.113549.1.7.1";
+static const char *P7M_OID_SHA256 = "2.16.840.1.101.3.4.2.1";
+static const char *P7M_OID_RSA	  = "1.2.840.113549.1.1.1";
+static const char *P7M_OID_RSA256 = "1.2.840.113549.1.1.11";
+
+/// an AlgorithmIdentifier exactly SEQUENCE { that OID, NULL or nothing }
+static bool p7m_algid(const uint8_t *d, int dn, int &pos, const char *i_oid)
+{
+	int fine;
+	if (!p7m_der_enter(d, dn, pos, 0x30, fine))
+		return false;
+	std::string oid;
+	if ((!p7m_der_read_oid(d, dn, pos, oid)) || (oid != i_oid))
+		return false;
+	if (pos < fine)
+	{
+		int cs, cl;
+		if ((!p7m_der_read_node(d, dn, pos, 0x05, cs, cl)) || (cl != 0))
+			return false;
+		pos= cs;
+	}
+	return pos == fine;
+}
+
+/// a small INTEGER (the versions) that is exactly i_valore
+static bool p7m_intero(const uint8_t *d, int dn, int &pos, int i_valore)
+{
+	int cs, cl;
+	if ((!p7m_der_read_node(d, dn, pos, 0x02, cs, cl)) || (cl != 1) || (d[cs] != i_valore))
+		return false;
+	pos= cs + cl;
+	return true;
+}
+
 // Verify CMS SignedData signature (PKCS#7) — pure C++
 // Returns true if signature is valid and CF matches.
 // textContent receives the signed payload, errMsg the error.
 // verbose: print detailed dump.
+// 65.19j: o_chiave = the index in g_p7mchiavi (true), -1 = a good signature with a key that is not
+// there (false), -2 any other failure; o_spki = SHA-256 of the certificate (65.19m: the whole one)
 static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 							 const char	 *expectedCF,
 							 std::string &textContent,
 							 std::string &errMsg,
-							 bool		  verbose)
+							 bool		  verbose,
+							 int		 &o_chiave,
+							 std::string &o_spki)
 {
 	textContent= "";
 	errMsg	   = "";
+	o_chiave   = -2;
+	o_spki	   = "";
 	int pos	   = 0;
 
 #define P7MLOG0(label, value)                               \
@@ -213546,6 +214769,12 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		errMsg= "Outer SEQUENCE missing";
 		return false;
 	}
+	/// 65.19k: the file is the signature and nothing else (100 bytes after it were "Digital signature OK")
+	if (endOuter != p7mLen)
+	{
+		errMsg= "something after the end of the signature";
+		return false;
+	}
 	std::string oid;
 	if (!p7m_der_read_oid(p7m, p7mLen, pos, oid))
 	{
@@ -213564,7 +214793,9 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		errMsg= "[0] wrapper missing";
 		return false;
 	}
-	if (!p7m_der_enter(p7m, p7mLen, pos, 0xA0, endOuter))
+	/// 65.19m: every container ends exactly where the one around it ends (a length changed was skipped)
+	int endWrap;
+	if ((!p7m_der_enter(p7m, p7mLen, pos, 0xA0, endWrap)) || (endWrap != endOuter))
 	{
 		errMsg= "[0] wrapper error";
 		return false;
@@ -213572,19 +214803,20 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 
 	// SignedData SEQUENCE
 	int endSD;
-	if (!p7m_der_enter(p7m, p7mLen, pos, 0x30, endSD))
+	if ((!p7m_der_enter(p7m, p7mLen, pos, 0x30, endSD)) || (endSD != endWrap))
 	{
 		errMsg= "SignedData SEQUENCE missing";
 		return false;
 	}
-	if (!p7m_der_skip(p7m, p7mLen, pos))
+	if (!p7m_intero(p7m, p7mLen, pos, 1)) /// 65.19m: was skipped, whatever it was
 	{
-		errMsg= "version missing";
+		errMsg= "SignedData version is not 1";
 		return false;
 	}
-	if (!p7m_der_skip(p7m, p7mLen, pos))
+	int endDA; /// 65.19m: SHA-256 and only it (was skipped)
+	if ((!p7m_der_enter(p7m, p7mLen, pos, 0x31, endDA)) || (!p7m_algid(p7m, p7mLen, pos, P7M_OID_SHA256)) || (pos != endDA))
 	{
-		errMsg= "digestAlgorithms missing";
+		errMsg= "digestAlgorithms is not SHA-256 only";
 		return false;
 	}
 
@@ -213595,9 +214827,10 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		errMsg= "encapContentInfo missing";
 		return false;
 	}
-	if (!p7m_der_skip(p7m, p7mLen, pos))
+	std::string tipo; /// 65.19m: id-data (was skipped: the byte 47 changed was "Digital signature OK")
+	if ((!p7m_der_read_oid(p7m, p7mLen, pos, tipo)) || (tipo != P7M_OID_DATA))
 	{
-		errMsg= "encap OID missing";
+		errMsg= "the type of the content is not id-data";
 		return false;
 	}
 	if (p7m_der_peek(p7m, p7mLen, pos) != 0xA0)
@@ -213606,13 +214839,13 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		return false;
 	}
 	int endContent;
-	if (!p7m_der_enter(p7m, p7mLen, pos, 0xA0, endContent))
+	if ((!p7m_der_enter(p7m, p7mLen, pos, 0xA0, endContent)) || (endContent != endEncap))
 	{
 		errMsg= "[0] content error";
 		return false;
 	}
 	int contentOff, contentLen;
-	if (!p7m_der_read_octet(p7m, p7mLen, pos, contentOff, contentLen))
+	if ((!p7m_der_read_octet(p7m, p7mLen, pos, contentOff, contentLen)) || (pos != endContent))
 	{
 		errMsg= "Content OCTET STRING missing";
 		return false;
@@ -213661,6 +214894,35 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		errMsg= "Certificate SEQUENCE missing";
 		return false;
 	}
+	if (cend != endCerts) /// 65.19m: mine, and nothing else
+	{
+		errMsg= "more than one certificate";
+		return false;
+	}
+
+	/// 65.19j: which certificate it is (65.19m: the whole one, not only its key). Unknown: the checks go on
+	/// all the same, to tell a file just broken (a byte changed: another check fails) from a good signature
+	/// made with a certificate not in g_p7mchiavi (a new SIM of mine, or a fake): that one is refused
+	/// at the end, with o_chiave -1
+	int chiave= -1;
+	{
+		libzpaq::SHA256 sha;
+		sha.write(reinterpret_cast<const char *>(p7m + certs_cs), (int64_t)(cend - certs_cs));
+		const char *r= sha.result();
+		char		hexcert[65];
+		hexcert[0]= '\0';
+		for (int k= 0; k < 32; k++)
+			snprintf(hexcert + k * 2, 3, "%02x", (unsigned char)r[k]);
+		o_spki= hexcert;
+		for (int k= 0; k < g_p7mquantechiavi; k++)
+			if (o_spki == g_p7mchiavi[k].certsha256)
+				chiave= k;
+		P7MLOG("Certificate SHA-256 (fingerprint)", "%s", hexcert);
+		if (chiave >= 0)
+			P7MLOG("Certificate known to this zpaqfranz", "YES (until %s)", g_p7mchiavi[chiave].scadenzatesto);
+		else
+			P7MLOG0("Certificate known to this zpaqfranz", "NO");
+	}
 
 	// TBSCertificate
 	int endTBS;
@@ -213675,21 +214937,25 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 			errMsg= "version [0] error";
 			return false;
 		}
+	const int serialTLV= cpos; /// 65.19m: issuer and serial, the sid of the signer has to be them
 	if (!p7m_der_skip(p7m, p7mLen, cpos))
 	{
 		errMsg= "serialNumber missing";
 		return false;
 	}
+	const int serialFine= cpos;
 	if (!p7m_der_skip(p7m, p7mLen, cpos))
 	{
 		errMsg= "algorithmIdentifier missing";
 		return false;
 	}
+	const int issuerTLV= cpos;
 	if (!p7m_der_skip(p7m, p7mLen, cpos))
 	{
 		errMsg= "issuer missing";
 		return false;
 	}
+	const int issuerFine= cpos;
 	if (!p7m_der_skip(p7m, p7mLen, cpos))
 	{
 		errMsg= "validity missing";
@@ -213748,31 +215014,40 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 
 	pos= endCerts;
 
-	// signerInfos SET
-	int endSI;
-	if (!p7m_der_enter(p7m, p7mLen, pos, 0x31, endSI))
+	// signerInfos SET (65.19m: right after the certificate, one signer only, until the end of SignedData)
+	int endSIset, endSI;
+	if ((!p7m_der_enter(p7m, p7mLen, pos, 0x31, endSIset)) || (endSIset != endSD))
 	{
 		errMsg= "signerInfos SET missing";
 		return false;
 	}
-	if (!p7m_der_enter(p7m, p7mLen, pos, 0x30, endSI))
+	if ((!p7m_der_enter(p7m, p7mLen, pos, 0x30, endSI)) || (endSI != endSIset))
 	{
 		errMsg= "SignerInfo SEQUENCE missing";
 		return false;
 	}
-	if (!p7m_der_skip(p7m, p7mLen, pos))
+	if (!p7m_intero(p7m, p7mLen, pos, 1)) /// 65.19m: was skipped
 	{
-		errMsg= "SignerInfo version missing";
+		errMsg= "SignerInfo version is not 1";
 		return false;
 	}
-	if (!p7m_der_skip(p7m, p7mLen, pos))
 	{
-		errMsg= "sid missing";
-		return false;
+		/// 65.19m: the sid (was skipped) is issuer and serial of the certificate, byte for byte
+		const int lissuer= issuerFine - issuerTLV;
+		const int lserial= serialFine - serialTLV;
+		int		  endSid;
+		if ((!p7m_der_enter(p7m, p7mLen, pos, 0x30, endSid)) || (endSid - pos != lissuer + lserial) ||
+			(memcmp(p7m + pos, p7m + issuerTLV, (size_t)lissuer) != 0) ||
+			(memcmp(p7m + pos + lissuer, p7m + serialTLV, (size_t)lserial) != 0))
+		{
+			errMsg= "sid is not the certificate";
+			return false;
+		}
+		pos= endSid;
 	}
-	if (!p7m_der_skip(p7m, p7mLen, pos))
+	if (!p7m_algid(p7m, p7mLen, pos, P7M_OID_SHA256)) /// 65.19m: was skipped
 	{
-		errMsg= "digestAlg SignerInfo missing";
+		errMsg= "digestAlgorithm of the signer is not SHA-256";
 		return false;
 	}
 
@@ -213794,6 +215069,7 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 	// Scan signedAttrs for messageDigest (OID 1.2.840.113549.1.9.4)
 	uint8_t msgDigest[32]= {};
 	bool	mdFound		 = false;
+	bool	ctFound		 = false; /// 65.19m
 	int		saPos= sa_cs, saEnd= sa_cs + sa_cl;
 	while (saPos < saEnd)
 	{
@@ -213816,6 +215092,14 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 			}
 			saPos= attrEnd;
 		}
+		else if (attrOID == "1.2.840.113549.1.9.3") /// 65.19m: contentType, the same of the content (RFC 5652 11.1)
+		{
+			int			setEnd;
+			std::string ct;
+			if (p7m_der_enter(p7m, p7mLen, saPos, 0x31, setEnd) && p7m_der_read_oid(p7m, p7mLen, saPos, ct) && (ct == P7M_OID_DATA) && (saPos == setEnd))
+				ctFound= true;
+			saPos= attrEnd;
+		}
 		else
 		{
 			saPos= attrEnd;
@@ -213826,6 +215110,11 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 	if (!mdFound)
 	{
 		errMsg= "messageDigest not found in signedAttrs";
+		return false;
+	}
+	if (!ctFound)
+	{
+		errMsg= "contentType of the signed attributes is not id-data";
 		return false;
 	}
 
@@ -213855,10 +215144,19 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		memcpy(saDigest, sha.result(), 32);
 	}
 
-	if (!p7m_der_skip(p7m, p7mLen, pos))
 	{
-		errMsg= "signatureAlgorithm missing";
-		return false;
+		/// 65.19m: RSA (with SHA-256 or not: the digest is the one above), was skipped
+		int prova= pos;
+		if (!p7m_algid(p7m, p7mLen, prova, P7M_OID_RSA))
+		{
+			prova= pos;
+			if (!p7m_algid(p7m, p7mLen, prova, P7M_OID_RSA256))
+			{
+				errMsg= "signatureAlgorithm is not RSA";
+				return false;
+			}
+		}
+		pos= prova;
 	}
 
 	// Signature OCTET STRING
@@ -213866,6 +215164,11 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 	if (!p7m_der_read_octet(p7m, p7mLen, pos, sigOff, sigLen))
 	{
 		errMsg= "signature OCTET STRING missing";
+		return false;
+	}
+	if (pos != endSI) /// 65.19m: nothing after the signature (unsigned attributes: no one checks them)
+	{
+		errMsg= "something after the signature of the signer";
 		return false;
 	}
 	if (sigLen != 256)
@@ -213908,9 +215211,11 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 		return false;
 	}
 	idx++;
-	if (idx + 19 + 32 > 256)
+	/// 65.19k: exactly at the end, not "within": 00 01 FF..FF 00 DigestInfo hash and nothing after the
+	/// hash (with something after it, the padding is shorter: the room of the forgeries of Bleichenbacher)
+	if (idx + 19 + 32 != 256)
 	{
-		errMsg= "DigestInfo out of bounds";
+		errMsg= "DigestInfo not at the end of the PKCS#1 block";
 		return false;
 	}
 	if (memcmp(resBuf + idx, P7M_SHA256_DIGESTINFO, 19) != 0)
@@ -213929,6 +215234,13 @@ static bool verify_p7m_bytes(const uint8_t *p7m, int p7mLen,
 
 #undef P7MLOG0
 #undef P7MLOG
+	if (chiave < 0)
+	{
+		o_chiave= -1;
+		errMsg	= "good signature, but with a certificate this zpaqfranz does not know (SHA-256 " + o_spki + ")";
+		return false;
+	}
+	o_chiave= chiave;
 	return true;
 }
 
@@ -213937,9 +215249,13 @@ static bool verify_p7m_file(const std::string &filename,
 							const char		  *expectedCF,
 							std::string		  &textContent,
 							std::string		  &errMsg,
-							bool			   verbose)
+							bool			   verbose,
+							int				  &o_chiave,
+							std::string		  &o_spki)
 {
-	FILE *f= fopen(filename.c_str(), "rb");
+	o_chiave= -2;
+	o_spki	= "";
+	FILE *f = cri_fopen(filename.c_str(), "rb"); /// 65.19e: UTF-8 name (a TEMP with an accent)
 	if (!f)
 	{
 		errMsg= "Cannot open p7m file";
@@ -213964,8 +215280,167 @@ static bool verify_p7m_file(const std::string &filename,
 		return false;
 	}
 	fclose(f);
-	return verify_p7m_bytes(&buf[0], (int)sz, expectedCF, textContent, errMsg, verbose);
+	return verify_p7m_bytes(&buf[0], (int)sz, expectedCF, textContent, errMsg, verbose, o_chiave, o_spki);
 }
+
+/// 65.19l: -signfake "byte[:xor],...": the .p7m just downloaded (from the site too, https or http) changed
+/// on the disk before the check, as someone in the middle would do; -paranoid then shows that file.
+/// byte from 0, in decimal; xor in hex, 01 if not given. false: a wrong list, or the file
+static bool p7m_manomesso(const string &i_file, const string &i_cosa)
+{
+	FILE *f= cri_fopen(i_file.c_str(), "rb");
+	if (!f)
+	{
+		myprintf("03851! -signfake: cannot read %Z\n", i_file.c_str());
+		return false;
+	}
+	std::vector<uint8_t> d;
+	uint8_t				 blocco[4096];
+	size_t				 letti;
+	while ((letti= fread(blocco, 1, sizeof(blocco), f)) > 0)
+		d.insert(d.end(), blocco, blocco + letti);
+	fclose(f);
+
+	const char *c= i_cosa.c_str();
+	while (*c)
+	{
+		char	*fine;
+		long long dove= strtoll(c, &fine, 10);
+		if ((fine == c) || (dove < 0))
+		{
+			myprintf("03852! -signfake: \"%s\" is not byte[:xor],... (byte from 0, xor in hex)\n", i_cosa.c_str());
+			return false;
+		}
+		c			  = fine;
+		unsigned long x= 1;
+		if (*c == ':')
+		{
+			c++;
+			x= strtoul(c, &fine, 16);
+			if ((fine == c) || (x > 0xFF))
+			{
+				myprintf("03852! -signfake: \"%s\" is not byte[:xor],... (byte from 0, xor in hex)\n", i_cosa.c_str());
+				return false;
+			}
+			c= fine;
+		}
+		if ((*c != ',') && (*c != 0))
+		{
+			myprintf("03852! -signfake: \"%s\" is not byte[:xor],... (byte from 0, xor in hex)\n", i_cosa.c_str());
+			return false;
+		}
+		if (*c == ',')
+			c++;
+		if ((uint64_t)dove >= (uint64_t)d.size())
+		{
+			myprintf("03853! -signfake: byte %s, but the .p7m has %s bytes\n", migliaia(dove), migliaia(d.size()));
+			return false;
+		}
+		const uint8_t prima= d[(size_t)dove];
+		d[(size_t)dove]^= (uint8_t)x;
+		char cambio[32];
+		snprintf(cambio, sizeof(cambio), "0x%02X => 0x%02X", (unsigned int)prima, (unsigned int)d[(size_t)dove]);
+		myprintf("03854$ -signfake: byte %s of the .p7m %s\n", migliaia(dove), cambio);
+	}
+	f= cri_fopen(i_file.c_str(), "wb");
+	if (!f)
+	{
+		myprintf("03851! -signfake: cannot write %Z\n", i_file.c_str());
+		return false;
+	}
+	const bool scritto= d.empty() || (fwrite(&d[0], 1, d.size(), f) == d.size());
+	if (fclose(f) != 0 || !scritto)
+	{
+		myprintf("03851! -signfake: cannot write %Z\n", i_file.c_str());
+		return false;
+	}
+	return true;
+}
+
+#ifdef _WIN32
+bool isnotevil(int i_char);
+/// 65.19o: the payload of a .p7m whose signature is NOT verified: the line it should be (as sanitizeline,
+/// that kills the process on a wrong one: 64 hex, space, *, the version), or nothing to take from it
+static bool update_rigabuona(const string &i_riga)
+{
+	if ((i_riga.size() <= 83) || (i_riga.size() > 87))
+		return false;
+	for (unsigned int i= 0; i < 64; i++)
+		if (!ishex(i_riga[i]))
+			return false;
+	if ((i_riga[64] != ' ') || (i_riga[65] != '*'))
+		return false;
+	for (unsigned int i= 66; i < i_riga.size(); i++)
+		if (!isnotevil((unsigned char)i_riga[i]))
+			return false;
+	return true;
+}
+
+/*
+	65.19o: update -force -kill with a signature that is NOT verified. When my certificate expires (a new
+	SIM, a new key that a zpaqfranz built before cannot know), when the signing software of Aruba changes
+	its format, update refuses: that is what it must do with a fake. I decided: better than nothing, the
+	exe can be installed all the same, after a captcha that is the URL it comes from, typed EXACTLY.
+	Always asked (also with -nocaptcha; without a console scanf reads nothing: never). The exe then comes
+	from that URL only: no http after an https that fails, because without the signature the certificate
+	of the site (https) is all that is left. Without -force -kill: one line that says it can be done
+*/
+static bool update_senzafirma(const string &i_url)
+{
+	if (!(flagforce && flagkill))
+	{
+		myprintf("03857: (update -force -kill: installed all the same after a captcha, the URL of the exe. At your own risk)\n");
+		return false;
+	}
+	color_red();
+	printbar('!');
+	myprintf("03858! THE SIGNATURE IS NOT VERIFIED: this zpaqfranz cannot tell the exe from a FAKE\n");
+	myprintf("03859! -force -kill: it is installed all the same, ONLY if you type EXACTLY the URL it comes from\n");
+	myprintf("03860! Do it only if you trust that URL (with https, the certificate of the site is all that is left)\n");
+	printbar('!');
+	color_restore();
+	const bool nocaptchaprima= flagnocaptcha;
+	flagnocaptcha			 = false; /// always asked
+	const bool confermato	 = getcaptcha(i_url, "update with a signature NOT verified: the URL of the exe");
+	flagnocaptcha			 = nocaptchaprima;
+	if (!confermato)
+	{
+		myprintf("03861: Nothing done\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+	65.19p: I decided, update is ONLY for zpaqfranz.exe (64 bit), zpaqfranzhw.exe (64 bit) and
+	zpaqfranz32.exe (32 bit). zpaqfranz-full would become zpaqfranz.exe (the 64 bit one, without the
+	resources inside), the XP build zpaqfranz32.exe: no update at all, with no switch (not even -force,
+	not even with the two URLs). True = not here (said why)
+*/
+static bool update_nonqui()
+{
+	string chi;
+	string alposto;
+#ifdef ZPAQXPBUILD
+	chi	   = "the XP build (zpaqfranzxp.exe)";
+	alposto= "zpaqfranz32.exe";
+#endif
+#ifdef _WIN64
+	if (zpaqfranz_full())
+	{
+		chi	   = "zpaqfranz-full.exe";
+		alposto= "zpaqfranz.exe (64 bit, without the DLLs, mysql and WinFsp inside)";
+	}
+#endif
+	if (chi == "")
+		return false;
+	color_red();
+	myprintf("03868! update is not for %s: it would put %s in its place\n", chi.c_str(), alposto.c_str());
+	color_restore();
+	myprintf("03869: Only zpaqfranz.exe, zpaqfranzhw.exe and zpaqfranz32.exe update themselves: this one by hand\n");
+	return true;
+}
+#endif // _WIN32
 
 int Jidac::update()
 {
@@ -213973,6 +215448,10 @@ int Jidac::update()
 	myprintf("03190: Cannot update SOLARIS or HAIKU\n");
 	return 0;
 #else
+#ifdef _WIN32
+	if (update_nonqui())
+		return 2;
+#endif
 	if (flagverbose)
 		myprintf("03192: Checking internet update (-verbose)\n");
 	else
@@ -213984,23 +215463,27 @@ int Jidac::update()
 #endif // corresponds to #ifdef (#ifdef unix)
 
 	if (flagdebug)
-		myprintf("03192: randnocache %s\n", randnocache.c_str());
+		myprintf("03821: randnocache %s\n", randnocache.c_str());
 
-	string http_exe= "http://www.francocorbelli.it/zpaqfranz/win64/zpaqfranz.exe";
-	string http_p7m= "http://www.francocorbelli.it/zpaqfranz/win64/zpaqfranz.sha256.p7m";
+	/// 65.19c: Windows https, then http by itself (-nohttps: http); *nix http
+	string http_exe= franzsito("win64/zpaqfranz.exe");
+	string http_p7m= franzsito("win64/zpaqfranz.sha256.p7m");
 
 #if defined(_WIN32) && (!defined(_WIN64))
-	http_exe= "http://www.francocorbelli.it/zpaqfranz/win32/zpaqfranz32.exe";
-	http_p7m= "http://www.francocorbelli.it/zpaqfranz/win32/zpaqfranz32.sha256.p7m";
+	http_exe= franzsito("win32/zpaqfranz32.exe");
+	http_p7m= franzsito("win32/zpaqfranz32.sha256.p7m");
 #endif // corresponds to #if (#if defined(_WIN32) && (!defined(_WIN64)))
 
 #if defined(_WIN64) && (defined(HWSHA1))
-	http_exe= "http://www.francocorbelli.it/zpaqfranz/win64hw/zpaqfranzhw.exe";
-	http_p7m= "http://www.francocorbelli.it/zpaqfranz/win64hw/zpaqfranzhw.sha256.p7m";
+	http_exe= franzsito("win64hw/zpaqfranzhw.exe");
+	http_p7m= franzsito("win64hw/zpaqfranzhw.sha256.p7m");
 #endif // corresponds to #if (#if defined(_WIN64) && ( defined(HWSHA1)))
 
+	/// the URLs of the user are taken as they are: no https first, no http after
+	bool dalsito= true;
 	if (files.size() == 2)
 	{
+		dalsito= false;
 		http_p7m= files[0];
 		http_exe= files[1];
 		myprintf("03193: Command-selected URL\n");
@@ -214009,38 +215492,77 @@ int Jidac::update()
 	}
 
 	string p7mContent;  // signed payload from verified .p7m (= .sha256 file content)
+	bool   senzafirma= false; /// 65.19o: -force -kill and the captcha: the signature is NOT verified (update_senzafirma)
 	{
 		string p7murl = http_p7m + randnocache;
 		string p7mfile= g_gettempdirectory() + "zpaqfranz_verfile.sha256.p7m";
 		p7mfile		  = nomefileseesistegia(p7mfile);
 
-		if (!downloadfile(p7murl, p7mfile, false))
-			myprintf("00551! Cannot download the signature file!\n");
-		else
+		/// 65.19b: without the signature file there is nothing to verify, nor to
+		/// show with -paranoid (it printed how to check a file that does not exist,
+		/// then ended "all OK"): error, here
+		if (!(dalsito ? downloadfile_sito(p7murl, p7mfile, false) : downloadfile(p7murl, p7mfile, false)))
 		{
-			myprintf("\n");
-			myprintf("00533: Verifying digital signature (.p7m)...\n");
-
-			std::string p7mErr;
-			if (flagverbose)
-				myprintf("03344: verify_p7m_file on %s\n", p7mfile.c_str());
-
-			if (!verify_p7m_file(p7mfile, "CRBFNC72T25H294X", p7mContent, p7mErr, flagverbose))
-			{
-				myprintf("00552! P7M signature verification FAILED: %s\n", p7mErr.c_str());
+			myprintf("00551! Cannot download the signature file!\n");
+			return 2;
+		}
+		if (g_p7mfake != "") /// 65.19l: for the tests, as someone in the middle
+			if (!p7m_manomesso(p7mfile, g_p7mfake))
 				return 2;
+		myprintf("\n");
+		myprintf("00533: Verifying digital signature (.p7m)...\n");
+
+		std::string p7mErr;
+		int			p7mchiave= -2; /// 65.19j: which of g_p7mchiavi (-1: good signature, unknown key)
+		std::string p7mspki;
+		if (flagverbose)
+			myprintf("03344: verify_p7m_file on %s\n", p7mfile.c_str());
+		if (g_updatefake)
+			myprintf("03849: -updatefake %d: the keys of the signature as on that day\n", (int)g_updatefake);
+
+		if (!verify_p7m_file(p7mfile, "CRBFNC72T25H294X", p7mContent, p7mErr, flagverbose, p7mchiave, p7mspki))
+		{
+			myprintf("00552! P7M signature verification FAILED: %s\n", p7mErr.c_str());
+			if (p7mchiave == -1)
+				p7m_spiegascadenza(false);
+#ifdef _WIN32
+			if (!update_senzafirma(http_exe)) /// the site, or the URL written by the user: the one the exe comes from
+				return 2;
+			senzafirma= true;
+			/// what the payload says (the SHA-256 of the exe, the version), if it is the line it should be:
+			/// the download is then checked against it (integrity, NOT authenticity). If not, nothing
+			string riga= p7mContent;
+			while (!riga.empty() && ((riga[riga.size() - 1] == '\r') || (riga[riga.size() - 1] == '\n') || (riga[riga.size() - 1] == ' ')))
+				riga.erase(riga.size() - 1);
+			if (update_rigabuona(riga))
+				myprintf("03862: The SHA-256 written in the .p7m (NOT verified) checks the download: integrity only\n");
+			else
+			{
+				p7mContent= "";
+				color_yellow();
+				myprintf("03863$ No SHA-256 and no version can be read from the .p7m: the exe is taken AS IT IS\n");
+				color_restore();
 			}
-			myprintf("00534: Digital signature OK (CF CRBFNC72T25H294X)\n");
+#else
+			return 2;
+#endif
+		}
+		if (!senzafirma)
+		{
+			color_green(); /// 65.19k: green OK, yellow it expires, red error
+			myprintf("00534: Digital signature OK (CF CRBFNC72T25H294X, key valid until %s)\n", g_p7mchiavi[p7mchiave].scadenzatesto);
+			color_restore();
+			p7m_spiegascadenza(true);
 		}
 #ifdef _WIN32
-		if (flagparanoid)
+		if (flagparanoid && (!senzafirma))
 		{
 			myprintf("\n");
 			color_yellow();
 			printbar('+');
 			myprintf("10034: Due to -paranoid you can check yourself the (Italian) digital sign of the sha256 hash\n");
 			myprintf("10035: This is a Qualified Electronic Signature (FEQ) in CAdES format\n");
-			myprintf("10034: https://www.agid.gov.it/it/piattaforme/firma-elettronica-qualificata/software-verifica\n");
+			myprintf("03822: https://www.agid.gov.it/it/piattaforme/firma-elettronica-qualificata/software-verifica\n");
 			printbar('+');
 			color_restore();
 			string winp7m= linuxtowinpath(p7mfile);
@@ -214065,16 +215587,16 @@ int Jidac::update()
 			myprintf("\n");
 			myprintf("03322: Two options\n");
 			color_green();
-			myprintf("03322: (1) if you have openssl installed => run\n");
-			myprintf("03342: openssl smime -verify -in \"%s\" -inform DER  -noverify\n", winp7m.c_str());
+			myprintf("03823: (1) if you have openssl installed => run\n");
+			myprintf("03342: openssl smime -verify -in \"%s\" -inform DER -noverify\n", winp7m.c_str());
 
 			const char *notariato= "https://vol.ca.notariato.it/it";
 			myprintf("\n");
-			myprintf("03322: (2) or paste the clipboard (control-v) on 'Scegli un file firmato'\n");
+			myprintf("03824: (2) or paste the clipboard (control-v) on 'Scegli un file firmato'\n");
 			myprintf("03333: of the site %s, then click 'Verifica'\n", notariato);
 			color_restore();
 			printbar('-');
-			myprintf("03344: If the digital sign is good repeat the upgrade without -paranoid\n");
+			myprintf("03825: If the digital sign is good repeat the upgrade without -paranoid\n");
 			color_yellow();
 			myprintf("*** PRESS ANY KEY TO CONTINUE (the default browser will be launched) ***\n");
 			color_restore();
@@ -214092,95 +215614,102 @@ int Jidac::update()
 		return 2;
 	}
 
-	if (p7mContent.empty())
-	{
-		myprintf("00553! No p7m content available — cannot determine internet version\n");
-		return 2;
-	}
-	myprintf("03199: Testing internet version...\n");
-	string linea = p7mContent;
-	while (!linea.empty() && (linea[linea.size() - 1] == '\r' || linea[linea.size() - 1] == '\n' || linea[linea.size() - 1] == ' '))
-		linea.erase(linea.size() - 1);
-	if (flagdebug3)
-		myprintf("03202: p7m content line |%s|\n", linea.c_str());
-
-	if (linea.size() < 70)
-	{
-		myprintf("03203! Line size should be >=70 %8s\n", migliaia(linea.size()));
-		return 2;
-	}
-
-	if (!sanitizeline(linea))
-	{
-		myprintf("03204! ERROR C5 p7m payload is not in expected format\n");
-		seppuku();
-		return 2;
-	}
-
-	string thesha256= "";
-	for (unsigned int i= 0; i < 64; i++)
-		if ((isdigit(linea[i]) || (isalpha(linea[i]))))
-			thesha256+= linea[i];
-	if (thesha256.size() != 64)
-	{
-		myprintf("03205! sha256 len expected 64 vs %s |%s|\n", migliaia(thesha256.size()), thesha256.c_str());
-		return 2;
-	}
-	string theversion= "";
-	string maj		 = "";
-	string minor	 = "";
-	string letter	 = "";
-
-	unsigned int i= 65;
-
-	if (linea[i] == '*')
-		i++;
-	while (i < linea.size())
-	{
-		if ((isalnum(linea[i])) || (linea[i] == '.'))
-			theversion+= linea[i++];
-		else
-			break;
-	}
-
-	string thedate= linea.substr(i + 1, linea.size());
-
-	if (flagverbose)
-		myprintf("03206: Version to be decoded |%s| date |%s|\n", theversion.c_str(), thedate.c_str());
-
-	if (!decode_zpaq_version(theversion, maj, minor, letter))
-	{
-		myprintf("03207! decode zpaq version failed!\n");
-		return 2;
-	}
-
+	string thesha256	   = "";
+	string theversion	   = "";
+	string thedate		   = "";
 	string internal_version= ZPAQ_VERSION;
 	string internal_date   = ZPAQ_DATE;
-	string internal_maj	   = "";
-	string internal_minor  = "";
-	string internal_letter = "";
-	if (!decode_zpaq_version(internal_version, internal_maj, internal_minor, internal_letter))
+	bool   flagnewer	   = false;
+	/// 65.19o: -force -kill, the captcha, and nothing to read in the .p7m: no version, no SHA-256
+	const bool senzadati= senzafirma && p7mContent.empty();
+	if (!senzadati)
 	{
-		myprintf("03208! decode internal zpaq version failed!\n");
-		return 2;
-	}
-	bool flagnewer= false;
+		if (p7mContent.empty())
+		{
+			myprintf("00553! No p7m content available: cannot determine internet version\n");
+			return 2;
+		}
+		myprintf("03199: Testing internet version...\n");
+		string linea= p7mContent;
+		while (!linea.empty() && (linea[linea.size() - 1] == '\r' || linea[linea.size() - 1] == '\n' || linea[linea.size() - 1] == ' '))
+			linea.erase(linea.size() - 1);
+		if (flagdebug3)
+			myprintf("03202: p7m content line |%s|\n", linea.c_str());
 
-	int imaj		 = atoi(maj.c_str());
-	int internal_imaj= atoi(internal_maj.c_str());
+		if (linea.size() < 70)
+		{
+			myprintf("03203! Line size should be >=70 %8s\n", migliaia(linea.size()));
+			return 2;
+		}
 
-	int iminor		   = atoi(minor.c_str());
-	int internal_iminor= atoi(internal_minor.c_str());
-	flagnewer=
-		(imaj > internal_imaj) ||
-		((imaj == internal_imaj) && (iminor > internal_iminor)) ||
-		((imaj == internal_imaj) && (iminor == internal_iminor) && (letter > internal_letter));
+		if (!sanitizeline(linea))
+		{
+			myprintf("03204! ERROR C5 p7m payload is not in expected format\n");
+			seppuku();
+			return 2;
+		}
 
-	if (flagverbose)
-	{
-		myprintf("03209: Current major  %4s =>  %4s\n", internal_maj.c_str(), maj.c_str());
-		myprintf("03210: Current minor  %4s =>  %4s\n", internal_minor.c_str(), minor.c_str());
-		myprintf("03211: Current letter %4s =>  %4s\n", internal_letter.c_str(), letter.c_str());
+		for (unsigned int i= 0; i < 64; i++)
+			if ((isdigit(linea[i]) || (isalpha(linea[i]))))
+				thesha256+= linea[i];
+		if (thesha256.size() != 64)
+		{
+			myprintf("03205! sha256 len expected 64 vs %s |%s|\n", migliaia(thesha256.size()), thesha256.c_str());
+			return 2;
+		}
+		string maj	 = "";
+		string minor = "";
+		string letter= "";
+
+		unsigned int i= 65;
+
+		if (linea[i] == '*')
+			i++;
+		while (i < linea.size())
+		{
+			if ((isalnum(linea[i])) || (linea[i] == '.'))
+				theversion+= linea[i++];
+			else
+				break;
+		}
+
+		/// 65.19b: substr(i+1) with i == size() throws std::out_of_range (no date after the version)
+		thedate= (i + 1 < linea.size()) ? linea.substr(i + 1) : "";
+
+		if (flagverbose)
+			myprintf("03206: Version to be decoded |%s| date |%s|\n", theversion.c_str(), thedate.c_str());
+
+		if (!decode_zpaq_version(theversion, maj, minor, letter))
+		{
+			myprintf("03207! decode zpaq version failed!\n");
+			return 2;
+		}
+
+		string internal_maj	  = "";
+		string internal_minor = "";
+		string internal_letter= "";
+		if (!decode_zpaq_version(internal_version, internal_maj, internal_minor, internal_letter))
+		{
+			myprintf("03208! decode internal zpaq version failed!\n");
+			return 2;
+		}
+
+		int imaj		 = atoi(maj.c_str());
+		int internal_imaj= atoi(internal_maj.c_str());
+
+		int iminor		   = atoi(minor.c_str());
+		int internal_iminor= atoi(internal_minor.c_str());
+		flagnewer=
+			(imaj > internal_imaj) ||
+			((imaj == internal_imaj) && (iminor > internal_iminor)) ||
+			((imaj == internal_imaj) && (iminor == internal_iminor) && (letter > internal_letter));
+
+		if (flagverbose)
+		{
+			myprintf("03209: Current major  %4s =>  %4s\n", internal_maj.c_str(), maj.c_str());
+			myprintf("03210: Current minor  %4s =>  %4s\n", internal_minor.c_str(), minor.c_str());
+			myprintf("03211: Current letter %4s =>  %4s\n", internal_letter.c_str(), letter.c_str());
+		}
 	}
 
 #ifdef unix
@@ -214197,7 +215726,13 @@ int Jidac::update()
 	color_restore();
 	return 0;
 #else
-	if ((!flagnewer) && (flagkill))
+	if (senzadati)
+	{
+		color_yellow();
+		myprintf("03864: Your %s %s against a version that cannot be known: -kill => continue anyway\n", internal_version.c_str(), internal_date.c_str());
+		color_restore();
+	}
+	else if ((!flagnewer) && (flagkill))
 	{
 		color_yellow();
 		myprintf("03214: Your %s %s is not older of %s %s BUT -kill => continue anyway\n",
@@ -214224,7 +215759,7 @@ int Jidac::update()
 	if (flagverbose)
 		myprintf("03217: myownsha256 %s\n", myownsha256.c_str());
 
-	if (stringtolower(myownsha256) == stringtolower(thesha256))
+	if ((!senzadati) && (stringtolower(myownsha256) == stringtolower(thesha256)))
 	{
 		color_yellow();
 		myprintf("03218: Really nothing to do because your build is == to the internet one\n");
@@ -214233,7 +215768,10 @@ int Jidac::update()
 	}
 
 	color_green();
-	myprintf("03219: Candidate %s of %s vs current %s of %s", theversion.c_str(), thedate.c_str(), internal_version.c_str(), internal_date.c_str());
+	if (senzadati)
+		myprintf("03865: Candidate of an unknown version vs current %s of %s", internal_version.c_str(), internal_date.c_str());
+	else
+		myprintf("03219: Candidate %s of %s vs current %s of %s", theversion.c_str(), thedate.c_str(), internal_version.c_str(), internal_date.c_str());
 	color_restore();
 
 	if (!flagforce)
@@ -214244,6 +215782,15 @@ int Jidac::update()
 		return 0;
 	}
 	myprintf("\n");
+
+	/// 65.19d: the batch has to put the new exe where this one is. A folder that cannot be written
+	/// (Program Files without administrator, a read-only medium or share): stop here, before the
+	/// download, with nothing killed and nothing changed
+	if (!saggiascrivibilitacartella(fullzpaqexename))
+	{
+		myprintf("03835! Cannot write in the folder of %Z: it cannot be replaced (administrator? read-only?)\n", fullzpaqexename.c_str());
+		return 2;
+	}
 
 	string exeurl = http_exe + randnocache;
 	string exefile= g_gettempdirectory() + "zpaqfranz_exe.exe";
@@ -214258,7 +215805,8 @@ int Jidac::update()
 
 	int64_t startdownload= mtime();
 
-	if (!downloadfile(exeurl, exefile, true))
+	/// 65.19o: with the signature NOT verified, the URL of the captcha only (no http after an https that fails)
+	if (!((dalsito && (!senzafirma)) ? downloadfile_sito(exeurl, exefile, true) : downloadfile(exeurl, exefile, true)))
 		return 2;
 	myprintf("\n");
 
@@ -214280,7 +215828,20 @@ int Jidac::update()
 		myprintf("03226: hash reloaded %s\n", hashreloaded.c_str());
 		myprintf("03227: expected hash %s\n", thesha256.c_str());
 	}
-	if (stringtolower(hashreloaded) != stringtolower(thesha256))
+	if (senzafirma) /// 65.19o: what was taken, to be checked by hand (GitHub, SourceForge)
+		myprintf("03866: SHA-256 of the exe downloaded (NOT verified) %s\n", hashreloaded.c_str());
+	if (senzadati)
+	{
+		if (stringtolower(hashreloaded) == stringtolower(myownsha256))
+		{
+			delete_file(exefile.c_str());
+			color_yellow();
+			myprintf("03218: Really nothing to do because your build is == to the internet one\n");
+			color_restore();
+			return 0;
+		}
+	}
+	else if (stringtolower(hashreloaded) != stringtolower(thesha256))
 	{
 		myprintf("03228! Hash mismatch => error C5 => Kaputt\n");
 		return 2;
@@ -214300,12 +215861,12 @@ int Jidac::update()
 	string filebatch= g_gettempdirectory() + "updatezpaqfranz.bat";
 	filebatch		= nomefileseesistegia(filebatch);
 	if (fileexists(filebatch))
-		if (remove(filebatch.c_str()) != 0)
+		if (!delete_file(filebatch.c_str()))
 		{
 			myprintf("03232! Highlander batch  %s\n", filebatch.c_str());
 			return 2;
 		}
-	FILE *batch= fopen(filebatch.c_str(), "wb");
+	FILE *batch= cri_fopen(filebatch.c_str(), "wb"); /// 65.19e: UTF-8 name (a TEMP with an accent)
 	if (batch == NULL)
 	{
 		myprintf("03233! cannot write on %s\n", filebatch.c_str());
@@ -214315,29 +215876,165 @@ int Jidac::update()
 	fullzpaqexename= linuxtowinpath(fullzpaqexename);
 	exefile		   = linuxtowinpath(exefile);
 	filebatch	   = linuxtowinpath(filebatch);
-	fprintf(batch, "@echo OFF\r\n");
-	fprintf(batch, "echo Running update batch (this is good)\r\n");
-	fprintf(batch, ":again\r\n");
-	fprintf(batch, "taskkill /F /IM %s\r\n", extractfilename(zpaqfranzexename).c_str());
-	fprintf(batch, "del \"%s\"\r\n", fullzpaqexename.c_str());
-	fprintf(batch, "if exist \"%s\" goto again\r\n", fullzpaqexename.c_str());
-	fprintf(batch, "copy \"%s\" \"%s\" /y\r\n", exefile.c_str(), fullzpaqexename.c_str());
-	fprintf(batch, "del \"%s\"\r\n", exefile.c_str());
-	fprintf(batch, "echo Update done\r\n"); // this will not work, the calling task should be already killed
-	fprintf(batch, "del \"%s\"\r\n", filebatch.c_str());
+	/*
+		65.19d: the batch. Before: taskkill, del of the exe, "if exist goto again" forever (and invisible:
+		its output went into the pipe of the killed parent) when the exe could not be deleted; a del that
+		worked and a copy that did not = no zpaqfranz at all; the paths written in UTF-8, while cmd reads
+		a batch in the code page of the console (850: "C:\Users\Niccolo'" with the accent was not found).
+		Now (my idea): the exe is RENAMED to .old (after the taskkill: no exe running, any
+		file system), the new one copied, compared with fc /b, the .old deleted only at the end; every
+		error puts the old one back. 30 attempts, 1 s apart (ping: XP has no timeout.exe). The batch is
+		pure ASCII: the paths are in the environment (ZPAQFRANZ_UPD*), cmd expands them in Unicode, and
+		a % or a & in a path is just a character. It runs in this console: its messages are seen
+		65.19o: no "zpaqfranz updated" at the end. The taskkill ends this zpaqfranz, the shell writes its
+		prompt at once, and what the batch printed after it looked like a stop waiting for a key. Now
+		this zpaqfranz says it before (03867): the batch writes only when something goes wrong
+	*/
+	string vecchio= fullzpaqexename;
+	if ((vecchio.size() > 4) && (stringtolower(vecchio.substr(vecchio.size() - 4)) == ".exe"))
+		vecchio.erase(vecchio.size() - 4);
+	vecchio+= ".old";
+	/// GetModuleFileName: the real name of this process. extractfilename() looks for / only: with the \ of
+	/// a Windows path it gave the whole path, and taskkill /IM found nothing (zpaqfranz run with its full
+	/// path, as a scheduled task does: the old batch then looped forever on the del)
+	string nomeimmagine= fullzpaqexename;
+	myreplaceall(nomeimmagine, "\\", "/");
+	const string immagine= extractfilename(nomeimmagine);
+	static const char *righe[]=
+	{
+		"@echo off",
+		"rem zpaqfranz update: the paths are in ZPAQFRANZ_UPD* (this file is ASCII)",
+		"setlocal",
+		"echo Running update batch (this is good)",
+		"set /a ZPAQFRANZ_GIRI=0",
+		":again",
+		"taskkill /F /IM \"%ZPAQFRANZ_UPDIMAGE%\" >nul 2>&1",
+		"move /y \"%ZPAQFRANZ_UPDEXE%\" \"%ZPAQFRANZ_UPDOLD%\" >nul 2>&1",
+		"if not exist \"%ZPAQFRANZ_UPDEXE%\" goto moved",
+		"set /a ZPAQFRANZ_GIRI+=1",
+		"if %ZPAQFRANZ_GIRI% geq 30 goto nomove",
+		"ping -n 2 127.0.0.1 >nul",
+		"goto again",
+		":moved",
+		"copy /y /b \"%ZPAQFRANZ_UPDNEW%\" \"%ZPAQFRANZ_UPDEXE%\" >nul 2>&1",
+		"if errorlevel 1 goto restore",
+		"fc /b \"%ZPAQFRANZ_UPDNEW%\" \"%ZPAQFRANZ_UPDEXE%\" >nul 2>&1",
+		"if errorlevel 1 goto restore",
+		"set /a ZPAQFRANZ_GIRI=0",
+		":delold",
+		"del /f \"%ZPAQFRANZ_UPDOLD%\" >nul 2>&1",
+		"if not exist \"%ZPAQFRANZ_UPDOLD%\" goto deleted",
+		"set /a ZPAQFRANZ_GIRI+=1",
+		"if %ZPAQFRANZ_GIRI% geq 5 goto deleted",
+		"ping -n 2 127.0.0.1 >nul",
+		"goto delold",
+		":deleted",
+		"del /f \"%ZPAQFRANZ_UPDNEW%\" >nul 2>&1",
+		"if exist \"%ZPAQFRANZ_UPDOLD%\" echo The old one is still in use, delete it later: \"%ZPAQFRANZ_UPDOLD%\"",
+		"goto end",
+		":restore",
+		"del /f \"%ZPAQFRANZ_UPDEXE%\" >nul 2>&1",
+		"move /y \"%ZPAQFRANZ_UPDOLD%\" \"%ZPAQFRANZ_UPDEXE%\" >nul 2>&1",
+		"echo UPDATE FAILED: the new zpaqfranz could not be put in place",
+		"if exist \"%ZPAQFRANZ_UPDEXE%\" echo The old one is back: \"%ZPAQFRANZ_UPDEXE%\"",
+		"if not exist \"%ZPAQFRANZ_UPDEXE%\" echo RENAME BY HAND \"%ZPAQFRANZ_UPDOLD%\" to \"%ZPAQFRANZ_UPDEXE%\"",
+		"goto end",
+		":nomove",
+		"echo UPDATE FAILED: cannot move \"%ZPAQFRANZ_UPDEXE%\" away (in use? read-only?): nothing changed",
+		":end",
+		"(goto) 2>nul & del /f \"%~f0\"",
+	};
+	for (unsigned int i= 0; i < sizeof(righe) / sizeof(righe[0]); i++)
+	{
+		fputs(righe[i], batch);
+		fputs("\r\n", batch);
+	}
 	fclose(batch);
 	if (flagverbose)
 		myprintf("03234: filebatch %s\n", filebatch.c_str());
 
+	SetEnvironmentVariableW(L"ZPAQFRANZ_UPDEXE", utow(fullzpaqexename.c_str()).c_str());
+	SetEnvironmentVariableW(L"ZPAQFRANZ_UPDOLD", utow(vecchio.c_str()).c_str());
+	SetEnvironmentVariableW(L"ZPAQFRANZ_UPDNEW", utow(exefile.c_str()).c_str());
+	SetEnvironmentVariableW(L"ZPAQFRANZ_UPDIMAGE", utow(immagine.c_str()).c_str());
+
 	if (flagdebug3)
+	{
+		/// not run: what is needed to run it by hand
 		myprintf("01373: The file batch is <<%Z>>\n", filebatch.c_str());
-	else
-		waitexecutepadre(filebatch, "");
+		myprintf("03837: set \"ZPAQFRANZ_UPDEXE=%s\"\n", fullzpaqexename.c_str());
+		myprintf("03837: set \"ZPAQFRANZ_UPDOLD=%s\"\n", vecchio.c_str());
+		myprintf("03837: set \"ZPAQFRANZ_UPDNEW=%s\"\n", exefile.c_str());
+		myprintf("03837: set \"ZPAQFRANZ_UPDIMAGE=%s\"\n", immagine.c_str());
+		return 0;
+	}
+	/// cmd /d (no AutoRun) /c ""batch"", with the standard handles of this process (console, file or
+	/// pipe: no pipe of ours, as waitexecutepadre), so its messages go where ours go, even after this
+	/// process has been killed by its taskkill
+	wchar_t cartellasistema[MAX_PATH + 1];
+	UINT	lunghezza= GetSystemDirectoryW(cartellasistema, MAX_PATH);
+	if ((lunghezza == 0) || (lunghezza > MAX_PATH))
+	{
+		myprintf("03836! Cannot find the system folder (cmd.exe)\n");
+		return 2;
+	}
+	std::wstring		comando= std::wstring(cartellasistema) + L"\\cmd.exe";
+	std::wstring		riga   = L"cmd.exe /d /c \"\"" + utow(filebatch.c_str()) + L"\"\"";
+	STARTUPINFOW		si;
+	PROCESS_INFORMATION pi;
+	ZeroMemory(&si, sizeof(si));
+	si.cb= sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+	const DWORD standard[3]= {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE};
+	HANDLE		maniglie[3];
+	for (int i= 0; i < 3; i++)
+	{
+		maniglie[i]= GetStdHandle(standard[i]);
+		if ((maniglie[i] != NULL) && (maniglie[i] != INVALID_HANDLE_VALUE))
+			SetHandleInformation(maniglie[i], HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+	}
+	si.dwFlags|= STARTF_USESTDHANDLES;
+	si.hStdInput = maniglie[0];
+	si.hStdOutput= maniglie[1];
+	si.hStdError = maniglie[2];
+	myprintf("03867: This zpaqfranz now closes, the new one takes its place: a message only if that fails\n");
+	fflush(stdout);
+	fflush(stderr);
+	if (!CreateProcessW(comando.c_str(), &riga[0], NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+	{
+		myprintf("03836! Cannot run the update batch %s (error %u): nothing changed\n", filebatch.c_str(), (unsigned)GetLastError());
+		return 2;
+	}
+	CloseHandle(pi.hThread);
+	/// the taskkill of the batch ends this process here. If not (no taskkill.exe: XP Home), the batch
+	/// went on all the same (NTFS lets a running exe be renamed): is the exe now the new one?
+	WaitForSingleObject(pi.hProcess, INFINITE);
+	CloseHandle(pi.hProcess);
+	franz_do_hash dopo("SHA-256");
+	const int64_t dimensionedopo= prendidimensionefile(fullzpaqexename.c_str());
+	const string  hashdopo		= dopo.filehash(0, fullzpaqexename, false, mtime(), dimensionedopo);
+	if (stringtolower(hashdopo) == stringtolower(hashreloaded)) /// 65.19o: what was downloaded (== thesha256 when signed)
+	{
+		color_green();
+		myprintf("03838: %Z is now the new one (%s)\n", fullzpaqexename.c_str(), theversion.empty() ? "version unknown" : theversion.c_str());
+		color_restore();
+		return 0;
+	}
+	myprintf("03839! %Z is NOT the new one: see the messages of the batch above\n", fullzpaqexename.c_str());
+	return 2;
 #endif // corresponds to #ifdef (#ifdef unix)
 
 #endif // corresponds to #if (#if defined(SOLARIS) || defined(__HAIKU__))
 	return 0;
 }
+#else
+/// 65.20a: -DNOUPDATE. Nothing downloaded, nothing checked: whoever built it updates it (a package manager)
+int Jidac::update()
+{
+	myprintf("03875! update: not in this build (NOUPDATE): update zpaqfranz the way it was installed (the packages of the system)\n");
+	return 2;
+}
+#endif // NOUPDATE
 
 #ifdef _WIN32
 int Jidac::download()
@@ -214525,7 +216222,7 @@ int Jidac::kickstart()
 
 	std::vector<risorse> elenco;
 	kickstart_elenco(elenco);
-	const std::string base_url= "http://www.francocorbelli.it/zpaqfranz/win64/";
+	const std::string base_url= franzsito("win64/"); /// 65.19c: https (-nohttps: http)
 	HMODULE			  hExe	  = GetModuleHandle(NULL);
 	/// a zpaqfranz-full has the resources linked in: one is enough to know
 	const bool full= (hExe != NULL) && (FindResource(hExe, MAKEINTRESOURCE(elenco[0].number), RT_RCDATA) != NULL);
@@ -214584,7 +216281,7 @@ int Jidac::kickstart()
 		{
 			const string url= base_url + r.filename;
 			myprintf("60281: Download %s\n", url.c_str());
-			fatto= downloadfile(url + "?" + generaterandomstring(10), dest, true);
+			fatto= downloadfile_sito(url + "?" + generaterandomstring(10), dest, true);
 			myprintf("\n");
 		}
 		if (!fatto)
@@ -214702,7 +216399,7 @@ int Jidac::crop()
 	if (!flagkill)
 	{
 		myprintf("03267: no -kill, this is just a dry run\n");
-		return 0;
+		return (errors > 0) ? 1 : 0; /// 65.20k: a damaged archive (72415!) was exit code 0. As l: a WARNING
 	}
 	int64_t archivesize= prendidimensionefile(archive.c_str());
 	if (maxsize > 0)
@@ -217251,6 +218948,42 @@ int Jidac::testverify()
 		myprintf("03342: due to -search/replace fixing the filenames\n");
 		rename_a_dtmap(dt);
 	}
+#ifdef _WIN32
+	/*
+		65.20v (B024): t x.zpaq lunghi -longpath scanned lunghi by its plain name: Windows stops at MAX_PATH, the
+		long files "not on disk" (66861). Scanned in the extended form (//?/w:/here/lunghi/), the names back to
+		the ones a writes (lunghi/... for a plain relative folder, w:/here/lunghi/... otherwise) by rename(),
+		files[i] => tofiles[i]. Not with -to, not with wildcards (as before)
+	*/
+	if (flaglongpath && (tofiles.size() == 0) && (searchfrom == "") && (replaceto == ""))
+	{
+		bool fattibile= true;
+		for (unsigned i= 0; i < files.size(); ++i)
+			if ((files[i] == "") || (mypos("*", files[i]) != -1) || (mypos("?", files[i]) != -1) || iswindowsunc(files[i]) || islongpath(files[i]) || islonguncpath(files[i]))
+				fattibile= false;
+		if (fattibile)
+			for (unsigned i= 0; i < files.size(); ++i)
+			{
+				string	   lungo	= forcelongpath(files[i]);
+				string	   scritto	= longpath_relativo(files[i]);
+				const bool cartella = direxists(files[i]);
+				myreplaceall(lungo, "\\", "/");
+				if (scritto == "")
+					scritto= islongpath(lungo) ? lungo.substr(4) : lungo;
+				if (cartella)
+				{
+					if (lungo[lungo.size() - 1] != '/')
+						lungo+= '/';
+					if (scritto[scritto.size() - 1] != '/')
+						scritto+= '/';
+				}
+				if (flagdebug3)
+					myprintf("66863: -longpath t: scan <<%Z>> as <<%Z>>\n", lungo.c_str(), scritto.c_str());
+				files[i]= lungo;
+				tofiles.push_back(scritto);
+			}
+	}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
 
 	uint64_t howmanyfiles= 0;
 	g_bytescanned		 = 0;
@@ -217627,6 +219360,14 @@ int Jidac::sync()
 		return 2;
 	}
 	myprintf("03339: Comparing archive content to folder(s)\n");
+	/// 65.20i: sync x.zpaq nonesiste said "No delta (this is VERY GOOD)" and exit code 0: a script with a
+	/// wrong path thought it was all in sync. As t and c: what is not there is an error
+	for (unsigned i= 0; i < files.size(); ++i)
+		if ((files[i] == "") || ((!direxists(files[i])) && (!fileexists(files[i]))))
+		{
+			myprintf("66838! <<%Z>> does not exist: nothing to compare, nothing done\n", files[i].c_str());
+			return 2;
+		}
 
 	/*
 		command		='l';
@@ -217745,6 +219486,12 @@ int Jidac::sync()
 	}
 	else
 		myprintf("03593: External count %d\n", (int)externalfilelist.size());
+	/// 65.20i: nothing on either side (a path that exists, but not the one of the archive) is not "in sync"
+	if ((externalfilelist.size() == 0) && (internalfilelist.size() == 0))
+	{
+		myprintf("66839! Nothing compared (no file in the archive, none in the folder for these paths): not in sync\n");
+		return 2;
+	}
 
 	if ((externalfilelist.size() > 0) && (internalfilelist.size() > 0))
 	{
@@ -219800,12 +221547,12 @@ int Jidac::work()
 		string filebatch= g_gettempdirectory() + "resetacl.bat";
 		filebatch		= nomefileseesistegia(filebatch);
 		if (fileexists(filebatch))
-			if (remove(filebatch.c_str()) != 0)
+			if (!delete_file(filebatch.c_str()))
 			{
 				myprintf("95536! Highlander batch  %s\n", filebatch.c_str());
 				return 2;
 			}
-		FILE *batch= fopen(filebatch.c_str(), "wb");
+		FILE *batch= cri_fopen(filebatch.c_str(), "wb"); /// 65.19e: UTF-8 name (a TEMP with an accent)
 		if (batch == NULL)
 		{
 			myprintf("95342! cannot write on %s\n", filebatch.c_str());
@@ -220742,12 +222489,12 @@ int Jidac::external()
 	print_datetime();
 	myprintf("03448: Starting External \n");
 	if (fileexists(filebatch))
-		if (remove(filebatch.c_str()) != 0)
+		if (!delete_file(filebatch.c_str()))
 		{
 			myprintf("03449! Highlander batch  %s\n", filebatch.c_str());
 			return 2;
 		}
-	FILE *batch= fopen(filebatch.c_str(), "wb");
+	FILE *batch= cri_fopen(filebatch.c_str(), "wb"); /// 65.19e: UTF-8 name (a TEMP with an accent)
 	if (batch == NULL)
 	{
 		myprintf("03450! cannot write on %s\n", filebatch.c_str());
@@ -223889,7 +225636,9 @@ int Jidac::audit_add(const string &i_archivio, const vector<string> &i_da, const
 		g_franzen	 = "";
 		plainpassword= "";
 	}
+#ifndef NOFRANZEN /// 65.20a: g_franzen_filename exists only with Franzen (-DNOFRANZEN did not build: PR 358)
 	g_franzen_filename= "";
+#endif
 	jidacreset();
 	files		  = i_da;
 	tofiles		  = i_a;
@@ -223909,7 +225658,9 @@ int Jidac::audit_add(const string &i_archivio, const vector<string> &i_da, const
 	g_password		  = vecchiapassword;
 	g_franzen		  = vecchiofranzen;
 	plainpassword	  = vecchiachiaro;
+#ifndef NOFRANZEN
 	g_franzen_filename= "";
+#endif
 	return esito;
 }
 /// the zip of the public part: STORED, the names as in public_<node>.zpaq
@@ -226907,7 +228658,7 @@ int Jidac::extract()
 		fflush(stdout);
 		myprintf("\n");
 		myprintf("00969: Extracted %s files (%s errors) using %s bytes x %d threads\n",
-				 migliaia(extracted), migliaia3(errors), migliaia4((int64_t)job.maxMemory),
+				 migliaia(extracted), migliaia3(errors), migliaia4(memoria_int64(job.maxMemory)),
 				 int(tid.size()));
 	}
 #ifdef _WIN32
@@ -229517,6 +231268,13 @@ bool Jidac::isrealfile(const string &i_filename)
 int get_key()
 {
 #ifdef _WIN32
+	/// 65.20p: with stdin that is not a console (a pipe, a file, NUL) _getch() waited for a key that could never
+	/// come: tui and gui hung for ever (ls: 65.20m). I decided: as on *nix, the bytes of stdin, and its end is -1
+	if (isInputRedirected())
+	{
+		const int c= fgetc(stdin);
+		return (c == EOF) ? -1 : c;
+	}
 	int ch= _getch();
 	if (ch == 0 || ch == 224)
 	{
@@ -231183,10 +232941,29 @@ std::string get_line_with_tab_completion(franzfilesystem &fs)
 	const char	BACKSPACE= 8;
 	const char	ENTER	 = 13;
 
+	/// 65.20m: with stdin that is not a console (a pipe, a file, NUL: a script, ssh) _getch() waited for a key that
+	/// could never come, and ls hung forever. I decided: as on *nix, stdin is read and its end is exit.
+	/// GetConsoleMode, not _isatty: _isatty says yes for NUL too
+#ifdef _WIN32
+	DWORD	   modoconsole= 0;
+	const bool tastiera	  = (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &modoconsole) != 0);
+#endif
 	while (true)
 	{
 #ifdef _WIN32
-		c= _getch();
+		if (tastiera)
+			c= _getch();
+		else
+		{
+			c= fgetc(stdin);
+			if (c == EOF)
+			{
+				myprintf("\n");
+				if (current_input.empty())
+					return "exit";
+				break;
+			}
+		}
 #else
 		c= linux_getch();
 		if (c == EOF) // stdin closed: what was typed, then exit (instead of spinning forever)
@@ -231422,7 +233199,8 @@ int Jidac::ls()
 			myprintf("15328$ Type 'help' for list of commands\n");
 		}
 	}
-	return 0;
+	/// 65.20k: a damaged archive (72415! DAMAGED ARCHIVE when read) was exit code 0. As l: a WARNING
+	return (errors > 0) ? 1 : 0;
 }
 
 
@@ -233142,7 +234920,8 @@ int Jidac::tui()
 	command	  = 'l';
 	g_optional= "versum";
 
-	int64_t csize= read_archive(NULL, archive.c_str());
+	int		errors= 0; /// 65.20o: a damaged archive was exit code 0. As l (B002, 65.20k): a WARNING
+	int64_t csize = read_archive(NULL, archive.c_str(), &errors);
 	myprintf("\n");
 
 	if (csize == 0)
@@ -233163,7 +234942,7 @@ int Jidac::tui()
 	franztui fg(larghezza - 21, altezza - 6);
 	fg.process();
 	show_cursor();
-	return 0;
+	return (errors > 0) ? 1 : 0;
 }
 /*
 	65.9y: franzscegli, a file chooser on the FILE SYSTEM (franztui walks inside an archive), and what
@@ -238458,12 +240237,12 @@ int Jidac::maxcpu(int i_percent)
 	string filebatch= g_gettempdirectory() + "notb.bat";
 	filebatch		= nomefileseesistegia(filebatch);
 	if (fileexists(filebatch))
-		if (remove(filebatch.c_str()) != 0)
+		if (!delete_file(filebatch.c_str()))
 		{
 			myprintf("91673! Highlander batch  %s\n", filebatch.c_str());
 			return 2;
 		}
-	FILE *batch= fopen(filebatch.c_str(), "wb");
+	FILE *batch= cri_fopen(filebatch.c_str(), "wb"); /// 65.19e: UTF-8 name (a TEMP with an accent)
 	if (batch == NULL)
 	{
 		myprintf("92672! cannot write on %s\n", filebatch.c_str());
@@ -259331,7 +261110,7 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 	}
 #endif
 
-	if (flagramsize)
+	if (flagramsize && (g_ramsize > 0)) /// 65.20n: never a limit of 0 (getramdisksize() may give 0): a division by it
 		g_GLOBAL_RAM_LIMIT= g_ramsize;
 
 	bool restore_to_partition = (i_dest_partition != 0);
@@ -259562,6 +261341,32 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 			}
 		}
 	}
+	/// 65.20d (issue 357): the automatic cache (xc, the restores of an image: no -ramsize) was ALL the free RAM,
+	/// with nothing left for the workers: each one holds a block read, the block decompressed (growing), its copy
+	/// for the cache and the window of zstd (-m8: as big as the block). 65.20e: the free RAM less four blocks for
+	/// every worker and 1 GB, never below a quarter of the free RAM (65.20d took half of it less the same: on a VM
+	/// of 4 GB 256 MB, an image with its deduplication all over read again and again, 1 MB/s). If the memory runs
+	/// out all the same, the block is read again with a smaller cache (09190)
+	if (flagramsize && g_ramsizeauto)
+	{
+		int64_t piugrande= 0;
+		for (std::set<int>::iterator b= all_needed_blocks.begin(); b != all_needed_blocks.end(); ++b)
+		{
+			int64_t dentro= 0;
+			for (unsigned j= 0; (j < block[*b].frags) && (block[*b].start + j < ht.size()); j++)
+				if (ht[block[*b].start + j].usize > 0)
+					dentro+= ht[block[*b].start + j].usize;
+			if (dentro > piugrande)
+				piugrande= dentro;
+		}
+		int64_t		  limite= (int64_t)g_ramsize - (int64_t)howmanythreads * 4 * piugrande - ((int64_t)1 << 30);
+		const int64_t minimo= ((int64_t)(g_ramsize / 4) > ((int64_t)256 << 20)) ? (int64_t)(g_ramsize / 4) : ((int64_t)256 << 20);
+		if (limite < minimo)
+			limite= minimo;
+		g_GLOBAL_RAM_LIMIT= limite;
+	}
+	if ((g_ramtetto > 0) && (g_GLOBAL_RAM_LIMIT > g_ramtetto)) /// 65.20d: a worker found no memory before (a piece of xc)
+		g_GLOBAL_RAM_LIMIT= g_ramtetto;
 	if (!xcmuto)
 		myprintf("\n");
 
@@ -259641,6 +261446,8 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 	int				hash_ko			= 0;
 	int				folder_count	= 0;
 	int				frag_scartati	= 0;
+	int64_t			frammenti_persi = 0; /// 65.20d: no -recover, fragments that did not come out (03876): an ERROR
+	int64_t			byte_persi		= 0;
 	int				double_ok		= 0;
 	int				double_ko		= 0;
 
@@ -259769,11 +261576,20 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 						file_info.expectedsize+= lungperso;
 					}
 				}
+				else /// 65.20d: no -recover, it is missing from the output (it was skipped with no word)
+				{
+					const unsigned idperso= file_info.ptr[i];
+					if ((idperso > 0) && (idperso < ht.size()) && (ht[idperso].usize > 0))
+					{
+						frammenti_persi++;
+						byte_persi+= ht[idperso].usize;
+					}
+				}
 				continue;
 			}
 
 			pthread_mutex_lock(&cache_mutex);
-			int64_t cache_percent= (100 * ctx.current_cache_size) / g_GLOBAL_RAM_LIMIT;
+			int64_t cache_percent= (g_GLOBAL_RAM_LIMIT > 0) ? (100 * ctx.current_cache_size) / g_GLOBAL_RAM_LIMIT : 100; /// 65.20n: never / 0
 			pthread_mutex_unlock(&cache_mutex);
 
 			int dynamic_lookahead= PREFETCH_LOOKAHEAD;
@@ -259898,13 +261714,21 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 				pthread_mutex_unlock(&queue_mutex);
 
 				ctx.priority_block= current_needed_block;
-				ctx.main_waiting_blocks++;
+				ctx.main_waiting_blocks= ctx.main_waiting_blocks + 1;
 				pthread_cond_broadcast(&cond_cache_not_full);
 
-				int wait_iter= 0;
+				int		wait_iter	= 0;
+				int64_t memoriavista= ctx.memoria_finita; /// 65.20d
 				while (ctx.block_cache.find(current_needed_block) == ctx.block_cache.end() && !ctx.shutdown)
 				{
 					pthread_cond_wait(&cond_block_ready, &cache_mutex);
+					if (ctx.memoria_finita != memoriavista) /// 65.20d: a worker found no memory (09190)
+					{
+						memoriavista= ctx.memoria_finita;
+						cache_svuota_per_memoria(&ctx, current_needed_block);
+						scan_finito= false; /// blocks still needed thrown away, as 65.8z9
+						scan_davoce= -1;
+					}
 					if (++wait_iter % 100 == 0)
 					{
 						if (flagdebug)
@@ -259913,7 +261737,7 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 				}
 
 				ctx.priority_block= -1;
-				ctx.main_waiting_blocks--;
+				ctx.main_waiting_blocks= ctx.main_waiting_blocks - 1;
 			}
 
 			if (ctx.block_cache.find(current_needed_block) != ctx.block_cache.end())
@@ -259936,6 +261760,17 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 				{
 					global_bytes_written+= lungperso;
 					file_info.expectedsize+= lungperso;
+				}
+			}
+			if ((ctx.frag_stato == NULL) && ((block_data == NULL) || block_data->empty()))
+			{
+				/// 65.20d (issue 357): no -recover, nothing came out of its block (09188, 09189): this fragment is missing
+				/// from the output. It was skipped with no word: xc found a piece shorter than the backup (66180)
+				const unsigned idperso= file_info.ptr[i];
+				if ((idperso < ht.size()) && (ht[idperso].usize > 0))
+				{
+					frammenti_persi++;
+					byte_persi+= ht[idperso].usize;
 				}
 			}
 
@@ -259986,6 +261821,11 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 						global_bytes_written+= frag_len;
 						file_info.expectedsize+= frag_len;
 					}
+				}
+				else if (frag_len > 0) /// 65.20d: no -recover, the block ends before this fragment: missing (was: no word)
+				{
+					frammenti_persi++;
+					byte_persi+= frag_len;
 				}
 				else
 				{
@@ -260401,6 +262241,8 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 		}
 		else if ((danni == 1) && (result < 1))
 			result= 1;
+		if (estrazione_mancanti(frammenti_persi, byte_persi, ctx, true) == 2) /// 65.20d: xc comes here (issue 357)
+			result= 2;
 		return result;
 	}
 
@@ -260423,7 +262265,10 @@ int Jidac::extractstdout(char i_dest_partition, const string &i_rawfilename)
 				myprintf("05553: %08d All zero hash for <<%Z>>\n", i + 1, allzero[i]->first.c_str());
 
 	int risultato=0;
-	
+
+	if (estrazione_mancanti(frammenti_persi, byte_persi, ctx, !flagstdout) == 2) /// 65.20d (-stdout: the data go there)
+		risultato= 2;
+
 	if (flagverbose) /// same as above: hundreds of lines, one number
 		for (unsigned int i= 0; i < nohash.size(); i++)
 			myprintf("05551: %08d No hash for        <<%Z>>\n", i + 1, nohash[i]->first.c_str());
@@ -262522,6 +264367,15 @@ int Jidac::testparametriadd()
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 
 #ifdef _WIN32
+	/// 65.19n (issue 355): with -stdin the name is a label, not a file on the disk. -longpath made it
+	/// //?/C:/folder/name, with C:/folder/ in tofiles: the stream was stored as the FOLDER C:/folder/
+	/// (the name lost, l showed a dir). The name stays as written, as without -longpath
+	if (flagstdin && flaglongpath)
+	{
+		flaglongpath= false;
+		myprintf("03855: -longpath ignored with -stdin (the name is a label, not a file on the disk)\n");
+	}
+
 	if (!flaglongpath)
 		if (tofiles.size() == 0)
 			for (unsigned int i= 0; i < files.size(); i++)
@@ -262552,6 +264406,7 @@ int Jidac::testparametriadd()
 				for (unsigned int i= 0; i < files.size(); i++)
 					myprintf("01889: Before paths %d %s\n", (int)i, files[i].c_str());
 
+			const vector<string> originali= files; /// 65.20v (B024): the names as written, for longpath_relativo()
 			for (unsigned int i= 0; i < files.size(); i++)
 				if ((!iswindowspath(files[i])) && (!iswindowsunc(files[i])))
 					files[i]= relativetolongpath(files[i]);
@@ -262595,6 +264450,8 @@ int Jidac::testparametriadd()
 							return 1;
 						}
 						string tobepushed= (files[i]);
+						if (longpath_relativo(originali[i]) != "") /// 65.20v (B024): relative stays relative
+							tobepushed= longpath_relativo(originali[i]);
 						tofiles.push_back(tobepushed);
 						if (flagdebug3)
 						{
@@ -262657,6 +264514,15 @@ int Jidac::testparametriadd()
 						if (isalpha(files[i][0]))
 						{
 							string tobepushed= extractfilepath(files[i]);
+							/// 65.20v (B024): a relative folder stays relative in the archive (lunghi/...), as
+							/// without -longpath. Only when the scan gave the folder itself (files[i] ending with /)
+							const string relativo= longpath_relativo(originali[i]);
+							if ((relativo != "") && (tobepushed == files[i]))
+							{
+								tobepushed= relativo;
+								if (tobepushed[tobepushed.size() - 1] != '/')
+									tobepushed+= '/';
+							}
 							if (flagdebug3)
 								myprintf("01909: pusho on tofiles |%s|\n", tobepushed.c_str());
 							tofiles.push_back(tobepushed);
@@ -262727,64 +264593,1098 @@ int Jidac::testparametriadd()
 	return 0;
 }
 
+#ifdef ZPAQFULL /// NOSFTPSTART
+#ifdef _WIN32
+#include <tlhelp32.h>
+#include <sddl.h>
+/*
+	65.20y: -thunderbird, the mail of Thunderbird from a PC to another one, nothing to set up again
+	  a z:\copia.zpaq -thunderbird [-all] [-kill] [-frugal]   (old PC)
+	  x z:\copia.zpaq -thunderbird [-to user]                (new PC, after a clean install of Thunderbird)
+	Here every piece of it. Paths: UTF-8 with /, a folder with a / at the end, as the rest of zpaqfranz.
+	A user is a profile folder of Windows (C:/Users/franco): its AppData/Roaming/Thunderbird (the profiles, the mail)
+	and AppData/Local/Thunderbird (caches of the profiles), and the profiles of profiles.ini with IsRelative=0 (an
+	absolute path, anywhere: without them the backup is not the whole mail)
+*/
+struct tb_utente
+{
+	string nome;	/// the folder of the profile (franco)
+	string account; /// the account of the SID (franco): the folder can be franco.PC2
+	string radice;	/// C:/Users/franco (no / at the end)
+	string roaming; /// C:/Users/franco/AppData/Roaming/Thunderbird/
+	string local;	/// C:/Users/franco/AppData/Local/Thunderbird/
+};
+
+/*
+	-frugal with -thunderbird: what Thunderbird makes again by itself, and nothing else (when in doubt, it is kept).
+	ONE table, to change it here. nome: an entry of the folder (* and ? as -not; case does not count); dove:
+	  'P' at the top of every profile (Roaming/Thunderbird/Profiles/x, Local/Thunderbird/Profiles/x, absolute ones)
+	  'L' at the top of Local/Thunderbird and of its profiles (the Cache there)
+	  'R' at the top of Roaming/Thunderbird
+	Only the top of those folders, never below: a mail folder called "crashes" or "x.tmp" (ImapMail/server/crashes) is
+	mail, and stays
+*/
+struct tb_spazzatura_t
+{
+	const char *nome;
+	char		dove;
+	const char *perche;
+};
+static const tb_spazzatura_t g_tb_spazzatura[]= {
+	{"cache2", 'P', "HTTP cache"},
+	{"startupCache", 'P', "startup cache"},
+	{"OfflineCache", 'P', "offline cache"},
+	{"crashes", 'P', "crash reports"},
+	{"minidumps", 'P', "crash dumps"},
+	{"lock", 'P', "lock (*nix)"},
+	{".parentlock", 'P', "lock (*nix, macOS)"},
+	{"parent.lock", 'P', "lock (Windows)"},
+	{"*.tmp", 'P', "temporary file"},
+	{"Cache", 'L', "cache in Local"},
+	{"Crash Reports", 'R', "crash reports"},
+	{NULL, 0, NULL}};
+
+/// C:\Users\franco\ => C:/Users/franco (no / at the end, but C:/)
+static string tb_barre(string i_s)
+{
+	myreplaceall(i_s, "\\", "/");
+	while ((i_s.size() > 3) && (i_s[i_s.size() - 1] == '/'))
+		i_s.resize(i_s.size() - 1);
+	return i_s;
+}
+static string tb_ultimo(const string &i_s)
+{
+	const string s	  = tb_barre(i_s);
+	const size_t barra= s.rfind('/');
+	return (barra == string::npos) ? s : s.substr(barra + 1);
+}
+/// the same path for Windows: case and separators do not count
+static bool tb_uguali(const string &i_a, const string &i_b)
+{
+	return stringtolower(tb_barre(i_a)) == stringtolower(tb_barre(i_b));
+}
+/// i_figlio is i_padre or below it (separators and case do not count)
+static bool tb_sotto(const string &i_figlio, const string &i_padre)
+{
+	const string f= stringtolower(tb_barre(i_figlio)) + "/";
+	const string p= stringtolower(tb_barre(i_padre)) + "/";
+	return f.compare(0, p.size(), p) == 0;
+}
+static string tb_espandi(const wchar_t *i_s)
+{
+	static wchar_t buffer[32768];
+	const DWORD	   n= ExpandEnvironmentStringsW(i_s, buffer, 32768);
+	if ((n == 0) || (n > 32768))
+		return wtou(i_s);
+	return wtou(buffer);
+}
+static string tb_ambiente(const wchar_t *i_nome)
+{
+	static wchar_t buffer[32768];
+	const DWORD	   n= GetEnvironmentVariableW(i_nome, buffer, 32768);
+	if ((n == 0) || (n >= 32768))
+		return "";
+	return wtou(buffer);
+}
+static bool tb_nonutente(const string &i_nome)
+{
+	const string n= stringtolower(i_nome);
+	return (n == "public") || (n == "default") || (n == "default user") || (n == "all users") || (n == "");
+}
+/// 0 not there, 1 there and it can be listed, 2 access denied, 3 another error (o_errore)
+static int tb_leggibile(const string &i_cartella, DWORD &o_errore)
+{
+	o_errore					= 0;
+	const std::wstring w		= utow((tb_barre(i_cartella) + "/*").c_str());
+	WIN32_FIND_DATAW   fd;
+	HANDLE			   h= FindFirstFileW(w.c_str(), &fd);
+	if (h != INVALID_HANDLE_VALUE)
+	{
+		FindClose(h);
+		return 1;
+	}
+	o_errore= GetLastError();
+	if ((o_errore == ERROR_FILE_NOT_FOUND) || (o_errore == ERROR_PATH_NOT_FOUND))
+		return 0;
+	if (o_errore == ERROR_ACCESS_DENIED)
+		return 2;
+	return 3;
+}
+/// the entries of a folder (no . ..): name, and if it is a folder
+static void tb_elenco(const string &i_cartella, vector<string> &o_nomi, vector<bool> &o_cartelle)
+{
+	o_nomi.clear();
+	o_cartelle.clear();
+	const std::wstring w= utow((tb_barre(i_cartella) + "/*").c_str());
+	WIN32_FIND_DATAW   fd;
+	HANDLE			   h= FindFirstFileW(w.c_str(), &fd);
+	if (h == INVALID_HANDLE_VALUE)
+		return;
+	do
+	{
+		const string n= wtou(fd.cFileName);
+		if ((n == ".") || (n == ".."))
+			continue;
+		o_nomi.push_back(n);
+		o_cartelle.push_back((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0);
+	} while (FindNextFileW(h, &fd));
+	FindClose(h);
+}
+/// the group of the Administrators ENABLED in this token: what opens C:\Users\x of another user (its default ACL).
+/// isadmin() (TokenElevation) is not it: a token restricted (Administrators "deny only"), or UAC off, says elevated
+static bool tb_amministratore()
+{
+	BYTE  sid[SECURITY_MAX_SID_SIZE];
+	DWORD lunghezza= sizeof(sid);
+	if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, NULL, sid, &lunghezza))
+		return false;
+	BOOL membro= FALSE;
+	if (!CheckTokenMembership(NULL, sid, &membro))
+		return false;
+	return membro != FALSE;
+}
+/// the name of the account of a SID (S-1-5-21-...): "" if Windows does not know it
+static string tb_account(const wchar_t *i_sid)
+{
+	PSID sid= NULL;
+	if (!ConvertStringSidToSidW(i_sid, &sid))
+		return "";
+	wchar_t		 nome[256];
+	wchar_t		 dominio[256];
+	DWORD		 lnome	 = 256;
+	DWORD		 ldominio= 256;
+	SID_NAME_USE uso;
+	string		 r;
+	if (LookupAccountSidW(NULL, sid, nome, &lnome, dominio, &ldominio, &uso))
+		r= wtou(nome);
+	LocalFree(sid);
+	return r;
+}
+/*
+	The users of the PC, from the registry (HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList), not from
+	C:\Users (a server, a profile moved, a domain account: the folder is where the registry says). Only the real
+	accounts: S-1-5-21-... (local, domain) and S-1-12-1-... (Entra ID); not SYSTEM, LOCAL/NETWORK SERVICE (S-1-5-18/19/
+	20), the virtual accounts of the services (S-1-5-80-...), a profile broken (.bak), Public, Default...
+	o_cartella: ProfilesDirectory (expanded)
+*/
+static void tb_profilelist(vector<tb_utente> &o_utenti, string &o_cartella)
+{
+	o_utenti.clear();
+	o_cartella= "";
+	HKEY h;
+	if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList", 0, KEY_READ, &h) != ERROR_SUCCESS)
+		return;
+	static wchar_t valore[4096];
+	DWORD		   tipo = 0;
+	DWORD		   bytes= sizeof(valore) - sizeof(wchar_t);
+	memset(valore, 0, sizeof(valore));
+	if ((RegQueryValueExW(h, L"ProfilesDirectory", NULL, &tipo, (LPBYTE)valore, &bytes) == ERROR_SUCCESS) && ((tipo == REG_SZ) || (tipo == REG_EXPAND_SZ)))
+		o_cartella= tb_barre(tb_espandi(valore));
+	for (DWORD i= 0;; i++)
+	{
+		wchar_t	   sid[256];
+		DWORD	   lsid= 256;
+		const LONG r   = RegEnumKeyExW(h, i, sid, &lsid, NULL, NULL, NULL, NULL);
+		if (r == ERROR_NO_MORE_ITEMS)
+			break;
+		if (r != ERROR_SUCCESS)
+			continue;
+		const string s= wtou(sid);
+		if ((s.compare(0, 9, "S-1-5-21-") != 0) && (s.compare(0, 9, "S-1-12-1-") != 0))
+			continue;
+		if ((s.size() > 4) && (stringtolower(s.substr(s.size() - 4)) == ".bak"))
+			continue;
+		HKEY hs;
+		if (RegOpenKeyExW(h, sid, 0, KEY_READ, &hs) != ERROR_SUCCESS)
+			continue;
+		tipo = 0;
+		bytes= sizeof(valore) - sizeof(wchar_t);
+		memset(valore, 0, sizeof(valore));
+		if ((RegQueryValueExW(hs, L"ProfileImagePath", NULL, &tipo, (LPBYTE)valore, &bytes) == ERROR_SUCCESS) && ((tipo == REG_SZ) || (tipo == REG_EXPAND_SZ)))
+		{
+			tb_utente u;
+			u.radice = tb_barre(tb_espandi(valore));
+			u.nome	 = tb_ultimo(u.radice);
+			u.account= tb_account(sid);
+			u.roaming= u.radice + "/AppData/Roaming/Thunderbird/";
+			u.local	 = u.radice + "/AppData/Local/Thunderbird/";
+			if ((u.radice.size() > 3) && (!tb_nonutente(u.nome)))
+				o_utenti.push_back(u);
+		}
+		RegCloseKey(hs);
+	}
+	RegCloseKey(h);
+}
+/// the user of the PC with that name (the account first, then the folder): -1 if none
+static int tb_trovautente(const vector<tb_utente> &i_utenti, const string &i_nome)
+{
+	for (size_t i= 0; i < i_utenti.size(); i++)
+		if ((i_utenti[i].account != "") && (stringtolower(i_utenti[i].account) == stringtolower(i_nome)))
+			return (int)i;
+	for (size_t i= 0; i < i_utenti.size(); i++)
+		if (stringtolower(i_utenti[i].nome) == stringtolower(i_nome))
+			return (int)i;
+	return -1;
+}
+/*
+	The second check of -all: the profiles of the registry against the folders of %SystemDrive%\Users. The same: not a
+	word. Not the same: a yellow warning (a server, profiles moved, an old folder of an account deleted...): the
+	registry is followed
+*/
+static void tb_doppiocontrollo(const vector<tb_utente> &i_utenti)
+{
+	string disco= tb_ambiente(L"SystemDrive");
+	if (disco == "")
+		disco= "C:";
+	const string   cartella= disco + "/Users";
+	vector<string> nomi;
+	vector<bool>   sonocartelle;
+	tb_elenco(cartella, nomi, sonocartelle);
+	std::set<string> dallacartella;
+	for (size_t i= 0; i < nomi.size(); i++)
+	{
+		if ((!sonocartelle[i]) || tb_nonutente(nomi[i]))
+			continue;
+		const DWORD attributi= GetFileAttributesW(utow((cartella + "/" + nomi[i]).c_str()).c_str());
+		if ((attributi != INVALID_FILE_ATTRIBUTES) && (attributi & FILE_ATTRIBUTE_REPARSE_POINT)) /// All Users, Default User...
+			continue;
+		dallacartella.insert(stringtolower(cartella + "/" + nomi[i]));
+	}
+	std::set<string> dalregistro;
+	for (size_t i= 0; i < i_utenti.size(); i++)
+		dalregistro.insert(stringtolower(i_utenti[i].radice));
+	if (dallacartella == dalregistro)
+		return;
+	color_yellow();
+	myprintf("66878$ -thunderbird -all: the profiles of the registry (ProfileList) and the folders of <<%Z>> are not the same (a server? profiles moved? an old folder?). I follow the registry\n", cartella.c_str());
+	for (std::set<string>::iterator p= dalregistro.begin(); p != dalregistro.end(); ++p)
+		if (dallacartella.find(*p) == dallacartella.end())
+			myprintf("66879$   only in the registry: <<%Z>>\n", p->c_str());
+	for (std::set<string>::iterator p= dallacartella.begin(); p != dallacartella.end(); ++p)
+		if (dalregistro.find(*p) == dalregistro.end())
+			myprintf("66879$   only in the folder:   <<%Z>>\n", p->c_str());
+	color_restore();
+}
+/// the text of a file (UTF-8), "" and false if it cannot be read
+static bool tb_leggifile(const string &i_file, string &o_testo)
+{
+	o_testo= "";
+	FILE *f= _wfopen(utow(i_file.c_str()).c_str(), L"rb");
+	if (f == NULL)
+		return false;
+	char   buffer[65536];
+	size_t letti;
+	while ((letti= fread(buffer, 1, sizeof(buffer), f)) > 0)
+		o_testo.append(buffer, letti);
+	const bool buono= (ferror(f) == 0);
+	fclose(f);
+	return buono;
+}
+static bool tb_scrivifile(const string &i_file, const string &i_testo)
+{
+	FILE *f= _wfopen(utow(i_file.c_str()).c_str(), L"wb");
+	if (f == NULL)
+		return false;
+	const bool buono= (fwrite(i_testo.data(), 1, i_testo.size(), f) == i_testo.size());
+	return (fclose(f) == 0) && buono;
+}
+/// profiles.ini of a Roaming/Thunderbird: the profiles with IsRelative=0 (an absolute Path), as folders with a /
+static void tb_profiliassoluti(const string &i_roaming, vector<string> &o_percorsi)
+{
+	o_percorsi.clear();
+	string testo;
+	if (!tb_leggifile(i_roaming + "profiles.ini", testo))
+		return;
+	if ((testo.size() >= 3) && ((unsigned char)testo[0] == 0xEF) && ((unsigned char)testo[1] == 0xBB) && ((unsigned char)testo[2] == 0xBF))
+		testo= testo.substr(3);
+	testo+= "\n[fine]\n"; /// the last section closed as the others
+	vector<string> righe;
+	explode(testo, '\n', righe);
+	bool   profilo= false;
+	string percorso;
+	string relativo;
+	for (size_t i= 0; i < righe.size(); i++)
+	{
+		string r= righe[i];
+		while ((r.size() > 0) && ((r[r.size() - 1] == '\r') || (r[r.size() - 1] == ' ')))
+			r.resize(r.size() - 1);
+		if ((r.size() > 0) && (r[0] == '['))
+		{
+			if (profilo && (relativo == "0") && (percorso != ""))
+				o_percorsi.push_back(tb_barre(percorso) + "/");
+			profilo = (stringtolower(r).compare(0, 8, "[profile") == 0);
+			percorso= "";
+			relativo= "";
+			continue;
+		}
+		const size_t uguale= r.find('=');
+		if (uguale == string::npos)
+			continue;
+		const string chiave= stringtolower(r.substr(0, uguale));
+		if (chiave == "path")
+			percorso= r.substr(uguale + 1);
+		else if (chiave == "isrelative")
+			relativo= r.substr(uguale + 1);
+	}
+}
+/// the profile folders inside a Thunderbird folder (its Profiles/*)
+static void tb_profilidentro(const string &i_thunderbird, vector<string> &o_profili)
+{
+	vector<string> nomi;
+	vector<bool>   sonocartelle;
+	tb_elenco(i_thunderbird + "Profiles", nomi, sonocartelle);
+	for (size_t i= 0; i < nomi.size(); i++)
+		if (sonocartelle[i])
+			o_profili.push_back(i_thunderbird + "Profiles/" + nomi[i] + "/");
+}
+/// -frugal: the entries of the table (g_tb_spazzatura) found at the top of the folder, as -not
+static void tb_spazzatura(const string &i_cartella, char i_dove, vector<string> &o_not, int64_t &o_quante)
+{
+	vector<string> nomi;
+	vector<bool>   sonocartelle;
+	tb_elenco(i_cartella, nomi, sonocartelle);
+	for (size_t i= 0; i < nomi.size(); i++)
+		for (int k= 0; g_tb_spazzatura[k].nome != NULL; k++)
+			if ((g_tb_spazzatura[k].dove == i_dove) && ispath(g_tb_spazzatura[k].nome, nomi[i].c_str()))
+			{
+				const string via= i_cartella + nomi[i] + (sonocartelle[i] ? "/" : "");
+				o_not.push_back(via);
+				o_quante++;
+				if (flagverbose)
+					myprintf("66873: -frugal (%s): <<%Z>>\n", g_tb_spazzatura[k].perche, via.c_str());
+				break;
+			}
+}
+/// thunderbird.exe running (every session that can be seen)
+static int tb_inesecuzione()
+{
+	int	   quanti= 0;
+	HANDLE snap	 = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (snap == INVALID_HANDLE_VALUE)
+		return 0;
+	PROCESSENTRY32W pe;
+	pe.dwSize= sizeof(pe);
+	if (Process32FirstW(snap, &pe))
+		do
+		{
+			if (_wcsicmp(pe.szExeFile, L"thunderbird.exe") == 0)
+				quanti++;
+		} while (Process32NextW(snap, &pe));
+	CloseHandle(snap);
+	return quanti;
+}
+/*
+	Every thunderbird.exe killed, of every user (another session: only an elevated administrator can), and waited
+	for (a file is free when the process is gone). No .bat in a temporary folder (taskkill, as before 65.20y: a temp
+	folder with a name not ASCII, and nothing said if it did not work). Returns how many are still there
+*/
+static int tb_uccidi(int &o_uccisi)
+{
+	o_uccisi   = 0;
+	HANDLE snap= CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (snap != INVALID_HANDLE_VALUE)
+	{
+		PROCESSENTRY32W pe;
+		pe.dwSize= sizeof(pe);
+		if (Process32FirstW(snap, &pe))
+			do
+			{
+				if (_wcsicmp(pe.szExeFile, L"thunderbird.exe") != 0)
+					continue;
+				HANDLE h= OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID);
+				if (h == NULL)
+					continue; /// gone already (a child of one killed), or not ours: counted below
+				if (TerminateProcess(h, 1))
+					if (WaitForSingleObject(h, 15000) == WAIT_OBJECT_0)
+						o_uccisi++;
+				CloseHandle(h);
+			} while (Process32NextW(snap, &pe));
+		CloseHandle(snap);
+	}
+	for (int i= 0; (i < 20) && (tb_inesecuzione() > 0); i++) /// the children go away with the parent
+		Sleep(250);
+	return tb_inesecuzione();
+}
+/// -kill: Thunderbird closed (killed). false if some is still there
+static bool tb_chiudi(bool i_dillo)
+{
+	if (tb_inesecuzione() == 0)
+		return true;
+	int		  uccisi  = 0;
+	const int rimasti= tb_uccidi(uccisi);
+	if (i_dillo || (rimasti > 0))
+		myprintf("66874: Thunderbird killed (%d process(es))\n", uccisi);
+	if (rimasti > 0)
+	{
+		color_red();
+		myprintf("66880! %d thunderbird.exe still running (of another user? an elevated administrator can close them)\n", rimasti);
+		color_restore();
+		return false;
+	}
+	return true;
+}
+/*
+	After x -thunderbird into ANOTHER user (or the same one with its profile somewhere else): the absolute paths of
+	the old one in prefs.js (mail.server.*.directory, mail.root.*, signatures...) and profiles.ini (IsRelative=0)
+	become the ones of the new one. The *-rel prefs ([ProfD]ImapMail/...) are relative: nothing to do. The three
+	ways a path is written there: C:\\Users\\tizio (prefs.js, a JavaScript string), C:\Users\tizio (profiles.ini),
+	C:/Users/tizio (file:/// URLs). Case does not count; only a whole name (C:\Users\tizio2 is not tizio). A copy
+	.bak first. Returns -1 error, else how many changed
+*/
+static int tb_correggi(const string &i_file, const string &i_vecchia, const string &i_nuova)
+{
+	string testo;
+	if (!tb_leggifile(i_file, testo))
+		return -1;
+	const string v= tb_barre(i_vecchia);
+	const string n= tb_barre(i_nuova);
+	string		 vecchi[3];
+	string		 nuovi[3];
+	vecchi[0]= v;
+	nuovi[0] = n;
+	myreplaceall(vecchi[0], "/", "\\\\");
+	myreplaceall(nuovi[0], "/", "\\\\");
+	vecchi[1]= v;
+	nuovi[1] = n;
+	myreplaceall(vecchi[1], "/", "\\");
+	myreplaceall(nuovi[1], "/", "\\");
+	vecchi[2]= v;
+	nuovi[2] = n;
+	int	   cambi = 0;
+	string minuscolo= stringtolower(testo);
+	for (int k= 0; k < 3; k++)
+	{
+		const string cerca= stringtolower(vecchi[k]);
+		size_t		 da	  = 0;
+		for (;;)
+		{
+			const size_t trovato= minuscolo.find(cerca, da);
+			if (trovato == string::npos)
+				break;
+			const size_t dopo = trovato + cerca.size();
+			const char	 segue= (dopo < testo.size()) ? testo[dopo] : 0;
+			if ((segue == 0) || (segue == '\\') || (segue == '/') || (segue == '"') || (segue == '\'') || (segue == '\r') || (segue == '\n') || (segue == ';') || (segue == ','))
+			{
+				testo.replace(trovato, cerca.size(), nuovi[k]);
+				minuscolo.replace(trovato, cerca.size(), stringtolower(nuovi[k]));
+				da= trovato + nuovi[k].size();
+				cambi++;
+			}
+			else
+				da= dopo;
+		}
+	}
+	if (cambi == 0)
+		return 0;
+	const string copia= nomefileseesistegia(i_file + ".bak");
+	string		 originale;
+	if ((!tb_leggifile(i_file, originale)) || (!tb_scrivifile(copia, originale)))
+		return -1;
+	if (!tb_scrivifile(i_file, testo))
+		return -1;
+	myprintf("66881: <<%Z>>: %d path(s) of <<%Z>> now <<%Z>> (the old one: <<%Z>>)\n", i_file.c_str(), cambi, v.c_str(), n.c_str(), copia.c_str());
+	return cambi;
+}
+/// the prefs.js of a restored Thunderbird folder: at the top (an absolute profile) and in Profiles/*/
+static void tb_trovaprefs(const string &i_cartella, vector<string> &o_prefs)
+{
+	if (fileexists(i_cartella + "prefs.js"))
+		o_prefs.push_back(i_cartella + "prefs.js");
+	vector<string> profili;
+	tb_profilidentro(i_cartella, profili);
+	for (size_t i= 0; i < profili.size(); i++)
+		if (fileexists(profili[i] + "prefs.js"))
+			o_prefs.push_back(profili[i] + "prefs.js");
+}
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+#endif /// NOSFTPEND
+
+/*
+	a -thunderbird: the folders of the mail in place of the ones given (65.20y)
+	  a z:\copia.zpaq -thunderbird               the user running zpaqfranz (%APPDATA% %LOCALAPPDATA%)
+	  a z:\copia.zpaq c:\users\franco -thunderbird   the user of that profile folder (as before 65.20y)
+	  a z:\copia.zpaq -thunderbird -all          every user of the PC (the registry), an elevated administrator
+	-kill closes Thunderbird first (open, its files change while they are read), -frugal leaves out what Thunderbird
+	makes again (g_tb_spazzatura). In the archive the paths as they are: the name of the user is in them
+	(C:/Users/franco/AppData/Roaming/Thunderbird/...), x -thunderbird finds the users from there
+*/
 int Jidac::gestiscithunderbird()
 {
 #ifdef ZPAQFULL /// NOSFTPSTART
 #ifdef _WIN32
-	if (flagthunderbird)
+	if (!flagthunderbird)
+		return 0;
+	/// -all of a: here "every user". For l x it is "every version", and read_archive (later, for the archive
+	/// written) would put fake folders 0001/ 0002/ in the list of the archive: taken away
+	const bool tutti= (all > 0);
+	all				= 0;
+	g_thunderbird_saltati.clear();
+	vector<tb_utente> utenti;
+	if (tutti)
 	{
-		vector<string> thunfiles;
-
-		for (unsigned int i= 0; i < files.size(); i++)
+		if (files.size() > 0)
 		{
-			string temp		 = includetrailingbackslash(files[i]);
-			string applocal	 = temp + "appdata/local/thunderbird/";
-			string approaming= temp + "appdata/roaming/thunderbird/";
-			if ((direxists(applocal)) && (direxists(approaming)))
-			{
-				thunfiles.push_back(applocal);
-				thunfiles.push_back(approaming);
-			}
-			else
-				myprintf("01849: Cannot find thunderbird\n");
-		}
-		if (thunfiles.size() == 0)
-		{
-			myprintf("01850! Sorry, no Thunderbird folders added, quit!\n");
+			myprintf("66882! -thunderbird -all takes no folders (every user is found by itself): nothing done\n");
 			return 2;
 		}
-		files.clear();
-		for (unsigned int i= 0; i < thunfiles.size(); i++)
+		if (!tb_amministratore())
 		{
-			if (flagverbose)
-			{
-				myprintf("01851: Thunderbird folder %08d %Z\n", i, thunfiles[i].c_str());
-			}
-			files.push_back(thunfiles[i]);
+			color_yellow();
+			myprintf("66883$ -thunderbird -all, NOT an elevated administrator: the mail of the other users cannot be read (Windows keeps their folders closed)\n");
+			color_restore();
 		}
-		if (flagkill)
+		string cartellaprofili;
+		tb_profilelist(utenti, cartellaprofili);
+		if (utenti.size() == 0)
 		{
-			string filesubba= g_gettempdirectory() + "thunkil.bat";
-			filesubba		= nomefileseesistegia(filesubba);
-			if (fileexists(filesubba))
-				if (remove(filesubba.c_str()) != 0)
-					error("Highlander thunkil.bat");
-			FILE *subbatch= fopen(filesubba.c_str(), "wb");
-			if (subbatch == NULL)
-			{
-				myprintf("01852: cannot write filesubba %s\n", filesubba.c_str());
-				seppuku();
-			}
+			myprintf("66884! -thunderbird -all: no user in the registry (ProfileList): nothing done\n");
+			return 2;
+		}
+		tb_doppiocontrollo(utenti);
+	}
+	else if (files.size() > 0)
+	{
+		/// as before 65.20y: profile folders (c:/users/franco)
+		for (size_t i= 0; i < files.size(); i++)
+		{
+			tb_utente u;
+			u.radice = tb_barre(files[i]);
+			u.nome	 = tb_ultimo(u.radice);
+			u.roaming= u.radice + "/AppData/Roaming/Thunderbird/";
+			u.local	 = u.radice + "/AppData/Local/Thunderbird/";
+			utenti.push_back(u);
+		}
+	}
+	else
+	{
+		/// who runs zpaqfranz: its folders as Windows says (AppData can be redirected elsewhere)
+		tb_utente	 u;
+		const string roaming= tb_ambiente(L"APPDATA");
+		const string local	= tb_ambiente(L"LOCALAPPDATA");
+		u.radice			= tb_barre(tb_ambiente(L"USERPROFILE"));
+		u.nome				= tb_ambiente(L"USERNAME");
+		if (u.nome == "")
+			u.nome= tb_ultimo(u.radice);
+		if ((roaming == "") && (u.radice == ""))
+		{
+			myprintf("66885! -thunderbird: %%APPDATA%% and %%USERPROFILE%% are not there: which user? Nothing done\n");
+			return 2;
+		}
+		u.roaming= ((roaming != "") ? tb_barre(roaming) : (u.radice + "/AppData/Roaming")) + "/Thunderbird/";
+		u.local	 = ((local != "") ? tb_barre(local) : (u.radice + "/AppData/Local")) + "/Thunderbird/";
+		utenti.push_back(u);
+	}
 
-			fprintf(subbatch, "@taskkill /f /im thunderbird.exe\n");
-			fclose(subbatch);
-			waitexecute(filesubba, "", SW_HIDE);
-			remove_temp_file(filesubba);
+	vector<string> cartelle;	  /// what goes in the archive
+	vector<string> profili;		  /// the profiles (for -frugal)
+	vector<string> profililocal;  /// the profiles in Local (for -frugal, the Cache there)
+	vector<string> radiciroaming; /// Roaming/Thunderbird (for -frugal, Crash Reports)
+	vector<string> radicilocal;
+	int			   senza= 0; /// users with no Thunderbird
+	for (size_t i= 0; i < utenti.size(); i++)
+	{
+		const tb_utente &u= utenti[i];
+		DWORD			 erroreroaming= 0;
+		DWORD			 errorelocal  = 0;
+		const int		 roaming	  = tb_leggibile(u.roaming, erroreroaming);
+		const int		 local		  = tb_leggibile(u.local, errorelocal);
+		if ((roaming >= 2) || (local >= 2))
+		{
+			/// the delicate point: the mail of somebody else. Windows lets an elevated administrator read the
+			/// profile of another user (Administrators have full control on C:\Users\x, by default); a standard
+			/// user, or an administrator not elevated (UAC), no. Not forced (no ownership taken, no ACL changed)
+			const DWORD	 errore= (roaming >= 2) ? erroreroaming : errorelocal;
+			const string perche= ((roaming == 2) || (local == 2)) ? "access denied (zpaqfranz must run as an elevated administrator)" : decodewinerror(errore, "", false);
+			color_yellow();
+			myprintf("66886$ Thunderbird of <<%Z>>: %s: skipped\n", u.nome.c_str(), perche.c_str());
+			color_restore();
+			g_thunderbird_saltati.push_back(u.nome + ": " + perche);
+			continue;
 		}
+		if ((roaming == 0) && (local == 0))
+		{
+			senza++;
+			if ((!tutti) || flagverbose)
+				myprintf("01849: Cannot find Thunderbird of <<%Z>> (%Z)\n", u.nome.c_str(), u.roaming.c_str());
+			continue;
+		}
+		myprintf("66887: Thunderbird of <<%Z>>\n", u.nome.c_str());
+		if (roaming == 1)
+		{
+			cartelle.push_back(u.roaming);
+			radiciroaming.push_back(u.roaming);
+			tb_profilidentro(u.roaming, profili);
+			/// the profiles of profiles.ini with an absolute path, outside Roaming/Thunderbird: without them the
+			/// backup is not the whole mail
+			vector<string> assoluti;
+			tb_profiliassoluti(u.roaming, assoluti);
+			for (size_t k= 0; k < assoluti.size(); k++)
+			{
+				if (tb_sotto(assoluti[k], u.roaming) || tb_sotto(assoluti[k], u.local))
+					continue;
+				DWORD	  errore= 0;
+				const int stato = tb_leggibile(assoluti[k], errore);
+				if (stato == 1)
+				{
+					myprintf("66888: Thunderbird of <<%Z>>: the profile <<%Z>> (absolute, in profiles.ini)\n", u.nome.c_str(), assoluti[k].c_str());
+					bool gia= false;
+					for (size_t j= 0; j < cartelle.size(); j++)
+						if (tb_uguali(cartelle[j], assoluti[k]))
+							gia= true;
+					if (!gia)
+					{
+						cartelle.push_back(assoluti[k]);
+						profili.push_back(assoluti[k]);
+					}
+				}
+				else
+				{
+					const string perche= (stato == 0) ? "not there" : ((stato == 2) ? "access denied" : decodewinerror(errore, "", false));
+					color_yellow();
+					myprintf("66889$ Thunderbird of <<%Z>>: the profile <<%Z>> of profiles.ini: %s: skipped\n", u.nome.c_str(), assoluti[k].c_str(), perche.c_str());
+					color_restore();
+					g_thunderbird_saltati.push_back(u.nome + ": the profile " + assoluti[k] + " (" + perche + ")");
+				}
+			}
+		}
+		if (local == 1)
+		{
+			cartelle.push_back(u.local);
+			radicilocal.push_back(u.local);
+			tb_profilidentro(u.local, profililocal);
+		}
+	}
+	if (tutti && (senza > 0) && (!flagverbose))
+		myprintf("66890: %d user(s) with no Thunderbird\n", senza);
+	if (cartelle.size() == 0)
+	{
+		myprintf("01850! Sorry, no Thunderbird folders added, quit!\n");
+		return 2;
+	}
+	/// -kill: before the scan, every user (-all too)
+	if (flagkill)
+	{
+		if (!tb_chiudi(true))
+			g_thunderbird_saltati.push_back("thunderbird.exe still running: some files can be locked or changed");
+	}
+	else if (tb_inesecuzione() > 0)
+	{
+		color_yellow();
+		myprintf("66891$ Thunderbird is running: its files can change, or be locked, while they are read (-kill closes it first)\n");
+		color_restore();
+	}
+	/// -frugal with -thunderbird: only the table above. The -frugal of a (smaller franz blocks, to save RAM) is not
+	/// what is asked here: off
+	if (flagfrugal)
+	{
+		int64_t quante= 0;
+		for (size_t i= 0; i < profili.size(); i++)
+			tb_spazzatura(profili[i], 'P', notfiles, quante);
+		for (size_t i= 0; i < profililocal.size(); i++)
+		{
+			tb_spazzatura(profililocal[i], 'P', notfiles, quante);
+			tb_spazzatura(profililocal[i], 'L', notfiles, quante);
+		}
+		for (size_t i= 0; i < radicilocal.size(); i++)
+			tb_spazzatura(radicilocal[i], 'L', notfiles, quante);
+		for (size_t i= 0; i < radiciroaming.size(); i++)
+			tb_spazzatura(radiciroaming[i], 'R', notfiles, quante);
+		myprintf("66892: -frugal: %s cache/lock/temporary entries of Thunderbird left out (-verbose: which)\n", migliaia(quante));
+		flagfrugal= false;
+	}
+	files.clear();
+	tofiles.clear();
+	for (size_t i= 0; i < cartelle.size(); i++)
+	{
+		if (flagverbose)
+			myprintf("01851: Thunderbird folder %08d %Z\n", (int)i, cartelle[i].c_str());
+		if (flaglongpath)
+		{
+			/// the scan in the extended form (ImapMail can go over 260), the names as they are
+			files.push_back("//?/" + cartelle[i]);
+			tofiles.push_back(cartelle[i]);
+		}
+		else
+			files.push_back(cartelle[i]);
+	}
+	if (flaglongpath)
+	{
+		const size_t n= notfiles.size();
+		for (size_t i= 0; i < n; i++)
+			if ((notfiles[i].size() > 2) && (notfiles[i][1] == ':'))
+				notfiles.push_back("//?/" + notfiles[i]);
 	}
 #endif // corresponds to #ifdef (#ifdef _WIN32)
 #endif /// NOSFTPEND
 	return 0;
+}
+
+/*
+	x -thunderbird (65.20y): the mail of the archive back, NOT destroying what is there.
+	1. the users of the archive: the paths .../AppData/Roaming/Thunderbird/ and .../AppData/Local/Thunderbird/ (the
+	   folder before AppData is the user), and the profiles with an absolute path (a prefs.js outside them)
+	2. where: the user with the same name on this PC (the registry; not there: skipped, said), or -to user (one user
+	   in the archive only)
+	3. what is there already (the clean install of Thunderbird made its folders): Thunderbird killed, the folder
+	   renamed Thunderbird.001 (the first number free), checked. One rename that does not go: the ones done put
+	   back, NOTHING extracted, rc 2
+	4. the extraction (x, files => tofiles)
+	5. another place (another user, another folder): the paths of the old one in prefs.js and profiles.ini, .bak
+*/
+int Jidac::xthunderbird()
+{
+#ifdef ZPAQFULL /// NOSFTPSTART
+#ifdef _WIN32
+	if (all)
+	{
+		myprintf("66893! x -thunderbird restores the last version (or -until): -all is not for it\n");
+		return 2;
+	}
+	if (files.size() > 0)
+	{
+		myprintf("66894! x -thunderbird takes no files: it restores the Thunderbird folders of the archive\n");
+		return 2;
+	}
+	if (tofiles.size() > 1)
+	{
+		myprintf("66895! x -thunderbird: -to wants ONE user (-to caio)\n");
+		return 2;
+	}
+	string destinatario= (tofiles.size() == 1) ? tb_barre(tofiles[0]) : "";
+	while ((destinatario.size() > 0) && (destinatario[destinatario.size() - 1] == '/'))
+		destinatario.resize(destinatario.size() - 1);
+	if ((tofiles.size() == 1) && ((destinatario == "") || (destinatario.find('/') != string::npos) || (destinatario.find(':') != string::npos)))
+	{
+		myprintf("66896! x -thunderbird: -to is the name of a user of this PC (-to caio), not a folder <<%Z>>\n", tofiles[0].c_str());
+		return 2;
+	}
+
+	/// 1. the archive, read in a copy (extract() reads it again, with empty tables)
+	Jidac analisi(*this);
+	int	  errori= 0;
+	if (analisi.read_archive(NULL, archive.c_str(), &errori, 0, true) <= 0)
+	{
+		myprintf("66897! x -thunderbird: cannot read <<%Z>>\n", archive.c_str());
+		return 2;
+	}
+	if (errori > 0)
+	{
+		myprintf("66898! x -thunderbird: <<%Z>> has errors: nothing renamed, nothing extracted (t to see them)\n", archive.c_str());
+		return 2;
+	}
+	struct tb_xutente
+	{
+		string nome;
+		string radice;	/// as in the archive (C:/Users/franco)
+		string roaming; /// the prefix in the archive (C:/Users/franco/AppData/Roaming/Thunderbird/), "" none
+		string local;
+	};
+	vector<tb_xutente> autenti; /// of the archive
+	vector<string>	   altriprofili;
+	vector<string>	   altrinomi;
+	const string	   rr= "/appdata/roaming/thunderbird/";
+	const string	   rl= "/appdata/local/thunderbird/";
+	for (DTMap::iterator p= analisi.dt.begin(); p != analisi.dt.end(); ++p)
+	{
+		if (p->second.date == 0)
+			continue;
+		const string &nome	  = p->first;
+		const string  piccolo= stringtolower(nome);
+		size_t		  dove	  = piccolo.find(rr);
+		bool		  inroaming= (dove != string::npos);
+		if (!inroaming)
+			dove= piccolo.find(rl);
+		if (dove == string::npos)
+		{
+			if ((piccolo.size() > 9) && (piccolo.substr(piccolo.size() - 9) == "/prefs.js"))
+				altriprofili.push_back(extractfilepath(nome));
+			else if (!iszpaqfranzvirtualfile(nome))
+				altrinomi.push_back(nome);
+			continue;
+		}
+		const string radice	= nome.substr(0, dove);
+		const string prefisso= nome.substr(0, dove + (inroaming ? rr.size() : rl.size()));
+		size_t		 k		 = 0;
+		for (k= 0; k < autenti.size(); k++)
+			if (autenti[k].radice == radice)
+				break;
+		if (k == autenti.size())
+		{
+			tb_xutente u;
+			u.radice= radice;
+			u.nome	= tb_ultimo(radice);
+			autenti.push_back(u);
+		}
+		if (inroaming)
+			autenti[k].roaming= prefisso;
+		else
+			autenti[k].local= prefisso;
+	}
+	/// the absolute profiles: their prefs.js, but not one inside another one
+	std::sort(altriprofili.begin(), altriprofili.end());
+	altriprofili.erase(std::unique(altriprofili.begin(), altriprofili.end()), altriprofili.end());
+	int fuori= 0; /// names of the archive that are in none of them (not restored)
+	for (size_t i= 0; i < altrinomi.size(); i++)
+	{
+		bool dentro= false;
+		for (size_t k= 0; (k < altriprofili.size()) && (!dentro); k++)
+			if (tb_sotto(altrinomi[i], altriprofili[k]))
+				dentro= true;
+		for (size_t k= 0; (k < altriprofili.size()) && (!dentro); k++) /// the folders above a profile
+			if (tb_sotto(altriprofili[k], altrinomi[i]))
+				dentro= true;
+		if (!dentro)
+			fuori++;
+	}
+	if ((autenti.size() == 0) && (altriprofili.size() == 0))
+	{
+		myprintf("66899! x -thunderbird: no Thunderbird folder in <<%Z>> (made by a -thunderbird?)\n", archive.c_str());
+		return 2;
+	}
+	myprintf("66900: The archive has the Thunderbird of %s user(s)", migliaia((int64_t)autenti.size()));
+	for (size_t i= 0; i < autenti.size(); i++)
+		myprintf(" <<%Z>>", autenti[i].nome.c_str());
+	myprintf("\n");
+	for (size_t i= 0; i < altriprofili.size(); i++)
+		myprintf("66901: and the profile <<%Z>> (absolute)\n", altriprofili[i].c_str());
+	if (fuori > 0)
+		myprintf("66902$ %d name(s) of the archive are not in a Thunderbird folder: not restored\n", fuori);
+
+	/// 2. where
+	vector<tb_utente> pc;
+	string			  cartellaprofili;
+	tb_profilelist(pc, cartellaprofili);
+	if ((destinatario != "") && (autenti.size() != 1))
+	{
+		myprintf("66903! -to %s: the archive has %s users, -to wants one only. Nothing done\n", destinatario.c_str(), migliaia((int64_t)autenti.size()));
+		return 2;
+	}
+	struct tb_piano
+	{
+		string utente;
+		string da;		   /// prefix in the archive
+		string a;		   /// where on the disk (a / at the end)
+		string vecchiaradice; /// the paths to correct after (old => new), "" nothing
+		string nuovaradice;
+		bool   roaming;
+	};
+	vector<tb_piano> piani;
+	vector<string>	 utentisaltati;
+	for (size_t i= 0; i < autenti.size(); i++)
+	{
+		const tb_xutente &u	   = autenti[i];
+		const string	  chi  = (destinatario != "") ? destinatario : u.nome;
+		const int		  quale= tb_trovautente(pc, chi);
+		if (quale < 0)
+		{
+			color_yellow();
+			if (destinatario != "")
+			{
+				color_restore();
+				myprintf("66904! -to %s: no such user on this PC (the registry, ProfileList). Nothing done\n", destinatario.c_str());
+				return 2;
+			}
+			myprintf("66905$ <<%Z>> of the archive is not a user of this PC: skipped (-to user restores it into another one)\n", u.nome.c_str());
+			color_restore();
+			utentisaltati.push_back(u.nome + ": not a user here");
+			continue;
+		}
+		const tb_utente &t= pc[quale];
+		/// its folders of data must be there: the user logged on once (Windows makes them then)
+		if ((u.roaming != "") && (!direxists(t.radice + "/AppData/Roaming/")))
+		{
+			if (destinatario != "")
+			{
+				myprintf("66906! <<%Z>> has no AppData/Roaming (never logged on?): nothing done\n", t.radice.c_str());
+				return 2;
+			}
+			color_yellow();
+			myprintf("66906$ <<%Z>> has no AppData/Roaming (never logged on?): <<%Z>> skipped\n", t.radice.c_str(), u.nome.c_str());
+			color_restore();
+			utentisaltati.push_back(u.nome + ": no AppData in " + t.radice);
+			continue;
+		}
+		const bool altrove= !tb_uguali(u.radice, t.radice);
+		if (u.roaming != "")
+		{
+			tb_piano p;
+			p.utente		= u.nome;
+			p.da			= u.roaming;
+			p.a				= t.radice + "/AppData/Roaming/Thunderbird/";
+			p.vecchiaradice = altrove ? u.radice : "";
+			p.nuovaradice	= altrove ? t.radice : "";
+			p.roaming		= true;
+			piani.push_back(p);
+		}
+		if (u.local != "")
+		{
+			tb_piano p;
+			p.utente  = u.nome;
+			p.da	  = u.local;
+			p.a		  = t.radice + "/AppData/Local/Thunderbird/";
+			p.roaming = false;
+			piani.push_back(p);
+		}
+	}
+	/// the absolute profiles: in the same place; with -to, one inside the old user goes inside the new one
+	for (size_t i= 0; i < altriprofili.size(); i++)
+	{
+		tb_piano p;
+		p.utente = (autenti.size() == 1) ? autenti[0].nome : "";
+		p.da	 = altriprofili[i];
+		p.a		 = altriprofili[i];
+		p.roaming= false;
+		if ((destinatario != "") && (autenti.size() == 1))
+		{
+			const int quale= tb_trovautente(pc, destinatario);
+			if ((quale >= 0) && tb_sotto(altriprofili[i], autenti[0].radice) && (!tb_uguali(autenti[0].radice, pc[quale].radice)))
+			{
+				p.a			   = pc[quale].radice + altriprofili[i].substr(tb_barre(autenti[0].radice).size());
+				p.vecchiaradice= autenti[0].radice;
+				p.nuovaradice  = pc[quale].radice;
+			}
+		}
+		if ((p.a.size() > 2) && (p.a[1] == ':') && (!direxists(p.a.substr(0, 3))))
+		{
+			color_yellow();
+			myprintf("66907$ The profile <<%Z>>: the drive is not here: skipped\n", p.a.c_str());
+			color_restore();
+			utentisaltati.push_back("the profile " + p.a + ": no such drive");
+			continue;
+		}
+		piani.push_back(p);
+	}
+	if (piani.size() == 0)
+	{
+		myprintf("66908! x -thunderbird: nothing can be restored on this PC: nothing done\n");
+		return 2;
+	}
+
+	/// 3. what is there already: renamed. Thunderbird first (its files open: the rename would not go)
+	bool daspostare= false;
+	for (size_t i= 0; i < piani.size(); i++)
+		if (direxists(piani[i].a))
+			daspostare= true;
+	vector<string> rinominatida;
+	vector<string> rinominatia;
+	if (daspostare)
+	{
+		if (!tb_chiudi(true))
+		{
+			myprintf("66909! Thunderbird cannot be closed: nothing renamed, nothing extracted\n");
+			return 2;
+		}
+		bool male= false;
+		for (size_t i= 0; (i < piani.size()) && (!male); i++)
+		{
+			const string vecchio= tb_barre(piani[i].a);
+			if (!direxists(vecchio + "/"))
+				continue;
+			string nuovo= "";
+			for (int n= 1; n <= 999; n++)
+			{
+				char suffisso[16];
+				snprintf(suffisso, sizeof(suffisso), ".%03d", n);
+				const string prova= vecchio + suffisso;
+				if ((!direxists(prova + "/")) && (!fileexists(prova)))
+				{
+					nuovo= prova;
+					break;
+				}
+			}
+			if (nuovo == "")
+			{
+				myprintf("66910! <<%Z>>: .001 ... .999 all taken\n", vecchio.c_str());
+				male= true;
+				break;
+			}
+			const BOOL	fatto = MoveFileExW(utow(vecchio.c_str()).c_str(), utow(nuovo.c_str()).c_str(), 0);
+			const DWORD errore= fatto ? 0 : GetLastError();
+			/// checked: the new name there, the old one not
+			if ((!fatto) || direxists(vecchio + "/") || (!direxists(nuovo + "/")))
+			{
+				color_red();
+				myprintf("66911! Cannot rename <<%Z>> to <<%Z>>: %s\n", vecchio.c_str(), nuovo.c_str(), fatto ? "the names are not as they should" : decodewinerror(errore, "", false).c_str());
+				color_restore();
+				male= true;
+				break;
+			}
+			myprintf("66912: Renamed <<%Z>> => <<%Z>>\n", vecchio.c_str(), nuovo.c_str());
+			rinominatida.push_back(vecchio);
+			rinominatia.push_back(nuovo);
+		}
+		if (male)
+		{
+			/// the ones done put back, then out: NOTHING written
+			for (size_t i= rinominatida.size(); i > 0; i--)
+			{
+				if (MoveFileExW(utow(rinominatia[i - 1].c_str()).c_str(), utow(rinominatida[i - 1].c_str()).c_str(), 0))
+					myprintf("66913: Put back <<%Z>> => <<%Z>>\n", rinominatia[i - 1].c_str(), rinominatida[i - 1].c_str());
+				else
+				{
+					color_red();
+					myprintf("66914! Cannot put back <<%Z>> => <<%Z>>: do it by hand\n", rinominatia[i - 1].c_str(), rinominatida[i - 1].c_str());
+					color_restore();
+				}
+			}
+			myprintf("66915! x -thunderbird: a rename did not go: NOTHING extracted\n");
+			return 2;
+		}
+	}
+
+	/// 4. the extraction: the prefix of the archive => where
+	files.clear();
+	tofiles.clear();
+	for (size_t i= 0; i < piani.size(); i++)
+	{
+		files.push_back(piani[i].da);
+		tofiles.push_back(piani[i].a);
+	}
+	const int risultato= extract();
+
+	/// 5. another place: the paths of prefs.js and profiles.ini
+	int correzionisbagliate= 0;
+	if (risultato < 2)
+		for (size_t i= 0; i < piani.size(); i++)
+		{
+			if (piani[i].vecchiaradice == "")
+				continue;
+			vector<string> dacorreggere;
+			tb_trovaprefs(piani[i].a, dacorreggere);
+			if (piani[i].roaming && fileexists(piani[i].a + "profiles.ini"))
+				dacorreggere.push_back(piani[i].a + "profiles.ini");
+			for (size_t k= 0; k < dacorreggere.size(); k++)
+				if (tb_correggi(dacorreggere[k], piani[i].vecchiaradice, piani[i].nuovaradice) < 0)
+				{
+					color_red();
+					myprintf("66916! Cannot correct the paths in <<%Z>>: Thunderbird can look for the old user\n", dacorreggere[k].c_str());
+					color_restore();
+					correzionisbagliate++;
+				}
+		}
+
+	/// 6. what was done
+	printbar('-');
+	myprintf("66917: x -thunderbird, what was done:\n");
+	for (size_t i= 0; i < rinominatida.size(); i++)
+		myprintf("66918:   renamed  <<%Z>> => <<%Z>>\n", rinominatida[i].c_str(), rinominatia[i].c_str());
+	for (size_t i= 0; i < piani.size(); i++)
+		myprintf("66919:   %s <<%Z>> => <<%Z>>\n", (risultato < 2) ? "restored" : "NOT restored", piani[i].da.c_str(), piani[i].a.c_str());
+	for (size_t i= 0; i < utentisaltati.size(); i++)
+	{
+		color_yellow();
+		myprintf("66920$   skipped  %s\n", utentisaltati[i].c_str());
+		color_restore();
+	}
+	if ((risultato == 0) && ((utentisaltati.size() > 0) || (correzionisbagliate > 0) || (fuori > 0)))
+		return 1;
+	if ((risultato < 2) && (correzionisbagliate > 0))
+		return 2;
+	return risultato;
+#endif // corresponds to #ifdef (#ifdef _WIN32)
+#endif /// NOSFTPEND
+	myprintf("66921! x -thunderbird: Windows only\n");
+	return 2;
 }
 
 int Jidac::gestisciexternal()
@@ -268453,6 +271353,12 @@ int Jidac::gestisciwrite()
 			myprintf("02041: Creating %Z at offset %s + %s\n", arcname.c_str(), migliaia(header_pos), migliaia2(offset));
 			g_flagcreating= true;
 		}
+		/// 65.20v: what is needed to put the archive back if the writes do not all go (zpaq_main_internal). Only where
+		/// it is sure: a plain or -key archive, or a new part of a multipart one; not -chunk, -index, Franzen
+		g_rollback_file	 = arcname;
+		g_rollback_pos	 = header_pos;
+		g_rollback_creato= g_flagcreating;
+		g_rollback_ok	 = (command == 'a') && (g_chunk_size == 0) && (g_franzen == "") && (!isfranzen(arcname)) && ((index == NULL) || (*index == 0));
 
 		// long-waited
 
@@ -269532,6 +272438,85 @@ void Jidac::preparahashtobewritten(const string &i_filename, const DTMap::iterat
 }
 
 
+/// 65.20v: a file name as a whole path, to tell if two names are the same file. Windows: GetFullPathNameW, the case
+/// does not count; *nix: realpath (the file must be there, else the name as it is)
+static string percorso_pieno(const string &i_nome)
+{
+#ifdef _WIN32
+	string nome= i_nome;
+	if (nome.substr(0, 4) == "//?/")
+		nome= nome.substr(4);
+	const wstring w= utow(nome.c_str());
+	const DWORD	  n= GetFullPathNameW(w.c_str(), 0, NULL, NULL);
+	if (n == 0)
+		return stringtolower(nome);
+	vector<wchar_t> b(n + 2, 0);
+	if (GetFullPathNameW(w.c_str(), n + 1, &b[0], NULL) == 0)
+		return stringtolower(nome);
+	string r= wtou(&b[0]);
+	myreplaceall(r, "\\", "/");
+	return stringtolower(r);
+#else
+	char *r= realpath(i_nome.c_str(), NULL);
+	if (r == NULL)
+		return i_nome;
+	const string s= r;
+	free(r);
+	return s;
+#endif
+}
+/// 65.20v: the archive being written is never added to itself. I decided. a self/s.zpaq self: the second run put
+/// self/s.zpaq in version 2, and every run after the whole archive again. Its name, its .franzen, the -index file,
+/// the parts of a multipart one (x_???.zpaq): only the files with that name are looked at, then their folder
+static void togli_archivio(DTMap &io_edt, const string &i_archivio, const char *i_index)
+{
+	if (i_archivio == "")
+		return;
+	vector<string> sestesso;
+	sestesso.push_back(i_archivio);
+	sestesso.push_back(i_archivio + ".franzen");
+	if ((i_index != NULL) && (*i_index != 0))
+		sestesso.push_back(i_index);
+	vector<string> nomi;
+	vector<string> cartelle;
+	for (size_t k= 0; k < sestesso.size(); k++)
+	{
+#ifdef _WIN32
+		nomi.push_back(stringtolower(extractfilename(sestesso[k])));
+#else
+		nomi.push_back(extractfilename(sestesso[k]));
+#endif
+		const string c= extractfilepath(sestesso[k]);
+		cartelle.push_back(c == "" ? "./" : c);
+	}
+	for (DTMap::iterator p= io_edt.begin(); p != io_edt.end();)
+	{
+		bool via= false;
+		if (!isdirectory(p->first))
+		{
+#ifdef _WIN32
+			const string nome= stringtolower(extractfilename(p->first));
+#else
+			const string nome= extractfilename(p->first);
+#endif
+			for (size_t k= 0; (k < nomi.size()) && (!via); k++)
+				if (ispath(nomi[k].c_str(), nome.c_str()))
+				{
+					const string c= extractfilepath(p->first);
+					if (percorso_pieno(cartelle[k]) == percorso_pieno(c == "" ? "./" : c))
+						via= true;
+				}
+		}
+		if (via)
+		{
+			myprintf("66862: <<%Z>> is the archive being written: not added to itself\n", p->first.c_str());
+			io_edt.erase(p++);
+		}
+		else
+			++p;
+	}
+}
+
 #ifdef ANCIENT /// 65.11k: the plain loop, for the old systems only (ESX, NAS): elsewhere add() is add2(), see there
 int Jidac::add()
 {
@@ -269562,7 +272547,8 @@ int Jidac::add()
 	if (risultatoexternal != 0)
 		return risultatoexternal;
 
-	gestiscithunderbird();
+	if (gestiscithunderbird() != 0) /// 65.20y: it said "quit" (01850) and went on
+		return 2;
 
 	if (gestisciifexist() != 0)
 		return 2;
@@ -269784,6 +272770,7 @@ int Jidac::add()
 				argomentimancanti++;
 		}
 		g_dtnoblock= primablocco;
+		togli_archivio(edt, archive, index); /// 65.20v: never the archive itself
 		eol();
 		if (flagverbose)
 		{
@@ -269949,6 +272936,8 @@ int Jidac::add()
 		myprintf("\n");
 		myprintf("02021: QUIT: total size,file/folder count == zero. Already archived/wrong/inaccessible source?\n");
 		if (scantroppolunghi())
+			argomentimancanti++;
+		if (thunderbird_saltati()) /// 65.20y: a -thunderbird, a user skipped
 			argomentimancanti++;
 		return (collisioni > 0) ? 2 : ((argomentimancanti > 0) ? 1 : 0);
 	}
@@ -271662,6 +274651,8 @@ int Jidac::add()
 		errors= 2;
 	if (scantroppolunghi())
 		argomentimancanti++;
+	if (thunderbird_saltati()) /// 65.20y: a -thunderbird, a user skipped
+		argomentimancanti++;
 	if ((argomentimancanti > 0) && (errors == 0))
 		errors= 1;
 	/// an image with read errors: a giant READ ERROR, the exit code 2 (-ignore too)
@@ -271957,7 +274948,8 @@ int Jidac::add2()
 	if (risultatoexternal != 0)
 		return risultatoexternal;
 
-	gestiscithunderbird();
+	if (gestiscithunderbird() != 0) /// 65.20y: it said "quit" (01850) and went on
+		return 2;
 
 	if (gestisciifexist() != 0)
 		return 2;
@@ -272220,6 +275212,7 @@ int Jidac::add2()
 				argomentimancanti++;
 		}
 		g_dtnoblock= primablocco;
+		togli_archivio(edt, archive, index); /// 65.20v: never the archive itself
 		eol();
 		if (flagverbose)
 		{
@@ -272385,6 +275378,8 @@ int Jidac::add2()
 		myprintf("\n");
 		myprintf("02021: QUIT: total size,file/folder count == zero. Already archived/wrong/inaccessible source?\n");
 		if (scantroppolunghi())
+			argomentimancanti++;
+		if (thunderbird_saltati()) /// 65.20y: a -thunderbird, a user skipped
 			argomentimancanti++;
 		return (collisioni > 0) ? 2 : ((argomentimancanti > 0) ? 1 : 0);
 	}
@@ -274733,6 +277728,8 @@ int Jidac::add2()
 		errors= 2;
 	if (scantroppolunghi())
 		argomentimancanti++;
+	if (thunderbird_saltati()) /// 65.20y: a -thunderbird, a user skipped
+		argomentimancanti++;
 	if ((argomentimancanti > 0) && (errors == 0))
 		errors= 1;
 	/// an image with read errors: a giant READ ERROR, the exit code 2 (-ignore too)
@@ -275266,8 +278263,11 @@ void Jidac::prepare_extract_to_disk(const string &image_filename)
 	g_immaginescelta= image_filename; /// only this one goes to the destination
 
 	// do NOT invert those two lines! or an "all in" commit limit will be enforced
+	const bool automatica= !flagramsize; /// 65.20d: no -ramsize given: the free RAM, extractstdout takes part of it
 	g_ramsize  = getramdisksize();
 	flagramsize= true;
+	if (automatica)
+		g_ramsizeauto= true;
 }
 
 // Print "ready to restore" message
