@@ -1,3 +1,33 @@
+### [2.12.0] - 2026-11-16
+
+**zpaqfranz 65.21: `-wim` (a drive image that reads only what changed), `-json` (an output for programs), `version`, and date and size filters in `x`. zxc 1.0.1, syc v0.10.2, PJA 0.9.13, PPA 0.4.0.**
+
+- **Base: zpaqfranz 65.21** (65.21o). Everything of its open build since 65.20 is in:
+  - **`-wim`** (Windows, NTFS): the daily image of a drive (`ac`, or `a X: -image`) into the same archive no longer reads the whole drive. Each block of 2 MB of the image gets a signature from the `$MFT` of the shadow copy; a block whose signature did not change is not read, and its fragments of the run before go into the image. The first run reads everything; the restore does not change (`x`, `xc`, `t` as before); the archive is not smaller, the run is shorter (zpaqfranz's author measured the image of a C: with 200 GB go from 4 minutes 17 seconds to 22 seconds). The state for the next run is in the archive, next to the image (`image_C.wim`, `image_C.wimd`). What changes without a trace (NTFS metadata, registry hives, logs, files open for writing) is always read. **`-wimcheck`** reads the skipped blocks anyway and compares them; a different one is taken from the disk and said in red. Start a new archive for `-wim`: on one made without it, the first run stores most of the image again.
+  - **`-json`**: stdout is one JSON object per line and nothing else: `start`, then `msg` (a message with its code and severity), `text`, `prog` (progress) and `end` (the exit code). For a program that reads the output, a GUI above all. `pakka -json` writes its list the same way. In zpaq-std the `start` line says zpaqfranz's version (`ver`), as there.
+  - **`x -listfrom thefile`**: the names to extract come from a file (UTF-8, one per line), not from the command line, which Windows cuts at 32,767 characters. With a TAB, each name has its own destination (`name<TAB>destination`). An empty list is refused (66940).
+  - **`version`** (also `-v` or `--version` as the first argument): how the program was built, what is inside and where it runs, one line each, with the SHA-256 of the executable. In zpaq-std it says zpaq-std's name and version, then zpaqfranz's. The line to paste when reporting a problem.
+  - **`x` filters by date and size**: `-datefrom`, `-dateto`, `-minsize` and `-maxsize` work in `x` (they did only in `l`: `x` ignored them and extracted everything). `-mindate` and `-maxdate` are new names for the two dates, in every command.
+  - **`-ifexist X` takes a file**, not only a folder: with a file the backup always aborted.
+  - **`-timer X`**: the seconds `-pause` waits (default 10; 0: no wait), also in the window Windows opens for the administrator rights.
+  - **Long relative names on Windows** (zpaqfranz issue 363, reported from zpaq-std 2.11.0's tests): `a x.zpaq src` without `-longpath` left out the files whose full path is over the limit, with exit code 0. zpaqfranz's fix is used now, in place of the one zpaq-std 2.11.0 had of its own: the line 66861 says the full name.
+  - **A crash in `x` and `t` with many threads** (zpaqfranz issue 362): the fix zpaq-std has had since 2.8.0, now zpaqfranz's.
+  - `pakka` on an archive that cannot be opened gives 66936 and exit code 2 (an empty list and 0); a wrong password gives 66937 and 2 (1). `dir` with a hash no longer leaves out the files of exactly `-minsize` or `-maxsize` bytes.
+  - **What can change for a script:** `x` with `-datefrom`, `-dateto`, `-minsize` or `-maxsize` now extracts only what passes them; `pakka`'s two exit codes.
+  - Not here, as always: what zpaqfranz has only in its full build (`update` and its exit code, issue 361).
+- **`-catpaqmode`** keeps its `@SPK@` lines. With `-json`, zpaq-std's progress (it comes from a thread of its own, every second) is a `prog` line too, and each JSON line is written whole.
+- **Codecs, all writing the bytes of 2.11.0:**
+  - **zxc 1.0.1** (`-ma:zxc`): format 9, unchanged. It drops a sum that GCC 14.2 compiled wrong for AVX-512 (levels 3 and 4).
+  - **syc v0.10.2** (`-ma:sylz`, `-ma:sylzec`): for these codecs, five lines the codecs never call. Formats v4 and v5 are v0.8.0's, frozen. Still experimental.
+  - **PJA 0.9.13** (`-sa`): the same streams and ZPAQL decoders, and the codecs take what 0.9.12's took.
+  - **PPA 0.4.0** (`-sa:ppa`): `ppa1` is unchanged (its stream and ZPAQL decoder are frozen). What is new in PPA (streams written by libdeflate and oxipng, three levels) is in its own command. Still experimental.
+  - `codecinfo lzfse` said lzfse-ex 1.0.3; the library has been 1.0.4 since 2.0.0.
+- The help of the new lines is in the five languages.
+
+#### Checked
+
+CHECKED_PENDING
+
 ### [2.11.0] - 2026-11-14
 
 **zpaqfranz 65.20: a full disk no longer ruins an archive, and exit codes that tell the truth. `-ma:sylz` and `-ma:sylzec` write syc's new formats, v4 and v5. PJA 0.9.12.**
