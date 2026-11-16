@@ -193678,7 +193678,7 @@ int versione_estesa(const string &i_exe)
 		if (edizione == "")
 			edizione= versione_registro(chiave, L"ReleaseId");
 		const string ubr= versione_registro(chiave, L"UBR");
-		snprintf(x, sizeof(x), "%s%s%s (build %s%s%s)%s", (prodotto != "") ? prodotto.c_str() : "Windows", (edizione != "") ? " " : "", edizione.c_str(), build.c_str(), (ubr != "") ? "." : "", ubr.c_str(), iswindowsxp() ? ", Windows XP or 2003" : "");
+		snprintf(x, sizeof(x), "%s%s%s (build %s%s%s)%s", (prodotto != "") ? prodotto.c_str() : "Windows", (edizione != "") ? " " : "", edizione.c_str(), build.c_str(), (ubr != "") ? "." : "", ubr.c_str(), ""); /// zpaq-std is Windows 7 and later: never XP (no iswindowsxp here)
 		versione_riga("system", x);
 		typedef BOOL(WINAPI * t_wow)(HANDLE, PBOOL);
 		HMODULE k	= GetModuleHandleW(L"kernel32.dll");
@@ -193688,7 +193688,7 @@ int versione_estesa(const string &i_exe)
 			wow(GetCurrentProcess(), &in32);
 		snprintf(x, sizeof(x), "%d bit%s", (int)(sizeof(void *) * 8), in32 ? ", on 64 bit Windows (WOW64)" : "");
 		versione_riga("process", x);
-		versione_riga("administrator", iswindowsxp() ? "not known (Windows XP)" : (isadmin() ? "yes (elevated)" : "no"));
+		versione_riga("administrator", isadmin() ? "yes (elevated)" : "no"); /// zpaq-std: Windows 7 and later
 		versione_riga("CPU", versione_registro(L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"ProcessorNameString"));
 	}
 #endif // corresponds to #ifdef (#ifdef _WIN32)
