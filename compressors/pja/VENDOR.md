@@ -1,8 +1,23 @@
-# PJA 0.9.12: the zpaq-std plugin, vendored
+# PJA 0.9.13: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.12`, commit `9b4f04a`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.13`, commit `978faeb`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.9.13
+
+The 31 codecs write and read the same streams with the same ZPAQL, and
+take what 0.9.12's took. 0.9.13's change is in the command and libpja: the
+samples of a JPEG-LS file or of a lossless JPEG may go with blended
+predictors, version 5's byte 1 = 2 (MODEL_BLEND), only in a `.pja`. The
+plugin compresses without parts, so it never writes it, and `pjals`,
+`pjalsx` and `pjall` (and their z, o and 8 codecs) now also refuse a
+stream with byte 1 other than 0 when asked for their ZPAQL's arguments,
+so that such a stream could never reach their frozen ZPAQL.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k`,
+`tests/jpg` and `tests/jls`.
 
 ## What is new in 0.9.12
 

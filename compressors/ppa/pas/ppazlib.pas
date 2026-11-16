@@ -10,10 +10,24 @@
   lengths (scan_tree, send_tree, build_bl_tree). It does not write bits: it
   gives the choices as a TZStream, which ppadeflate.Encode writes.
 
-  The whole input is given at once and finished (Z_FINISH), with no flushes
-  in between; zlib gives the same bits when the input comes in pieces, as
-  libpng feeds it a row at a time, because it only decides with at least
-  MIN_LOOKAHEAD bytes ahead or at the end. Positions are absolute: zlib's
+  The whole input is given at once and finished (Z_FINISH); zlib gives the
+  same bits when the input comes in pieces, as libpng feeds it a row at a
+  time, because it only decides with at least MIN_LOOKAHEAD bytes ahead or
+  at the end. Or with flushes and parameter changes in between (a flow,
+  ZlibChoicesFlow: recipe kind 1), the way zlib makes them: deflate drains
+  what it was given up to the flush (its lookahead ends there), ends the
+  block if it holds symbols, writes the flush's marker (an empty stored
+  block for Z_SYNC_FLUSH and Z_FULL_FLUSH, an empty fixed one for
+  Z_PARTIAL_FLUSH, none for Z_BLOCK), and the two positions before the
+  flush, which had no lookahead to be inserted, are inserted into the hash
+  when the next input comes (s->insert); Z_FULL_FLUSH forgets the past (the
+  hash cleared, the positions start again). deflateParams ends the block
+  with Z_BLOCK first when the strategy or the kind of loop changes. Older
+  zlibs differ (TZlibFlow.variant): up to 1.2.5.2 a flush ends a block even
+  an empty one, inserts nothing after it, and Z_PARTIAL_FLUSH may write a
+  second empty block, by the bits written so far and the last block's
+  end-of-block code length (last_eob_len); up to 1.2.3.3 Z_FULL_FLUSH
+  clears the hash but the positions go on. Positions are absolute: zlib's
   window slides, but a position the slide would forget is always further
   back than MAX_DIST, where no match may reach anyway. What the slide does
   decide is whether a block can still be stored (its start must be in the
@@ -54,6 +68,54 @@ type
     wbits: Integer;      { 8..15 }
   end;
 
+const
+  { a flow's events: what deflate was asked for once it had the bytes
+    before pos }
+  ZE_SYNC = 1;       { deflate(Z_SYNC_FLUSH) }
+  ZE_FULL = 2;       { deflate(Z_FULL_FLUSH) }
+  ZE_PARTIAL = 3;    { deflate(Z_PARTIAL_FLUSH) }
+  ZE_BLOCK = 4;      { deflate(Z_BLOCK) }
+  ZE_PARAMS = 5;     { the level and strategy change (deflateParams, after its own flush if it made one) }
+  ZE_MAX_AT = 4;     { events at one position, at most }
+  { the zlib whose flushes a flow follows }
+  ZV_NEW = 0;        { 1.2.5.3 to 1.3.x }
+  ZV_125 = 1;        { 1.2.3.4 to 1.2.5.2: empty blocks at flushes, no insert after them, Z_PARTIAL_FLUSH's second block }
+  ZV_123 = 2;        { up to 1.2.3.3: as ZV_125, and Z_FULL_FLUSH keeps the positions }
+  ZV_LAST = ZV_123;
+  { a flag of the variant: zlib built with TOO_FAR = 32767 (deflate_slow
+    keeps a match of 3 bytes however far), as pngcrush builds it; the
+    version is the variant's low bits (ZV_VERSION) }
+  ZV_NO_TOO_FAR = 4;
+  ZV_VERSION = 3;
+  { the loops deflate picks from the level and strategy }
+  FN_HUFF = 0; FN_RLE = 1; FN_FAST = 2; FN_SLOW = 3;
+
+type
+  TZlibEvent = record
+    pos: SizeInt;          { 0..the input's length }
+    kind: Byte;            { ZE_SYNC..ZE_PARAMS }
+    level, strategy: Byte; { ZE_PARAMS: the new ones }
+  end;
+
+  { the flushes and parameter changes zlib made along the stream }
+  TZlibFlow = record
+    variant: Byte;                    { ZV_NEW..ZV_LAST, or one of them + ZV_NO_TOO_FAR }
+    events: array of TZlibEvent;      { by pos, in the order they were made }
+  end;
+
+  { the C loop's tables and its tokens, kept from one run to the next by a
+    caller that runs it many times (a search): cleared, not allocated and
+    given back to the system each time. Not to be shared between threads }
+  TZLongs = array of LongWord;
+  TZQWords = array of QWord;
+  TZWords = array of Word;
+  TZlibScratch = record
+    head32, t4, t8, t16: TZLongs;
+    posC: TZQWords;
+    cnt, d16, tokLen, tokVal: TZWords;
+  end;
+  PZlibScratch = ^TZlibScratch;
+
 { What zlib with these parameters makes of plain: its blocks and tokens. The
   header, Adler-32 and tail are left for the caller. If ref is given, stops
   at the first block that differs from ref's and returns False; True means
@@ -69,8 +131,44 @@ function FindZlibParams(const z: TZStream; out prm: TZlibParams): Boolean;
   zlib with prm) }
 function FindZlibParams(const z: TZStream; out prm: TZlibParams; out choices: TZStream): Boolean;
 
+{ The same as ZlibChoices, with a flow's flushes and parameter changes
+  (ZlibFlowValid must hold: the caller checks). goodBlocks: how many of
+  ref's first blocks were made the same before they parted (all of them on
+  True). One thread: threads is not used yet with events. }
+function ZlibChoicesFlow(const plain: TBytes; const prm: TZlibParams; const flow: TZlibFlow; ref: PZStream;
+  out z: TZStream; out goodBlocks: SizeInt; threads: Integer = 1; scratch: PZlibScratch = nil): Boolean;
+
+{ Whether a flow can be followed on plainLen bytes from prm: a known
+  variant; events in order of pos (at most plainLen), at most 2 a byte
+  and 2 more, and ZE_MAX_AT at one position; parameters in range; and a change of loop (FN_*) only at the
+  start or just after a flush at its position, as zlib makes them (with
+  Z_BLOCK, or Z_PARTIAL_FLUSH before 1.2.3.4) }
+function ZlibFlowValid(const flow: TZlibFlow; const prm: TZlibParams; plainLen: SizeInt): Boolean;
+
+{ The loop deflate runs for a level and strategy (FN_*) }
+function ZlibFunc(level, strategy: Integer): Integer;
+
+{ The bits block b of z takes when written from bit bitPos of the deflate
+  data (a stored block's padding depends on it), its 3 header bits
+  included }
+function BlockBits(const z: TZStream; const b: TDeflateBlock; bitPos: Int64): Int64;
+
 { The zlib header zlib writes for these parameters }
 function ZlibHeader(const prm: TZlibParams): Word;
+
+{ zlib's trees (_tr_flush_block, build_tree, gen_bitlen, build_bl_tree,
+  scan_tree) for a block of these symbol counts (lfreq[0..285], END_BLOCK
+  included; dfreq[0..29]): its dynamic header into b (hlit, hdist, hclen,
+  clen, clenSeq, litLen, distLen; nothing else of b changed), and whether
+  zlib would write it with the fixed codes (they are no bigger) }
+procedure ZlibTrees(const lfreq, dfreq: array of Integer; var b: TDeflateBlock; out fixedNoBigger: Boolean);
+{ zlib's run-length coding (send_tree) of the code lengths lens[0..count-1]
+  (count >= 1), appended to seq at nSeq: symbol or (extra shl 5), as
+  TDeflateBlock.clenSeq. seq must have room for count more }
+procedure ZlibSendTree(const lens: array of Byte; count: Integer; var seq: array of Word; var nSeq: Integer);
+{ zlib's code-length code (build_bl_tree) for these counts of the 19
+  code-length symbols: clen by symbol, and hclen (at least 4) }
+procedure ZlibBlTree(const freq: array of Integer; out clen: array of Byte; out hclen: Integer);
 
 var
   { the parallel rebuild's thresholds: PAR_MIN_BYTES_DEFAULT and a quarter
@@ -109,6 +207,9 @@ type
     endLit: SizeInt;
     syncLo, syncHi: SizeInt;
     key1: SizeInt;    { d4's key: 4 bytes, or 6 for deflate_slow's filtered strategy }
+    lim: SizeInt;     { the lookahead ends here (a flush's position, or n) }
+    lo: SizeInt;      { no match starts at or before it (Z_FULL_FLUSH: the hash forgot it) }
+    tooFar: SizeInt;  { deflate_slow drops a match of 3 further than this (TOO_FAR) }
   end;
 
 const
@@ -338,8 +439,118 @@ end;
 
 { ---------------------------------------------------------------- deflate.c }
 
+function BlockBits(const z: TZStream; const b: TDeflateBlock; bitPos: Int64): Int64;
+var i: SizeInt; l, c, v: Integer;
+
+  { a match's length code and extra bits: 258 as 284 is 284 with 5 }
+  function LenBits(l: Integer; fixed: Boolean): Integer;
+  begin
+    if l = LEN_258_AS_284 then c := 284 - LITERALS - 1 else c := LengthCode[l - MIN_MATCH];
+    if fixed then Result := StaticLLen[c + LITERALS + 1] else Result := b.litLen[c + LITERALS + 1];
+    if l = LEN_258_AS_284 then Inc(Result, 5) else Inc(Result, EXTRA_LBITS[c]);
+  end;
+
+begin
+  case b.btype of
+    btStored: Exit(((bitPos + 3 + 7) and not Int64(7)) - bitPos + 32 + 8 * Int64(b.storedLen));
+    btFixed: begin
+      Result := 3 + StaticLLen[END_BLOCK];
+      for i := b.firstToken to b.firstToken + b.nTokens - 1 do begin
+        l := z.tokLen[i]; v := z.tokVal[i];
+        if l = 0 then Inc(Result, StaticLLen[v])
+        else Inc(Result, LenBits(l, True) + 5 + EXTRA_DBITS[DistCode[v - 1]]);
+      end;
+    end;
+  else begin
+    Result := 3 + 5 + 5 + 4 + 3 * b.hclen + b.litLen[END_BLOCK];
+    for i := 0 to High(b.clenSeq) do begin
+      c := b.clenSeq[i] and $1F;
+      Inc(Result, b.clen[c] + EXTRA_BLBITS[c]);
+    end;
+    for i := b.firstToken to b.firstToken + b.nTokens - 1 do begin
+      l := z.tokLen[i]; v := z.tokVal[i];
+      if l = 0 then Inc(Result, b.litLen[v])
+      else Inc(Result, LenBits(l, False) + b.distLen[DistCode[v - 1]] + EXTRA_DBITS[DistCode[v - 1]]);
+    end;
+  end;
+  end;
+end;
+
+function ZlibFunc(level, strategy: Integer): Integer;
+begin
+  if strategy = Z_HUFFMAN_ONLY then Result := FN_HUFF
+  else if strategy = Z_RLE then Result := FN_RLE
+  else if level <= 3 then Result := FN_FAST
+  else Result := FN_SLOW;
+end;
+
+function ZlibFlowValid(const flow: TZlibFlow; const prm: TZlibParams; plainLen: SizeInt): Boolean;
+var k, same: SizeInt; lv, st: Integer; e: TZlibEvent;
+begin
+  Result := False;
+  if ((flow.variant and not ZV_NO_TOO_FAR) > ZV_LAST) or (plainLen < 0) then Exit;
+  if Length(flow.events) > 2 * Int64(plainLen) + 2 then Exit;
+  lv := prm.level; st := prm.strategy;
+  same := 0;
+  for k := 0 to High(flow.events) do begin
+    e := flow.events[k];
+    if (e.pos < 0) or (e.pos > plainLen) then Exit;
+    if (k > 0) and (e.pos < flow.events[k - 1].pos) then Exit;
+    { at one position: a partial, a sync and a full flush (each stronger
+      than the one before: a weaker or the same one again does nothing in
+      zlib) and a parameter change. zlib may also make deflateParams' own
+      Z_BLOCK, the weakest, before them: from 1.2.5.3 on it then adds
+      nothing, before it an empty block such a flow cannot hold
+      (doc/PREFLATE.md) }
+    if (k > 0) and (e.pos = flow.events[k - 1].pos) then Inc(same) else same := 1;
+    if same > ZE_MAX_AT then Exit;
+    case e.kind of
+      ZE_SYNC, ZE_FULL, ZE_PARTIAL, ZE_BLOCK: ;
+      ZE_PARAMS: begin
+        if (e.level < 1) or (e.level > 9) or (e.strategy > Z_FIXED) then Exit;
+        { a change of loop: at the start, or just after a flush there (a
+          level or a strategy of the same loop may change anywhere, at the
+          top of its loop: deflateParams without a flush; zlib 1.2.5.3 on
+          flushes for a strategy too, before it only for the loop) }
+        if (ZlibFunc(e.level, e.strategy) <> ZlibFunc(lv, st)) and (e.pos > 0) and
+           ((k = 0) or (flow.events[k - 1].kind = ZE_PARAMS) or (flow.events[k - 1].pos <> e.pos)) then Exit;
+        lv := e.level; st := e.strategy;
+      end;
+    else Exit;
+    end;
+  end;
+  Result := True;
+end;
+
+{ a scratch's array, at least n long, its first n cleared }
+procedure Zeroed32(var a: TZLongs; n: SizeInt);
+begin
+  if Length(a) < n then begin a := nil; SetLength(a, n); end
+  else FillChar(a[0], n * SizeOf(LongWord), 0);
+end;
+
+procedure Zeroed64(var a: TZQWords; n: SizeInt);
+begin
+  if Length(a) < n then begin a := nil; SetLength(a, n); end
+  else FillChar(a[0], n * SizeOf(QWord), 0);
+end;
+
+procedure Zeroed16(var a: TZWords; n: SizeInt);
+begin
+  if Length(a) < n then begin a := nil; SetLength(a, n); end
+  else FillChar(a[0], n * SizeOf(Word), 0);
+end;
+
 function ZlibChoices(const plain: TBytes; const prm: TZlibParams; ref: PZStream;
   out z: TZStream; threads: Integer): Boolean;
+var flow: TZlibFlow; good: SizeInt;
+begin
+  flow := Default(TZlibFlow);
+  Result := ZlibChoicesFlow(plain, prm, flow, ref, z, good, threads);
+end;
+
+function ZlibChoicesFlow(const plain: TBytes; const prm: TZlibParams; const flow: TZlibFlow; ref: PZStream;
+  out z: TZStream; out goodBlocks: SizeInt; threads: Integer; scratch: PZlibScratch): Boolean;
 var
   n: SizeInt;                       { input length }
   wsize, wmask, maxDist: SizeInt;
@@ -350,13 +561,13 @@ var
     window position's zpos_t (8 bytes: zlib's prev, the last position
     before it with the same 4 (or 6) and 8 bytes, through the tables t4 and
     t8, and its order in its hash chain, by cnt, each chain's insertions) }
-  head32: array of LongWord;
-  posC: array of QWord;
+  head32: TZLongs;
+  posC: TZQWords;
   { the same 16 bytes, for the long chains of levels 8 and 9 only }
-  d16: array of Word;
-  t16: array of LongWord;
-  cnt: array of Word;
-  t4, t8: array of LongWord;
+  d16: TZWords;
+  t16: TZLongs;
+  cnt: TZWords;
+  t4, t8: TZLongs;
   skipBits: Integer;
   insH: LongWord;
   strstart, matchStart, prevMatch, blockStart, winBase: SizeInt;
@@ -371,10 +582,31 @@ var
   bflush: Boolean;
   maxInsert: SizeInt;
   stop, checkNow: Boolean;
+  { the flow: the parameters in force (prm, then each ZE_PARAMS'); where the
+    lookahead ends (a flush's position, or n); a loop's stop at its top
+    once strstart reaches stopAt (a ZE_PARAMS without a flush; 0: none);
+    where the positions start (Z_FULL_FLUSH, zlib 1.2.3.4 on: strstart 0
+    again) and the newest position no match may start at (lo: NIL, or what
+    Z_FULL_FLUSH forgot); the positions still to insert after a flush
+    (s->insert); the bits written so far and the last block's end-of-block
+    code length, for the second empty block of an old Z_PARTIAL_FLUSH }
+  cur: TZlibParams;
+  lim, stopAt, org, lo, insert: SizeInt;
+  needFill: Boolean;
+  variant: Integer;
+  tooFar: SizeInt;
+  trackBits: Boolean;
+  bitPos: Int64;
+  lastEob: Integer;
+  { whether any of the flow's loops keeps hash chains, and the run's C
+    state (ppazlibc.c's zdeflate_t), kept from one stretch to the next }
+  chains, cReady: Boolean;
+  st: TZDeflate;
+  k: SizeInt;
 
   function Lookahead: SizeInt; inline;
   begin
-    Result := n - strstart;
+    Result := lim - strstart;
   end;
 
   function Win(i: SizeInt): Byte; inline;
@@ -403,6 +635,10 @@ var
     while strstart - winBase >= wsize + maxDist do Inc(winBase, wsize);
   end;
 
+  { the bytes past the lookahead are the input's (zlib's window holds
+    others there): they only decide a match that already reaches the
+    lookahead's end, which nice, capped to the lookahead, takes at once,
+    and which is cut to the lookahead }
   function LongestMatch(curMatch: SizeInt): Integer;
   var chainLength, len, bestLen, nice: Integer;
       scan, match, limit: SizeInt;
@@ -412,6 +648,7 @@ var
     bestLen := prevLength;
     nice := niceMatch;
     if strstart > maxDist then limit := strstart - maxDist else limit := 0;
+    if limit < lo then limit := lo;
     scan := strstart;
     scanEnd1 := Win(scan + bestLen - 1);
     scanEnd := Win(scan + bestLen);
@@ -511,6 +748,27 @@ var
     Result := True;
   end;
 
+  { the block b made, against ref's; then kept }
+  procedure PutBlock(const b: TDeflateBlock);
+  begin
+    if ref <> nil then
+      if (nBlocks > High(ref^.blocks)) or not SameBlock(b, ref^.blocks[nBlocks]) then begin
+        diverged := True; stop := True;
+      end else if goodBlocks = nBlocks then Inc(goodBlocks);
+    if nBlocks = Length(z.blocks) then SetLength(z.blocks, 2 * nBlocks + 8);
+    z.blocks[nBlocks] := b;
+    Inc(nBlocks);
+  end;
+
+  { an empty stored block (a flush's marker): 3 bits, up to the byte, LEN
+    and NLEN }
+  procedure StoredBits;
+  begin
+    Inc(bitPos, 3);
+    bitPos := (bitPos + 7) and not Int64(7);
+    Inc(bitPos, 32);
+  end;
+
   { _tr_flush_block }
   procedure FlushBlock(last: Boolean);
   var
@@ -542,7 +800,7 @@ var
 
     optLenb := (ts.optLen + 3 + 7) shr 3;
     staticLenb := (ts.staticLen + 3 + 7) shr 3;
-    if (staticLenb <= optLenb) or (prm.strategy = Z_FIXED) then optLenb := staticLenb;
+    if (staticLenb <= optLenb) or (cur.strategy = Z_FIXED) then optLenb := staticLenb;
 
     if (storedLen + 4 <= optLenb) and (blockStart >= winBase) then begin
       b.btype := btStored;
@@ -569,25 +827,47 @@ var
       for i := 0 to nSeq - 1 do b.clenSeq[i] := seq[i];
     end;
 
-    if (ref <> nil) and ((nBlocks > High(ref^.blocks)) or not SameBlock(b, ref^.blocks[nBlocks])) then begin
-      diverged := True; stop := True;
-    end;
-    if nBlocks = Length(z.blocks) then SetLength(z.blocks, 2 * nBlocks + 8);
-    z.blocks[nBlocks] := b;
-    Inc(nBlocks);
+    if trackBits then
+      case b.btype of
+        btStored: begin StoredBits; Inc(bitPos, 8 * b.storedLen); lastEob := 8; end;
+        btFixed: begin Inc(bitPos, BlockBits(z, b, bitPos)); lastEob := StaticLLen[END_BLOCK]; end;
+      else begin Inc(bitPos, BlockBits(z, b, bitPos)); lastEob := b.litLen[END_BLOCK]; end;
+      end;
+    PutBlock(b);
     InitBlock;
     blockStart := strstart;
     SetCheckNow;
   end;
 
+  { a flush's marker: an empty stored block (_tr_stored_block of nothing)
+    or an empty fixed one (_tr_align) }
+  procedure AddMarker(stored: Boolean);
+  var b: TDeflateBlock;
+  begin
+    b := Default(TDeflateBlock);
+    b.firstToken := nTok;
+    if stored then begin
+      b.btype := btStored; b.plainPos := strstart;
+      if trackBits then begin StoredBits; lastEob := 8; end;
+    end else begin
+      b.btype := btFixed;
+      if trackBits then Inc(bitPos, 3 + StaticLLen[END_BLOCK]);
+    end;
+    PutBlock(b);
+    SetCheckNow;
+  end;
+
+  { deflate_fast, until the lookahead is drained or, at the top of the
+    loop, strstart reaches stopAt }
   procedure DeflateFast;
   begin
     while not stop do begin
+      if (stopAt > 0) and (strstart >= stopAt) then Exit;
       Slide;
       if Lookahead = 0 then Break;
       hashHead := 0;
       if Lookahead >= MIN_MATCH then hashHead := InsertString(strstart);
-      if (hashHead <> 0) and (strstart - hashHead <= maxDist) then
+      if (hashHead > lo) and (strstart - hashHead <= maxDist) then
         matchLength := LongestMatch(hashHead);
       if matchLength >= MIN_MATCH then begin
         bflush := TallyDist(strstart - matchStart, matchLength - MIN_MATCH);
@@ -611,22 +891,23 @@ var
       end;
       if bflush then FlushBlock(False);
     end;
-    if not stop then FlushBlock(True);
   end;
 
+  { deflate_slow, the same way; drained, the literal it still holds }
   procedure DeflateSlow;
   begin
     while not stop do begin
+      if (stopAt > 0) and (strstart >= stopAt) then Exit;
       Slide;
       if Lookahead = 0 then Break;
       hashHead := 0;
       if Lookahead >= MIN_MATCH then hashHead := InsertString(strstart);
       prevLength := matchLength; prevMatch := matchStart;
       matchLength := MIN_MATCH - 1;
-      if (hashHead <> 0) and (prevLength < maxLazy) and (strstart - hashHead <= maxDist) then begin
+      if (hashHead > lo) and (prevLength < maxLazy) and (strstart - hashHead <= maxDist) then begin
         matchLength := LongestMatch(hashHead);
-        if (matchLength <= 5) and ((prm.strategy = Z_FILTERED) or
-           ((matchLength = MIN_MATCH) and (strstart - matchStart > TOO_FAR))) then
+        if (matchLength <= 5) and ((cur.strategy = Z_FILTERED) or
+           ((matchLength = MIN_MATCH) and (strstart - matchStart > tooFar))) then
           matchLength := MIN_MATCH - 1;
       end;
       if (prevLength >= MIN_MATCH) and (matchLength <= prevLength) then begin
@@ -657,20 +938,20 @@ var
       TallyLit(plain[strstart - 1]);
       matchAvailable := 0;
     end;
-    FlushBlock(True);
   end;
 
   procedure DeflateRle;
   var run: Integer; prevByte: Byte;
   begin
     while not stop do begin
+      if (stopAt > 0) and (strstart >= stopAt) then Exit;
       Slide;
       if Lookahead = 0 then Break;
       matchLength := 0;
-      if (Lookahead >= MIN_MATCH) and (strstart > 0) then begin
+      if (Lookahead >= MIN_MATCH) and (strstart > org) then begin
         prevByte := plain[strstart - 1];
         run := 0;
-        while (run < MAX_MATCH) and (strstart + run < n) and (plain[strstart + run] = prevByte) do Inc(run);
+        while (run < MAX_MATCH) and (strstart + run < lim) and (plain[strstart + run] = prevByte) do Inc(run);
         if run >= MIN_MATCH then matchLength := run;
       end;
       if matchLength >= MIN_MATCH then begin
@@ -683,19 +964,18 @@ var
       end;
       if bflush then FlushBlock(False);
     end;
-    if not stop then FlushBlock(True);
   end;
 
   procedure DeflateHuff;
   begin
     while not stop do begin
+      if (stopAt > 0) and (strstart >= stopAt) then Exit;
       Slide;
       if Lookahead = 0 then Break;
       bflush := TallyLit(plain[strstart]);
       Inc(strstart);
       if bflush then FlushBlock(False);
     end;
-    if not stop then FlushBlock(True);
   end;
 
   { the key of DeflateC's nx4 links: deflate_slow with the filtered strategy
@@ -706,49 +986,117 @@ var
     if not fast and (prm.strategy = Z_FILTERED) then Result := 6 else Result := 4;
   end;
 
-  { DeflateFast or DeflateSlow in C (ppazlibc.c's ppaz_deflate), which
-    comes back here to flush each block }
+  { DeflateFast or DeflateSlow in C (ppazlibc.c's ppaz_deflate, on st, set
+    up by SetupC), which comes back here to flush each block }
   procedure DeflateC(fast: Boolean);
-  var st: TZDeflate; r: SizeInt;
+  var r: SizeInt;
   begin
-    SetLength(z.tokLen, n + 8); SetLength(z.tokVal, n + 8);
+    st.strstart := strstart; st.matchStart := matchStart; st.prevMatch := prevMatch; st.winBase := winBase;
+    st.matchLength := matchLength; st.prevLength := prevLength; st.matchAvailable := matchAvailable;
+    st.insH := insH; st.nTok := nTok; st.symNext := symNext;
+    st.goodMatch := goodMatch; st.maxLazy := maxLazy; st.niceMatch := niceMatch; st.maxChain := maxChain;
+    st.filtered := Ord(cur.strategy = Z_FILTERED); st.fast := Ord(fast);
+    st.lim := lim; st.lo := lo; st.stopAt := stopAt; st.pending := 0; st.tooFar := tooFar;
+    repeat
+      st.checkNow := Ord(checkNow); st.stop := Ord(stop);
+      r := ppaz_deflate(st);
+      strstart := st.strstart; nTok := st.nTok; symNext := st.symNext; winBase := st.winBase;
+      if st.stop <> 0 then begin stop := True; diverged := True; end;
+      if r <> ZD_FLUSH then Break;
+      FlushBlock(False);
+      st.nTok := nTok; st.symNext := symNext;
+    until False;
+    matchStart := st.matchStart; prevMatch := st.prevMatch; matchLength := st.matchLength;
+    prevLength := st.prevLength; matchAvailable := st.matchAvailable; insH := st.insH;
+  end;
+
+  { DeflateC's state: its tables, as the flow needs them: d4's key 6 only
+    where every loop with chains is a filtered deflate_slow, the 16 bytes'
+    links where any is a level of chains of 1024 or more }
+  procedure SetupC;
+  var k: SizeInt; key, room, reach: SizeInt; long16: Boolean; lv, sg: Integer;
+  begin
+    key := Key1(prm.level <= 3);
+    long16 := CONFIG[prm.level, 3] >= 1024;
+    lv := prm.level; sg := prm.strategy;
+    if ZlibFunc(lv, sg) < FN_FAST then key := 0;
+    for k := 0 to High(flow.events) do
+      if flow.events[k].kind = ZE_PARAMS then begin
+        lv := flow.events[k].level; sg := flow.events[k].strategy;
+        if ZlibFunc(lv, sg) >= FN_FAST then begin
+          if CONFIG[lv, 3] >= 1024 then long16 := True;
+          if (lv <= 3) or (sg <> Z_FILTERED) then key := 4
+          else if key = 0 then key := 6;
+        end;
+      end;
+    if key = 0 then key := 4;
+    if scratch <> nil then begin
+      Zeroed32(scratch^.head32, hashSize); head32 := scratch^.head32;
+      Zeroed64(scratch^.posC, wsize); posC := scratch^.posC;
+      Zeroed16(scratch^.cnt, hashSize); cnt := scratch^.cnt;
+    end else begin
+      head32 := nil; SetLength(head32, hashSize);
+      posC := nil; SetLength(posC, wsize); cnt := nil; SetLength(cnt, hashSize);
+    end;
+    { the skip tables' size only changes how often a collision makes the
+      search walk zlib's chain, never the choices: sized by what the run
+      may reach (against ref, a few times ref's tokens) }
+    reach := n;
+    if (ref <> nil) and (4 * (Length(ref^.tokLen) + SizeInt(symEnd)) < reach) then reach := 4 * (Length(ref^.tokLen) + symEnd);
+    skipBits := SKIP_BITS_MIN;
+    while (skipBits < SKIP_BITS_MAX) and (SizeInt(1) shl skipBits < 2 * reach) do Inc(skipBits);
+    d16 := nil; t16 := nil;
+    if scratch <> nil then begin
+      Zeroed32(scratch^.t4, 1 shl skipBits); t4 := scratch^.t4;
+      Zeroed32(scratch^.t8, 1 shl skipBits); t8 := scratch^.t8;
+      if long16 then begin
+        Zeroed16(scratch^.d16, wsize); d16 := scratch^.d16;
+        Zeroed32(scratch^.t16, 1 shl skipBits); t16 := scratch^.t16;
+      end;
+    end else begin
+      t4 := nil; SetLength(t4, 1 shl skipBits);
+      t8 := nil; SetLength(t8, 1 shl skipBits);
+      if long16 then begin
+        SetLength(d16, wsize); SetLength(t16, 1 shl skipBits);
+      end;
+    end;
+    { room for every token; against ref, for ref's and a block's more
+      (where ref's block is stored, zlib's tokens until it decides; past
+      ref's, the first one stops the run) }
+    room := n + 8;
+    if (ref <> nil) and (Length(ref^.tokLen) + symEnd + 16 < room) then room := Length(ref^.tokLen) + symEnd + 16;
+    if scratch <> nil then begin
+      { the scratch's own arrays (the end's SetLength gives z a copy of
+        what it holds) }
+      if Length(scratch^.tokLen) < room then begin
+        scratch^.tokLen := nil; scratch^.tokVal := nil;
+        SetLength(scratch^.tokLen, room); SetLength(scratch^.tokVal, room);
+      end;
+      if nTok > 0 then begin
+        Move(z.tokLen[0], scratch^.tokLen[0], nTok * SizeOf(Word));
+        Move(z.tokVal[0], scratch^.tokVal[0], nTok * SizeOf(Word));
+      end;
+      z.tokLen := scratch^.tokLen; z.tokVal := scratch^.tokVal;
+    end else begin
+      SetLength(z.tokLen, room); SetLength(z.tokVal, room);
+    end;
     st := Default(TZDeflate);
     st.plain := @plain[0]; st.n := n;
     st.wsize := wsize; st.wmask := wmask; st.maxDist := maxDist;
     st.hashMask := hashMask; st.hashShift := hashShift;
     st.head := @head32[0]; st.pos := @posC[0]; st.cnt := @cnt[0]; st.t4 := @t4[0]; st.t8 := @t8[0];
     if Length(t16) > 0 then begin st.d16 := @d16[0]; st.t16 := @t16[0]; end;
-    st.insH := insH;
-    st.strstart := strstart; st.matchStart := matchStart; st.prevMatch := prevMatch; st.winBase := winBase;
-    st.matchLength := matchLength; st.prevLength := prevLength; st.matchAvailable := matchAvailable;
-    st.goodMatch := goodMatch; st.maxLazy := maxLazy; st.niceMatch := niceMatch; st.maxChain := maxChain;
-    st.filtered := Ord(prm.strategy = Z_FILTERED); st.fast := Ord(fast);
-    st.tokLen := @z.tokLen[0]; st.tokVal := @z.tokVal[0]; st.nTok := nTok;
+    st.tokLen := @z.tokLen[0]; st.tokVal := @z.tokVal[0];
     if (ref <> nil) and (Length(ref^.tokLen) > 0) then begin
       st.refLen := @ref^.tokLen[0]; st.refVal := @ref^.tokVal[0]; st.refN := Length(ref^.tokLen);
     end;
     st.lfreq := @ltree.freq[0]; st.dfreq := @dtree.freq[0];
-    st.symNext := symNext; st.symEnd := symEnd;
+    st.symEnd := symEnd;
     st.lengthCode := @LengthCode[0]; st.distCode := @DistCode[0];
     st.skipBits := skipBits;
-    st.key1 := Key1(fast);
-    repeat
-      st.checkNow := Ord(checkNow); st.stop := Ord(stop);
-      r := ppaz_deflate(st);
-      strstart := st.strstart; nTok := st.nTok; symNext := st.symNext; winBase := st.winBase;
-      if st.stop <> 0 then begin stop := True; diverged := True; end;
-      case r of
-        ZD_FLUSH: begin
-          FlushBlock(False);
-          st.nTok := nTok; st.symNext := symNext;
-        end;
-        ZD_DONE: begin
-          if not stop then FlushBlock(True);
-          Break;
-        end;
-      else Break;
-      end;
-    until False;
+    st.key1 := key;
+    st.lim := n; st.tooFar := tooFar;
+    cReady := True;
   end;
 
   { deflate_slow on several threads, the same tokens and blocks (levels 4 to
@@ -817,6 +1165,7 @@ var
         st.symNext := 0; st.symEnd := High(SizeInt);
         st.lengthCode := @LengthCode[0]; st.distCode := @DistCode[0];
         st.stopAt := stopAt;
+        st.lim := n; st.lo := 0; st.tooFar := tooFar;
         { its start is where it meets the segment before it }
         syncPos[0] := a; syncTok[0] := 0;
         st.syncPos := @syncPos[1]; st.syncTok := @syncTok[1]; st.maxSync := maxSync - 1;
@@ -919,34 +1268,158 @@ var
     Result := True;
   end;
 
+  procedure SetParams(level, strategy: Integer);
+  begin
+    cur.level := level; cur.strategy := strategy;
+    goodMatch := CONFIG[level, 0]; maxLazy := CONFIG[level, 1];
+    niceMatch := CONFIG[level, 2]; maxChain := CONFIG[level, 3];
+  end;
+
+  { fill_window after a flush, once the input that follows comes: the hash
+    started again from the first position not inserted (its own two
+    bytes), and s->insert, the positions before strstart the lookahead did
+    not reach, inserted now that they have their 3 bytes; zlib takes the
+    input all at once here (a piece of a byte or two would insert fewer,
+    and the rest at the next). Where the hash went on along the input
+    (fill_window between flushes) it was already that. }
+  procedure Refill;
+  var look, from, k, i: SizeInt;
+  begin
+    needFill := False;
+    look := Lookahead;
+    if look + insert < MIN_MATCH then Exit;
+    from := strstart - insert; k := 0;
+    while (insert > 0) do begin
+      Inc(k); Dec(insert);
+      if look + insert < MIN_MATCH then Break;
+    end;
+    if not chains then Exit;
+    if UseZlibC and (n > 0) and (k > 0) then begin
+      if not cReady then SetupC;
+      ppaz_preinsert(st, from, from + k);
+      insH := st.insH;
+    end else begin
+      insH := plain[from]; UpdateHash(plain[from + 1]);
+      for i := from to from + k - 1 do InsertString(i);
+    end;
+  end;
+
+  { the loop of the parameters in force, from strstart until the lookahead
+    (lim) is drained or, at its top, strstart reaches stopPos (> 0) }
+  procedure Run(stopPos: SizeInt);
+  begin
+    if needFill then Refill;
+    stopAt := stopPos;
+    case ZlibFunc(cur.level, cur.strategy) of
+      FN_HUFF: DeflateHuff;
+      FN_RLE: DeflateRle;
+    else
+      if UseZlibC and (n > 0) then begin
+        if not cReady then SetupC;
+        DeflateC(cur.level <= 3);
+      end
+      else if cur.level <= 3 then DeflateFast
+      else DeflateSlow;
+    end;
+    stopAt := 0;
+  end;
+
+  { what deflate does at a flush once it has drained its input: the block
+    ended (an empty one too before 1.2.5.3), the flush's marker, and what
+    the hash takes or forgets }
+  procedure Flush(kind: Integer);
+  var eob: Integer;
+  begin
+    if (variant <> ZV_NEW) or (symNext > 0) then FlushBlock(False);
+    if stop then Exit;
+    case kind of
+      ZE_SYNC, ZE_FULL: AddMarker(True);
+      ZE_PARTIAL: begin
+        eob := lastEob;
+        AddMarker(False);
+        { _tr_align before 1.2.5.3: a second one when the first's 10 bits
+          and the previous end-of-block code gave inflate too little
+          lookahead (bi_valid: the bits not yet written as a byte) }
+        if (variant <> ZV_NEW) and (1 + eob + 10 - (bitPos and 7) < 9) then AddMarker(False);
+        lastEob := StaticLLen[END_BLOCK];
+      end;
+    end;
+    insert := 0;
+    needFill := True;
+    if kind = ZE_FULL then begin
+      if variant = ZV_123 then begin
+        { the hash cleared: no position before strstart is a match's start }
+        if strstart > 0 then lo := strstart - 1;
+      end else begin
+        { strstart 0 again, at this position }
+        org := strstart; lo := strstart; winBase := strstart; blockStart := strstart;
+      end;
+    end else if (variant = ZV_NEW) and (ZlibFunc(cur.level, cur.strategy) >= FN_FAST) then begin
+      insert := strstart - org;
+      if insert > MIN_MATCH - 1 then insert := MIN_MATCH - 1;
+    end;
+  end;
+
+  procedure RunFlow;
+  var k, j: SizeInt; e: TZlibEvent;
+  begin
+    for k := 0 to High(flow.events) do begin
+      if stop then Exit;
+      e := flow.events[k];
+      if e.kind = ZE_PARAMS then begin
+        if strstart < e.pos then begin
+          { the input goes on to the next flush, or to the end }
+          lim := n;
+          for j := k + 1 to High(flow.events) do
+            if flow.events[j].kind <> ZE_PARAMS then begin lim := flow.events[j].pos; Break; end;
+          if lim < strstart then lim := strstart;
+          Run(e.pos);
+          if stop then Exit;
+        end;
+        SetParams(e.level, e.strategy);
+      end else begin
+        lim := e.pos;
+        if lim < strstart then lim := strstart;
+        Run(0);
+        if stop then Exit;
+        Flush(e.kind);
+      end;
+    end;
+    if stop then Exit;
+    lim := n;
+    Run(0);
+    if not stop then FlushBlock(True);
+  end;
+
 var wb: Integer;
 begin
   z := Default(TZStream);
+  goodBlocks := 0;
   n := Length(plain);
   wb := prm.wbits; if wb = 8 then wb := 9;
   wsize := SizeInt(1) shl wb; wmask := wsize - 1; maxDist := wsize - MIN_LOOKAHEAD;
   hashBits := prm.memLevel + 7;
   hashSize := 1 shl hashBits; hashMask := hashSize - 1;
   hashShift := (hashBits + MIN_MATCH - 1) div MIN_MATCH;
+  cur := prm;
+  variant := flow.variant and ZV_VERSION;
+  if (flow.variant and ZV_NO_TOO_FAR) <> 0 then tooFar := 32767 else tooFar := TOO_FAR;
+  trackBits := (Length(flow.events) > 0) and (variant <> ZV_NEW);
+  bitPos := 0; lastEob := 8;
+  lim := n; stopAt := 0; org := 0; lo := 0; insert := 0; needFill := False;
   { the chains: Pascal's (the reference, DeflateFast and DeflateSlow) or
     C's; deflate_huff and deflate_rle keep none }
+  chains := ZlibFunc(prm.level, prm.strategy) >= FN_FAST;
+  for k := 0 to High(flow.events) do
+    if (flow.events[k].kind = ZE_PARAMS) and (ZlibFunc(flow.events[k].level, flow.events[k].strategy) >= FN_FAST) then
+      chains := True;
+  cReady := False;
+  symEnd := (1 shl (prm.memLevel + 6)) - 1;
   head := nil; prev := nil;
-  if prm.strategy in [Z_HUFFMAN_ONLY, Z_RLE] then
+  if not chains then
   else if not UseZlibC then begin
     SetLength(head, hashSize); SetLength(prev, wsize);
-  end else begin
-    head32 := nil; SetLength(head32, hashSize);
-    posC := nil; SetLength(posC, wsize); cnt := nil; SetLength(cnt, hashSize);
-    skipBits := SKIP_BITS_MIN;
-    while (skipBits < SKIP_BITS_MAX) and (SizeInt(1) shl skipBits < 2 * n) do Inc(skipBits);
-    t4 := nil; SetLength(t4, 1 shl skipBits);
-    t8 := nil; SetLength(t8, 1 shl skipBits);
-    d16 := nil; t16 := nil;
-    if CONFIG[prm.level, 3] >= 1024 then begin
-      SetLength(d16, wsize); SetLength(t16, 1 shl skipBits);
-    end;
   end;
-  symEnd := (1 shl (prm.memLevel + 6)) - 1;
   goodMatch := CONFIG[prm.level, 0]; maxLazy := CONFIG[prm.level, 1];
   niceMatch := CONFIG[prm.level, 2]; maxChain := CONFIG[prm.level, 3];
   strstart := 0; blockStart := 0; winBase := 0; insH := 0;
@@ -962,13 +1435,13 @@ begin
   { fill_window's first hash: the first two bytes }
   if n >= MIN_MATCH then begin insH := plain[0]; UpdateHash(plain[1]); end;
 
-  if prm.strategy = Z_HUFFMAN_ONLY then DeflateHuff
-  else if prm.strategy = Z_RLE then DeflateRle
+  if Length(flow.events) > 0 then RunFlow
   else if UseZlibC and (ref = nil) and (threads > 1) and (prm.level >= 4) and (n >= PAR_MIN_BYTES) and
           (prm.strategy in [Z_DEFAULT_STRATEGY, Z_FILTERED]) and ParallelSlow then
-  else if UseZlibC and (n > 0) then DeflateC(prm.level <= 3)
-  else if prm.level <= 3 then DeflateFast
-  else DeflateSlow;
+  else begin
+    Run(0);
+    if not stop then FlushBlock(True);
+  end;
 
   SetLength(z.blocks, nBlocks);
   SetLength(z.tokLen, nTok);
@@ -1023,6 +1496,65 @@ begin
           prm.level := lv; prm.strategy := st; prm.memLevel := order[ml]; prm.wbits := wb;
           if ZlibChoices(z.plain, prm, @z, choices) then Exit(True);
         end;
+end;
+
+procedure ZlibTrees(const lfreq, dfreq: array of Integer; var b: TDeflateBlock; out fixedNoBigger: Boolean);
+var
+  ltree, dtree, bltree: TTree; ts: TTreeState;
+  maxBlIndex, i, nSeq: Integer;
+  seq: array[0..L_CODES + D_CODES] of Word;
+begin
+  ltree := Default(TTree); dtree := Default(TTree); bltree := Default(TTree); ts := Default(TTreeState);
+  for i := 0 to L_CODES - 1 do ltree.freq[i] := lfreq[i];
+  for i := 0 to D_CODES - 1 do dtree.freq[i] := dfreq[i];
+  BuildTree(ltree, ts, L_CODES, @StaticLLen[0], EXTRA_LBITS, LITERALS + 1, 15);
+  BuildTree(dtree, ts, D_CODES, @StaticDLen[0], EXTRA_DBITS, 0, 15);
+  nSeq := 0;
+  ScanTree(ltree, ltree.maxCode, bltree, seq, nSeq, False);
+  ScanTree(dtree, dtree.maxCode, bltree, seq, nSeq, False);
+  BuildTree(bltree, ts, BL_CODES, nil, EXTRA_BLBITS, 0, 7);
+  maxBlIndex := BL_CODES - 1;
+  while maxBlIndex >= 3 do begin
+    if bltree.len[BL_ORDER[maxBlIndex]] <> 0 then Break;
+    Dec(maxBlIndex);
+  end;
+  Inc(ts.optLen, 3 * (Int64(maxBlIndex) + 1) + 5 + 5 + 4);
+  fixedNoBigger := (ts.staticLen + 3 + 7) shr 3 <= (ts.optLen + 3 + 7) shr 3;
+  b.hlit := ltree.maxCode + 1;
+  b.hdist := dtree.maxCode + 1;
+  b.hclen := maxBlIndex + 1;
+  for i := 0 to 18 do b.clen[i] := bltree.len[i];
+  FillChar(b.litLen, SizeOf(b.litLen), 0);
+  FillChar(b.distLen, SizeOf(b.distLen), 0);
+  for i := 0 to ltree.maxCode do b.litLen[i] := ltree.len[i];
+  for i := 0 to dtree.maxCode do b.distLen[i] := dtree.len[i];
+  nSeq := 0;
+  ScanTree(ltree, b.hlit - 1, bltree, seq, nSeq, True);
+  ScanTree(dtree, b.hdist - 1, bltree, seq, nSeq, True);
+  SetLength(b.clenSeq, nSeq);
+  for i := 0 to nSeq - 1 do b.clenSeq[i] := seq[i];
+end;
+
+procedure ZlibSendTree(const lens: array of Byte; count: Integer; var seq: array of Word; var nSeq: Integer);
+var t, bl: TTree; i: Integer;
+begin
+  t.len[0] := 0;   { (only len is read, up to count: the rest need no clearing) }
+  for i := 0 to count - 1 do t.len[i] := lens[i];
+  ScanTree(t, count - 1, bl, seq, nSeq, True);
+end;
+
+procedure ZlibBlTree(const freq: array of Integer; out clen: array of Byte; out hclen: Integer);
+var bltree: TTree; ts: TTreeState; i: Integer;
+begin
+  bltree := Default(TTree); ts := Default(TTreeState);
+  for i := 0 to BL_CODES - 1 do bltree.freq[i] := freq[i];
+  BuildTree(bltree, ts, BL_CODES, nil, EXTRA_BLBITS, 0, 7);
+  hclen := BL_CODES;
+  while hclen > 4 do begin
+    if bltree.len[BL_ORDER[hclen - 1]] <> 0 then Break;
+    Dec(hclen);
+  end;
+  for i := 0 to BL_CODES - 1 do clen[i] := bltree.len[i];
 end;
 
 procedure MakeTables;

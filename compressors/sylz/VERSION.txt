@@ -1,3 +1,8 @@
+syc v0.10.2 (tag v0.10.2, commit fcdf79b, 2026-11-16): for these codecs the sources are v0.8.0's but
+for five lines of sylzc.c (the ChaCha state of syc's encryption is cleared after use, which the
+codecs never call). The formats, the plugin (sylz_zpaqstd.pas, zs_codec.inc) and the bytes written
+are v0.8.0's. In zpaq-std 2.12.0. What follows is the note of v0.8.0:
+
 sylz, sylzec, sylz4 and sylz5 (sylz formats v2, v3, v4 and v5), from syc v0.8.0 (tag v0.8.0, commit
 0dd2bc0, 2026-11-13), https://github.com/YadeWira/syc. v0.8.0 FREEZES formats v4 and v5 and brings
 their codecs to the plugin: zpaqstd_codecs_v1(2) is sylz4 (library "sylz format v4 (syc 0.8.0)": it

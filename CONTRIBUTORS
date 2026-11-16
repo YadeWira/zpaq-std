@@ -65,12 +65,12 @@ folder under compressors/.
   kanzi 2.6.0             Frederic Langlet                        Apache-2.0
   libdivsufsort 2.0 (stripped)
                           Yuta Mori                               MIT
-  zxc 1.0.0               Bertrand Lebonnois and contributors;    BSD-3-Clause
+  zxc 1.0.1               Bertrand Lebonnois and contributors;    BSD-3-Clause
                           Nicolas De Carli (rapidhash)
-  sylz and sylzec syc v0.8.0
+  sylz and sylzec syc v0.10.2
                           Yade Bravo (YadeWira)                   MIT
-  PJA 0.9.12              Yade Bravo (YadeWira)                   MIT
-  PPA 0.2.1               Yade Bravo (YadeWira)                   MIT
+  PJA 0.9.13              Yade Bravo (YadeWira)                   MIT
+  PPA 0.4.0               Yade Bravo (YadeWira)                   MIT
 
 sylz (syc), PJA and PPA (Yade Bravo, MIT) are in Free Pascal and, by rule, never linked
 into zpaq-std: they ship as plugins (codecs/sylz, codecs/pja and codecs/ppa, .dll or .so).

@@ -60,22 +60,23 @@ BUNDLED = [
     ('kanzi', '2.6.0', 'Apache-2.0', 'Frederic Langlet', ['compressors/kanzi/LICENSE'],
      'No NOTICE file is distributed with kanzi. kanzi_zpaqstd.cpp/.h are zpaq-std\'s own.'),
     ('libdivsufsort', '2.0 (stripped)', 'MIT', 'Yuta Mori', ['libdivsufsort/LICENSE'], ''),
-    ('zxc', '1.0.0', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
+    ('zxc', '1.0.1', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
      ['compressors/zxc/LICENSE', 'compressors/zxc/LICENSE-rapidhash'], ''),
-    ('sylz and sylzec', 'syc v0.8.0', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
+    ('sylz and sylzec', 'syc v0.10.2', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'
      'extra-codecs and plugins downloads, not in the full program.'),
-    ('PJA', '0.9.12', 'MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)', 'Yade Bravo (YadeWira)',
+    ('PJA', '0.9.13', 'MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)', 'Yade Bravo (YadeWira)',
      ['compressors/pja/LICENSE', 'compressors/pja/NOTICE'],
      'The -sa codecs: pjax78 and pja78 (JPEG), pjall8 (lossless JPEG), pjals8 and pjalsx8 (JPEG-LS),\n'
      'pja2k (JPEG 2000). Free Pascal and C, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'
      'the full program. NOTICE has the third-party notes (IJG, CharLS, OpenJPH).'),
-    ('PPA', '0.2.1', 'MIT; parts ported from zlib (zlib license); a copy of PJA', 'Yade Bravo (YadeWira)',
-     ['compressors/ppa/LICENSE', 'compressors/ppa/NOTICE'],
+    ('PPA', '0.4.0', 'MIT; parts ported from zlib (zlib license); copies of PJA and of libdeflate 1.26\'s compressor (MIT)', 'Yade Bravo (YadeWira)',
+     ['compressors/ppa/LICENSE', 'compressors/ppa/NOTICE', 'compressors/ppa/vendor/libdeflate/COPYING'],
      'The -sa codec ppa1 (PNG, APNG, MNG). Free Pascal and C, built only as a plugin\n'
      '(codecs/ppa.dll or ppa.so): it is in the extra-codecs and plugins downloads, not in\n'
-     'the full program. NOTICE has the third-party notes (zlib; its own copy of PJA in vendor/pja).'),
+     'the full program. NOTICE has the third-party notes (zlib; its own copies of PJA in vendor/pja and of\n'
+     'libdeflate\'s compressor in vendor/libdeflate, which ppa1 never calls).'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],
      'The ZPAQL program that decodes -ma:lzma blocks in any zpaq.'),
 ]

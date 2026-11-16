@@ -199,7 +199,6 @@ static inline __attribute__((always_inline)) intptr_t longest_skip(const uint8_t
    TZDeflate is this struct, field for field. */
 enum { ZD_DONE = 0, ZD_FLUSH = 1, ZD_STOP = 2, ZD_SEGEND = 3 };
 #define MIN_MATCH 3
-#define TOO_FAR 4096
 #define FILTERED_MIN 5   /* deflate_slow's filtered strategy drops a match this long or shorter */
 
 typedef struct {
@@ -230,6 +229,13 @@ typedef struct {
   intptr_t endLit;
   intptr_t syncLo, syncHi;       /* only the positions up to syncLo and from syncHi are kept */
   intptr_t key1;                 /* the key of d4 (t4): 4 bytes, or 6 (filtered deflate_slow: skip_key) */
+  /* a flow (ppazlib's ZlibChoicesFlow: flushes): the lookahead ends at lim
+     (a flush's position, else n; the bytes past it are still read, as the
+     Pascal reads them: they only decide a match that reaches lim, which is
+     cut to it); no match starts at or before lo (Z_FULL_FLUSH forgot
+     them; 0: NIL) */
+  intptr_t lim, lo;
+  intptr_t tooFar;               /* deflate_slow drops a match of 3 further than this (TOO_FAR, or pngcrush's 32767) */
 } zdeflate_t;
 
 static inline uint64_t zd_load8(const uint8_t *p) { uint64_t v; __builtin_memcpy(&v, p, 8); return v; }
@@ -311,9 +317,10 @@ static inline __attribute__((always_inline)) intptr_t zd_insert(zdeflate_t *s, i
 
 static inline __attribute__((always_inline)) intptr_t zd_longest(zdeflate_t *s, intptr_t cur, const int fast,
                                                                    const int k1, const int h16) {
-  const intptr_t look = s->n - s->strstart;
+  const intptr_t look = s->lim - s->strstart;
   intptr_t chain = s->maxChain, nice = s->niceMatch;
-  const intptr_t limit = s->strstart > s->maxDist ? s->strstart - s->maxDist : 0;
+  intptr_t limit = s->strstart > s->maxDist ? s->strstart - s->maxDist : 0;
+  if (limit < s->lo) limit = s->lo;
   if (s->prevLength >= s->goodMatch) chain >>= 2;
   if (nice > look) nice = look;
   /* deflate_slow with the filtered strategy drops a match of 5 bytes or
@@ -321,9 +328,15 @@ static inline __attribute__((always_inline)) intptr_t zd_longest(zdeflate_t *s, 
      it had one of 5. Where the longest is 6 or more it is the same match,
      the first of its length on the chain (a candidate improves on the best
      only with more bytes, wherever the best started); where it is not, the
-     caller drops what it gets, as it dropped zlib's */
+     caller drops what it gets, as it dropped zlib's. Not from a best of 0:
+     zlib's longest_match then also wants the byte before each candidate
+     the same as the byte before the scan (scan_end1 is scan[-1]), and
+     skips a candidate without it however long. deflate_slow starts with a
+     prev_length of 0 right after deflate_fast ended on a match or
+     deflate_rle ran (a flow's change of loop, recipe kind 1); kind 0 never
+     has it */
   intptr_t best0 = s->prevLength;
-  if (s->filtered && !fast && best0 < FILTERED_MIN) best0 = FILTERED_MIN;
+  if (s->filtered && !fast && best0 > 0 && best0 < FILTERED_MIN) best0 = FILTERED_MIN;
   const intptr_t best = longest_skip(s->plain, s->n, s->pos, h16 ? s->d16 : 0, s->wmask, s->strstart,
                                      cur, limit, chain, best0, nice, &s->matchStart, k1);
   return best <= look ? best : look;
@@ -352,13 +365,13 @@ static inline __attribute__((always_inline)) intptr_t zd_run(zdeflate_t *s, cons
     if (s->stop) return ZD_STOP;
     if (s->stopAt && s->strstart >= s->stopAt) return ZD_SEGEND;
     while (s->strstart - s->winBase >= s->wsize + s->maxDist) s->winBase += s->wsize;
-    const intptr_t look = s->n - s->strstart;
+    const intptr_t look = s->lim - s->strstart;
     if (look == 0) break;
     intptr_t hashHead = 0;
     if (look >= MIN_MATCH) hashHead = zd_insert(s, s->strstart, k1, h16);
     if (fast) {
       int bflush;
-      if (hashHead != 0 && s->strstart - hashHead <= s->maxDist) s->matchLength = zd_longest(s, hashHead, fast, k1, h16);
+      if (hashHead > s->lo && s->strstart - hashHead <= s->maxDist) s->matchLength = zd_longest(s, hashHead, fast, k1, h16);
       if (s->matchLength >= MIN_MATCH) {
         bflush = zd_dist(s, s->strstart - s->matchStart, s->matchLength - MIN_MATCH);
         if (s->matchLength <= s->maxLazy && look - s->matchLength >= MIN_MATCH) {
@@ -380,9 +393,9 @@ static inline __attribute__((always_inline)) intptr_t zd_run(zdeflate_t *s, cons
     }
     s->prevLength = s->matchLength; s->prevMatch = s->matchStart;
     s->matchLength = MIN_MATCH - 1;
-    if (hashHead != 0 && s->prevLength < s->maxLazy && s->strstart - hashHead <= s->maxDist) {
+    if (hashHead > s->lo && s->prevLength < s->maxLazy && s->strstart - hashHead <= s->maxDist) {
       s->matchLength = zd_longest(s, hashHead, fast, k1, h16);
-      if (s->matchLength <= FILTERED_MIN && (s->filtered || (s->matchLength == MIN_MATCH && s->strstart - s->matchStart > TOO_FAR)))
+      if (s->matchLength <= FILTERED_MIN && (s->filtered || (s->matchLength == MIN_MATCH && s->strstart - s->matchStart > s->tooFar)))
         s->matchLength = MIN_MATCH - 1;
     }
     if (s->prevLength >= MIN_MATCH && s->matchLength <= s->prevLength) {

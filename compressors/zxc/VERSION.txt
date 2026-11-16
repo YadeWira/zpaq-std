@@ -1,3 +1,8 @@
+zxc 1.0.1 (tag v1.0.1, commit 1cb3e19, 2026-11-14, format version 9), copied unmodified.
+One change in the library (zxc_compress.c): the test that lets a block of matches be split
+no longer sums over a condition, which GCC 14.2 miscompiled for AVX-512. In zpaq-std 2.12.0.
+What follows is the note of 1.0.0:
+
 zxc 1.0.0 (tag v1.0.0, commit d237221, 2026-11-11, format version 9, now frozen), copied
 unmodified. Its C API changed (the level is a parameter of zxc_compress(), settings go
 on a context; zxc_decompress() no longer verifies checksums, and zpaq-std never wrote

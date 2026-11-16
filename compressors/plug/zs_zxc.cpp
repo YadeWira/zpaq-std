@@ -20,4 +20,4 @@ static long long zs_decompress(const void* src, size_t n, void* dst, size_t cap,
 	return r >= 0 ? (long long)r : -1;
 }
 
-ZS_DEFINE_CODEC(zxc, "zxc format 9 (zxc 1.0.0)", 1, 7, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)
+ZS_DEFINE_CODEC(zxc, "zxc format 9 (zxc 1.0.1)", 1, 7, zs_bound, zs_compress, zs_decompress, nullptr, nullptr)

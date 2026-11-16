@@ -1,6 +1,10 @@
-PJA 0.9.12 (tag v0.9.12, commit 9b4f04a), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.9.12-zpaqstd.tar.gz (sha256
-b801a809fc878cd7191cbca36c9bbf4a2e3a9fe050f23b2223c942a271ec6cc4), copied unmodified.
+PJA 0.9.13 (tag v0.9.13, commit 978faeb), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.13-zpaqstd.tar.gz (sha256
+3d97bca202200ccb65c3bfb36d73fcb1f1fadb567b5c55b45169c22b57194a83), copied unmodified.
+0.9.13: the same streams and ZPAQL, and the codecs take what 0.9.12's took. Its change is in PJA's
+command and libpja (blended predictors for JPEG-LS and lossless JPEG, only in a .pja); pjals, pjalsx,
+pjall and theirs now also refuse such a stream when asked for their ZPAQL's arguments.
+Before: 0.9.12 (commit 9b4f04a, tarball sha256 b801a809...), in zpaq-std 2.11.0:
 0.9.12: the same streams and ZPAQL. pja/pjax and theirs take a JPEG whose sequential scan has Ss or
 Se other than 0 and 63 (a DICOM encoder writes Se = 0); pjall and theirs refuse a lossless JPEG with
 subsampled components or with a predictor that wraps (detect answers 2: +rcmd takes them).
