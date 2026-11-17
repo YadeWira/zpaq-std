@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Decodificador de referencia de libbsc 3.3.12 tal como lo usa zpaq-std -ma:bsc:
-# sin LZP, ST3/ST4/ST5 y QLFC estatico. Especificacion ejecutable para el ZPAQL.
+# sin LZP, ST3/ST4/ST5 (ZPAQBSC) o BWT (ZPAQBSCB, -ma:bsc:10) y QLFC estatico.
+# Especificacion ejecutable para el ZPAQL.
 import sys, struct, os, re
 
 BSC = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bsc')
@@ -253,11 +254,29 @@ def unst(T, k, start):
         out[i] = T[p]; V[p] -= 1; p = u
     return bytes(out)
 
+def unbwt(T, index):
+    """BWT inversa de libbsc (libsais_unbwt): T es la BWT sin centinela e index (1..n)
+    la fila donde iria. P[j] = la fila anterior a la j, ya sin la del centinela."""
+    n = len(T)
+    if n <= 1: return bytes(T)
+    count = [0] * 256
+    for c in T: count[c] += 1
+    s = 1
+    for c in range(256): t = count[c]; count[c] = s; s += t
+    P = [0] * n
+    for j in range(n):
+        c = T[j]; i = count[c]; count[c] += 1
+        P[j] = i - 1 if i >= index else i
+    out = bytearray(n); j = 0
+    for k in range(n - 1, -1, -1):
+        out[k] = T[j]; j = P[j]
+    return bytes(out)
+
 def decompress(d):
     blockSize, n, mode, index = struct.unpack_from('<iiii', d, 0)
     if mode == 0: return d[28:28 + n]
     sorter = mode & 0x1f; coder = (mode >> 5) & 7
-    assert coder == 1 and 3 <= sorter <= 5 and (mode >> 8) == 0, hex(mode)
+    assert coder == 1 and (sorter == 1 or 3 <= sorter <= 5) and (mode >> 8) == 0, hex(mode)
     c = 28
     nb = d[c]
     if nb == 1:
@@ -270,6 +289,7 @@ def decompress(d):
             else: T += d[p:p + isz]
             p += isz
     assert len(T) == n, (len(T), n)
+    if sorter == 1: return unbwt(bytearray(T), index)
     return unst(bytearray(T), sorter, index)
 
 if __name__ == '__main__':

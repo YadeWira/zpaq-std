@@ -71,12 +71,14 @@ BUNDLED = [
      'pja2k (JPEG 2000). Free Pascal and C, built only as a plugin\n'
      '(codecs/pja.dll or pja.so): it is in the extra-codecs and plugins downloads, not in\n'
      'the full program. NOTICE has the third-party notes (IJG, CharLS, OpenJPH).'),
-    ('PPA', '0.4.0', 'MIT; parts ported from zlib (zlib license); copies of PJA and of libdeflate 1.26\'s compressor (MIT)', 'Yade Bravo (YadeWira)',
-     ['compressors/ppa/LICENSE', 'compressors/ppa/NOTICE', 'compressors/ppa/vendor/libdeflate/COPYING'],
+    ('PPA', '0.6.0', 'MIT; parts ported from zlib (zlib license); copies of PJA, of libdeflate 1.26\'s compressor (MIT) and of zopfli 1.0.3\'s deflate (Apache-2.0)', 'Yade Bravo (YadeWira)',
+     ['compressors/ppa/LICENSE', 'compressors/ppa/NOTICE', 'compressors/ppa/vendor/libdeflate/COPYING',
+      'compressors/ppa/vendor/zopfli/COPYING', 'compressors/ppa/vendor/zopfli/CONTRIBUTORS'],
      'The -sa codec ppa1 (PNG, APNG, MNG). Free Pascal and C, built only as a plugin\n'
      '(codecs/ppa.dll or ppa.so): it is in the extra-codecs and plugins downloads, not in\n'
      'the full program. NOTICE has the third-party notes (zlib; its own copies of PJA in vendor/pja and of\n'
-     'libdeflate\'s compressor in vendor/libdeflate, which ppa1 never calls).'),
+     'libdeflate\'s compressor in vendor/libdeflate and of zopfli\'s deflate in vendor/zopfli, which\n'
+     'ppa1 never calls).'),
     ('ZPAQLZMA decoder', '-', 'see text', 'kaitz', ['compressors/zpaqlzma/LICENSE'],
      'The ZPAQL program that decodes -ma:lzma blocks in any zpaq.'),
 ]

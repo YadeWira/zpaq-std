@@ -131,6 +131,10 @@ typedef struct zs_codec {
                                  before the file that would pass it; a file heavier than the
                                  cap goes alone. Only for a codec that answers 1 to
                                  ZS_QUERY_SEGMENTS; the cap on the bytes of a group stays */
+#define ZS_QUERY_LEVEL_MEMORY 6 /* ppmd (since zpaq-std 2.13.1): 1 if compress() takes the
+                                 model memory in MB in its level, from bit 8 on (0 there:
+                                 64 MB), the way decompress() takes it in param; asked
+                                 with src "" and n 0 */
 #define ZS_DATA_PREFIX     1  /* brotli: ZPAQBROTLI's data prefix */
 #define ZS_DATA_ZPAQL      2  /* -mae/-mat: the codec's ZPAQL decoder, as text */
 #define ZS_DATA_ZPAQL_ARGS 4  /* the same, for a decoder that uses $3..$5 (since zpaq-std

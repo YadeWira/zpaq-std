@@ -30,7 +30,7 @@ python3 -c "
 import random; random.seed(11); w='alfa beta gamma delta epsilon zeta eta theta iota kappa'.split()
 open('$OUT/src/t.txt','w').write(' '.join(random.choice(w) for _ in range(120000)))"
 REF=$(sha256sum < "$OUT/src/t.txt" | cut -d' ' -f1)
-ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lzma lizard lizard:45 bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc lzh ppmd uflzma2 uflzma2:11 kanzi kanzi:1 kanzi:3 kanzi:4 kanzi:5 kanzi:6 kanzi:7 kanzi:8 kanzi:9 zxc:1 zxc zxc:5 zxc:7"
+ALGOS="lz4 lz4hc lz4f zstd flzma2 lz5 lz5hc lz5f lz6 lz6hc lzma lizard lizard:45 bzip2 bzip3 brotli snappy deflate lz lzav hs lzfse bsc bsc:10 lzh ppmd ppmd:10:256 ppmd:8:16 uflzma2 uflzma2:11 kanzi kanzi:1 kanzi:3 kanzi:4 kanzi:5 kanzi:6 kanzi:7 kanzi:8 kanzi:9 zxc:1 zxc zxc:5 zxc:7"
 malos=0
 for a in $ALGOS; do
   arch=$OUT/$a.zpaq; rm -f "$arch"
@@ -41,6 +41,10 @@ for a in $ALGOS; do
   # zxc lleva el formato en la etiqueta (zxc9), como sylz (sylz2); lzh tambien desde
   # 1.6.0 (lzh10 = LZHAM 1.0; "lzh:" era el formato alpha)
   ta=${a/#zxc/zxc9}; ta=${ta/#lzh/lzh10}
+  # 2.10.0: -ma:lz6 es el motor seq (etiqueta lz6seq); -ma:lz6hc el perfil LZ5 (etiqueta lz6)
+  case "$a" in lz6) ta=lz6seq;; lz6hc) ta=lz6;; esac
+  # 2.13.1: -ma:ppmd:<orden>:<MB>; la etiqueta lleva solo el orden
+  case "$a" in ppmd:*:*) ta=${a%:*};; esac
   n=$(strings -a "$arch" 2>/dev/null | grep -cE "zpaqstd-ma2?:([a-z0-9]+-)?$ta:")
   # lz (lzlib) se guarda como el LZMA de adentro del miembro lzip, con la etiqueta
   # de -ma:lzma (ZPAQLZIP): "zpaqstd-ma2:lzma:<nivel>:<tamano>:lzip".
@@ -64,7 +68,7 @@ for a in $ALGOS; do
   # Si esto falla, se rompio la portabilidad de ZPAQLZ5 (el programa embebido, el
   # SHA-1 del original en el segmento, o el tamano original en el comentario).
   z715="-"
-  case "$a" in lz4|lz4hc|lz4f|lz5|lz5hc|lz5f|lz6|lzma|lz|flzma2|snappy|lzav|deflate|hs|lizard|lizard:45|bzip2|zstd|lzfse|brotli|bzip3|lzh|zxc|zxc:*)
+  case "$a" in lz4|lz4hc|lz4f|lz5|lz5hc|lz5f|lz6|lz6hc|lzma|lz|flzma2|snappy|lzav|deflate|hs|lizard|lizard:45|bzip2|zstd|lzfse|brotli|bzip3|lzh|zxc|zxc:*|bsc|bsc:*|ppmd|ppmd:*)
     if command -v zpaq >/dev/null 2>&1; then
       rm -rf "$OUT/o715"; mkdir -p "$OUT/o715"
       timeout 300 zpaq x "$arch" -to "$OUT/o715/" -force </dev/null >/dev/null 2>&1

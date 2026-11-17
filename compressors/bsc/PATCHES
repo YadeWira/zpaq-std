@@ -27,6 +27,11 @@ size, under AddressSanitizer and UBSan) found, in pristine 3.4.0:
     from its table outside the block, on damaged data or a crafted index (st.cpp,
     bsc_unst_reconstruct_case1_serial: a read past the table).
 
+  - (found in 2026-11, fuzzing the BWT for -ma:bsc:10) a stored block (mode 0) whose
+    header declares more data than the block holds: bsc_decompress copied dataSize
+    bytes from a payload of blockSize - 28, a read past the block; and a blockSize
+    under the header's 28 bytes or a negative dataSize went on to the same copy.
+
 The idea, and seeds for some of these, came from tovyCT (another agent of this lab),
 whose coverage-guided fuzzer found the same kind of faults in its own copy.
 
@@ -50,14 +55,16 @@ The patch:
                               both sizes before anything is decoded, and each block
                               is decoded within its own sizes and must give them.
   libbsc/libbsc.cpp           the index table must fit inside the block; the coder
-                              gets the block's payload size and dataSize.
+                              gets the block's payload size and dataSize. A block
+                              is at least its header, dataSize is not negative,
+                              and a stored block holds all of its data (2.13.1).
   st/st.cpp                   the serial reconstructions (cases 1, 2 and 3) check
                               every link against n and return false; bsc_st_decode
                               turns that into LIBBSC_DATA_CORRUPT. (The OpenMP ones
                               are not built in zpaq-std.)
 
 And in zpaq-std's adapter (compressors/plug/zs_bsc.cpp): a block whose mode is not
-what zpaq-std writes (stored, or QLFC static with ST3..ST5 and no LZP) is refused
+what zpaq-std writes (stored, or QLFC static with ST3..ST5 or the BWT, and no LZP) is refused
 before libbsc sees it, so the adaptive and fast decoders are out of reach anyway.
 
 Checked: every crashing case (ours and tovyCT's seeds, with the static, adaptive and

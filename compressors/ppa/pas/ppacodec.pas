@@ -41,8 +41,10 @@ const
     in ppapreflate's RecipeBytes (kinds 0 to 3: zlib with its flushes,
     miniz, and any deflate stream through a predictor and its
     corrections); 4, version 3's and kind 2's libdeflate (encoder 2: the
-    same layout, a value a version 3 reader refuses). }
-  STREAM_VERSION = 4;
+    same layout, a value a version 3 reader refuses); 5, and kind 2's
+    zopfli (encoder 3); 6, and zopfli's variant 1 (the Rust port: oxipng's
+    --zopfli). }
+  STREAM_VERSION = 6;
   { the oldest version Compress writes: what every file needs (version 1's
     static model is not written any more). A file writes the oldest
     version that holds everything in it, so a file the zlib parameters
@@ -62,6 +64,11 @@ const
   LEVEL_DEFAULT = 2;
   LEVEL_MAX = 3;
   LEVEL_NAMES: array[LEVEL_FAST..LEVEL_MAX] of string = ('fast', 'default', 'max');
+  { zopfli's recipe (kind 2, encoder 3) costs a zopfli run to find and to
+    rebuild (about 0.2 MB/s): by level, the most bytes an image stream may
+    have for it to be tried. Wira's choice (16/11/2026): -1 never, -2 small
+    images (64 KiB: about a second to extract at most), -3 every image. }
+  ZOP_MAX_BY_LEVEL: array[LEVEL_FAST..LEVEL_MAX] of SizeInt = (0, 64 * 1024, High(SizeInt));
 
 var
   { For the tests and ppa selftest only: every image a model can take goes
@@ -140,7 +147,7 @@ function DecompressEx(const stream: TBytes; maxOut: Int64; out data: TBytes; out
 
 implementation
 
-uses Math, ppapng, ppadeflate, ppazlib, ppapreflate, ppapixels, ppaarith, ppamodel, ppafast, ppastatic, ppathreads, ppastage,
+uses Math, ppapng, ppadeflate, ppazlib, ppapreflate, ppazopfli, ppapixels, ppaarith, ppamodel, ppafast, ppastatic, ppathreads, ppastage,
   pjablake3, pjacodec, pjamodel, pjav7;
 
 const
@@ -388,6 +395,9 @@ end;
 function RecipeVersion(const recipe: TDeflRecipe): Integer;
 begin
   if recipe.kind = RECIPE_ZLIB then Result := 2
+  else if (recipe.kind = RECIPE_ENCODER) and (recipe.encoder = ENC_ZOPFLI) and (recipe.zop.variant >= ZOPV_RS08) then
+    Result := 6
+  else if (recipe.kind = RECIPE_ENCODER) and (recipe.encoder = ENC_ZOPFLI) then Result := 5
   else if (recipe.kind = RECIPE_ENCODER) and (recipe.encoder = ENC_LIBDEFLATE) then Result := 4
   else if recipe.kind in [RECIPE_ZLIB_FLOW, RECIPE_ENCODER, RECIPE_CORR] then Result := 3
   else Result := High(Integer);
@@ -399,10 +409,18 @@ begin
   if streamVer >= 3 then Result := RECIPE_KIND_LAST else Result := RECIPE_ZLIB;
 end;
 
+{ zopfli's variants a stream version holds }
+function MaxZopVariant(streamVer: Integer): Integer;
+begin
+  if streamVer >= 6 then Result := ZOPV_LAST else Result := ZOPV_103;
+end;
+
 { kind 2's encoders a stream version holds }
 function MaxRecipeEncoder(streamVer: Integer): Integer;
 begin
-  if streamVer >= 4 then Result := ENC_LAST else Result := ENC_MINIZ;
+  if streamVer >= 5 then Result := ENC_ZOPFLI
+  else if streamVer >= 4 then Result := ENC_LIBDEFLATE
+  else Result := ENC_MINIZ;
 end;
 
 { Whether stream s can be kept as an image, and its plan. model: Compress's
@@ -425,7 +443,8 @@ begin
   { a recipe whose rebuild is the stream, bit for bit (checked); one the
     stream version the caller allows can hold (kind 0 is looked for
     first: a file of zlib's streams stays a version 2 stream) }
-  if FindRecipe(a, plan.z, plan.recipe, MaxRecipeKind(maxVersion), threads, MaxRecipeEncoder(maxVersion)) <> dsOk then Exit;
+  if FindRecipe(a, plan.z, plan.recipe, MaxRecipeKind(maxVersion), threads, MaxRecipeEncoder(maxVersion),
+    ZOP_MAX_BY_LEVEL[level], MaxZopVariant(maxVersion)) <> dsOk then Exit;
   if RecipeVersion(plan.recipe) > maxVersion then Exit;
   { a model given takes every image it can (ChooseModel's trials skipped) }
   if (model = MODE_IMAGE) or ((model in [MODE_FAST, MODE_STATIC]) and FastEligible(info)) then

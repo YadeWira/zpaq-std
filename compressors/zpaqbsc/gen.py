@@ -2,6 +2,8 @@
 # (sin LZP, transformada ST3/ST4/ST5, codificador QLFC estatico) en ZPAQL. ZPAQL no tiene
 # subrutinas: todo son macros expandidas en linea. Mismo algoritmo que ref.py.
 #   python3 gen.py salida.txt [tablas.h]   (tablas.h: el prefijo de datos como arreglo C)
+#   BWT=1 python3 gen.py salida.txt        ZPAQBSCB: lo mismo con la BWT de libbsc en vez
+#                                          de la ST (-ma:bsc:10); mismo prefijo de datos
 #
 # La entrada es un PREFIJO DE DATOS fijo (las dos tablas de estados del QLFC:
 # model_rank_state_table, 32768 bytes, y model_run_state_table, 8192) y detras el bloque
@@ -12,6 +14,7 @@
 # los ">> 12" sobre negativos se hacen como en C (piso), con ASR.
 import sys, os
 DEBUG = os.environ.get('DEBUG') == '1'
+BWT = os.environ.get('BWT') == '1'
 out = []
 def e(s): out.append(s)
 
@@ -416,11 +419,42 @@ def UNST():
     e(f"  a=r {N} a> 0 ifl a=r {TB} c=a a=*c r=a 46 a=r {OB} c=a a=r 46 *c=a endif")
     e("endif")
 
+def UNBWT():
+    """BWT inversa (libsais_unbwt): T es la BWT sin centinela, r IDX (1..n) la fila donde
+    iria. cuenta en MISC_CNT; P[j] (H desde PB) = la fila anterior a la j, ya sin la del
+    centinela; se recorre desde la fila 0 y sale del ultimo byte al primero."""
+    CNT = "a+= 255 a+= 255 a+= 255 a+= 255 a+= 4 d=a"
+    e(f"a=r {N} a> 1 ifl")
+    FOR(T1, 256, lambda: e(f"  a=r {T1} {CNT} a=0 *d=a"))
+    def cnt():
+        TG(T1, 44); e(f"  a=r 44 {CNT} *d++")
+    FOR(T1, f"r{N}", cnt)
+    e("a= 1 r=a 45")
+    FOR(T1, 256, lambda: e(f"  a=r {T1} {CNT} a=*d r=a 46 a=r 45 *d=a b=r 46 a+=b r=a 45"))
+    def lf():
+        TG(T1, 44); e(f"  a=r 44 {CNT} a=*d r=a 46 *d++")
+        e(f"  a=r 46 b=r {IDX} a<b ifnot a-- r=a 46 endif")
+        e(f"  a=r {T1} b=r {R('PB')} a+=b d=a a=r 46 *d=a")
+    FOR(T1, f"r{N}", lf)
+    e(f"a=0 r=a 44 a=r {N} r=a {T1}")
+    e("do")
+    e(f"  a=r {T1} a-- r=a {T1}")
+    e(f"  a=r 44 b=r {TB} a+=b c=a a=*c r=a 46 a=r {T1} b=r {OB} a+=b c=a a=r 46 *c=a")
+    PG(44, 44)
+    e(f"  a=r {T1}")
+    e("a> 0 while")
+    e("elsel")
+    e(f"  a=r {N} a> 0 ifl a=r {TB} c=a a=*c r=a 46 a=r {OB} c=a a=r 46 *c=a endif")
+    e("endif")
+
 # ---------------------------------------------------------------------------
 e("hcomp")
 e("halt")
-e("pcomp zpaqbsc ;")
-e("""(ZPAQBSC: decodificador de libbsc 3.3.12 en ZPAQL, para zpaq-std -ma:bsc (sin LZP,
+e("pcomp zpaqbscb ;" if BWT else "pcomp zpaqbsc ;")
+if BWT: e("""(ZPAQBSCB: decodificador de libbsc 3.4.0 en ZPAQL, para zpaq-std -ma:bsc:10 (sin LZP,
+ BWT y QLFC estatico). zpaq-std, 2026. Entrada: las dos tablas de estados del QLFC y el
+ bloque de bsc; se guarda en M y se decodifica al final.)""")
+else: e("""(ZPAQBSC: decodificador de libbsc 3.3.12 en ZPAQL, para zpaq-std -ma:bsc (sin LZP,
  ST3/ST4/ST5 y QLFC estatico). zpaq-std, 2026. Entrada: las dos tablas de estados del
  QLFC y el bloque de bsc; se guarda en M y se decodifica al final.)""")
 e("a> 255 ifl")
@@ -464,6 +498,8 @@ e("    endif")
 e("  endif")
 if DEBUG:
     e(f"  a=r {TB} r=a {OB}")
+elif BWT:
+    UNBWT()
 else:
     UNST()
 e("  elsel")

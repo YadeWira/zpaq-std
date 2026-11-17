@@ -594,11 +594,12 @@ plugins/codecs/pja$(PLUGEXT): $(PJASRC)
 # PJA's from its own vendor/pja (pas/build_c.sh calls it), then fpc. PPA_COMMIT is what its card shows
 PPASRC := $(wildcard compressors/ppa/pas/*.pas compressors/ppa/pas/*.inc compressors/ppa/pas/*.c compressors/ppa/pas/plugin/*.pas \
   compressors/ppa/pas/plugin/*.inc compressors/ppa/vendor/pja/pas/*.pas compressors/ppa/vendor/pja/pas/*.c compressors/ppa/vendor/pja/pas/*.h \
-  compressors/ppa/vendor/libdeflate/*.h compressors/ppa/vendor/libdeflate/lib/*.c compressors/ppa/vendor/libdeflate/lib/*.h)
+  compressors/ppa/vendor/libdeflate/*.h compressors/ppa/vendor/libdeflate/lib/*.c compressors/ppa/vendor/libdeflate/lib/*.h \
+  compressors/ppa/vendor/zopfli/src/zopfli/*.c compressors/ppa/vendor/zopfli/src/zopfli/*.h)
 plugins/codecs/ppa$(PLUGEXT): $(PPASRC)
 	@mkdir -p plugins/codecs plugins/fpc-ppa
 	CC="$(SYLZC_CC) $(filter -m32,$(CFLAGS))" sh compressors/ppa/pas/build_c.sh plugins/fpc-ppa $(if $(filter -Cg,$(FPCTARGET)),-fPIC)
-	PPA_COMMIT=6a5e176 $(FPC) -O3 -dPPA_FAST -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/ppa/pas -Ficompressors/ppa/pas \
+	PPA_COMMIT=e8848f3 $(FPC) -O3 -dPPA_FAST -dPJA_FAST -XX -Xs -vewn $(FPCTARGET) $(FPCUNITS) -Fucompressors/ppa/pas -Ficompressors/ppa/pas \
 	  -Fucompressors/ppa/pas/plugin -Ficompressors/ppa/pas/plugin -Fucompressors/ppa/vendor/pja/pas -Ficompressors/ppa/vendor/pja/pas \
 	  -FUplugins/fpc-ppa -Foplugins/fpc-ppa -oplugins/fpc-ppa/ppa$(PLUGEXT) compressors/ppa/pas/plugin/ppa_zpaqstd.pas
 	mv -f plugins/fpc-ppa/ppa$(PLUGEXT) $@

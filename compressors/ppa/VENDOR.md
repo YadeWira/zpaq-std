@@ -1,6 +1,6 @@
 # PPA: the zpaq-std plugin, codec `ppa1`
 
-PPA (https://github.com/YadeWira/PPA), commit `6a5e176` (tag `v0.4.0`). Only the
+PPA (https://github.com/YadeWira/PPA), commit `e8848f3` (tag `v0.6.0`). Only the
 sources the plugin is built from, made by `tools/zpaqstd_tarball.sh`; the
 same sources vendor PPA's codec into another program (`pas/ppacodec.pas`:
 `Compress` and `DecompressEx`, in memory, `Compress` verifying what it
@@ -40,8 +40,9 @@ One codec, index 0 of `zpaqstd_codecs_v1`, ABI 1:
   (pinned copy in PPA's `tools/zpaql`, PJA commit `114c395`, opt=3); the
   `.inc` is committed and PPA's tests check it is current.
 - The plugin links PPA's C part (`pas/build_c.sh`, with PJA's from
-  `vendor/pja` and libdeflate's compressor from `vendor/libdeflate`, which
-  ppa1 never calls: it writes codec stream version 2). No library and no C
+  `vendor/pja`, libdeflate's compressor from `vendor/libdeflate` and
+  zopfli's deflate from `vendor/zopfli`, which ppa1 never calls: it writes
+  codec stream version 2). No library and no C
   runtime: the Windows DLL imports only
   kernel32, oleaut32 and user32. On Windows it takes its memory from the
   process heap (`pas/ppaheap.pas`, PJA's `pjaheap`, with 16 bytes to spare

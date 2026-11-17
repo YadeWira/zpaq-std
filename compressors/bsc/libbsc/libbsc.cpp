@@ -476,6 +476,12 @@ int bsc_decompress_inplace(unsigned char * data, int inputSize, int outputSize, 
     {
         return LIBBSC_UNEXPECTED_EOB;
     }
+    /* ZPAQSTD-PATCH: sizes read from the block: a block is at least its header, and a
+       stored block (mode 0) holds all of its data */
+    if (blockSize < LIBBSC_HEADER_SIZE || dataSize < 0)
+    {
+        return LIBBSC_DATA_CORRUPT;
+    }
 
     if ((unsigned int)bsc_load_int(data + 20) != bsc_adler32(data + LIBBSC_HEADER_SIZE, blockSize - LIBBSC_HEADER_SIZE, features))
     {
@@ -485,6 +491,7 @@ int bsc_decompress_inplace(unsigned char * data, int inputSize, int outputSize, 
     int mode = bsc_load_int(data + 8);
     if (mode == 0)
     {
+        if (dataSize > blockSize - LIBBSC_HEADER_SIZE) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
         memmove(data, data + LIBBSC_HEADER_SIZE, dataSize);
         return LIBBSC_NO_ERROR;
     }
@@ -590,6 +597,12 @@ int bsc_decompress(const unsigned char * input, int inputSize, unsigned char * o
     {
         return LIBBSC_UNEXPECTED_EOB;
     }
+    /* ZPAQSTD-PATCH: sizes read from the block: a block is at least its header, and a
+       stored block (mode 0) holds all of its data */
+    if (blockSize < LIBBSC_HEADER_SIZE || dataSize < 0)
+    {
+        return LIBBSC_DATA_CORRUPT;
+    }
 
     if ((unsigned int)bsc_load_int(input + 20) != bsc_adler32(input + LIBBSC_HEADER_SIZE, blockSize - LIBBSC_HEADER_SIZE, features))
     {
@@ -599,6 +612,7 @@ int bsc_decompress(const unsigned char * input, int inputSize, unsigned char * o
     int mode = bsc_load_int(input + 8);
     if (mode == 0)
     {
+        if (dataSize > blockSize - LIBBSC_HEADER_SIZE) return LIBBSC_DATA_CORRUPT;   /* ZPAQSTD-PATCH */
         bsc_memcpy(output, input + LIBBSC_HEADER_SIZE, dataSize, features);
         return LIBBSC_NO_ERROR;
     }
