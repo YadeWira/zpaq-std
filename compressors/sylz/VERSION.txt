@@ -1,3 +1,9 @@
+syc v0.10.3 (tag v0.10.3, commit b55056e, 2026-11-16): a decoder fix. A block of exactly 4 bytes made
+the decoders of sylzec, sylz4 and sylz5 read one byte past it (FPC compiled the test of bits 6 and 7 of
+its fourth byte as a 16-bit load); found with zpaq-std's guard-page fuzz when sylz and sylzec were
+tested to become stable. sylz.pas and sylz_zpaqstd.pas change; what the four codecs write does not
+(checked: the 22 archives of levels 0 to 10 of each codec are byte for byte v0.10.2's). Before:
+
 syc v0.10.2 (tag v0.10.2, commit fcdf79b, 2026-11-16): for these codecs the sources are v0.8.0's but
 for five lines of sylzc.c (the ChaCha state of syc's encryption is cleared after use, which the
 codecs never call). The formats, the plugin (sylz_zpaqstd.pas, zs_codec.inc) and the bytes written

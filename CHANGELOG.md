@@ -1,3 +1,11 @@
+### [2.13.0] - 2026-11-17
+
+**`-ma:sylz` and `-ma:sylzec` are stable. syc v0.10.3. `-ma:sylz` with blocks of 256 MiB and more.**
+
+- **`-ma:sylz` and `-ma:sylzec` are no longer experimental.** Their formats (sylz v4 and v5) have been frozen since syc v0.8.0 and each block carries its ZPAQL decoder (ZPAQSYLZ4, ZPAQSYLZ5), so any zpaq extracts them. The line 00603 is gone for them, `codecinfo` says `stable`, and the help no longer says EXPERIMENTAL. They are still a plugin only (`codecs/sylz.dll` or `.so`, Free Pascal). What was tested is under *Checked*.
+- **syc v0.10.3:** a fix in the decoders, found by those tests. A block of exactly 4 bytes made the plugin's decoders of `sylzec`, `sylz4` and `sylz5` read one byte past the block (Free Pascal compiled the test of two bits of the fourth byte as a 16-bit load). In a normal heap nothing happens; with the block at the end of a memory page it is a crash. zpaq-std itself never hands the codec such a block from an archive it wrote. What the codecs write does not change: the archives are byte for byte those of 2.12.0.
+- **`-ma:sylz` and `-ma:sylzec` with blocks of 256 MiB and more** (`-m18`, `-m19`, with `-ma`): a whole block of that size was not compressed with sylz at all. zpaq-std asked for an output buffer under 256 MiB, the buffer for a block of 256 MiB is a little over that, and the block went, with no word, to the method under `-ma`. It was extracted right, but it was not what was asked for. The limit is now the codec's own, 512 MiB a block. Archives written before are read as ever.
+
 ### [2.12.0] - 2026-11-16
 
 **zpaqfranz 65.21: `-wim` (a drive image that reads only what changed), `-json` (an output for programs), `version`, and date and size filters in `x`. zxc 1.0.1, syc v0.10.2, PJA 0.9.13, PPA 0.4.0.**
