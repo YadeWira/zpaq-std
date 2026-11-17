@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# suite_sylz.sh -- -ma:sylz y -ma:sylzec (experimental, plugin only, ZPAQSYLZ y ZPAQSYLZ3).
+# suite_sylz.sh -- -ma:sylz y -ma:sylzec (estables desde 2.13.0; plugin only).
 #
 # POR QUE EXISTE: sylz es el primer codec que va SOLO como plugin (Free Pascal):
 # el binario completo tiene que cargarlo de codecs/, negarse sin el (00605), y los
@@ -27,7 +27,7 @@ sin/zpaq-std a n.zpaq $SRC/deep -ma:$CODEC </dev/null >n.log 2>&1; rc=$?
 for l in 0 1 2 3 6 10; do
   rm -rf x; con/zpaq-std a s$l.zpaq $SRC/tree -ma:$CODEC:$l </dev/null >a.log 2>&1; ra=$?
   r=ok; [ $ra = 0 ] || r="a rc=$ra"
-  grep -qa '00603' a.log || r="$r sin-aviso-experimental"
+  grep -qa '00603' a.log && r="$r aviso-experimental-de-mas"   # stable since 2.13.0: no 00603
   con/zpaq-std t s$l.zpaq >/dev/null 2>&1 || r="$r t-falla"
   for zz in "con/zpaq-std x s$l.zpaq -to x" "sin/zpaq-std x s$l.zpaq -to y" "/usr/bin/zpaq x s$l.zpaq -to z"; do
     d=${zz##* }; rm -rf $d; $zz >/dev/null 2>&1
