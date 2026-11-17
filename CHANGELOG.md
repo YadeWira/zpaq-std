@@ -9,7 +9,8 @@
 #### Checked
 
 - **A new suite, `suite_repack.sh`:** archives of two versions made with `-m1`, `-m3`, 15 `-ma` codecs (`bsc:10` and `ppmd:8:128` among them) and `-sa` over a PNG set: each repacked with `-all`, the result tested, and extracted by zpaq 7.15 and compared with the source. 18 of 18; 2.13.1 passes 3 of them (`-m1`, `-m3`, `-ma:lz4`).
-- BATTERY_PLACEHOLDER
+- **Windows 7, x64 and x86:** archives made with `-m1` and eight `-ma` codecs repacked, tested and extracted there (18 of 18, every file compared), and the 18 repacked archives extracted on Linux by zpaq 7.15.
+- **The rest is 2.13.1's:** the test battery (with the new suite in it) and the platform tests give the same results on the release's binary and plugins: on Linux x86 and AArch64 every method runs, 297 cross extractions are right and the same four methods write other bytes on 32 bits. CI: the six platforms.
 
 ### [2.13.1] - 2026-11-17
 
