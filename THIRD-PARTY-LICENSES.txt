@@ -33,7 +33,7 @@ PART 1 - BUNDLED COMPRESSORS
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  1.0.1                        BSD-3-Clause; rapidhash MIT
-  sylz and sylzec      syc v0.10.2                  MIT
+  sylz and sylzec      syc v0.10.3                  MIT
   PJA                  0.9.13                       MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
   PPA                  0.4.0                        MIT; parts ported from zlib (zlib license); copies of PJA and of libdeflate 1.26's compressor (MIT)
   ZPAQLZMA decoder     -                            see text
@@ -2315,7 +2315,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 ===============================================================================
-sylz and sylzec syc v0.10.2
+sylz and sylzec syc v0.10.3
 Licence: MIT
 Copyright: Yade Bravo (YadeWira)
 Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the
