@@ -94269,6 +94269,14 @@ static bool zs_native_ok(const std::string& i_comment)
 		return false;
 	const std::string tag=i_comment.substr(a, b-a);
 	const std::string plug=zs_plugin_name_tag(tag);
+	/// -ma:bsc:10 (the BWT, since 2.13.1): a bsc plugin from before refuses that mode, so
+	/// with one of those (its levels end at 9) the block's ZPAQL decoder, ZPAQBSCB, runs.
+	if (tag=="bsc" && atoi(i_comment.c_str()+b+1)>=10)
+	{
+		const zs_codec* zc=zs_get("bsc");
+		if (zc==NULL || zc->max_level<10)
+			return false;
+	}
 	return (plug=="") || ((zs_get(plug.c_str())!=NULL) && zs_format_ok(tag, zs_get(plug.c_str())));
 }
 #ifdef __cplusplus
