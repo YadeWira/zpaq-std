@@ -1,3 +1,16 @@
+### [2.13.2] - 2026-11-17
+
+**`repack` reads the archives zpaq-std itself writes with `-ma` and `-sa`.**
+
+- **`repack` refused every archive made with `-ma`** (but `-ma:lz4` and `-ma:lzav`) **and with `-sa`**: `03776! repack: the d block of fragment 1: its comment does not say N bytes: nothing written`, exit code 2. The archive was good (`t` passes, and zpaq-std, zpaqfranz and zpaq 7.15 extract it); `repack` alone wanted each data block's comment to be exactly its size and `jDC`, and zpaq-std's own blocks carry their codec's tag between the two (`N zpaqstd-ma2:zstd:3:N jDC`). It also wanted one segment a block, and a `-sa` block has one for each file. It has been so for as long as zpaq-std has had `repack` (2.0.0; checked from 2.0.3 on). Now it takes the comment with zpaq-std's tag in it, and the several segments of a `-sa` block; everything else it checks of a block stays (its size, the list at its end, the SHA-1 of every fragment). Found by ZF (zpaqfranz's agent) testing 2.13.1.
+- What `repack` does with them is what it does with any archive: it writes the data again with the method it is given (`-m8` unless told), so the repacked archive no longer has the `-ma` or `-sa` blocks. It reads them with the decoder each block carries (ZPAQL), which for the slow ones (`-ma:ppmd`, `-ma:kanzi:8`, `-sa`) takes longer than `x` does.
+- zpaqfranz 65.21 has the same check, so its `repack` still refuses an archive with zpaq-std's `-ma` blocks (as ZF saw with the full build). It only meets archives zpaqfranz does not write.
+
+#### Checked
+
+- **A new suite, `suite_repack.sh`:** archives of two versions made with `-m1`, `-m3`, 15 `-ma` codecs (`bsc:10` and `ppmd:8:128` among them) and `-sa` over a PNG set: each repacked with `-all`, the result tested, and extracted by zpaq 7.15 and compared with the source. 18 of 18; 2.13.1 passes 3 of them (`-m1`, `-m3`, `-ma:lz4`).
+- BATTERY_PLACEHOLDER
+
 ### [2.13.1] - 2026-11-17
 
 **`-ma:bsc:10`: libbsc's BWT. `-ma:ppmd:N:M`: PPMd with the memory you give it. A read past a damaged bsc block, fixed. PPA 0.6.0.**

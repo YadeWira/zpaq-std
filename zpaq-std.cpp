@@ -84,7 +84,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.13.1"
+#define ZPAQSTD_VERSION "2.13.2"
 #define ZPAQSTD_DATE "(2026-11-17)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -249629,14 +249629,28 @@ static string rp_decomprimi(const rp_archivio &i_arc, uint32_t i_blocco, StringB
 		if ((d.saltati > 0) || (d.corto > 0))
 			return dove + ": bytes before it";
 		StringWriter nome, commento;
+		bool		 variosegmenti= false;
 		if (!d.findFilename(&nome))
 			return dove + ": no segment";
 		d.readComment(&commento);
 		const string &n= nome.s;
 		if ((n.size() != 28) || (n.compare(0, 3, "jDC") != 0) || (n[17] != 'd') || (n.compare(18, 10, itos(b.primo, 10)) != 0))
 			return dove + ": its name is " + n;
-		if (commento.s != itos((int64_t)attesi) + " jDC\x01")
-			return dove + ": its comment does not say " + itos((int64_t)attesi) + " bytes";
+		/// "<size> jDC\x01", or zpaq-std's own "<size> zpaqstd-...:... jDC\x01" (a -ma, -mae, -mat or
+		/// -sa block: the tag of its codec sits between the size and jDC)
+		{
+			const string inizio= itos((int64_t)attesi) + " ";
+			const string fine  = "jDC\x01";
+			const string &c	   = commento.s;
+			const bool	 semplice= (c == inizio + fine);
+			const bool	 conetichetta= (c.size() > inizio.size() + fine.size() + 1) && (c.compare(0, inizio.size(), inizio) == 0)
+				&& (c.compare(c.size() - fine.size() - 1, fine.size() + 1, " " + fine) == 0) && (c.compare(inizio.size(), 8, "zpaqstd-") == 0);
+			if (!semplice && !conetichetta)
+				return dove + ": its comment does not say " + itos((int64_t)attesi) + " bytes";
+			/// a -sa block holds several files, a segment each (the block's ZPAQL decoder starts
+			/// afresh at the end of each one): only a tagged block may have more than one
+			variosegmenti= conetichetta && (c.compare(inizio.size(), 9, "zpaqstd-s") == 0); /// -sa, -sae, -sat and their sm and sz tags
+		}
 		libzpaq::SHA1 sha1;
 		d.setOutput(&o_dati);
 		d.setSHA1(&sha1);
@@ -249645,8 +249659,21 @@ static string rp_decomprimi(const rp_archivio &i_arc, uint32_t i_blocco, StringB
 		d.readSegmentEnd(fine);
 		if (fine[0] && memcmp(fine + 1, sha1.result(), 20))
 			return dove + ": bad SHA-1 of its segment";
-		if (d.findFilename())
-			return dove + ": a second segment";
+		if (!fine[0])
+			sha1.result(); /// starts it again for the next segment
+		while (d.findFilename())
+		{
+			if (!variosegmenti)
+				return dove + ": a second segment";
+			d.readComment();
+			d.decompress();
+			char fine2[21]= {0};
+			d.readSegmentEnd(fine2);
+			if (fine2[0] && memcmp(fine2 + 1, sha1.result(), 20))
+				return dove + ": bad SHA-1 of a segment";
+			if (!fine2[0])
+				sha1.result();
+		}
 		char resto= 0;
 		if ((d.buffered() != 0) || (io_compresso.read(&resto, 1) != 0))
 			return dove + ": bytes after its end";
