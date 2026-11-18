@@ -1,3 +1,12 @@
+syc v1.0.0 (tag v1.0.0, commit 0d944d6, 2026-11-17), syc's first stable release: decoder fixes, the
+bytes the four codecs write do not change at any level. Decoding into less than 64 bytes of output
+(a NULL destination with cap 0, as an empty buffer's) made the fast loops' limit wrap and took the
+host down: such a block goes to the safe decoder now (sylz.pas). On 32-bit targets MAX_BLOCK is
+2^30-1 (zs_codec.inc: the plugin took v2 and v3 blocks of 1 GiB or more that it could not decode
+after; bound gives 0 from 1 GiB), and a valid Huffman mode-1 chunk with 256 MiB or more of block
+behind it is no longer refused (sylzhuf.pas: the bit count in Int64). sylz_zpaqstd.pas and sylzc.c
+are v0.10.3's. In zpaq-std 2.13.3. Before:
+
 syc v0.10.3 (tag v0.10.3, commit b55056e, 2026-11-16): a decoder fix. A block of exactly 4 bytes made
 the decoders of sylzec, sylz4 and sylz5 read one byte past it (FPC compiled the test of bits 6 and 7 of
 its fourth byte as a 16-bit load); found with zpaq-std's guard-page fuzz when sylz and sylzec were

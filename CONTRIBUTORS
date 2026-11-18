@@ -67,10 +67,10 @@ folder under compressors/.
                           Yuta Mori                               MIT
   zxc 1.0.1               Bertrand Lebonnois and contributors;    BSD-3-Clause
                           Nicolas De Carli (rapidhash)
-  sylz and sylzec syc v0.10.3
+  sylz and sylzec syc v1.0.0
                           Yade Bravo (YadeWira)                   MIT
   PJA 0.9.13              Yade Bravo (YadeWira)                   MIT
-  PPA 0.6.0               Yade Bravo (YadeWira)                   MIT
+  PPA 0.7.0               Yade Bravo (YadeWira)                   MIT
 
 sylz (syc), PJA and PPA (Yade Bravo, MIT) are in Free Pascal and, by rule, never linked
 into zpaq-std: they ship as plugins (codecs/sylz, codecs/pja and codecs/ppa, .dll or .so).

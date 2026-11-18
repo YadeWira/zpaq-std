@@ -107,8 +107,8 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lz6:N` / `lz6hc` | [lz6](https://github.com/YadeWira/lz6) 2.1.0: `lz6` is its seq engine (since 2.10.0; other zpaqs need 64 MiB a block to extract), `lz6hc` its LZ5 v1.5 profile (0 fast, 1–15 HC: what `-ma:lz6` was up to 2.9.0) | 1–13 / 0–15 | 7 / 0 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.1 | 1–12 | 9 |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.2 | 0–1 | 1 |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v0.10.3, format v4), plugin only | 0–10 | 1 |
-| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v0.10.3, format v5), plugin only (in sylz.dll) | 0–10 | 1 |
+| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v1.0.0, format v4), plugin only | 0–10 | 1 |
+| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v1.0.0, format v5), plugin only (in sylz.dll) | 0–10 | 1 |
 
 #### Experimental
 
@@ -156,7 +156,7 @@ Since 2.6.0 (PJA 0.9.6, whose codecs are frozen: names, streams and ZPAQL decode
 
 | Switch | Library | Takes | Levels | Default |
 |---|---|---|---|---|
-| `-sa:ppa` / `ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.6.0, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
+| `-sa:ppa` / `ppa1` | [PPA](https://github.com/YadeWira/PPA) 0.7.0, plugin only (`ppa.dll` or `.so`), since 2.9.0 | PNG, APNG and MNG whose images are 8-bit gray, gray+alpha, RGB or RGBA (Adam7 too), up to 7 MiB of image a file | 1 | 1 |
 
 `ppa1` rebuilds the file's deflate streams, so the PNG comes back byte for byte
 (20 photos as PNG: 65.6% of their size, against 100% with `-m1` and 96.3% with

@@ -33,9 +33,9 @@ PART 1 - BUNDLED COMPRESSORS
   kanzi                2.6.0                        Apache-2.0
   libdivsufsort        2.0 (stripped)               MIT
   zxc                  1.0.1                        BSD-3-Clause; rapidhash MIT
-  sylz and sylzec      syc v0.10.3                  MIT
+  sylz and sylzec      syc v1.0.0                   MIT
   PJA                  0.9.13                       MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
-  PPA                  0.6.0                        MIT; parts ported from zlib (zlib license); copies of PJA, of libdeflate 1.26's compressor (MIT) and of zopfli 1.0.3's deflate (Apache-2.0)
+  PPA                  0.7.0                        MIT; parts ported from zlib (zlib license); copies of PJA, of libdeflate 1.26's compressor (MIT) and of zopfli 1.0.3's deflate (Apache-2.0)
   ZPAQLZMA decoder     -                            see text
 
 ===============================================================================
@@ -2315,7 +2315,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 ===============================================================================
-sylz and sylzec syc v0.10.3
+sylz and sylzec syc v1.0.0
 Licence: MIT
 Copyright: Yade Bravo (YadeWira)
 Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the
@@ -2469,7 +2469,7 @@ The second prediction in the JPEG-LS symbol model (pas/pjamodel.pas) is
 CALIC's gradient-adjusted prediction with its error feedback (Wu and Memon).
 
 ===============================================================================
-PPA 0.6.0
+PPA 0.7.0
 Licence: MIT; parts ported from zlib (zlib license); copies of PJA, of libdeflate 1.26's compressor (MIT) and of zopfli 1.0.3's deflate (Apache-2.0)
 Copyright: Yade Bravo (YadeWira)
 The -sa codec ppa1 (PNG, APNG, MNG). Free Pascal and C, built only as a plugin

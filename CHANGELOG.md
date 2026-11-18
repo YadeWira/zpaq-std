@@ -1,3 +1,17 @@
+### [2.13.3] - 2026-11-18
+
+**syc v1.0.0 (sylz's decoders, more robust) and PPA 0.7.0. The bytes written do not change.**
+
+- **syc v1.0.0** (`-ma:sylz`, `-ma:sylzec`), syc's first stable release. What the four codecs write is the same at every level; the decoders change:
+  - Decoding into fewer than 64 bytes of output could take the program down (the fast loops' limit wrapped; with an empty buffer, to an address far away). Such a block goes to the careful decoder now.
+  - On 32 bits the plugin took blocks of 1 GiB or more of sylz formats v2 and v3 that it could not decode after; it refuses them now (no block zpaq-std writes is that large: `-m19` is 512 MiB).
+  - On 32 bits a valid block of `-ma:sylzec` with 256 MiB or more was refused (a bit count overflowed). No longer.
+- **PPA 0.7.0** (`-sa:ppa`, still experimental): `ppa1` is unchanged; 0.7.0 adds an interface to PPA's own library.
+
+#### Checked
+
+- CHECK_PLACEHOLDER
+
 ### [2.13.2] - 2026-11-17
 
 **`repack` reads the archives zpaq-std itself writes with `-ma` and `-sa`.**

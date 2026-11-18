@@ -84,8 +84,8 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.13.2"
-#define ZPAQSTD_DATE "(2026-11-17)"
+#define ZPAQSTD_VERSION "2.13.3"
+#define ZPAQSTD_DATE "(2026-11-18)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
 /// 65.18e: Franzen encrypts with franzsodium (built in, every platform: see LICENSE 31). libsodium, the
@@ -106592,11 +106592,11 @@ static const zs_info_row ZS_INFO[]=
 	 "MIT; parts BSD-style, MIT and Apache-2.0 WITH LLVM-exception", "commit 517948e (no release yet)", "bzip2 stream", "libbz2 1.0.8's format with a new encoder and decoder"},
 	{"zxc", false, 1, 7, 3, "ZPAQZXC", "zxc 1.0.1", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
 	 "BSD-3-Clause; rapidhash MIT", "v1.0.1, commit 1cb3e19", "zxc format 9", "levels 6 and 7 add Huffman"},
-	{"sylz", false, 0, 10, 1, "ZPAQSYLZ4", "sylz (syc v0.10.3)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
-	 "MIT", "syc v0.10.3, commit b55056e", "sylz format v4 (frozen at syc v0.8.0); a block may be plain v2",
+	{"sylz", false, 0, 10, 1, "ZPAQSYLZ4", "sylz (syc v1.0.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
+	 "MIT", "syc v1.0.0, commit 0d944d6", "sylz format v4 (frozen at syc v0.8.0); a block may be plain v2",
 	 "Free Pascal, so a plugin only (codecs/sylz). Up to 2.10.0 it wrote format v2 (ZPAQSYLZ), which is still read"},
-	{"sylzec", false, 0, 10, 1, "ZPAQSYLZ5", "sylzec (syc v0.10.3)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
-	 "MIT", "syc v0.10.3, commit b55056e", "sylz format v5 (frozen at syc v0.8.0): v4 with Huffman-coded literals; a block may be v2, v3 or v4",
+	{"sylzec", false, 0, 10, 1, "ZPAQSYLZ5", "sylzec (syc v1.0.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
+	 "MIT", "syc v1.0.0, commit 0d944d6", "sylz format v5 (frozen at syc v0.8.0): v4 with Huffman-coded literals; a block may be v2, v3 or v4",
 	 "Free Pascal, so a plugin only (codecs/sylz, with sylz). Up to 2.10.0 it wrote format v3 (ZPAQSYLZ3), which is still read"},
 	{"lz4", false, 1, 12, 9, "zpaq-std's LZ4 block (frozen LZ4 decoder)", "LZ4 1.11.1", "Yann Collet", "https://github.com/lz4/lz4",
 	 "BSD-2-Clause", "1.11.1, compressors/lz4", "LZ4 block, as zpaqfranz 65.3-65.4's -m6", "1-4 fast, 5-12 HC"},

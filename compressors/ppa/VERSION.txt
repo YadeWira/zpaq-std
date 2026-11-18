@@ -1,8 +1,11 @@
-PPA 0.6.0 (tag v0.6.0, commit e8848f3), https://github.com/YadeWira/PPA,
-from the vendor tarball ppa-v0.6.0-zpaqstd.tar.gz of its release (sha256
-bd4c1b4974156c1e8bc4e489451cf3e4d059df55be82b1dadc3cf58f60f2fc17), copied unmodified
+PPA 0.7.0 (tag v0.7.0, commit ec136d0), https://github.com/YadeWira/PPA,
+from the vendor tarball ppa-v0.7.0-zpaqstd.tar.gz of its release (sha256
+c34f92556fe8452c9e31c94cfeb736615122b99d638e43969c3d0d50575eb282), copied unmodified
 (SHA256SUMS lists each file). ppa1 is unchanged: codec stream version 2 and its ZPAQL decoder,
-frozen. 0.5.0 and 0.6.0 are in PPA's command and library (deflate recipes for zopfli, and for
+frozen. 0.7.0 adds an API to PPA's library (ppa_deflate_*); nothing for ppa1. PJA 0.9.13,
+libdeflate 1.26 and zopfli 1.0.3 in vendor/, as in 0.6.0. In zpaq-std 2.13.3.
+Before: PPA 0.6.0 (tag v0.6.0, commit e8848f3, tarball sha256 bd4c1b49...), in zpaq-std 2.13.1:
+0.5.0 and 0.6.0 are in PPA's command and library (deflate recipes for zopfli, and for
 oxipng's Rust port of it; a new codec stream, version 6, that ppa1 never writes); the tarball
 now also carries zopfli 1.0.3's deflate (vendor/zopfli, Apache-2.0, unmodified), which the
 plugin links and ppa1 never calls. PJA 0.9.13 in vendor/pja, libdeflate 1.26 in

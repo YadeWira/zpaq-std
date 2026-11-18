@@ -1,6 +1,6 @@
 # PPA: the zpaq-std plugin, codec `ppa1`
 
-PPA (https://github.com/YadeWira/PPA), commit `e8848f3` (tag `v0.6.0`). Only the
+PPA (https://github.com/YadeWira/PPA), commit `ec136d0` (tag `v0.7.0`). Only the
 sources the plugin is built from, made by `tools/zpaqstd_tarball.sh`; the
 same sources vendor PPA's codec into another program (`pas/ppacodec.pas`:
 `Compress` and `DecompressEx`, in memory, `Compress` verifying what it
