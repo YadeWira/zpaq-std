@@ -60,6 +60,10 @@ BUNDLED = [
     ('kanzi', '2.6.0', 'Apache-2.0', 'Frederic Langlet', ['compressors/kanzi/LICENSE'],
      'No NOTICE file is distributed with kanzi. kanzi_zpaqstd.cpp/.h are zpaq-std\'s own.'),
     ('libdivsufsort', '2.0 (stripped)', 'MIT', 'Yuta Mori', ['libdivsufsort/LICENSE'], ''),
+    ('BLAKE3 (SIMD implementations)', '1.8.2', 'CC0-1.0 OR Apache-2.0 (with LLVM exceptions)', 'The BLAKE3 team (Jack O\'Connor, Samuel Neves and others)',
+     ['compressors/blake3/LICENSE_CC0', 'compressors/blake3/LICENSE_A2', 'compressors/blake3/LICENSE_A2LLVM'],
+     'The assembly for x86-64 and the NEON code, unmodified, linked into the x86-64 and AArch64\n'
+     'builds since 2.14.0. BLAKE3\'s portable code and dispatch are in zpaq-std.cpp, from zpaqfranz.'),
     ('zxc', '1.0.1', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
      ['compressors/zxc/LICENSE', 'compressors/zxc/LICENSE-rapidhash'], ''),
     ('sylz and sylzec', 'syc v1.0.0', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
