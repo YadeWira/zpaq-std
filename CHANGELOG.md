@@ -10,7 +10,12 @@
 
 #### Checked
 
-- CHECK_PLACEHOLDER
+- **Small and empty outputs through the plugin's decoders,** the destination against a memory page with no access, or NULL with size 0: every input of 0 to 200 bytes of three kinds, at six levels of the four codecs, decoded into its own size, into every smaller one and into nothing, and damaged; 2,912,832 calls on 64 bits and as many on 32, no crash and nothing wrong. 2.13.2's plugin crashes in 2,273 of them on 64 bits and 2,259 on 32.
+- **syc v1.0.0 writes v0.10.3's bytes:** the 22 archives (levels 0 to 10 of each codec) are identical with both plugins, and 2.13.2's plugin and zpaq 7.15 read the new ones (44 of 44).
+- **The guard-page fuzz of 2.13.0** again with the new plugin, 64 and 32 bits: 41,184,000 decodes of damaged blocks, the 64 runs clean.
+- **PPA 0.7.0:** the vendor tarball of its release, its checksum and every file's checked, copied unmodified. A PNG set with `-sa` gives 0.6.0's bytes, read by 0.6.0's plugin and by zpaq 7.15.
+- **Windows 7, x64 and x86,** with the release's plugins (sylz, PJA, PPA): as 2.13.1.
+- **The rest is 2.13.2's:** the test battery and the platform tests give the same results on the release's binary and plugins (on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits).
 
 ### [2.13.2] - 2026-11-17
 
