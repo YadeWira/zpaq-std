@@ -170,7 +170,10 @@ https://github.com/fcorbelli/zpaqfranz/wiki/Security-open-software
 /// "automagically" compiling (well, sort of)
 /// NO Windows? => no HWBLAKE,NOSHA1, YES unix
 #ifndef _WIN32
+	/// zpaq-std 2.14.0: with the Makefile's -DZS_BLAKE3_ASM, BLAKE3's SIMD code is linked on *nix too
+	#ifndef ZS_BLAKE3_ASM
 	#undef 	HWBLAKE3
+	#endif
 	#undef 	HWSHA1
 	#undef 	unix
 	#define unix
@@ -109883,6 +109886,9 @@ void blake3_hash_many(const uint8_t *const *inputs, size_t num_inputs,
                       bool increment_counter, uint8_t flags,
                       uint8_t flags_start, uint8_t flags_end, uint8_t *out);
 size_t blake3_simd_degree(void);
+#if defined(BLAKE3_USE_NEON)
+extern "C"   /// blake3_neon.c (compressors/blake3, compiled as C) calls it
+#endif
 void blake3_compress_in_place_portable(uint32_t cv[8],
                                        const uint8_t block[BLAKE3_BLOCK_LEN],
                                        uint8_t block_len, uint64_t counter,
@@ -109951,7 +109957,7 @@ extern "C" void blake3_hash_many_avx512(const uint8_t *const *inputs, size_t num
 #endif // corresponds to #if (#if !defined(BLAKE3_NO_AVX512))
 #endif // corresponds to #if (#if defined(IS_X86))
 #if defined(BLAKE3_USE_NEON)
-void blake3_hash_many_neon(const uint8_t *const *inputs, size_t num_inputs,
+extern "C" void blake3_hash_many_neon(const uint8_t *const *inputs, size_t num_inputs,
                            size_t blocks, const uint32_t key[8],
                            uint64_t counter, bool increment_counter,
                            uint8_t flags, uint8_t flags_start,

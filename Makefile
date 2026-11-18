@@ -337,6 +337,27 @@ else ifeq ($(findstring mips,$(UNAME_M)),mips)
   ZPAQ_CPPFLAGS += -DBIG
 endif
 
+# BLAKE3's SIMD code (zpaq-std 2.14.0, compressors/blake3: the official files): the assembly
+# on x86-64 (the unix files, or the windows_gnu ones for MinGW), NEON on AArch64. The dispatch in
+# zpaq-std.cpp picks by the CPU at run time. Every other target: the portable code, as before.
+B3OBJ :=
+ifneq (,$(findstring x86_64,$(UFL2MACH)))
+ifeq (,$(findstring -m32,$(CFLAGS)))
+  ifneq (,$(findstring mingw,$(UFL2MACH)))
+    B3OBJ := compressors/blake3/blake3_sse2_x86-64_windows_gnu.o compressors/blake3/blake3_sse41_x86-64_windows_gnu.o compressors/blake3/blake3_avx2_x86-64_windows_gnu.o compressors/blake3/blake3_avx512_x86-64_windows_gnu.o
+  else ifneq (,$(findstring linux,$(UFL2MACH)))
+    B3OBJ := compressors/blake3/blake3_sse2_x86-64_unix.o compressors/blake3/blake3_sse41_x86-64_unix.o compressors/blake3/blake3_avx2_x86-64_unix.o compressors/blake3/blake3_avx512_x86-64_unix.o
+  endif
+endif
+endif
+ifneq (,$(filter aarch64% arm64%,$(UFL2MACH)))
+  B3OBJ := compressors/blake3/blake3_neon.o
+  ZPAQ_CPPFLAGS += -DBLAKE3_USE_NEON
+endif
+ifneq (,$(B3OBJ))
+  ZPAQ_CPPFLAGS += -DHWBLAKE3 -DZS_BLAKE3_ASM
+endif
+
 # Auto-NOJIT: enable JIT + HWSHA2 only on x86/amd64.
 # Everything else (ARM, aarch64, Apple Silicon, RISC-V, ppc, sparc, mips, ...)
 # gets -DNOJIT automatically. Just "make" anywhere and it works.
@@ -490,7 +511,7 @@ ifdef PLUGINS
 endif
 # Everything the program links. make plugins leaves out CORE_DROP: the adapters
 # and the libraries that went into plugins.
-LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
+LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(B3OBJ) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
 $(PROG): $(filter-out $(CORE_DROP),$(LINKOBJS))
 	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(filter-out $(CORE_DROP),$(LINKOBJS)) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
@@ -513,6 +534,12 @@ compressors/uflzma2/%.o: compressors/uflzma2/%.c
 
 compressors/uflzma2/%.o: compressors/uflzma2/%.S
 	$(CC) $(UFL2ASFLAGS) -c $< -o $@
+
+compressors/blake3/%.o: compressors/blake3/%.S
+	$(CC) $(PICFLAG) -c $< -o $@
+
+compressors/blake3/blake3_neon.o: compressors/blake3/blake3_neon.c
+	$(CC) $(ZPAQ_CFLAGS) -DBLAKE3_USE_NEON -Icompressors/blake3 -c $< -o $@
 
 # Every global symbol of the bundle except the UF2_* API is RENAMED with a ufl2_
 # prefix (the list comes from nm, so it follows the library). Making them local

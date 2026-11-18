@@ -1,0 +1,10 @@
+BLAKE3 1.8.2 (https://github.com/BLAKE3-team/BLAKE3, tag 1.8.2), from its release's source
+archive (sha256 6b51aefe51596978...): only the SIMD implementations of its C library, unmodified:
+the assembly for x86-64 (SSE2, SSE4.1, AVX2, AVX-512; the unix and the windows_gnu files) and
+blake3_neon.c with the two headers it includes. CC0 1.0, or Apache License 2.0 (with LLVM
+exceptions), at the user's choice (the three licence files).
+
+zpaq-std has BLAKE3's portable code and its dispatch inside zpaq-std.cpp (from zpaqfranz); since
+2.14.0 the builds for x86-64 (Linux, Windows) and AArch64 (Linux, macOS) link these files, and the
+dispatch picks one at run time by what the CPU has. The other builds stay with the portable code.
+Do not patch these files here: a new release comes in whole.
