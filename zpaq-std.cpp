@@ -101851,6 +101851,28 @@ LZBuffer::LZBuffer(StringBuffer& inbuf, int args[], const unsigned* sap):
 #define ZPAQ_LZAHEAD 32
 #endif
 // Encode from in to buf until end of input or buf is not empty
+/// zpaq-std 2.14.0: the length of a match, eight bytes at a time. The same number the byte
+/// loop gives: from l, how far in[p+l]==in[i+l] holds, with i+l<n and l<maxm (p<i, so p+l<n too).
+static inline unsigned zs_lz_matchlen(const unsigned char* in, unsigned p, unsigned i, unsigned l, unsigned n, unsigned maxm) {
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__aarch64__) || defined(__i386__))
+  unsigned lim=n-i;              // i+l<n  <=>  l<lim
+  if (lim>maxm) lim=maxm;
+  while (l+8<=lim) {
+    uint64_t a, b;
+    memcpy(&a, in+p+l, 8);
+    memcpy(&b, in+i+l, 8);
+    const uint64_t x=a^b;
+    if (x) return l+(unsigned)(__builtin_ctzll(x)>>3);
+    l+=8;
+  }
+  while (l<lim && in[p+l]==in[i+l]) ++l;
+  return l;
+#else
+  for (; i+l<n && l<maxm && in[p+l]==in[i+l]; ++l);
+  return l;
+#endif
+}
+
 void LZBuffer::fill() {
   // BWT
   if (level==3) {
@@ -101889,7 +101911,7 @@ void LZBuffer::fill() {
             if (q+j*k<n && (p=sa[q+j*k]-h)<i) {
               assert(p<n);
               unsigned l, l1;  // length of match, leading literals
-              for (l=h; i+l<n && l<maxMatch && in[p+l]==in[i+l]; ++l);
+              l=zs_lz_matchlen(in, p, i, h, n, maxMatch);
               for (l1=h; l1>0 && in[p+l1-1]==in[i+l1-1]; --l1);
               int score=int(l-l1)*8-lg(i-p)-4*(lit==0 && l1>0)-11;
               for (unsigned a=0; a<h; ++a) score=score*5/8;
@@ -101912,7 +101934,7 @@ void LZBuffer::fill() {
             p>>=checkbits;
             if (p<i && i+blen<=n && in[p+blen-1]==in[i+blen-1]) {
               unsigned l;  // match length from lookahead
-              for (l=lookahead; i+l<n && l<maxMatch && in[p+l]==in[i+l]; ++l);
+              l=zs_lz_matchlen(in, p, i, lookahead, n, maxMatch);
               if (l>=minMatch2+lookahead) {
                 int l1;  // length back from lookahead
                 for (l1=lookahead; l1>0 && in[p+l1-1]==in[i+l1-1]; --l1);
@@ -101933,7 +101955,7 @@ void LZBuffer::fill() {
             p>>=checkbits;
             if (p<i && i+blen<=n && in[p+blen-1]==in[i+blen-1]) {
               unsigned l;
-              for (l=0; i+l<n && l<maxMatch && in[p+l]==in[i+l]; ++l);
+              l=zs_lz_matchlen(in, p, i, 0, n, maxMatch);
               int score=l*8-lg(i-p)-2*(lit>0)-11;
               if (score>bscore) blen=l, bp=p, blit=0, bscore=score;
             }
