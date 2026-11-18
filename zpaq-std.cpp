@@ -94478,7 +94478,7 @@ void bigwarning()
 	myprintf("\n\n");
 }
 
-#ifdef HWSHA2
+#if defined(HWSHA2) && !defined(__aarch64__)
 void getcpuid(uint32_t eax, uint32_t ecx, uint32_t& o_a,uint32_t& o_b,uint32_t& o_c,uint32_t& o_d)
 {
     uint32_t ebx=0;
@@ -94532,8 +94532,21 @@ void getcpuid(uint32_t eax, uint32_t ecx, uint32_t& o_a,uint32_t& o_b,uint32_t& 
 #define safe_strlen(str) ((((char*)(str))==NULL)?0:strlen(str))
 
 /* Includes for SHA-1 and SHA-256 intrinsics */
+#if defined(__aarch64__)
+/// zpaq-std 2.14.0: the SHA-1 and SHA-256 instructions of ARMv8 (Linux AArch64, Apple Silicon)
+#include <arm_neon.h>
+#if defined(__linux__)
+#include <sys/auxv.h>
+#endif
+#if defined(__clang__)
+#define MY_ENABLE_GCC_ARCH(arch) __attribute__ ((target ("sha2,aes")))
+#else
+#define MY_ENABLE_GCC_ARCH(arch) __attribute__ ((target ("+crypto")))
+#endif
+#else
 #include <x86intrin.h>
 #define MY_ENABLE_GCC_ARCH(arch) __attribute__ ((target (arch)))
+#endif
 
 
 /* Blocksize for each algorithm - Must be a power of 2 */
@@ -94745,6 +94758,50 @@ static void sha1_transform_cc(SUM_CONTEXT *ctx, const uint8_t *data)
  * Transform the message X which consists of 16 32-bit-words (SHA-1)
  * The code is public domain taken from https://github.com/noloader/SHA-Intrinsics.
  */
+#if defined(__aarch64__)
+/// The SHA-1 instructions of ARMv8 (zpaq-std, 2026): four rounds a step, the message schedule
+/// with SHA1SU0 and SHA1SU1. It keeps the name of the x86 function it stands in for.
+MY_ENABLE_GCC_ARCH("")
+static void sha1_transform_x86(uint64_t state64[5], const uint8_t *data, size_t length)
+{
+	uint32_t st[4] = { (uint32_t)state64[0], (uint32_t)state64[1], (uint32_t)state64[2], (uint32_t)state64[3] };
+	uint32x4_t abcd = vld1q_u32(st);
+	uint32_t e = (uint32_t)state64[4];
+	const uint32x4_t k[4] = { vdupq_n_u32(0x5a827999), vdupq_n_u32(0x6ed9eba1), vdupq_n_u32(0x8f1bbcdc), vdupq_n_u32(0xca62c1d6) };
+	while (length >= 64)
+	{
+		const uint32x4_t abcd0 = abcd;
+		const uint32_t e0 = e;
+		uint32x4_t m[4];
+		for (int i = 0; i < 4; i++)
+			m[i] = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 16 * i)));
+		for (int i = 0; i < 20; i++)
+		{
+			if (i >= 4)
+				m[i & 3] = vsha1su1q_u32(vsha1su0q_u32(m[i & 3], m[(i + 1) & 3], m[(i + 2) & 3]), m[(i + 3) & 3]);
+			const uint32x4_t wk = vaddq_u32(m[i & 3], k[i / 5]);
+			const uint32_t e1 = vsha1h_u32(vgetq_lane_u32(abcd, 0));
+			if (i < 5)
+				abcd = vsha1cq_u32(abcd, e, wk);
+			else if ((i >= 10) && (i < 15))
+				abcd = vsha1mq_u32(abcd, e, wk);
+			else
+				abcd = vsha1pq_u32(abcd, e, wk);
+			e = e1;
+		}
+		abcd = vaddq_u32(abcd, abcd0);
+		e += e0;
+		data += 64;
+		length -= 64;
+	}
+	vst1q_u32(st, abcd);
+	state64[0] = st[0];
+	state64[1] = st[1];
+	state64[2] = st[2];
+	state64[3] = st[3];
+	state64[4] = e;
+}
+#else
 MY_ENABLE_GCC_ARCH("ssse3,sse4.1,sha")
 static void sha1_transform_x86(uint64_t state64[5], const uint8_t *data, size_t length)
 {
@@ -94948,6 +95005,7 @@ static void sha1_transform_x86(uint64_t state64[5], const uint8_t *data, size_t 
 	state64[3] = state[3];
 	state64[4] = state[4];
 }
+#endif // (#if defined(__aarch64__), the SHA-1 of ARMv8)
 
 /* Transform the message X which consists of 16 32-bit-words (SHA-1) */
 static void sha1_transform(SUM_CONTEXT *ctx, const uint8_t *data)
@@ -95036,6 +95094,50 @@ static __inline void sha256_transform_cc(SUM_CONTEXT *ctx, const uint8_t *data)
  * Transform the message X which consists of 16 32-bit-words (SHA-256)
  * The code is public domain taken from https://github.com/noloader/SHA-Intrinsics.
  */
+#if defined(__aarch64__)
+/// The SHA-256 instructions of ARMv8 (zpaq-std, 2026): four rounds a step
+MY_ENABLE_GCC_ARCH("")
+static void sha256_transform_x86(uint64_t state64[8], const uint8_t *data, size_t length)
+{
+	static const uint32_t K256ARM[64] = {
+		0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+		0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+		0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+		0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+		0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+		0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+		0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+		0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2 };
+	uint32_t st[8];
+	for (int i = 0; i < 8; i++)
+		st[i] = (uint32_t)state64[i];
+	uint32x4_t s0 = vld1q_u32(st), s1 = vld1q_u32(st + 4);
+	while (length >= 64)
+	{
+		const uint32x4_t a0 = s0, a1 = s1;
+		uint32x4_t m[4];
+		for (int i = 0; i < 4; i++)
+			m[i] = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 16 * i)));
+		for (int i = 0; i < 16; i++)
+		{
+			if (i >= 4)
+				m[i & 3] = vsha256su1q_u32(vsha256su0q_u32(m[i & 3], m[(i + 1) & 3]), m[(i + 2) & 3], m[(i + 3) & 3]);
+			const uint32x4_t wk = vaddq_u32(m[i & 3], vld1q_u32(K256ARM + 4 * i));
+			const uint32x4_t t = s0;
+			s0 = vsha256hq_u32(s0, s1, wk);
+			s1 = vsha256h2q_u32(s1, t, wk);
+		}
+		s0 = vaddq_u32(s0, a0);
+		s1 = vaddq_u32(s1, a1);
+		data += 64;
+		length -= 64;
+	}
+	vst1q_u32(st, s0);
+	vst1q_u32(st + 4, s1);
+	for (int i = 0; i < 8; i++)
+		state64[i] = st[i];
+}
+#else
 MY_ENABLE_GCC_ARCH("ssse3,sse4.1,sha")
 static __inline void sha256_transform_x86(uint64_t state64[8], const uint8_t *data, size_t length)
 {
@@ -95249,6 +95351,7 @@ static __inline void sha256_transform_x86(uint64_t state64[8], const uint8_t *da
 	state64[6] = state[6];
 	state64[7] = state[7];
 }
+#endif // (#if defined(__aarch64__), the SHA-256 of ARMv8)
 
 static __inline void sha256_transform(SUM_CONTEXT *ctx, const uint8_t *data)
 {
@@ -107557,6 +107660,20 @@ bool ihavehw()
 #ifndef HWSHA2
 	return false;
 #endif // corresponds to #ifndef (#ifndef HWSHA2)
+#if defined(__aarch64__)
+	/// ARMv8: every Apple Silicon CPU has SHA-1 and SHA-256; on Linux the kernel says (HWCAP_SHA1 is
+	/// bit 5 of AT_HWCAP, HWCAP_SHA2 bit 6); anywhere else, the SHA in C++
+#if defined(__APPLE__)
+	return true;
+#elif defined(__linux__)
+	const unsigned long hw= getauxval(AT_HWCAP);
+	if (flagdebug)
+		myprintf("00006: SHA (ARMv8): SHA-1 %s, SHA-256 %s\n", (hw & (1UL << 5)) ? "OK" : "NO", (hw & (1UL << 6)) ? "OK" : "NO");
+	return (hw & (1UL << 5)) && (hw & (1UL << 6));
+#else
+	return false;
+#endif
+#else
 	uint32_t a= 0, b= 0, c= 0, d= 0;
 	getcpuid(0, 0, a, b, c, d);
 	if (a < 7)
@@ -107601,6 +107718,7 @@ bool ihavehw()
 			myprintf("NO\n");
 	}
 	return supported_ssse3 && supported_sse41 && supported_sha;
+#endif // (#if defined(__aarch64__))
 }
 
 string print_datetime(bool i_flagout)

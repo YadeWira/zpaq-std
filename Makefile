@@ -348,6 +348,10 @@ ifneq ($(filter x86_64 amd64 i386 i486 i586 i686 i86pc,$(TARGET_M)),)
   ZPAQ_CPPFLAGS += $(INTEL_FLAGS)
 else
   ZPAQ_CPPFLAGS += -DNOJIT
+  # zpaq-std 2.14.0: AArch64 (Linux and macOS) uses the CPU's SHA-1 and SHA-256 when it has them
+  ifneq ($(filter aarch64 arm64,$(TARGET_M)),)
+    ZPAQ_CPPFLAGS += -DHWSHA2
+  endif
 endif
 
 
