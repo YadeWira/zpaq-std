@@ -4,13 +4,17 @@
 
 - **LZ77 match finder** (libzpaq's `LZBuffer::fill`, where `-m1` spends two thirds of its time): match lengths are compared eight bytes at a time instead of one. Same matches, same bytes. On 121 MB, one thread, an x64 Xeon: `-m1` 15% faster, `-m3` 7%, `-m21` 12%, `-m24` 13%; `-m2` (suffix array) does not change. The default `-m8` (zstd) does not go through it.
 - **BLAKE3 with SIMD** (`-blake3`, `sum -blake3`, `b`): BLAKE3 1.8.2's own assembly on x86-64 (SSE2, SSE4.1, AVX2, AVX-512, picked at run time; Linux and Windows) and its NEON code on ARM64. Until now every build used the portable C. One thread: 313 MB/s -> 1.84 GB/s on Linux x64, 299 MB/s -> 1.72 GB/s on Windows 7 x64. The 32-bit builds keep the portable C.
-- **ARM64: the CPU's SHA-1 and SHA-256** (ARMv8 cryptography extensions), detected at run time (Linux: `getauxval`; Apple Silicon always has them); without them, the C code as before. SHA-1 is what every archive's fragments and files are hashed with, so it is on the path of every `a`, `x` and `t`. CI_ARM_PLACEHOLDER
+- **ARM64: the CPU's SHA-1 and SHA-256** (ARMv8 cryptography extensions), detected at run time (Linux: `getauxval`; Apple Silicon always has them); without them, the C code as before. SHA-1 is what every archive's fragments and files are hashed with, so it is on the path of every `a`, `x` and `t`. On GitHub's ARM runners, one thread: Linux ARM64 SHA-1 493 MB/s -> 1.31 GB/s and SHA-256 380 MB/s -> 1.35 GB/s; macOS (Apple Silicon) SHA-1 479 -> 580 MB/s and SHA-256 216 MB/s -> 1.07 GB/s. BLAKE3 with NEON there: 1.19 GB/s (Linux) and 0.9-1.0 GB/s (macOS).
 
 What 2.14.0 does not have yet, of the five items planned: a ZPAQL JIT for ARM64 (there `-m1`..`-m5` and every ZPAQL decoder are still interpreted) and an AVX2 mixer for `-m3`..`-m5`.
 
 #### Checked
 
-- CHECK_PLACEHOLDER
+- **Same bytes as 2.13.3.** The battery's file-by-file comparison against 2.13.3's binary, run on this code before the version number changed: 182 comparisons, no difference. Archives of `-m1`, `-m2`, `-m3`, `-m11`, `-m14`, `-m21` and `-m24` (with `-nolfast` and a fixed `-timestamp`): identical on Linux x64; on Windows 7 x64 the release's binary writes 2.13.3's `-m1`, `-m2`, `-m3` and `-m5` archives byte for byte.
+- **Digests:** BLAKE3, SHA-1 and SHA-256 of a file set are 2.13.3's on Linux x64, x86 and AArch64 and on Windows 7 x64 and x86; `autotest -all` passes.
+- **On real ARM** (GitHub's Linux ARM64 and Apple Silicon runners): every built-in method compresses, extracts and tests with the CPU's SHA-1 in use, and the archives are the bytes Linux x64 writes. The speeds above are from those runners.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: as 2.13.3.
+- **The rest is 2.13.3's:** the test battery and the platform tests give the same results on the release's binary and plugins (on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits).
 
 ### [2.13.3] - 2026-11-18
 
