@@ -277874,6 +277874,10 @@ int Jidac::add2()
 			if (g_sa_mode == 't')
 				myprintf("00742: -sa%c: %s files waited for the block of another codec to be filled\n", g_sa_mode, migliaia((int64_t)sa_dopo.size()));
 			vf.swap(nuovo);
+			/// zpaq-std: the files changed places: the groups of -compress (classedi[fi]) with them
+			if (g_cattivo)
+				for (size_t k= 0; k < vf.size() && k < classedi.size(); ++k)
+					classedi[k]= compress_classe(vf[k]->first, vf[k]->second.size);
 			sa_blk_fi = nuovo_blk;
 			sa_secondo= true;
 			sa_dopo.clear();
@@ -278012,6 +278016,14 @@ int Jidac::add2()
 				}
 			}
 			fseeko(in, 0, SEEK_SET);
+		}
+		/// zpaq-std: a file a -sa codec takes is cut into blocks as -sa says, not as its group of -compress: the group would
+		/// cut its block by its own size and give it its own method (a set of JPEG with media:5 grew by 7%)
+		if (sa_file >= 0 && g_cattivo && fi < classedi.size())
+		{
+			classedi[fi]= 0;
+			if (frags == 0) /// the block that starts with this file was given the group of the file
+				classeblocco= 0;
 		}
 		/// -sa: a block of another codec is being filled: this file waits (see sa_dopo). Not with
 		/// -tar, where the order of the files decides which one of hard links holds the data
