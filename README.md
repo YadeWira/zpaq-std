@@ -1,6 +1,6 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.21.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.22.**
 
 A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (30 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG, JPEG-LS and JPEG 2000** recompression with `-sa`, and **zero system dependencies**.
 
@@ -35,12 +35,15 @@ x86-64 (on Windows the archive also stores each file's creation and access dates
 
 ## Defaults and languages
 
-- **Without `-m`, `a` writes `-m8`** (since 2.0.0, as zpaqfranz): zstd blocks with their
-  ZPAQL decoder, so any zpaq extracts them, very fast to extract. `-m1`..`-m5` are as
-  ever; `-m7` and `-m9` are two zstd levels by name. Before 2.0.0 the default was `-m1`.
+- **Without `-m`, `a` writes `-m8l`** (since 2.15.0, as zpaqfranz 65.22; `-m8` from
+  2.0.0 to 2.14.0): zstd blocks with their ZPAQL decoder, so any zpaq extracts them, very
+  fast to extract. The `l` is zstd's long distance matching: the repetitions far apart
+  in a block. `-m1`..`-m5` are as ever; `-m7` and `-m9` are two zstd levels by name.
+  Before 2.0.0 the default was `-m1`.
 - **The levels have names** (since 2.8.0, as zpaqfranz 65.18): `-lean` (`-m80`, two
-  threads: weak hardware), `-fast` (`-m80`), `-normal` (`-m8`, the default), `-good`
-  (`-m9`), `-better` (`-m7`), `-ultra` (`-m6`) and `-max` (`-m5`). One level only, and
+  threads: weak hardware), `-fast` (`-m80`), `-normal` (`-m8l`, the default), `-good`
+  (`-m9`), `-better` (`-m7`), `-ultra` (`-m6`), `-max` (`-m5`) and, since 2.15.0, `-xl`
+  (`-m86l`: virtual machines, disk images, big files). One level only, and
   not with `-m`. **`-fast` changed its meaning in 2.8.0**: it was the switch that stores
   the history for a fast `l` (the default, so it was rarely written); that one is now
   `-lfast`, and `-nofast` still works as the old name of `-nolfast`.
@@ -55,6 +58,13 @@ x86-64 (on Windows the archive also stores each file's creation and access dates
   one JSON object per line, for a program that reads it; **`x -listfrom thefile`**: the
   names to extract come from a file; `x` obeys `-mindate`, `-maxdate`, `-minsize` and
   `-maxsize` (it ignored them and extracted everything).
+- **From zpaqfranz 65.22** (since 2.15.0): **`-compress X`**, a method for each kind of
+  file (`-compress "text:5;media:0;packed:0;*:8"`, by group, extension or size), with a
+  table at the end that says what each group did; the last line of `a` says how much
+  was written and how big the archive is.
+- **A JIT for ARM64** (since 2.15.0, Linux and macOS): the model of `-m3`..`-m5` and every
+  ZPAQL decoder are turned into ARM64 code, as libzpaq does on x86: about 1.5 to 2 times
+  faster there, the same archives. `-nojit` turns the JIT off (it did nothing before).
 - **The help in five languages**: English, Italian, Russian, Spanish (neutral Latin
   American) and Portuguese (Brazil), with `-eng`, `-it`, `-ru`, `-es`, `-pt`, the
   `ZPAQFRANZ_LANG` variable (`en it ru es pt`), or the system's language.
