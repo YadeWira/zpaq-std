@@ -43,6 +43,10 @@ jobs:
           # the whole table runs without the CPU's SHA ("HW disabled"); one hash alone runs with it
           ./zpaq-std b -t1 | grep -E 'GB/s \(done|MB/s \(done' || true
           for h in sha1 sha256 blake3; do ./zpaq-std b -$h -t1 | grep -E 'done|HW' || true; done
+      # the JIT against the interpreter: same archives, and the times (x86 has libzpaq's JIT,
+      # ARM64 the one of zpaq-std; where there is none the two columns are the same)
+      - name: JIT against the interpreter
+        run: bash test/ci/jit_check.sh "$PWD/zpaq-std"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -73,6 +77,14 @@ jobs:
             plugins/codecs/pja.so
             plugins/codecs/ppa.so
             plughashes-${{ matrix.name }}.txt
+      # last, because it builds zpaq-std again: the test of the ARM64 JIT on a real ARM CPU
+      # (programs at random, interpreter against JIT)
+      - name: 'ARM64 JIT: the test build'
+        if: matrix.name == 'linux-arm64' || matrix.name == 'macos-arm64'
+        run: |
+          rm -f zpaq-std.o zpaq-std
+          ${{ matrix.build }} CPPFLAGS=-DZS_JITTEST
+          bash test/ci/jit_check.sh "$PWD/zpaq-std" test
 
   windows-build:
     name: windows-${{ matrix.arch }} (build)

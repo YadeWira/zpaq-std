@@ -94373,6 +94373,10 @@ static bool zs_format_ok(const std::string& i_tag, const zs_codec* i_c)
 }
 static bool zs_native_ok(const std::string& i_comment)
 {
+#ifdef ZS_JITTEST
+	if (getenv("ZS_ZPAQLONLY")) /// zpaq-std, a test build: every -ma block through its ZPAQL program
+		return false;
+#endif
 	const size_t p=i_comment.find("zpaqstd-ma2:");
 	if (p==std::string::npos)
 		return false;
@@ -96611,7 +96615,13 @@ private:
   void swap(U32& x) {a^=x; x^=a; a^=x;}
   void swap(U8& x)  {a^=x; x^=a; a^=x;}
   void err();  // exit with run time error
+#ifdef ZS_JITTEST
+  friend int zs_jittest(U32 seed, int count);  /// zpaq-std: the test of the JIT (jit/zs_jit_a64.inc)
+#endif
 };
+#ifdef ZS_JITTEST
+int zs_jittest(U32 seed, int count);
+#endif
 ///////////////////////// Component //////////////////////////
 // A Component is a context model, indirect context model, match model,
 // fixed weight mixer, adaptive 2 input mixer without or with current
@@ -97077,6 +97087,20 @@ void Writer::write(const char* buf, int n) {
 }
 
 
+/*
+	zpaq-std: a JIT for AArch64 too (jit/zs_jit_a64.inc), on Linux and on macOS, where
+	it was tried. On macOS the memory of a JIT wants MAP_JIT and its own calls, see
+	allocx. Any other system: the interpreter, as before. -DNOJIT leaves it out
+*/
+#if defined(__aarch64__) && !defined(NOJIT) && !defined(BIG) && defined(unix) && !defined(_WIN32)
+#if defined(__linux__) || defined(__APPLE__)
+#define ZS_JIT_A64 1
+#endif
+#endif
+#if defined(ZS_JIT_A64) && defined(__APPLE__)
+#include <pthread.h>
+#include <libkern/OSCacheControl.h>
+#endif
 ///////////////////////// allocx //////////////////////
 /*
 	W^X, and the JIT on OpenBSD.
@@ -97126,8 +97150,16 @@ void allocx(U8* &p, int &n, int newsize) {
 	///myprintf("BEFORE mmap of newsize %s\n",migliaia(newsize));
 	/// PROT_EXEC can be stopped
     p=(U8*)MAP_FAILED;
+#if defined(ZS_JIT_A64) && defined(__APPLE__)
+	/// zpaq-std: macOS on ARM gives writable and executable memory only with MAP_JIT, and
+	/// each thread says whether it writes it or runs it: written here, run after protectx()
+	p=(U8*)mmap(0, newsize, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON|MAP_JIT, -1, 0);
+	if ((void*)p!=MAP_FAILED)
+		pthread_jit_write_protect_np(0);
+#else
 	if (!g_jit_mprotect) /// no point in asking twice once the system said no
 		p=(U8*)mmap(0, newsize, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON, -1, 0);
+#endif
 	if ((void*)p==MAP_FAILED)
 	{
 		/// W^X (OpenBSD): writable now, executable later, see protectx()
@@ -97173,6 +97205,20 @@ void allocx(U8* &p, int &n, int newsize) {
 */
 void protectx(U8* i_p, int i_n)
 {
+#ifdef ZS_JIT_A64
+	/// zpaq-std: an ARM CPU keeps its own copy of the instructions: it has to be told
+	/// that these bytes are new, or it may run what was there before
+	if (i_p!=NULL && i_n>0)
+	{
+#ifdef __APPLE__
+		if (!g_jit_mprotect)
+			pthread_jit_write_protect_np(1);
+		sys_icache_invalidate(i_p, (size_t)i_n);
+#else
+		__builtin___clear_cache((char*)i_p, (char*)i_p+i_n);
+#endif
+	}
+#endif
 #ifdef unix
 	if (!g_jit_mprotect)
 		return;
@@ -100243,6 +100289,9 @@ In 64 bit mode, the following additional registers are used:
   r14 = r
   r15 = m
 */
+#ifdef ZS_JIT_A64
+#include "jit/zs_jit_a64.inc"   /// zpaq-std: ZPAQL::assemble and Predictor::assemble_p for AArch64
+#else
 // Called by out
 static int flush1(ZPAQL* z) {
   try {
@@ -101578,6 +101627,7 @@ int Predictor::assemble_p() {
   put1(0xc3);                 // ret
   return o;
 }
+#endif // corresponds to #ifdef (#ifdef ZS_JIT_A64)
 
 
 // Return a prediction of the next bit in range 0..32767
@@ -101599,12 +101649,19 @@ int Predictor::predict() {
     if (flagnojit)               /// protectx gave up: interpreter
       return predict0();
   }
+#ifdef ZS_JIT_A64
+  /// zpaq-std: the AArch64 code has update() at pcode[0] and predict() at pcode[8]
+  if (!pcode)
+	  error("14367: pcode kaputt\n");
+  return ((int(*)(Predictor*))&pcode[8])(this);
+#else
   ///assert(pcode && pcode[0]);
   if (!(pcode && pcode[0]))
 	  error("14367: pcode/pcode[0] kaputt\n");
   if (!pcode || !pcode[10]) 
     error("Invalid function pointer at pcode[10]");
  return ((int(*)(Predictor*))&pcode[10])(this);
+#endif
 }
 // Update the model with bit y = 0..1
 // Use the JIT code starting at pcode[5].
@@ -101614,8 +101671,12 @@ void Predictor::update(int y) {
 		update0(y);
 		return;
 	}
+#ifdef ZS_JIT_A64
+  ((void(*)(Predictor*, int))&pcode[0])(this, y);
+#else
   assert(pcode && pcode[5]);
   ((void(*)(Predictor*, int))&pcode[5])(this, y);
+#endif
   // Save bit y in c8, hmap4 (not implemented in JIT)
   c8+=c8+y;
   if (c8>=256) {
@@ -176602,7 +176663,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 	if (flagdebug)
 		myprintf("52860: k0 flagnojit %d\n",int(flagnojit));
 
-#if defined(__amd64__) || defined(__i386__)
+	/// zpaq-std: -nojit did nothing: the lines below put flagnojit back to false whatever the
+	/// command line said, so the JIT ran all the same. What the user asked is kept, and wins
+	const bool nojit_asked=flagnojit;
+#if defined(__amd64__) || defined(__i386__) || defined(ZS_JIT_A64) /// zpaq-std: or AArch64 with its JIT
 	if (flagdebug)
 		myprintf("52820: This seems amd64/i386, turning OFF flagnojit\n");
 	flagnojit=false;
@@ -176610,7 +176674,11 @@ int Jidac::loadparameters(int argc, const char** argv)
 #ifdef unix
 	if (flagdebug)
 		myprintf("52588: UNIX: checking OS support for JIT\n");
+#if defined(ZS_JIT_A64) && defined(__APPLE__)
+    void* p=(void*)mmap(0,8192, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON|MAP_JIT, -1, 0); /// zpaq-std: see allocx
+#else
     void* p=(void*)mmap(0,8192, PROT_READ|PROT_WRITE|PROT_EXEC,MAP_PRIVATE|MAP_ANON, -1, 0);
+#endif
 	if (p==MAP_FAILED)
 	{
 		/*
@@ -176658,9 +176726,21 @@ int Jidac::loadparameters(int argc, const char** argv)
 	flagnojit=true;
 #endif // corresponds to #if (#if defined(NOJIT) || defined(BIG) // those are really "strange")
 
+	if (nojit_asked) /// zpaq-std: -nojit on the command line
+		flagnojit=true;
+
 	if (flagdebug)
 		myprintf("52862: k2 flagnojit %d\n",int(flagnojit));
 
+#if defined(ZS_JITTEST) && defined(ZS_JIT_A64)
+	if (getenv("ZS_JITTEST")) /// zpaq-std: a test build runs the test of the JIT and nothing else
+	{
+		unsigned jt_seed=1;
+		int jt_count=1000;
+		sscanf(getenv("ZS_JITTEST"), "%u,%d", &jt_seed, &jt_count);
+		return libzpaq::zs_jittest(jt_seed, jt_count)!=0;
+	}
+#endif
 	string textnojit="-JIT";
 	if (flagnojit)
 		textnojit="-NOJIT";
@@ -194747,8 +194827,10 @@ int versione_estesa(const string &i_exe)
 	versione_titolo("What is inside");
 #if (defined(__amd64__) || defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)) && !defined(NOJIT) && !defined(BIG) && !defined(ESX) && !defined(NAS)
 	versione_opzione("JIT", flagnojit ? "inside, but OFF (-nojit, or the system gave no executable memory): ZPAQL interpreted, slower" : "yes: ZPAQL turned into x86 code, fast", !flagnojit);
+#elif defined(ZS_JIT_A64) /// zpaq-std: the JIT for AArch64
+	versione_opzione("JIT", flagnojit ? "inside, but OFF (-nojit, or the system gave no executable memory): ZPAQL interpreted, slower" : "yes: ZPAQL turned into ARM64 code, fast", !flagnojit);
 #else
-	versione_opzione("JIT", "no: ZPAQL interpreted (slower; x86 only)", false);
+	versione_opzione("JIT", "no: ZPAQL interpreted (slower; the JIT is for x86, and for ARM64 on Linux and macOS)", false);
 #endif
 	string zstd= "no (-m8 not available)";
 #ifdef ZPAQZSTD
@@ -205956,7 +206038,12 @@ void Jidac::platform_info()
 	else
 	{
 		myprintf("02274: I am not sure this is Intel/AMD CPU (virtual? arm?)\n");
+#ifdef ZS_JIT_A64
+		myprintf("02274: AArch64, with the JIT of zpaq-std for it\n");
+		if (false)
+#else
 		if (!flagnojit)
+#endif
 		{
 			color_yellow();
 			myprintf("02275: WARNING: non Intel/AMD CPUs should be compiled with -DNOJIT or run with -nojit\n");
