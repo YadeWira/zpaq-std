@@ -29,7 +29,17 @@
 
 #### Checked
 
-PENDING
+- **The battery** on the release's binary and plugins gives what 2.14.0's gave: every suite with nothing to review, and in the file-by-file comparison against 2.14.0 each version reads the other's archives, with the same sizes. One line differs: an archive made with no `-m` is one byte longer (the method's name, `-m8l`, is in it); with `-m8` it is 2.14.0's size.
+- **The default, `-xl`, `-compress`:** `a` with no `-m` writes the archive of `-m8l`, on Linux and on Windows 7 (x64 and x86 write the same one); zpaq 7.15 extracts it, and the archives of `-xl` and `-compress`, made on Linux and on Windows 7. `-sa` with `-compress`: a set of 79 JPEG with `-sa -compress media:5` is 18,016,797 bytes, with `-sa -m5` 18,014,131 (19,271,196 before the fix).
+- **The JIT for ARM64 against the interpreter,** the reference:
+  - ZPAQL programs made at random (a build with `-DZS_JITTEST`), each run on both with the same machine and input: 60,000 programs on a real Linux ARM64 CPU and 60,000 on Apple Silicon (the CI's runners), 108,000 under emulation, one of them with every conditional jump forced to its far form. No difference.
+  - `-m1`..`-m5`: the same archive with the JIT and with `-nojit`, on Linux ARM64 and on macOS (CI), and the bytes Linux x64 writes. 150 models made at random (CM, ICM, ISSE, MATCH, MIX, MIX2 and SSE in many sizes): the bytes of x64. Archives with CONS and AVG components, made with zpaqd: extracted identical.
+  - 41 methods (`-m1`..`-m9`, every `-ma` codec) made on x64 and extracted on ARM64 through the ZPAQL program of their blocks, not the codec: identical.
+  - With many threads: the CI's check of every method and its comparison of the archives of the six platforms pass with the JIT in.
+- **`-nojit`:** on Linux x64, ARM64, macOS and Windows 7 (x64 and x86) the archive of `-m3` is the same with and without it, and `t` passes both ways; on x64 an archive whose ZPAQL program the x86 JIT and the interpreter run differently (two swaps in a row) tells that the switch now takes effect.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the digests and the `-m1`, `-m2`, `-m3` and `-m5` archives are 2.14.0's, byte for byte; the plugins and `-sa` as 2.14.0.
+- **Platforms:** on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-sa` writes the same archive on x64, x86 and AArch64.
+- **Help:** Spanish and Portuguese for the nine new lines and the three that changed (`-helpcheck`: none missing).
 
 ### [2.14.0] - 2026-11-20
 
