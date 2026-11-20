@@ -1,3 +1,36 @@
+### [2.15.0] - 2026-11-20
+
+**zpaqfranz 65.22: `-m8l` by default (zstd with long distance matching), the level `-xl`, `-compress` (a method for each kind of file). A JIT for ARM64: `-m3`..`-m5` about 1.5 to 2 times faster there, and every ZPAQL decoder. `-nojit` works.**
+
+- **Base: zpaqfranz 65.22** (65.22t). Everything of its open build since 65.21 is in:
+  - **The default is `-m8l`**: `a` with no `-m` (and `-normal`, and `repack` with no `-m`) writes zstd as before, with its long distance matching on. **A different archive than 2.14.0's for the same files**; zpaq 7.15 and every zpaq-std with zstd extract it. What it gains depends on the data: zpaqfranz says 3 to 5% on mixed data; a set of five nearly equal copies of a source file gained 0.9% here, for 5% more time, and data with no repetitions far apart gain nothing. `-m8` is still there, and writes what 2.14.0 wrote.
+  - **The letter `l`** in the methods of zstd (`-m8l`, `-m86l`, `-m7l`, `-m9l`, `-m86lh9`): long distance matching, the repetitions far apart in a block.
+  - **`-xl`**: a new level, `-m86l` (64 MB blocks and the `l`), for virtual machines, disk images and big files. It uses more RAM. Not with `-m` or with another level (03995, exit code 2).
+  - **`-compress X`**: a method for each group of files (`text`, `exe`, `raw`, `db`, `office`, `disk`, `packed`, `media`), for an extension, for the files with none (`none`) and for the rest (`*`), also by size: `-compress "text:5;media:0;packed:0;*:8"`, `text:5/20MB:7/1GB:8`. A table at the end says what each group did. `-compressgroup X` makes a group again, or a new one. Not with `-image`, `-stdin` or `-m s` (67149).
+  - **The last line of `a`** also says how much the run wrote and how big the archive is, all of its parts: `, WRITTEN x, ARCHIVE y`, after `OS REPORT`.
+  - **An image with a `-not` that left out nothing** (zpaqfranz issue 366, Windows): the archive was left with an incomplete version. Now the image is made, and each such `-not` is said in yellow.
+  - **`-onedrive`** (Windows): a file deleted from the disk was never marked as deleted in the archive.
+  - **`-frugal`** (Windows): the junk of every user of the PC in an image (issue 369), user names with accents, and the updaters of Chrome and Dropbox are kept (only their caches are left out). `work frugal -all` shows it.
+  - **`pp` and `p`**: the CRC-32 is checked too, `-wim` images with no hash are a note, `GOOD` with folders.
+  - **What can change for a script:** the archive of an `a` with no `-m`; the last line of `a`; `pp` gives exit code 2 for a wrong CRC-32; `p` gives 0 for a `-wim` image with no hash.
+  - Not here, as always: what zpaqfranz has only in its full build (`-firefox`, `-chrome`, `-edge`, `-dropbox`).
+- **`-sa` with `-compress`**: a file a `-sa` codec takes is cut into blocks as `-sa` says, and the method of its group compresses what the codec leaves, as `-m` does: `-sa -compress media:5` gives what `-sa -m5` gives for a set of JPEG.
+- **A JIT for ARM64** (Linux and macOS). libzpaq turns ZPAQL into machine code on x86 only: on ARM64 the model of `-m3`..`-m5` and every ZPAQL program (the decoders of `-m1`, `-m2` and of each `-ma` and `-sa` method, when a block is read through them) ran on the interpreter. Now they are turned into ARM64 code, with the results of the interpreter: the archives are the same, byte for byte. One thread, on the CI's machines, with the JIT and without it (`-nojit`):
+
+  | | Linux ARM64 | macOS (Apple Silicon) |
+  |---|---|---|
+  | `a -m3` | 1.23 s, was 1.77 s | 1.9 s, was 2.9 s |
+  | `a -m4` | 4.0 s, was 6.2 s | 3.4 s, was 6.5 s |
+  | `a -m5` | 12.4 s, was 21.4 s | 10.3 s, was 18.5 s |
+  | `t` of an `-m1` archive | 69 ms, was 511 ms | 0.16 s, was 0.94 s |
+
+  `a -m1` and `a -m2` do not change (their time goes into finding matches, not into ZPAQL). `version` says whether the JIT is in. A build with `-DNOJIT` leaves it out, as on x86.
+- **`-nojit` did nothing**, on any platform and in zpaqfranz too: the program put the flag back whatever the command line said, and the JIT ran. Now it turns the JIT off, on x86 and on ARM64.
+
+#### Checked
+
+PENDING
+
 ### [2.14.0] - 2026-11-20
 
 **Speed: a faster LZ77 match finder (`-m1`, `-m3`, the `-m1x`/`-m2x` family), BLAKE3 with SIMD, and the CPU's SHA-1 and SHA-256 on ARM64. Every archive is byte for byte what 2.13.3 writes.**
