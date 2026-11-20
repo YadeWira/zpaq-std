@@ -25,7 +25,7 @@
   | `t` of an `-m1` archive | 69 ms, was 511 ms | 0.16 s, was 0.94 s |
 
   `a -m1` and `a -m2` do not change (their time goes into finding matches, not into ZPAQL). `version` says whether the JIT is in. A build with `-DNOJIT` leaves it out, as on x86.
-- **`-nojit` did nothing**, on any platform and in zpaqfranz too: the program put the flag back whatever the command line said, and the JIT ran. Now it turns the JIT off, on x86 and on ARM64.
+- **`-nojit` did nothing**, on any platform and in zpaqfranz too (reported there as issue 376): the program put the flag back whatever the command line said, and the JIT ran. Now it turns the JIT off, on x86 and on ARM64.
 
 #### Checked
 
