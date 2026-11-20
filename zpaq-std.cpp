@@ -96978,13 +96978,12 @@ void Writer::write(const char* buf, int n) {
 
 
 /*
-	zpaq-std: a JIT for AArch64 too (jit/zs_jit_a64.inc). On Linux, where it
-	was tried. On macOS the memory of a JIT wants MAP_JIT and its own calls,
-	see allocx: -DZS_JIT_A64_APPLE turns it on there. Any other system: the
-	interpreter, as before
+	zpaq-std: a JIT for AArch64 too (jit/zs_jit_a64.inc), on Linux and on macOS, where
+	it was tried. On macOS the memory of a JIT wants MAP_JIT and its own calls, see
+	allocx. Any other system: the interpreter, as before. -DNOJIT leaves it out
 */
 #if defined(__aarch64__) && !defined(NOJIT) && !defined(BIG) && defined(unix) && !defined(_WIN32)
-#if defined(__linux__) || (defined(__APPLE__) && defined(ZS_JIT_A64_APPLE))
+#if defined(__linux__) || defined(__APPLE__)
 #define ZS_JIT_A64 1
 #endif
 #endif
@@ -193843,7 +193842,7 @@ int versione_estesa(const string &i_exe)
 #elif defined(ZS_JIT_A64) /// zpaq-std: the JIT for AArch64
 	versione_opzione("JIT", flagnojit ? "inside, but OFF (-nojit, or the system gave no executable memory): ZPAQL interpreted, slower" : "yes: ZPAQL turned into ARM64 code, fast", !flagnojit);
 #else
-	versione_opzione("JIT", "no: ZPAQL interpreted (slower; the JIT is for x86 and for ARM64 on Linux)", false);
+	versione_opzione("JIT", "no: ZPAQL interpreted (slower; the JIT is for x86, and for ARM64 on Linux and macOS)", false);
 #endif
 	string zstd= "no (-m8 not available)";
 #ifdef ZPAQZSTD
