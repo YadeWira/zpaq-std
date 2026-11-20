@@ -39,7 +39,10 @@ jobs:
         run: bash test/ci/platform_check.sh "$PWD/zpaq-std" ${{ matrix.name }}
       # information only (2.14.0): what the hashes do on this runner's CPU, one thread
       - name: Hash speeds
-        run: ./zpaq-std b -t1 || true
+        run: |
+          # the whole table runs without the CPU's SHA ("HW disabled"); one hash alone runs with it
+          ./zpaq-std b -t1 | grep -E 'GB/s \(done|MB/s \(done' || true
+          for h in sha1 sha256 blake3; do ./zpaq-std b -$h -t1 | grep -E 'done|HW' || true; done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
