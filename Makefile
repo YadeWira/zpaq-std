@@ -368,10 +368,20 @@ TARGET_M := $(firstword $(subst -, ,$(UFL2MACH)))
 ifneq ($(filter x86_64 amd64 i386 i486 i586 i686 i86pc,$(TARGET_M)),)
   ZPAQ_CPPFLAGS += $(INTEL_FLAGS)
 else
-  ZPAQ_CPPFLAGS += -DNOJIT
   # zpaq-std 2.14.0: AArch64 (Linux and macOS) uses the CPU's SHA-1 and SHA-256 when it has them
   ifneq ($(filter aarch64 arm64,$(TARGET_M)),)
     ZPAQ_CPPFLAGS += -DHWSHA2
+    # zpaq-std: AArch64 on Linux has a JIT of its own (jit/zs_jit_a64.inc). On macOS it is
+    # there to be tried (make ZS_JIT_APPLE=1), off otherwise
+    ifeq (,$(findstring linux,$(UFL2MACH)))
+      ifeq ($(ZS_JIT_APPLE),1)
+        ZPAQ_CPPFLAGS += -DZS_JIT_A64_APPLE
+      else
+        ZPAQ_CPPFLAGS += -DNOJIT
+      endif
+    endif
+  else
+    ZPAQ_CPPFLAGS += -DNOJIT
   endif
 endif
 
