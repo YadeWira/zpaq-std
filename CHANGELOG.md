@@ -1,3 +1,17 @@
+### [2.14.0] - 2026-11-20
+
+**Speed: a faster LZ77 match finder (`-m1`, `-m3`, the `-m1x`/`-m2x` family), BLAKE3 with SIMD, and the CPU's SHA-1 and SHA-256 on ARM64. Every archive is byte for byte what 2.13.3 writes.**
+
+- **LZ77 match finder** (libzpaq's `LZBuffer::fill`, where `-m1` spends two thirds of its time): match lengths are compared eight bytes at a time instead of one. Same matches, same bytes. On 121 MB, one thread, an x64 Xeon: `-m1` 15% faster, `-m3` 7%, `-m21` 12%, `-m24` 13%; `-m2` (suffix array) does not change. The default `-m8` (zstd) does not go through it.
+- **BLAKE3 with SIMD** (`-blake3`, `sum -blake3`, `b`): BLAKE3 1.8.2's own assembly on x86-64 (SSE2, SSE4.1, AVX2, AVX-512, picked at run time; Linux and Windows) and its NEON code on ARM64. Until now every build used the portable C. One thread: 313 MB/s -> 1.84 GB/s on Linux x64, 299 MB/s -> 1.72 GB/s on Windows 7 x64. The 32-bit builds keep the portable C.
+- **ARM64: the CPU's SHA-1 and SHA-256** (ARMv8 cryptography extensions), detected at run time (Linux: `getauxval`; Apple Silicon always has them); without them, the C code as before. SHA-1 is what every archive's fragments and files are hashed with, so it is on the path of every `a`, `x` and `t`. CI_ARM_PLACEHOLDER
+
+What 2.14.0 does not have yet, of the five items planned: a ZPAQL JIT for ARM64 (there `-m1`..`-m5` and every ZPAQL decoder are still interpreted) and an AVX2 mixer for `-m3`..`-m5`.
+
+#### Checked
+
+- CHECK_PLACEHOLDER
+
 ### [2.13.3] - 2026-11-18
 
 **syc v1.0.0 (sylz's decoders, more robust) and PPA 0.7.0. The bytes written do not change.**

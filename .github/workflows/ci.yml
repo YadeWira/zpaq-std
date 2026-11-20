@@ -37,6 +37,9 @@ jobs:
         run: ${{ matrix.build }}
       - name: Every method, compress and extract
         run: bash test/ci/platform_check.sh "$PWD/zpaq-std" ${{ matrix.name }}
+      # information only (2.14.0): what the hashes do on this runner's CPU, one thread
+      - name: Hash speeds
+        run: ./zpaq-std b -t1 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
