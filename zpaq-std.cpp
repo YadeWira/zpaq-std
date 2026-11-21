@@ -116665,6 +116665,19 @@ int64_t prendidimensionefile(const char *i_filename)
 	if (!i_filename)
 		return 0;
 	/// myprintf("29583: i_filename %s\n",i_filename);
+#ifdef unix
+	/// The size of a file is metadata: it is read from the directory entry, which
+	/// needs no permission on the file itself. Opening it does, and a file that
+	/// cannot be read is not an empty one. Without this, on Android /sdcard (SELinux
+	/// lets them be created and written but not opened again) and on any *nix file
+	/// with mode 000, this returned 0 and x said "existing file differs in size
+	/// (partial extraction?)" about a file of the right size, turned a re-extraction
+	/// into a warning and skipped files it had to overwrite. A directory or a special
+	/// file is not a regular file: those keep the fopen road below.
+	struct stat sb;
+	if ((lstat(i_filename, &sb) == 0) && S_ISREG(sb.st_mode))
+		return (int64_t)sb.st_size;
+#endif // corresponds to #ifdef (#ifdef unix)
 	FILE *myfile= freadopen(i_filename);
 	if (myfile)
 	{
