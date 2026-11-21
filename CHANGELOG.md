@@ -8,7 +8,12 @@
 
 #### Checked
 
-CHECKS_PENDING
+- **The fix:** on Linux x64, with the release's binary, extracting again over files with mode 000 ends `(all OK)`, exit code 0, with the files skipped (2.15.0: one `differs in size` for each file, `(with warnings)`). A file cut short is told as before, exit code 1, also when it cannot be read; with `-force`, a file of the right size and other content that cannot be read is written again. ZF's runs on an Android phone (ARM64, a build made in Termux): two extractions to the shared storage end `(all OK)`.
+- **The same archives as 2.15.0:** from the same files, on Linux x64, `-m5`, `-ma:lz6:7`, `-ma:sylz:0`, `-sa` (each version with its own plugins) and no `-m` at all write 2.15.0's archive, byte for byte (`-nolfast`: the history has the version in it).
+- **The battery** on the release's binary and plugins gives what 2.15.0's gave, every suite with nothing to review; the archive of an `a` with no `-m` is again the size of the version before. `suite_tar.sh` with the new hard link: 7 of 7.
+- **Platforms:** on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-sa` writes the same archive on x64, x86 and AArch64.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the digests and the `-m1`, `-m2`, `-m3` and `-m5` archives are 2.15.0's, byte for byte; the plugins, `-sa`, the long paths and what 2.15.0 brought (`-m8l` by default, `-xl`, `-compress`, `-nojit`) as 2.15.0.
+- **CI,** the six platforms: every check passes. `jit_check.sh` with its new clock on Linux and on macOS (where it still uses perl): `-m1`..`-m5` the same archive with the JIT and with `-nojit`; the JIT's test build, 60,000 programs at random on Linux ARM64 and 60,000 on Apple Silicon, no difference.
 
 ### [2.15.0] - 2026-11-20
 
