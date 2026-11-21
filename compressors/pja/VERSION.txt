@@ -1,6 +1,10 @@
-PJA 0.9.13 (tag v0.9.13, commit 978faeb), https://github.com/YadeWira/PJA,
-from the vendor tarball pja-0.9.13-zpaqstd.tar.gz (sha256
-3d97bca202200ccb65c3bfb36d73fcb1f1fadb567b5c55b45169c22b57194a83), copied unmodified.
+PJA 0.9.14 (tag v0.9.14, commit 997971d), https://github.com/YadeWira/PJA,
+from the vendor tarball pja-0.9.14-zpaqstd.tar.gz (sha256
+1f44c734a0fcc1e13d656710fe9b4fc57ec1af7b3aeed7c0dff5ef268f3e0c52), copied unmodified.
+0.9.14 changes nothing for this plugin but the version in its card (pas/pjacodec.pas), VENDOR.md
+and NOTICE: its change is a static linux-arm64 build of PJA's command (musl, whose license NOTICE
+now carries; not linked into the plugin). The 31 codecs, streams, ZPAQL, detect and lists are 0.9.13's.
+Before: 0.9.13 (commit 978faeb, tarball sha256 3d97bca2...), in zpaq-std 2.12.0:
 0.9.13: the same streams and ZPAQL, and the codecs take what 0.9.12's took. Its change is in PJA's
 command and libpja (blended predictors for JPEG-LS and lossless JPEG, only in a .pja); pjals, pjalsx,
 pjall and theirs now also refuse such a stream when asked for their ZPAQL's arguments.

@@ -12,7 +12,14 @@ head -c 2000000 "$Z" > "$W/data/b.bin"
 cp CHANGELOG.md "$W/data/"
 cd "$W" || exit 1
 "$Z" version 2>&1 | grep -E '^JIT ' || true
-ms() { perl -MTime::HiRes=time -e 'printf "%d", time()*1000'; }
+# milliseconds: date where it has %N (GNU, Termux), perl where it does not (macOS), else seconds
+ms() {
+  local t; t=$(date +%s%3N 2>/dev/null)
+  case "$t" in
+    ''|*[!0-9]*) perl -MTime::HiRes=time -e 'printf "%d", time()*1000' 2>/dev/null || echo $(( $(date +%s)*1000 )) ;;
+    *) echo "$t" ;;
+  esac
+}
 bad=0
 if [ -n "$TESTBUILD" ]; then
   for seed in 1 2 3; do

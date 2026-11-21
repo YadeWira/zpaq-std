@@ -50,7 +50,9 @@ echo "shared content" > d/s/000; for i in $(seq 1 200); do ln d/s/000 d/s/$(prin
 echo solo > d/solo
 paso() { timeout 120 "$Z" a h.zpaq d -tar </dev/null >/dev/null 2>&1; cp -a d v$1; sleep 1.1; }
 paso 1
-ln d/s/000 d/nuevo; ln d/solo d/solo2; paso 2          # links nuevos en un grupo
+# links nuevos en un grupo: uno cuyo nombre ordena ANTES que el archivo con los datos
+# (d/nuevo < d/s/000: el caso de zpaqfranz #377, que ahi sale suelto) y uno que ordena despues
+ln d/s/000 d/nuevo; ln d/s/000 d/zeta; ln d/solo d/solo2; paso 2
 rm d/s/000; paso 3                                      # se borra el primer nombre
 rm d/solo; paso 4                                       # un grupo queda con un nombre
 for v in 1 2 3 4; do

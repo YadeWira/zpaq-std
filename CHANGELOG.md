@@ -1,3 +1,15 @@
+### [2.15.1] - 2026-11-21
+
+**`x` over a file that cannot be read took it for an empty one. PJA 0.9.14.**
+
+- **`x` over files that cannot be read** (Linux, macOS and the other *nix; found by ZF, testing on Android): to know the size of a file that is already there, the program opened it, and a file it could not open counted as 0 bytes. Extracting again over files with no read permission (mode 000, Android's shared storage from Termux) said `existing file differs in size (partial extraction?), not overwritten: use -force` about each file, of the right size, and ended `(with warnings)`. Now the size of a regular file is asked to the file system (`lstat`), which needs no permission on the file: those files are `existing files skipped`, as any other, and the run ends `(all OK)`. A file that was cut short is still told, as before.
+- **PJA 0.9.14** (`-sa`): nothing changes in the plugin but its version; the 31 codecs, their streams and their ZPAQL are 0.9.13's. PJA's change is a static Linux ARM64 build of its own command.
+- **Tests:** `test/ci/jit_check.sh` no longer needs perl where `date` gives milliseconds (Termux has no perl); `suite_tar.sh` also adds, in the second version, a hard link whose name sorts after the file with the data (the one that sorts before it, the case of zpaqfranz issue 377, was there: zpaq-std gives the group back since 1.0.0).
+
+#### Checked
+
+CHECKS_PENDING
+
 ### [2.15.0] - 2026-11-20
 
 **zpaqfranz 65.22: `-m8l` by default (zstd with long distance matching), the level `-xl`, `-compress` (a method for each kind of file). A JIT for ARM64: `-m3`..`-m5` about 1.5 to 2 times faster there, and every ZPAQL decoder. `-nojit` works.**

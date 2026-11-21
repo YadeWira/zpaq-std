@@ -1,8 +1,19 @@
-# PJA 0.9.13: the zpaq-std plugin, vendored
+# PJA 0.9.14: the zpaq-std plugin, vendored
 
-PJA (https://github.com/YadeWira/PJA), tag `v0.9.13`, commit `978faeb`:
+PJA (https://github.com/YadeWira/PJA), tag `v0.9.14`, commit `997971d`:
 only the sources the zpaq-std plugin is built from. MIT (`LICENSE`);
 `NOTICE` has the third-party notes.
+
+## What is new in 0.9.14
+
+Nothing in the plugin but its version: the 31 codecs write and read the
+same streams with the same ZPAQL, and take what 0.9.13's took. 0.9.14 adds
+a static linux-arm64 build of the `pja` command (musl, which also runs on
+Android in Termux); NOTICE now carries musl's license for that build.
+
+Checked: built from this directory alone, the plugin lists the thirty-one
+codecs, pja2k at 30, and PJA's plugin probe passes on `tests/j2k`,
+`tests/jpg` and `tests/jls`.
 
 ## What is new in 0.9.13
 
@@ -283,7 +294,7 @@ target. The C first (`pas/build_c.sh <dir> [flags]`: `-O3 -fwrapv
 `{$L pjasysc.o}` and `{$L b3chunks.o}` find the objects. From this directory:
 
 ```sh
-export PJA_COMMIT=9b4f04a
+export PJA_COMMIT=997971d
 ```
 
 Linux x86_64 (position-independent C, `-fPIC`, and `-Cg`):
