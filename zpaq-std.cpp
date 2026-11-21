@@ -222356,6 +222356,17 @@ int64_t Jidac::datacreazione(const string i_file)
 #endif // corresponds to #ifndef (#ifndef __APPLE__   	// Mac is different (of course))
 #endif // corresponds to #ifdef (#ifdef BSD  // BSD)
 #ifdef __linux__
+#if defined(__ANDROID__) && !defined(ZS_STATX)
+	/// zpaq-std: Android declares struct statx and STATX_BTIME in <linux/stat.h>
+	/// (they are constants, no library), but statx() itself is in <sys/stat.h>
+	/// behind __USE_GNU and API level 30. Termux builds for API 24, so the macro
+	/// is there and the function is not, and the build stops with "no matching
+	/// constructor for statx" (the struct shadows the function). Android keeps no
+	/// birth time for the files of the shared storage anyway, so nothing is lost.
+	/// -DZS_STATX for a toolchain that does have the call (API >= 30).
+	(void)i_file;
+	return 0;
+#else
 #ifndef STATX_BTIME
 	/// 65.15z11: statx() is in glibc from 2.28: Oracle Linux / CentOS / RHEL 7 have 2.17 (gcc 4.8.5 did not compile
 	/// here, an issue). No birth time there, as on the systems that do not keep one
@@ -222397,6 +222408,7 @@ int64_t Jidac::datacreazione(const string i_file)
 	myprintf("03335! cannot get birth time (linux)\n");
 	return 0;
 #endif // corresponds to #ifndef (#ifndef STATX_BTIME)
+#endif // corresponds to #if defined(__ANDROID__) && !defined(ZS_STATX)
 #endif // corresponds to #ifdef (#ifdef __linux__)
 
 #endif // ANCIENT // corresponds to #ifndef (#ifndef ANCIENT)
