@@ -8,7 +8,13 @@
 
 #### Checked
 
-@CHECKED@
+- **Damaged blocks:** 7,800,000 `-ma:bsc` blocks damaged in 14 ways (bits, sizes, indexes, modes, truncation; BWT and ST3..ST5 blocks written by 3.4.1 and BWT blocks written by 3.4.0), their checksums put right, decoded into a buffer of the exact size between guard pages under AddressSanitizer and UBSan, on 64 and 32 bits: no report. The same blocks on libbsc 3.4.1 as upstream ships it end every run in a report.
+- **The same archives as 2.15.1:** on Linux x64 with the release's binary, `-ma:bsc` at levels 1, 3, 6, 9 and 10, `-ma:bsc:10 -m5`, `-m5`, `-ma:lz6:7`, `-ma:kanzi:5` and no `-m` at all write 2.15.1's archive but for the time in the block names (`-nolfast`), and 2.15.1 extracts them. Before the release build, levels 1, 3, 4, 6, 7, 9 and 10 with and without `-m5`, each version reading the other's archives, and the extraction by ZPAQL alone.
+- **Speed:** on 151 MB of text, one thread and eight, compressing and testing take what they took with 3.4.0 (best of three runs: from 8% slower to 9% faster, with no pattern): libbsc's gains do not show in what `-ma:bsc` uses.
+- **The battery** on the release's binary and plugins gives what 2.15.1's gave, line by line, every suite with nothing to review.
+- **Platforms:** on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-sa` writes the same archive on x64, x86 and AArch64.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the three sets of 2.15.1 (digests and `-m1`..`-m5`, the plugins and every `-ma`, `-sa`, long paths, `-compress`, `-nojit`) give what they gave.
+- **CI,** the six platforms: every check passes, macOS's binary and plugins come from that run.
 
 ### [2.15.1] - 2026-11-21
 
