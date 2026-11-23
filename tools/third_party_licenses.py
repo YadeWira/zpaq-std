@@ -49,7 +49,7 @@ BUNDLED = [
      'bzip3 can be built into zpaq-std from it. The LGPL is an addition to the GNU GPL,\n'
      'so the text of both follows. bzip3 includes libsais (Ilya Grebnov, Apache-2.0,\n'
      'text under libbsc below).'),
-    ('libbsc', '3.4.0, patched', 'Apache-2.0', 'Ilya Grebnov', ['compressors/bsc/LICENSE'],
+    ('libbsc', '3.4.1, patched', 'Apache-2.0', 'Ilya Grebnov', ['compressors/bsc/LICENSE'],
      'Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed\n'
      'with either. Modified by zpaq-std (bounds checks in the decoder): every change\n'
      'is marked ZPAQSTD-PATCH in the sources, listed in compressors/bsc/PATCHES.'),

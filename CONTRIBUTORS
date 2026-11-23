@@ -56,7 +56,7 @@ folder under compressors/.
   heatshrink-ex 0.7.2     Scott Vokes (heatshrink); YadeWira      ISC
                           (heatshrink-ex)
   bzip3 1.5.5             Kamila Szewczyk                         LGPL-3.0-or-later
-  libbsc 3.4.0, patched   Ilya Grebnov                            Apache-2.0
+  libbsc 3.4.1, patched   Ilya Grebnov                            Apache-2.0
   lzham-ex (LZHAM 1.0) 1.1.1
                           Richard Geldreich, Jr.; maintained by   Public domain
                           YadeWira
