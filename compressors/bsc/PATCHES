@@ -1,8 +1,18 @@
-libbsc 3.4.0 (https://github.com/IlyaGrebnov/libbsc, tag v3.4.0), Apache-2.0, with
+libbsc 3.4.1 (https://github.com/IlyaGrebnov/libbsc, tag v3.4.1), Apache-2.0, with
 one patch of zpaq-std's own: the decoder's bounds. Every change is marked
 ZPAQSTD-PATCH in the sources. The encoder is untouched: -ma:bsc writes the very
-bytes of libbsc 3.4.0 (checked at levels 1, 3, 4, 6, 7 and 9, with -m1 and -m5
-blocks), so ZPAQBSC and every archive stay as they were.
+bytes of libbsc 3.4.1, which are those of 3.4.0 (checked at levels 1, 3, 4, 6, 7,
+9 and 10, with -m1 and -m5 blocks), so ZPAQBSC, ZPAQBSCB and every archive stay as
+they were.
+
+The patch was written for 3.4.0 (what follows tells what was found there) and
+carried over to 3.4.1 on 2026-11-23. 3.4.1 fixed some things of its own (the
+unaligned 16-bit accesses in the range coder, a signed overflow, a one-byte read
+in the detectors); its decoders still trust the sizes inside a block. One thing
+is new: 3.4.1 decodes escape ranks on a copy of the range coder
+(InitDecoder(const RangeCoder &)), and the copy has to carry the input's end and
+the overrun flag, or the escape path reads past a damaged block (the fuzzer found
+it at once in the first, plain carry-over).
 
 Why: zpaq-std decodes -ma:bsc blocks natively with libbsc, and libbsc 3.4.0 trusts
 the sizes inside a block. Its Adler-32s only stop accidental damage: a crafted
@@ -38,9 +48,10 @@ whose coverage-guided fuzzer found the same kind of faults in its own copy.
 The patch:
 
   coder/common/rangecoder.h   InitDecoder(input, inputEnd): InputShort never reads
-                              past inputEnd (zeros, and Overrun() is set), and reads
-                              and writes with memcpy (no misaligned 16-bit accesses).
-  coder/qlfc/qlfc_model.h     decInputEnd and decOutputLimit at the start of both
+                              past inputEnd (zeros, and Overrun() is set); the copy
+                              InitDecoder(coder) keeps both. (The memcpy accesses of
+                              the 3.4.0 patch are gone: 3.4.1 has its own.)
+  coder/qlfc/qlfc_model.h     decInputEnd and decOutputLimit at the start of the two base
                               model structs (bsc_qlfc_init_model leaves them alone),
                               so the decoders get their bounds without new arguments.
   coder/qlfc/qlfc.cpp         static, adaptive and fast decoders: the decoded size
@@ -71,6 +82,13 @@ Checked: every crashing case (ours and tovyCT's seeds, with the static, adaptive
 fast coders) ends with LIBBSC_DATA_CORRUPT and no sanitizer report; 2,400,000
 fuzzed blocks without a report; -ma:bsc archives byte for byte those of 1.7.0, and
 1.7.0's archives read by this build.
+
+Checked again on 3.4.1 (2026-11-23): 7,800,000 damaged blocks (BWT and ST3..ST5
+seeds written by 3.4.1, and the BWT seeds written by 3.4.0; 64 and 32 bits, ASan
+and UBSan, guard pages) without a report; the same blocks on pristine 3.4.1 end
+every run in a sanitizer report (reads and writes outside the buffers). -ma:bsc
+archives at levels 1, 3, 4, 6, 7, 9 and 10 are those of zpaq-std 2.15.1 but for the
+date in the block names, and each build reads the other's.
 
 Not reported upstream: libbsc's repository has its issues disabled (decision of
 zpaq-std's maintainer, 2026-10-24).

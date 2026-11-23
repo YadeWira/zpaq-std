@@ -109,7 +109,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lzfse` | [lzfse-ex](https://github.com/YadeWira/lzfse-ex) 1.0.4 | 0–1 | 1 |
 | `-ma:hs:N` | [heatshrink-ex](https://github.com/YadeWira/heatshrink-ex) 0.7.2 | 0–2 | 1 |
 | `-ma:bzip3:N` | [bzip3](https://github.com/iczelia/bzip3) 1.5.5 | 1–9 | 9 |
-| `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.0 (1–9: sort transform; 10: BWT) | 1–10 | 3 |
+| `-ma:bsc:N` | [libbsc](https://github.com/IlyaGrebnov/libbsc) 3.4.1 (1–9: sort transform; 10: BWT) | 1–10 | 3 |
 | `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.1.1 (LZHAM 1.0) | 1–4 | 4 |
 | `-ma:ppmd:N` / `ppmd:N:M` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)); N is the model order, M its memory in MB (1–1024, 64 unless told) | 2–32 | 6 |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |

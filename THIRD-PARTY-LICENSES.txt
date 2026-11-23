@@ -27,7 +27,7 @@ PART 1 - BUNDLED COMPRESSORS
   lzfse-ex (LZFSE)     1.0.4                        BSD-3-Clause
   heatshrink-ex        0.7.2                        ISC
   bzip3                1.5.5                        LGPL-3.0-or-later
-  libbsc               3.4.0, patched               Apache-2.0
+  libbsc               3.4.1, patched               Apache-2.0
   lzham-ex (LZHAM 1.0) 1.1.1                        Public domain
   PPMd var.H (Ppmd7)   7-Zip / LZMA SDK             Public domain
   kanzi                2.6.0                        Apache-2.0
@@ -1735,7 +1735,7 @@ Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
 
 ===============================================================================
-libbsc 3.4.0, patched
+libbsc 3.4.1, patched
 Licence: Apache-2.0
 Copyright: Ilya Grebnov
 Includes libsais (Ilya Grebnov), also Apache-2.0. No NOTICE file is distributed
