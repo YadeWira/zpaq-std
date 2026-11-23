@@ -1,3 +1,15 @@
+### [2.15.2] - 2026-11-23
+
+**libbsc 3.4.1.**
+
+- **libbsc 3.4.1** (`-ma:bsc`; was 3.4.0): upstream's release of 2026-11-18, with libsais 2.12.2, its own speed work and fixes (a signed overflow in the adaptive coder, a read past a one-byte block in the detectors, a data race). The format is the same and so are the bytes: `-ma:bsc` at every level writes what 2.15.1 wrote, and ZPAQBSC and ZPAQBSCB are untouched.
+- **zpaq-std's own patch of libbsc's decoder** (the bounds: a damaged or crafted block must not read or write outside its buffers) was carried over to 3.4.1, which still trusts the sizes inside a block. One thing had to be added: 3.4.1 decodes escape ranks on a copy of its range decoder, and the copy now keeps the end of the input (without it, a damaged block read past its end; found while testing the carry-over, never released). `compressors/bsc/PATCHES` tells the whole of it.
+- **README:** `-ma:sylz` and `-ma:sylzec` share one row of the codec table.
+
+#### Checked
+
+@CHECKED@
+
 ### [2.15.1] - 2026-11-21
 
 **`x` over a file that cannot be read took it for an empty one. PJA 0.9.14.**
