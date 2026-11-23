@@ -96588,6 +96588,13 @@ public:
   void outc(int ch) {     // output byte ch (0..255) or -1 at EOS
     if (ch<0 || (outbuf[bufptr]=ch, ++bufptr==outbuf.isize())) flush();
   }
+  /// zpaq-std: n bytes at once, as n outc() would give them (what is pending goes first)
+  void outs(const char* p, int n) {
+    if (n<=0) return;
+    flush();
+    if (output) output->write(p, n);
+    if (sha1) sha1->write(p, n);
+  }
   // ZPAQ1 block header
   Array<U8> header;   // hsize[2] hh hm ph pm n COMP (guard) HCOMP (guard)
   int cend;           // COMP in header[7...cend-1]
@@ -96742,6 +96749,19 @@ public:
     return rpos<wpos ? U8(buf[rpos++]) : -1;
   }
   int buffered() {return wpos-rpos;}  // how far read ahead?
+  /// zpaq-std: stored data (no model): up to i_max bytes of the current sub-block that are
+  /// already in the buffer, as that many decompress() would give them; 0: none here (the
+  /// start of a sub-block, its end, an empty buffer: decompress() goes on byte by byte)
+  int fetch(const char** o_p, int i_max) {
+    if (pr.isModeled() || curr==0 || rpos>=wpos || i_max<=0) return 0;
+    U32 k=wpos-rpos;
+    if (k>curr) k=curr;
+    if (k>U32(i_max)) k=U32(i_max);
+    *o_p=&buf[rpos];
+    rpos+=k;
+    curr-=k;
+    return int(k);
+  }
 private:
   U32 low, high;     // range
   U32 curr;          // last 4 bytes of archive or remaining bytes in subblock
@@ -96774,6 +96794,9 @@ public:
   void setExtraBytecode(const std::string& b) {extra_bc=b;}
   void init(int h, int m);  // ph, pm sizes of H and M
   int write(int c);  // Input a byte, return state
+  /// zpaq-std: n bytes of data at once, exactly as n write() would take them. False: not in
+  /// a state that takes data as it comes (a program to run: write() them one by one)
+  bool writen(const char* p, int n);
   int getState() const {return state;}
   void setOutput(Writer* out) {z.output=out;}
   void setSHA1(SHA1* sha1ptr) {z.sha1=sha1ptr;}
@@ -96882,6 +96905,7 @@ private:
   bool matchToken(const char* tok);// in==token?
   int rtoken(int low, int high);   // return token which must be in range
   int rtoken(const char* list[]);  // return token by position in list
+  int ropcode();                   /// zpaq-std: rtoken(opcodelist), without walking the list
   void rtoken(const char* s);      // return token which must be s
   int compile_comp(ZPAQL& z);      // compile either HCOMP or PCOMP
   // Stack of n elements
@@ -99148,6 +99172,36 @@ void PostProcessor::init(int h, int m) {
   pm=m;
   z.clear();
 }
+/// zpaq-std: see the declaration. The states that only move data: PASS, and a program
+/// loaded that is decoded natively (its data are gathered, in write()'s own order)
+bool PostProcessor::writen(const char* p, int n) {
+  if (n<=0) return true;
+  if (state==1) {
+    z.outs(p, n);
+    return true;
+  }
+  if (state==5) {
+#ifdef ZPAQLZAV
+    if (lzavnative) {
+      lzavin.append(p, size_t(n));
+      return true;
+    }
+#endif
+#ifdef ZPAQLZ4
+    if (lz4native) {
+      lz4in.append(p, size_t(n));
+      return true;
+    }
+#endif
+#ifdef ZPAQZSTD
+    if (zstdnative) {
+      zstdin.append(p, size_t(n));
+      return true;
+    }
+#endif
+  }
+  return false;
+}
 // (PASS=0 | PROG=1 psize[0..1] pcomp[0..psize-1]) data... EOB=-1
 // Return state: 1=PASS, 2..4=loading PROG, 5=PROG loaded
 int PostProcessor::write(int c) {
@@ -99468,6 +99522,23 @@ bool Decompresser::decompress(int n) {
     pp.write(dec.decompress());
   // Decompress n bytes, or all if n < 0
   while (n) {
+    /// zpaq-std: stored data that the post-processor only moves go in pieces, as they are in
+    /// the input buffer; everything else (a model, a program to run, the 4 bytes between
+    /// sub-blocks, the end) byte by byte, as always
+    {
+      const char* p=0;
+      const int k=dec.fetch(&p, n<0 ? 0x7fffffff : n);
+      if (k>0) {
+        if (pp.writen(p, k)) {
+          if (n>0) n-=k;
+          continue;
+        }
+        for (int i=0; i<k; ++i)
+          pp.write(U8(p[i]));
+        if (n>0) n-=k;
+        continue;
+      }
+    }
     int c=dec.decompress();
     pp.write(c);
     if (c==-1) {
@@ -99749,6 +99820,66 @@ int Compiler::rtoken(const char* list[]) {
   assert(0);
   return -1; // not reached
 }
+/// zpaq-std: rtoken(opcodelist) with a table made once: the index of the first entry of the
+/// list that matchToken() would take (a token ends at a blank or a '('; ASCII letters in
+/// any case). Compiling a decoder walked 272 names for each instruction: 86 programs are
+/// compiled the first time a -ma block is read, 60 ms of every run
+int Compiler::ropcode() {
+  assert(in);
+  next();
+  /// open addressing over the lower-case names, 1024 slots for 271 of them; slot: index+1
+  struct Tabla {
+    short slot[1024];
+    static U32 hash(const char* w, int n) {
+      U32 h=2166136261u;
+      for (int i=0; i<n; ++i) h=(h^U8(w[i]))*16777619u;
+      return h;
+    }
+    Tabla() {
+      memset(slot, 0, sizeof(slot));
+      for (int i=0; opcodelist[i]; ++i) {
+        char k[32];
+        int n=0;
+        bool ok=true;
+        for (const char* w=opcodelist[i]; *w; ++w) {
+          if (*w<=' ' || *w=='(' || n>=31) {ok=false; break;}  // never matches a token
+          k[n++]=char(tolower(*w));
+        }
+        if (!ok || n==0) continue;
+        U32 h=hash(k, n)&1023;
+        bool repetido=false;
+        while (slot[h]) {  // the first of two equal names is the one matchToken() finds
+          const char* o=opcodelist[slot[h]-1];
+          int m=0;
+          while (m<n && o[m] && char(tolower(o[m]))==k[m]) ++m;
+          if (m==n && !o[m]) {repetido=true; break;}
+          h=(h+1)&1023;
+        }
+        if (!repetido) slot[h]=short(i+1);
+      }
+    }
+  };
+  static const Tabla tabla;
+  char t[32];
+  int n=0;
+  for (const char* a=in; *a>' ' && *a!='('; ++a) {
+    if (n>=31) {n=-1; break;}  // longer than any name
+    t[n++]=char(tolower(*a));
+  }
+  if (n>0) {
+    U32 h=Tabla::hash(t, n)&1023;
+    while (tabla.slot[h]) {
+      const char* o=opcodelist[tabla.slot[h]-1];
+      int m=0;
+      while (m<n && o[m] && char(tolower(o[m]))==t[m]) ++m;
+      if (m==n && !o[m]) return tabla.slot[h]-1;
+      h=(h+1)&1023;
+    }
+  }
+  syntaxError("unexpected");
+  assert(0);
+  return -1; // not reached
+}
 // Read a token which must be the specified value s
 void Compiler::rtoken(const char* s) {
   assert(s);
@@ -99776,7 +99907,7 @@ int Compiler::compile_comp(ZPAQL& z) {
   int op=0;
   const int comp_begin=z.hend;
   while (true) {
-    op=rtoken(opcodelist);
+    op=ropcode();
     if (op==POST || op==PCOMP || op==END) break;
     int operand=-1; // 0...255 if 2 bytes
     int operand2=-1;  // 0...255 if 3 bytes
