@@ -117,8 +117,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lz6:N` / `lz6hc` | [lz6](https://github.com/YadeWira/lz6) 2.1.0: `lz6` is its seq engine (since 2.10.0; other zpaqs need 64 MiB a block to extract), `lz6hc` its LZ5 v1.5 profile (0 fast, 1–15 HC: what `-ma:lz6` was up to 2.9.0) | 1–13 / 0–15 | 7 / 0 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.1 | 1–12 | 9 |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.2 | 0–1 | 1 |
-| `-ma:sylz:N` | [sylz](https://github.com/YadeWira/syc) (syc v1.0.0, format v4), plugin only | 0–10 | 1 |
-| `-ma:sylzec:N` | sylz with Huffman-coded literals (syc v1.0.0, format v5), plugin only (in sylz.dll) | 0–10 | 1 |
+| `-ma:sylz:N` / `sylzec` | [sylz](https://github.com/YadeWira/syc) (syc v1.0.0), plugin only: `sylz` is format v4, `sylzec` its Huffman-coded literals (format v5; both in sylz.dll) | 0–10 | 1 |
 
 #### Experimental
 
