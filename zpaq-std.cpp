@@ -95124,12 +95124,108 @@ static void sha1_transform_x86(uint64_t state64[5], const uint8_t *data, size_t 
 }
 #endif // (#if defined(__aarch64__), the SHA-1 of ARMv8)
 
+/// zpaq-std (2026): SHA-1 for the x86 CPUs that have no SHA instructions (every Intel before
+/// Ice Lake, every AMD before Zen). The message schedule goes four words at a time in SSE
+/// registers (W[i] = rol(W[i-3]^W[i-8]^W[i-14]^W[i-16], 1) up to round 31, with the word of the
+/// same group put in after; from round 32, rol(W[i-6]^W[i-16]^W[i-28]^W[i-32], 2), that needs
+/// none), W+K is stored, and the 80 rounds read it. The same function is compiled for SSSE3,
+/// for AVX and, on 64 bits, for AVX2+BMI2 (rorx); the CPU picks. About 1.3 to 1.7 times the
+/// SHA-1 in C. ZS_SHA1=c in the environment keeps the one in C; ssse3 and avx, no better than those.
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+#define ZS_SHA1X
+#define ZS_SHA1X_ROL(x,n) (((x)<<(n))|((x)>>(32-(n))))
+#define ZS_SHA1X_F1(b,c,d) ((d)^((b)&((c)^(d))))
+#define ZS_SHA1X_F2(b,c,d) ((b)^(c)^(d))
+#define ZS_SHA1X_F3(b,c,d) (((b)&(c))+((d)&((b)^(c))))
+#define ZS_SHA1X_R(a,b,c,d,e,F,i) do { e+=ZS_SHA1X_ROL(a,5)+F(b,c,d)+wk[i]; b=ZS_SHA1X_ROL(b,30); } while (0)
+#define ZS_SHA1X_R5(F,i) do { ZS_SHA1X_R(a,b,c,d,e,F,i); ZS_SHA1X_R(e,a,b,c,d,F,i+1); ZS_SHA1X_R(d,e,a,b,c,F,i+2); ZS_SHA1X_R(c,d,e,a,b,F,i+3); ZS_SHA1X_R(b,c,d,e,a,F,i+4); } while (0)
+#define ZS_SHA1X_BODY \
+	const __m128i bswap=_mm_set_epi8(12,13,14,15, 8,9,10,11, 4,5,6,7, 0,1,2,3); \
+	const __m128i k1=_mm_set1_epi32((int)0x5a827999), k2=_mm_set1_epi32((int)0x6ed9eba1), k3=_mm_set1_epi32((int)0x8f1bbcdc), k4=_mm_set1_epi32((int)0xca62c1d6); \
+	uint32_t a=(uint32_t)state64[0], b=(uint32_t)state64[1], c=(uint32_t)state64[2], d=(uint32_t)state64[3], e=(uint32_t)state64[4]; \
+	for (; length>=64; length-=64, data+=64) { \
+		uint32_t wk[80]; \
+		__m128i h[8]; /* W[i-32..i-1], four words each */ \
+		h[4]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data)), bswap); \
+		h[5]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data+16)), bswap); \
+		h[6]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data+32)), bswap); \
+		h[7]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data+48)), bswap); \
+		_mm_storeu_si128((__m128i*)(wk), _mm_add_epi32(h[4], k1)); \
+		_mm_storeu_si128((__m128i*)(wk+4), _mm_add_epi32(h[5], k1)); \
+		_mm_storeu_si128((__m128i*)(wk+8), _mm_add_epi32(h[6], k1)); \
+		_mm_storeu_si128((__m128i*)(wk+12), _mm_add_epi32(h[7], k1)); \
+		for (int i=16; i<32; i+=4) { \
+			__m128i t=_mm_xor_si128(_mm_xor_si128(h[4], _mm_alignr_epi8(h[5], h[4], 8)), _mm_xor_si128(h[6], _mm_srli_si128(h[7], 4))); \
+			__m128i r=_mm_or_si128(_mm_slli_epi32(t, 1), _mm_srli_epi32(t, 31)); \
+			__m128i u=_mm_slli_si128(t, 12);  /* W[i] is part of W[i+3]: rol(t0, 2) */ \
+			r=_mm_xor_si128(r, _mm_or_si128(_mm_slli_epi32(u, 2), _mm_srli_epi32(u, 30))); \
+			_mm_storeu_si128((__m128i*)(wk+i), _mm_add_epi32(r, i<20 ? k1 : k2)); \
+			h[0]=h[1]; h[1]=h[2]; h[2]=h[3]; h[3]=h[4]; h[4]=h[5]; h[5]=h[6]; h[6]=h[7]; h[7]=r; \
+		} \
+		for (int i=32; i<80; i+=4) { \
+			__m128i t=_mm_xor_si128(_mm_xor_si128(_mm_alignr_epi8(h[7], h[6], 8), h[4]), _mm_xor_si128(h[1], h[0])); \
+			__m128i r=_mm_or_si128(_mm_slli_epi32(t, 2), _mm_srli_epi32(t, 30)); \
+			_mm_storeu_si128((__m128i*)(wk+i), _mm_add_epi32(r, i<40 ? k2 : i<60 ? k3 : k4)); \
+			h[0]=h[1]; h[1]=h[2]; h[2]=h[3]; h[3]=h[4]; h[4]=h[5]; h[5]=h[6]; h[6]=h[7]; h[7]=r; \
+		} \
+		const uint32_t a0=a, b0=b, c0=c, d0=d, e0=e; \
+		ZS_SHA1X_R5(ZS_SHA1X_F1,0); ZS_SHA1X_R5(ZS_SHA1X_F1,5); ZS_SHA1X_R5(ZS_SHA1X_F1,10); ZS_SHA1X_R5(ZS_SHA1X_F1,15); \
+		ZS_SHA1X_R5(ZS_SHA1X_F2,20); ZS_SHA1X_R5(ZS_SHA1X_F2,25); ZS_SHA1X_R5(ZS_SHA1X_F2,30); ZS_SHA1X_R5(ZS_SHA1X_F2,35); \
+		ZS_SHA1X_R5(ZS_SHA1X_F3,40); ZS_SHA1X_R5(ZS_SHA1X_F3,45); ZS_SHA1X_R5(ZS_SHA1X_F3,50); ZS_SHA1X_R5(ZS_SHA1X_F3,55); \
+		ZS_SHA1X_R5(ZS_SHA1X_F2,60); ZS_SHA1X_R5(ZS_SHA1X_F2,65); ZS_SHA1X_R5(ZS_SHA1X_F2,70); ZS_SHA1X_R5(ZS_SHA1X_F2,75); \
+		a+=a0; b+=b0; c+=c0; d+=d0; e+=e0; \
+	} \
+	state64[0]=a; state64[1]=b; state64[2]=c; state64[3]=d; state64[4]=e;
+__attribute__((target("ssse3"))) static void zs_sha1x_ssse3(uint64_t state64[5], const uint8_t *data, size_t length) { ZS_SHA1X_BODY }
+__attribute__((target("avx"))) static void zs_sha1x_avx(uint64_t state64[5], const uint8_t *data, size_t length) { ZS_SHA1X_BODY }
+#if defined(__x86_64__)
+__attribute__((target("avx2,bmi,bmi2"))) static void zs_sha1x_avx2(uint64_t state64[5], const uint8_t *data, size_t length) { ZS_SHA1X_BODY }
+#endif
+typedef void (*zs_sha1x_fn)(uint64_t state64[5], const uint8_t *data, size_t length);
+/// the function for this CPU, NULL: none (no SSSE3, or ZS_SHA1=c); *o_name says which
+static zs_sha1x_fn zs_sha1x_pick(const char** o_name)
+{
+	const char* nome="c";
+	zs_sha1x_fn f=NULL;
+	const char* e=getenv("ZS_SHA1");
+	/// ZS_SHA1=c, ssse3 or avx: no better than that (to compare them, and to test each one)
+	const int tope= !e ? 3 : !strcmp(e, "c") ? 0 : !strcmp(e, "ssse3") ? 1 : !strcmp(e, "avx") ? 2 : 3;
+	if (tope>0)
+	{
+		__builtin_cpu_init();
+#if defined(__x86_64__)
+		if (tope>=3 && __builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi") && __builtin_cpu_supports("bmi2"))
+			f=zs_sha1x_avx2, nome="avx2";
+		else
+#endif
+		if (tope>=2 && __builtin_cpu_supports("avx"))
+			f=zs_sha1x_avx, nome="avx";
+		else
+		if (__builtin_cpu_supports("ssse3"))
+			f=zs_sha1x_ssse3, nome="ssse3";
+	}
+	if (o_name)
+		*o_name=nome;
+	return f;
+}
+static zs_sha1x_fn zs_sha1x()
+{
+	static const zs_sha1x_fn f=zs_sha1x_pick(NULL);
+	return f;
+}
+#endif // ZS_SHA1X
+
 /* Transform the message X which consists of 16 32-bit-words (SHA-1) */
 static void sha1_transform(SUM_CONTEXT *ctx, const uint8_t *data)
 {
 	if (flaghw)
 		sha1_transform_x86(ctx->state, data, SHA1_BLOCKSIZE);
 	else
+#ifdef ZS_SHA1X
+	if (zs_sha1x())
+		zs_sha1x()(ctx->state, data, SHA1_BLOCKSIZE);
+	else
+#endif
 		sha1_transform_cc(ctx, data);
 }
 
@@ -95516,6 +95612,19 @@ static void sha1_write(SUM_CONTEXT *ctx, const uint8_t *buf, size_t len)
 		}
 	}
 	else
+#ifdef ZS_SHA1X
+	if (zs_sha1x())
+	{
+		/// zpaq-std: all the full blocks in one call
+		if (len >= SHA1_BLOCKSIZE) {
+			num = (len / SHA1_BLOCKSIZE) * SHA1_BLOCKSIZE;
+			zs_sha1x()(ctx->state, buf, num);
+			buf += num;
+			len -= num;
+		}
+	}
+	else
+#endif
 	{
 		/* Process data in blocksize chunks */
 		while (len >= SHA1_BLOCKSIZE) {
