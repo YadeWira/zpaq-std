@@ -455,7 +455,10 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 lz6seq snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc
+PLUGIN_CODECS := flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 lz6seq snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc lz4 lzav
+PLUGLIB_lz4 := $(LZ4OBJ)
+PLUGINC_lz4 := -Icompressors/lz4
+PLUGINC_lzav := -Icompressors/lzav
 PLUGLIB_flzma2 := $(FL2OBJ)
 PLUGLIB_uflzma2 := $(UFL2BUNDLE)
 PLUGLIB_lzma := $(LZMAOBJ)

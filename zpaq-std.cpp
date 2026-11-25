@@ -94187,19 +94187,7 @@ size_t ZSTD_compressBound(size_t srcSize) { return zzstd::ZSTD_compressBound(src
 unsigned ZSTD_isError(size_t code) { return zzstd::ZSTD_isError(code); }
 }
 #endif
-/// -ma:lzav: LZAV (avaneev/lzav), its own library again since 2.0.0 (zpaqfranz dropped it, with -m7, in 65.5d)
-#define LZAV_NS_CUSTOM zlzav
-#include "compressors/lzav/lzav.h"
-/// -ma:lz4: LZ4 (lz4/lz4), its own library again since 2.0.0
-#include "compressors/lz4/lz4.h"
-#include "compressors/lz4/lz4hc.h"
-namespace zlz4 {
-inline int ZLZ4_compressBound(int n) { return LZ4_compressBound(n); }
-inline int ZLZ4_compress_default(const char* s, char* d, int n, int c) { return LZ4_compress_default(s, d, n, c); }
-inline int ZLZ4_compress_fast(const char* s, char* d, int n, int c, int a) { return LZ4_compress_fast(s, d, n, c, a); }
-inline int ZLZ4_compress_HC(const char* s, char* d, int n, int c, int l) { return LZ4_compress_HC(s, d, n, c, l); }
-inline int ZLZ4_decompress_safe(const char* s, char* d, int n, int c) { return LZ4_decompress_safe(s, d, n, c); }
-}
+/// (LZ4 and LZAV: codecs like the others since 2.16.0, see zlz4 and zlzav after the registry)
 /// -ma codecs behind one interface (compressors/plug/zs_codec.h). The full build
 /// links every adapter; the plugin build (make plugins, -DZS_PLUGINS) loads
 /// codecs/<name>.dll or .so from the executable's folder, all of them once at
@@ -94212,7 +94200,7 @@ inline int ZLZ4_decompress_safe(const char* s, char* d, int n, int c) { return L
 #ifndef _WIN32
 #include <dlfcn.h>
 #endif
-static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6","lz6seq","snappy","hs","lzfse","bzip3","brotli","bsc","lzh","ppmd","kanzi","zxc"};
+static const char* const ZS_NAMES[]={"zstd","flzma2","uflzma2","lzma","lz","bzip2","bz2","deflate","lizard","lz5","lz6","lz6seq","snappy","hs","lzfse","bzip3","brotli","bsc","lzh","ppmd","kanzi","zxc","lz4","lzav"};
 static const char* const ZS_PLUGIN_ONLY[]={"sylz","sylzec","sylz4","sylz5"};
 /// The codecs of ZS_NAMES that the plugin build links in all the same: zstd, that the
 /// program has anyway (-m8, the default method). No codecs/zstd.dll: one there is not loaded
@@ -94345,7 +94333,9 @@ extern "C" const zs_codec* zs_codec_lzh(void);
 extern "C" const zs_codec* zs_codec_ppmd(void);
 extern "C" const zs_codec* zs_codec_kanzi(void);
 extern "C" const zs_codec* zs_codec_zxc(void);
-static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6,zs_codec_lz6seq,zs_codec_snappy,zs_codec_hs,zs_codec_lzfse,zs_codec_bzip3,zs_codec_brotli,zs_codec_bsc,zs_codec_lzh,zs_codec_ppmd,zs_codec_kanzi,zs_codec_zxc};
+extern "C" const zs_codec* zs_codec_lz4(void);
+extern "C" const zs_codec* zs_codec_lzav(void);
+static const zs_codec* (*const ZS_LINKED[])(void)={zs_codec_zstd,zs_codec_flzma2,zs_codec_uflzma2,zs_codec_lzma,zs_codec_lz,zs_codec_bzip2,zs_codec_bz2,zs_codec_deflate,zs_codec_lizard,zs_codec_lz5,zs_codec_lz6,zs_codec_lz6seq,zs_codec_snappy,zs_codec_hs,zs_codec_lzfse,zs_codec_bzip3,zs_codec_brotli,zs_codec_bsc,zs_codec_lzh,zs_codec_ppmd,zs_codec_kanzi,zs_codec_zxc,zs_codec_lz4,zs_codec_lzav};
 const zs_codec* zs_get(const char* i_name)
 {
 	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
@@ -94370,9 +94360,39 @@ const zs_codec* zs_get(const char* i_name)
 /// The same with sylz: -ma:sylz is the codec "sylz4" (sylz format v4) and -ma:sylzec the
 /// codec "sylz5" (format v5); the codecs "sylz" and "sylzec" (formats v2 and v3, what those
 /// switches wrote before) stay in the plugin to read the blocks tagged sylz2 and sylzec3.
+/// zpaq-std (2.16.0): LZ4 and LZAV are codecs like the others (compressors/plug/zs_lz4.cpp
+/// and zs_lzav.cpp): linked in the full build, codecs/lz4 and codecs/lzav in the plugin build
+/// (they are zpaq-std's own: zpaqfranz dropped -m6 and -m7 in 65.5d). What the program called
+/// in the libraries is called in the codec. Without its plugin nothing is written with one
+/// (00605), and its blocks are read by their frozen ZPAQL decoder, as any zpaq reads them.
+namespace zlz4 {
+inline int zs_level(int i_mode, int i_value)
+{
+	if (i_value<-0x100000) i_value=-0x100000;
+	if (i_value>0x7fffff) i_value=0x7fffff;
+	return i_mode*0x1000000+(i_value+0x100000);
+}
+inline int ZLZ4_compressBound(int n) { const zs_codec* c=zs_get("lz4"); if (!c || n<0) return 0; const size_t b=c->bound((size_t)n, 0); return b>0x7fffffff ? 0 : (int)b; }
+inline int ZLZ4_call(const char* s, char* d, int n, int cap, int level) { const zs_codec* c=zs_get("lz4"); if (!c || n<0 || cap<0) return 0; const long long r=c->compress(s, (size_t)n, d, (size_t)cap, level); return r>0 && r<=0x7fffffff ? (int)r : 0; }
+inline int ZLZ4_compress_default(const char* s, char* d, int n, int c) { return ZLZ4_call(s, d, n, c, zs_level(0, 0)); }
+inline int ZLZ4_compress_fast(const char* s, char* d, int n, int c, int a) { return ZLZ4_call(s, d, n, c, zs_level(1, a)); }
+inline int ZLZ4_compress_HC(const char* s, char* d, int n, int c, int l) { return ZLZ4_call(s, d, n, c, zs_level(2, l)); }
+inline int ZLZ4_decompress_safe(const char* s, char* d, int n, int cap) { const zs_codec* c=zs_get("lz4"); if (!c || n<0 || cap<0) return -1; const long long r=c->decompress(s, (size_t)n, d, (size_t)cap, 0); return r<0 || r>0x7fffffff ? -1 : (int)r; }
+}
+namespace zlzav {
+inline int zs_bound(int n, int hi) { const zs_codec* c=zs_get("lzav"); if (!c || n<0) return 0; const size_t b=c->bound((size_t)n, hi); return b>0x7fffffff ? 0 : (int)b; }
+inline int lzav_compress_bound(int n) { return zs_bound(n, 0); }
+inline int lzav_compress_bound_hi(int n) { return zs_bound(n, 1); }
+inline int zs_call(const void* s, void* d, int n, int cap, int hi) { const zs_codec* c=zs_get("lzav"); if (!c || n<0 || cap<0) return 0; const long long r=c->compress(s, (size_t)n, d, (size_t)cap, hi); return r>0 && r<=0x7fffffff ? (int)r : 0; }
+inline int lzav_compress_default(const void* s, void* d, int n, int cap) { return zs_call(s, d, n, cap, 0); }
+inline int lzav_compress_hi(const void* s, void* d, int n, int cap) { return zs_call(s, d, n, cap, 1); }
+/// i_format 3 or 4: the bytes written (the room is the block's), 0: the stream of exactly cap bytes; < 0: broken
+inline int zs_decode(const void* s, void* d, int n, int cap, int i_format) { const zs_codec* c=zs_get("lzav"); if (!c || n<0 || cap<0) return -1; const long long r=c->decompress(s, (size_t)n, d, (size_t)cap, i_format); return r<0 || r>0x7fffffff ? -1 : (int)r; }
+inline int lzav_decompress(const void* s, void* d, int n, int cap) { return zs_decode(s, d, n, cap, 0); }
+}
 static std::string zs_plugin_name(const std::string& i_ma)
 {
-	const std::string n=(i_ma=="lz5hc"||i_ma=="lz5f") ? std::string("lz5") : (i_ma=="lz5-lz6"||i_ma=="lz6hc") ? std::string("lz6") : (i_ma=="lz6") ? std::string("lz6seq") : (i_ma=="sylz") ? std::string("sylz4") : (i_ma=="sylzec") ? std::string("sylz5") : (i_ma=="zxc9") ? std::string("zxc") : i_ma;
+	const std::string n=(i_ma=="lz5hc"||i_ma=="lz5f") ? std::string("lz5") : (i_ma=="lz4hc"||i_ma=="lz4f") ? std::string("lz4") : (i_ma=="lz5-lz6"||i_ma=="lz6hc") ? std::string("lz6") : (i_ma=="lz6") ? std::string("lz6seq") : (i_ma=="sylz") ? std::string("sylz4") : (i_ma=="sylzec") ? std::string("sylz5") : (i_ma=="zxc9") ? std::string("zxc") : i_ma;
 	for (size_t i=0; i<sizeof(ZS_NAMES)/sizeof(ZS_NAMES[0]); ++i)
 		if (n==ZS_NAMES[i])
 			return n;
@@ -99521,10 +99541,10 @@ int PostProcessor::write(int c) {
           z.passimax=ZPAQL_PASSIINIZIO;
         }
 #ifdef ZPAQLZ4
-        lz4native=lz4_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
+        lz4native=lz4_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin) && ::zs_get("lz4")!=NULL; /// zpaq-std: else its ZPAQL runs
 #endif
 #ifdef ZPAQLZAV
-        lzavnative=lzav_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin, &lzavfmt);
+        lzavnative=lzav_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin, &lzavfmt) && ::zs_get("lzav")!=NULL; /// zpaq-std: else its ZPAQL runs
 #endif
 #ifdef ZPAQZSTD
         zstdnative=zstd_is_canonical(&z.header[z.hbegin], z.hend-z.hbegin);
@@ -106353,15 +106373,9 @@ void lzav_native_decode(const std::string& i_in, ZPAQL& z, int i_pm, int i_fmt)
 	const int spazio= 1<<i_pm;
 	std::string fuori;
 	fuori.resize((size_t)spazio+64);
-	int scritti= 0;
-	const int esito= i_fmt==4 ? zlzav::lzav_decompress_4(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti)
-	                          : zlzav::lzav_decompress_3(i_in.data(), &fuori[0], (int)i_in.size(), spazio, &scritti);
-	int lunghezza= 0;
-	if (esito>=0)
-		lunghezza= esito;
-	else if (esito==zlzav::LZAV_E_DSTLEN)
-		lunghezza= scritti;
-	else
+	/// zpaq-std: through the codec (zs_lzav.cpp), that takes LZAV_E_DSTLEN as the good end it is here
+	const int lunghezza= zlzav::zs_decode(i_in.data(), &fuori[0], (int)i_in.size(), spazio, i_fmt);
+	if (lunghezza<0)
 		error("LZAV: corrupted block");
 	z.flush();
 	if (lunghezza>0)
@@ -107398,7 +107412,10 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 	int shown=0;
 	if (!i_ex)
 	{
-		myprintf("%-8s %-12s %-6s %-4s %-14s %-27s %s\n", "-ma", "status", "levels", "def", "ZPAQL decoder", "library", "where");
+		/// the columns of the decoder and of the library are as wide as their longest cell
+		/// (they were 14 and 27: "ZPAQBSC (1 to 9)+" and the LZ4 rows pushed the rest out of line)
+		std::vector<std::string> decs(nrows), libs(nrows);
+		size_t wdec=strlen("ZPAQL decoder"), wlib=strlen("library");
 		for (size_t i=0; i<nrows; i++)
 		{
 			const zs_info_row& r=ZS_INFO[i];
@@ -107407,12 +107424,35 @@ int zs_codecinfo(bool i_ex, const std::string& i_only)
 			std::string dec=r.decoder;
 			if (dec.compare(0, 5, "none:")==0)
 				dec=dec.substr(dec.size()-3);	/// "-m6" / "-m7"
-			else if (dec.find(',')!=std::string::npos)
-				dec=dec.substr(0, dec.find(','))+"+";
+			else
+			{
+				/// one name: "ZPAQBSC (1 to 9), ZPAQBSCB (10)" is "ZPAQBSC+", the card says the rest
+				const bool more=dec.find(',')!=std::string::npos;
+				size_t fin=dec.find(',');
+				const size_t par=dec.find(" (");
+				if (more && par!=std::string::npos && par<fin)
+					fin=par;
+				if (more)
+					dec=dec.substr(0, fin)+"+";
+				else if (par!=std::string::npos)
+					dec=dec.substr(0, par);	/// "zpaq-std's LZ4 block (frozen LZ4 decoder)": the card says it whole
+			}
+			decs[i]=dec;
+			libs[i]=c && c->library ? c->library : r.library;
+			if (decs[i].size()>wdec) wdec=decs[i].size();
+			if (libs[i].size()>wlib) wlib=libs[i].size();
+		}
+		char riga[1024];	/// (snprintf: myprintf has formats of its own)
+		snprintf(riga, sizeof(riga), "%-8s %-12s %-6s %-4s %-*s %-*s %s", "-ma", "status", "levels", "def", (int)wdec, "ZPAQL decoder", (int)wlib, "library", "where");
+		myprintf("%s\n", riga);
+		for (size_t i=0; i<nrows; i++)
+		{
+			const zs_info_row& r=ZS_INFO[i];
 			char lv[16];
 			snprintf(lv, sizeof(lv), "%d-%d", r.lmin, r.lmax);
-			myprintf("%-8s %-12s %-6s %-4d %-14s %-27s %s\n", r.ma, r.experimental ? "experimental" : "stable", lv, r.ldef,
-			         dec.c_str(), c && c->library ? c->library : r.library, zs_info_where(r, NULL).c_str());
+			snprintf(riga, sizeof(riga), "%-8s %-12s %-6s %-4d %-*s %-*s %s", r.ma, r.experimental ? "experimental" : "stable", lv, r.ldef,
+			         (int)wdec, decs[i].c_str(), (int)wlib, libs[i].c_str(), zs_info_where(r, NULL).c_str());
+			myprintf("%s\n", riga);
 			shown++;
 		}
 	}
