@@ -1,3 +1,26 @@
+### [2.16.0] - 2026-11-25
+
+**zpaqfranz 65.23 (`-tar` on Windows). Extraction up to three times faster on one thread. zstd 1.6.0, in the program; LZ4 and LZAV are plugins in the plugin build.**
+
+- **Base: zpaqfranz 65.23** (65.23t). Everything of its open build since 65.22 is in:
+  - **`-tar` on Windows** (`a` and `x`, as administrator): the security of every file (owner, group, permissions, auditing, integrity label), the accounts by name, the hard links, the short names, the extended attributes. zpaqfranz's full build runs itself elevated; zpaq-std, as its open build, is to be started from an administrator's prompt.
+  - **The app execution aliases of `WindowsApps`** (`winget.exe`, `python.exe`...): `a` no longer ends with errors on them.
+  - **An image restored to a `.vhd` is written in order**, every byte once; `-ssd` for the old way. A new cache of the decompressed blocks makes the restore of images with many versions (and `x -stdout`, `pp`, `zip`) faster.
+  - **Fixes:** a `.vhd` bigger than NTFS's limit for sparse files (#374), the hashes of zeros written before 65.1 (#375), `-nojit` and a pair of swaps in the x86 JIT (#376), a new hard link of a group already in the archive (#377).
+  - Where both had fixed the same thing, **`-nojit`** (2.15.0) takes zpaqfranz's code with zpaq-std's condition for AArch64, and **the hard links** keep zpaq-std's own (the name the most links point to, then a name stored as a file: `suite_tar.sh`).
+- **`x` and `t` are faster.** A stored block went through three functions of libzpaq a byte at a time, about 10 ns a byte: no method could be read faster than some 100 to 150 MB/s on one thread, whatever its codec. Now the bytes that the post-processor only moves (stored data, and what a `-ma` codec or `-m8` decodes natively) go in pieces. On one thread, 150 MB of text, Xeon E5 v4: `-m0` 81 to 253 MB/s, `-ma:lz4:1` 93 to 180, `-m8` 108 to 168, `-ma:zstd:1` 130 to 186, `-ma:brotli:5` 114 to 147; with 8 threads, 11 to 36% more. Nothing changes in the archives.
+- **The first `-ma` block of a run costs 10 ms, not 60:** the ZPAQL compiler looked each instruction up by walking a list of 271 names, and 86 decoders are compiled the first time a `-ma` block is read. A table now. It shows when many small archives are extracted one by one.
+- **SHA-1 on the x86 CPUs without SHA instructions** (every Intel before Ice Lake, every AMD before Zen; Linux and 64-bit Windows): the message schedule goes four words at a time in SSE registers, and the same code is compiled for SSSE3, AVX and AVX2+BMI2: the CPU picks. On the Xeon above, 350 to 480 (SSSE3) or 600 MB/s (AVX), and with it `a -m0` 105 to 132 MB/s and `x -m0` 242 to 314. The CPUs with SHA instructions, and ARM64, use them as before. `ZS_SHA1=c` (or `ssse3`, `avx`) in the environment keeps a slower one, to compare.
+- **zstd 1.6.0** (was 1.5.7), for `-m7`, `-m8`, `-m9` and `-ma:zstd`. It fixes CVE-2026-124851 (the streaming decompression of malformed data could expose uninitialized memory: what `-m8` blocks are read with) and some twenty other faults. The format is the same and every zpaq-std and zpaq 7.15 read what it writes. **The archives of the methods with long distance matching, the default `-m8l` among them, are not byte for byte those of 2.15.2** for the same files (a few hundred bytes in 40 MB, either way); without it (`-m8`, `-m7`, `-m9`, `-ma:zstd`) they are.
+- **zstd is one library, in the program:** `compressors/zstd` (the official single-file library) is linked in and serves `-m8` and `-ma:zstd`; the copy that zpaqfranz embeds is left out of the build (`-DZS_ZSTD_VENDORED`), so zstd is updated here without waiting for it there. In the plugin build zstd is **built in** (the default method needs it anyway): there is no `codecs/zstd` any more, and one left in the folder is not loaded.
+- **LZ4 and LZAV are codecs like the others** (`compressors/plug/zs_lz4.cpp`, `zs_lzav.cpp`): linked into the full program as always, and in the plugin build `codecs/lz4` and `codecs/lzav` (they are zpaq-std's own: zpaqfranz dropped them in 65.5d). Without its plugin a codec does not write (00605), and its blocks are read by their ZPAQL decoder, as any zpaq reads them. Same archives as before.
+- **`codecinfo`:** the table sizes its columns to what is in them (the rows of bsc, lz4 and lzav pushed the rest out of line); one name in the decoder column (`ZPAQBSC+`), the card of the codec says the rest.
+- **The SHA code reads and writes its words with `memcpy`:** no load of a misaligned `uint32_t` (undefined behaviour that UBSan reports on `t` and `x` of big files; harmless on x86; found by ZF). It comes from the base.
+
+#### Checked
+
+@CHECKED@
+
 ### [2.15.2] - 2026-11-23
 
 **libbsc 3.4.1.**

@@ -1,6 +1,6 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.22.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.23.**
 
 A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (30 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG, JPEG-LS and JPEG 2000** recompression with `-sa`, and **zero system dependencies**.
 
@@ -95,7 +95,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 
 | Switch | Library | Levels | Default |
 |---|---|---|---|
-| `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.5.7 | 1–22 | 3 |
+| `-ma:zstd:N` | [zstd](https://github.com/facebook/zstd) 1.6.0 | 1–22 | 3 |
 | `-ma:brotli:N` | [brotli](https://github.com/google/brotli) 1.2.1 | 0–11 | 11 |
 | `-ma:lzma:N` | [LZMA SDK](https://www.7-zip.org/sdk.html) 26.06 | 0–9 | 6 |
 | `-ma:flzma2:N` | [fast-lzma2](https://github.com/YadeWira/ultra-fast-lzma2/tree/master/fast-lzma2) 1.2.0 | 1–10 | 5 |
@@ -232,7 +232,8 @@ make install                              # to /usr/local/bin (or PREFIX=/opt)
 Each release has, per platform, the full program and `extra-codecs.zip` (the codecs
 that are only plugins: sylz, sylzec and pja, to put in `codecs/` next to the program),
 and, except on macOS, `plugins.zip` (a small
-program and every codec as a plugin). Targets, plugins and
+program and the codecs as plugins; zstd, which the default method uses, stays in the
+program). Targets, plugins and
 cross-compiling: [wiki: Building](https://github.com/YadeWira/zpaq-std/wiki/Building).
 
 ---
