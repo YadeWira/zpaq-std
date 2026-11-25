@@ -95136,12 +95136,108 @@ static void sha1_transform_x86(uint64_t state64[5], const uint8_t *data, size_t 
 }
 #endif // (#if defined(__aarch64__), the SHA-1 of ARMv8)
 
+/// zpaq-std (2026): SHA-1 for the x86 CPUs that have no SHA instructions (every Intel before
+/// Ice Lake, every AMD before Zen). The message schedule goes four words at a time in SSE
+/// registers (W[i] = rol(W[i-3]^W[i-8]^W[i-14]^W[i-16], 1) up to round 31, with the word of the
+/// same group put in after; from round 32, rol(W[i-6]^W[i-16]^W[i-28]^W[i-32], 2), that needs
+/// none), W+K is stored, and the 80 rounds read it. The same function is compiled for SSSE3,
+/// for AVX and, on 64 bits, for AVX2+BMI2 (rorx); the CPU picks. About 1.3 to 1.7 times the
+/// SHA-1 in C. ZS_SHA1=c in the environment keeps the one in C; ssse3 and avx, no better than those.
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+#define ZS_SHA1X
+#define ZS_SHA1X_ROL(x,n) (((x)<<(n))|((x)>>(32-(n))))
+#define ZS_SHA1X_F1(b,c,d) ((d)^((b)&((c)^(d))))
+#define ZS_SHA1X_F2(b,c,d) ((b)^(c)^(d))
+#define ZS_SHA1X_F3(b,c,d) (((b)&(c))+((d)&((b)^(c))))
+#define ZS_SHA1X_R(a,b,c,d,e,F,i) do { e+=ZS_SHA1X_ROL(a,5)+F(b,c,d)+wk[i]; b=ZS_SHA1X_ROL(b,30); } while (0)
+#define ZS_SHA1X_R5(F,i) do { ZS_SHA1X_R(a,b,c,d,e,F,i); ZS_SHA1X_R(e,a,b,c,d,F,i+1); ZS_SHA1X_R(d,e,a,b,c,F,i+2); ZS_SHA1X_R(c,d,e,a,b,F,i+3); ZS_SHA1X_R(b,c,d,e,a,F,i+4); } while (0)
+#define ZS_SHA1X_BODY \
+	const __m128i bswap=_mm_set_epi8(12,13,14,15, 8,9,10,11, 4,5,6,7, 0,1,2,3); \
+	const __m128i k1=_mm_set1_epi32((int)0x5a827999), k2=_mm_set1_epi32((int)0x6ed9eba1), k3=_mm_set1_epi32((int)0x8f1bbcdc), k4=_mm_set1_epi32((int)0xca62c1d6); \
+	uint32_t a=(uint32_t)state64[0], b=(uint32_t)state64[1], c=(uint32_t)state64[2], d=(uint32_t)state64[3], e=(uint32_t)state64[4]; \
+	for (; length>=64; length-=64, data+=64) { \
+		uint32_t wk[80]; \
+		__m128i h[8]; /* W[i-32..i-1], four words each */ \
+		h[4]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data)), bswap); \
+		h[5]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data+16)), bswap); \
+		h[6]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data+32)), bswap); \
+		h[7]=_mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(data+48)), bswap); \
+		_mm_storeu_si128((__m128i*)(wk), _mm_add_epi32(h[4], k1)); \
+		_mm_storeu_si128((__m128i*)(wk+4), _mm_add_epi32(h[5], k1)); \
+		_mm_storeu_si128((__m128i*)(wk+8), _mm_add_epi32(h[6], k1)); \
+		_mm_storeu_si128((__m128i*)(wk+12), _mm_add_epi32(h[7], k1)); \
+		for (int i=16; i<32; i+=4) { \
+			__m128i t=_mm_xor_si128(_mm_xor_si128(h[4], _mm_alignr_epi8(h[5], h[4], 8)), _mm_xor_si128(h[6], _mm_srli_si128(h[7], 4))); \
+			__m128i r=_mm_or_si128(_mm_slli_epi32(t, 1), _mm_srli_epi32(t, 31)); \
+			__m128i u=_mm_slli_si128(t, 12);  /* W[i] is part of W[i+3]: rol(t0, 2) */ \
+			r=_mm_xor_si128(r, _mm_or_si128(_mm_slli_epi32(u, 2), _mm_srli_epi32(u, 30))); \
+			_mm_storeu_si128((__m128i*)(wk+i), _mm_add_epi32(r, i<20 ? k1 : k2)); \
+			h[0]=h[1]; h[1]=h[2]; h[2]=h[3]; h[3]=h[4]; h[4]=h[5]; h[5]=h[6]; h[6]=h[7]; h[7]=r; \
+		} \
+		for (int i=32; i<80; i+=4) { \
+			__m128i t=_mm_xor_si128(_mm_xor_si128(_mm_alignr_epi8(h[7], h[6], 8), h[4]), _mm_xor_si128(h[1], h[0])); \
+			__m128i r=_mm_or_si128(_mm_slli_epi32(t, 2), _mm_srli_epi32(t, 30)); \
+			_mm_storeu_si128((__m128i*)(wk+i), _mm_add_epi32(r, i<40 ? k2 : i<60 ? k3 : k4)); \
+			h[0]=h[1]; h[1]=h[2]; h[2]=h[3]; h[3]=h[4]; h[4]=h[5]; h[5]=h[6]; h[6]=h[7]; h[7]=r; \
+		} \
+		const uint32_t a0=a, b0=b, c0=c, d0=d, e0=e; \
+		ZS_SHA1X_R5(ZS_SHA1X_F1,0); ZS_SHA1X_R5(ZS_SHA1X_F1,5); ZS_SHA1X_R5(ZS_SHA1X_F1,10); ZS_SHA1X_R5(ZS_SHA1X_F1,15); \
+		ZS_SHA1X_R5(ZS_SHA1X_F2,20); ZS_SHA1X_R5(ZS_SHA1X_F2,25); ZS_SHA1X_R5(ZS_SHA1X_F2,30); ZS_SHA1X_R5(ZS_SHA1X_F2,35); \
+		ZS_SHA1X_R5(ZS_SHA1X_F3,40); ZS_SHA1X_R5(ZS_SHA1X_F3,45); ZS_SHA1X_R5(ZS_SHA1X_F3,50); ZS_SHA1X_R5(ZS_SHA1X_F3,55); \
+		ZS_SHA1X_R5(ZS_SHA1X_F2,60); ZS_SHA1X_R5(ZS_SHA1X_F2,65); ZS_SHA1X_R5(ZS_SHA1X_F2,70); ZS_SHA1X_R5(ZS_SHA1X_F2,75); \
+		a+=a0; b+=b0; c+=c0; d+=d0; e+=e0; \
+	} \
+	state64[0]=a; state64[1]=b; state64[2]=c; state64[3]=d; state64[4]=e;
+__attribute__((target("ssse3"))) static void zs_sha1x_ssse3(uint64_t state64[5], const uint8_t *data, size_t length) { ZS_SHA1X_BODY }
+__attribute__((target("avx"))) static void zs_sha1x_avx(uint64_t state64[5], const uint8_t *data, size_t length) { ZS_SHA1X_BODY }
+#if defined(__x86_64__)
+__attribute__((target("avx2,bmi,bmi2"))) static void zs_sha1x_avx2(uint64_t state64[5], const uint8_t *data, size_t length) { ZS_SHA1X_BODY }
+#endif
+typedef void (*zs_sha1x_fn)(uint64_t state64[5], const uint8_t *data, size_t length);
+/// the function for this CPU, NULL: none (no SSSE3, or ZS_SHA1=c); *o_name says which
+static zs_sha1x_fn zs_sha1x_pick(const char** o_name)
+{
+	const char* nome="c";
+	zs_sha1x_fn f=NULL;
+	const char* e=getenv("ZS_SHA1");
+	/// ZS_SHA1=c, ssse3 or avx: no better than that (to compare them, and to test each one)
+	const int tope= !e ? 3 : !strcmp(e, "c") ? 0 : !strcmp(e, "ssse3") ? 1 : !strcmp(e, "avx") ? 2 : 3;
+	if (tope>0)
+	{
+		__builtin_cpu_init();
+#if defined(__x86_64__)
+		if (tope>=3 && __builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi") && __builtin_cpu_supports("bmi2"))
+			f=zs_sha1x_avx2, nome="avx2";
+		else
+#endif
+		if (tope>=2 && __builtin_cpu_supports("avx"))
+			f=zs_sha1x_avx, nome="avx";
+		else
+		if (__builtin_cpu_supports("ssse3"))
+			f=zs_sha1x_ssse3, nome="ssse3";
+	}
+	if (o_name)
+		*o_name=nome;
+	return f;
+}
+static zs_sha1x_fn zs_sha1x()
+{
+	static const zs_sha1x_fn f=zs_sha1x_pick(NULL);
+	return f;
+}
+#endif // ZS_SHA1X
+
 /* Transform the message X which consists of 16 32-bit-words (SHA-1) */
 static void sha1_transform(SUM_CONTEXT *ctx, const uint8_t *data)
 {
 	if (flaghw)
 		sha1_transform_x86(ctx->state, data, SHA1_BLOCKSIZE);
 	else
+#ifdef ZS_SHA1X
+	if (zs_sha1x())
+		zs_sha1x()(ctx->state, data, SHA1_BLOCKSIZE);
+	else
+#endif
 		sha1_transform_cc(ctx, data);
 }
 
@@ -95528,6 +95624,19 @@ static void sha1_write(SUM_CONTEXT *ctx, const uint8_t *buf, size_t len)
 		}
 	}
 	else
+#ifdef ZS_SHA1X
+	if (zs_sha1x())
+	{
+		/// zpaq-std: all the full blocks in one call
+		if (len >= SHA1_BLOCKSIZE) {
+			num = (len / SHA1_BLOCKSIZE) * SHA1_BLOCKSIZE;
+			zs_sha1x()(ctx->state, buf, num);
+			buf += num;
+			len -= num;
+		}
+	}
+	else
+#endif
 	{
 		/* Process data in blocksize chunks */
 		while (len >= SHA1_BLOCKSIZE) {
@@ -96600,6 +96709,13 @@ public:
   void outc(int ch) {     // output byte ch (0..255) or -1 at EOS
     if (ch<0 || (outbuf[bufptr]=ch, ++bufptr==outbuf.isize())) flush();
   }
+  /// zpaq-std: n bytes at once, as n outc() would give them (what is pending goes first)
+  void outs(const char* p, int n) {
+    if (n<=0) return;
+    flush();
+    if (output) output->write(p, n);
+    if (sha1) sha1->write(p, n);
+  }
   // ZPAQ1 block header
   Array<U8> header;   // hsize[2] hh hm ph pm n COMP (guard) HCOMP (guard)
   int cend;           // COMP in header[7...cend-1]
@@ -96754,6 +96870,19 @@ public:
     return rpos<wpos ? U8(buf[rpos++]) : -1;
   }
   int buffered() {return wpos-rpos;}  // how far read ahead?
+  /// zpaq-std: stored data (no model): up to i_max bytes of the current sub-block that are
+  /// already in the buffer, as that many decompress() would give them; 0: none here (the
+  /// start of a sub-block, its end, an empty buffer: decompress() goes on byte by byte)
+  int fetch(const char** o_p, int i_max) {
+    if (pr.isModeled() || curr==0 || rpos>=wpos || i_max<=0) return 0;
+    U32 k=wpos-rpos;
+    if (k>curr) k=curr;
+    if (k>U32(i_max)) k=U32(i_max);
+    *o_p=&buf[rpos];
+    rpos+=k;
+    curr-=k;
+    return int(k);
+  }
 private:
   U32 low, high;     // range
   U32 curr;          // last 4 bytes of archive or remaining bytes in subblock
@@ -96786,6 +96915,9 @@ public:
   void setExtraBytecode(const std::string& b) {extra_bc=b;}
   void init(int h, int m);  // ph, pm sizes of H and M
   int write(int c);  // Input a byte, return state
+  /// zpaq-std: n bytes of data at once, exactly as n write() would take them. False: not in
+  /// a state that takes data as it comes (a program to run: write() them one by one)
+  bool writen(const char* p, int n);
   int getState() const {return state;}
   void setOutput(Writer* out) {z.output=out;}
   void setSHA1(SHA1* sha1ptr) {z.sha1=sha1ptr;}
@@ -96894,6 +97026,7 @@ private:
   bool matchToken(const char* tok);// in==token?
   int rtoken(int low, int high);   // return token which must be in range
   int rtoken(const char* list[]);  // return token by position in list
+  int ropcode();                   /// zpaq-std: rtoken(opcodelist), without walking the list
   void rtoken(const char* s);      // return token which must be s
   int compile_comp(ZPAQL& z);      // compile either HCOMP or PCOMP
   // Stack of n elements
@@ -99160,6 +99293,36 @@ void PostProcessor::init(int h, int m) {
   pm=m;
   z.clear();
 }
+/// zpaq-std: see the declaration. The states that only move data: PASS, and a program
+/// loaded that is decoded natively (its data are gathered, in write()'s own order)
+bool PostProcessor::writen(const char* p, int n) {
+  if (n<=0) return true;
+  if (state==1) {
+    z.outs(p, n);
+    return true;
+  }
+  if (state==5) {
+#ifdef ZPAQLZAV
+    if (lzavnative) {
+      lzavin.append(p, size_t(n));
+      return true;
+    }
+#endif
+#ifdef ZPAQLZ4
+    if (lz4native) {
+      lz4in.append(p, size_t(n));
+      return true;
+    }
+#endif
+#ifdef ZPAQZSTD
+    if (zstdnative) {
+      zstdin.append(p, size_t(n));
+      return true;
+    }
+#endif
+  }
+  return false;
+}
 // (PASS=0 | PROG=1 psize[0..1] pcomp[0..psize-1]) data... EOB=-1
 // Return state: 1=PASS, 2..4=loading PROG, 5=PROG loaded
 int PostProcessor::write(int c) {
@@ -99480,6 +99643,23 @@ bool Decompresser::decompress(int n) {
     pp.write(dec.decompress());
   // Decompress n bytes, or all if n < 0
   while (n) {
+    /// zpaq-std: stored data that the post-processor only moves go in pieces, as they are in
+    /// the input buffer; everything else (a model, a program to run, the 4 bytes between
+    /// sub-blocks, the end) byte by byte, as always
+    {
+      const char* p=0;
+      const int k=dec.fetch(&p, n<0 ? 0x7fffffff : n);
+      if (k>0) {
+        if (pp.writen(p, k)) {
+          if (n>0) n-=k;
+          continue;
+        }
+        for (int i=0; i<k; ++i)
+          pp.write(U8(p[i]));
+        if (n>0) n-=k;
+        continue;
+      }
+    }
     int c=dec.decompress();
     pp.write(c);
     if (c==-1) {
@@ -99761,6 +99941,66 @@ int Compiler::rtoken(const char* list[]) {
   assert(0);
   return -1; // not reached
 }
+/// zpaq-std: rtoken(opcodelist) with a table made once: the index of the first entry of the
+/// list that matchToken() would take (a token ends at a blank or a '('; ASCII letters in
+/// any case). Compiling a decoder walked 272 names for each instruction: 86 programs are
+/// compiled the first time a -ma block is read, 60 ms of every run
+int Compiler::ropcode() {
+  assert(in);
+  next();
+  /// open addressing over the lower-case names, 1024 slots for 271 of them; slot: index+1
+  struct Tabla {
+    short slot[1024];
+    static U32 hash(const char* w, int n) {
+      U32 h=2166136261u;
+      for (int i=0; i<n; ++i) h=(h^U8(w[i]))*16777619u;
+      return h;
+    }
+    Tabla() {
+      memset(slot, 0, sizeof(slot));
+      for (int i=0; opcodelist[i]; ++i) {
+        char k[32];
+        int n=0;
+        bool ok=true;
+        for (const char* w=opcodelist[i]; *w; ++w) {
+          if (*w<=' ' || *w=='(' || n>=31) {ok=false; break;}  // never matches a token
+          k[n++]=char(tolower(*w));
+        }
+        if (!ok || n==0) continue;
+        U32 h=hash(k, n)&1023;
+        bool repetido=false;
+        while (slot[h]) {  // the first of two equal names is the one matchToken() finds
+          const char* o=opcodelist[slot[h]-1];
+          int m=0;
+          while (m<n && o[m] && char(tolower(o[m]))==k[m]) ++m;
+          if (m==n && !o[m]) {repetido=true; break;}
+          h=(h+1)&1023;
+        }
+        if (!repetido) slot[h]=short(i+1);
+      }
+    }
+  };
+  static const Tabla tabla;
+  char t[32];
+  int n=0;
+  for (const char* a=in; *a>' ' && *a!='('; ++a) {
+    if (n>=31) {n=-1; break;}  // longer than any name
+    t[n++]=char(tolower(*a));
+  }
+  if (n>0) {
+    U32 h=Tabla::hash(t, n)&1023;
+    while (tabla.slot[h]) {
+      const char* o=opcodelist[tabla.slot[h]-1];
+      int m=0;
+      while (m<n && o[m] && char(tolower(o[m]))==t[m]) ++m;
+      if (m==n && !o[m]) return tabla.slot[h]-1;
+      h=(h+1)&1023;
+    }
+  }
+  syntaxError("unexpected");
+  assert(0);
+  return -1; // not reached
+}
 // Read a token which must be the specified value s
 void Compiler::rtoken(const char* s) {
   assert(s);
@@ -99788,7 +100028,7 @@ int Compiler::compile_comp(ZPAQL& z) {
   int op=0;
   const int comp_begin=z.hend;
   while (true) {
-    op=rtoken(opcodelist);
+    op=ropcode();
     if (op==POST || op==PCOMP || op==END) break;
     int operand=-1; // 0...255 if 2 bytes
     int operand2=-1;  // 0...255 if 3 bytes
