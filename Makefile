@@ -96,7 +96,7 @@ LZ6SRC  := compressors/lz6/lz6.c compressors/lz6/lz6hc.c compressors/lz6/entropy
 # LZMA SDK (-ma:lzma): single-threaded match finder, see compressors/lzmasdk/LEEME.md
 LZMASRC := compressors/lzmasdk/LzmaLib.c compressors/lzmasdk/LzmaEnc.c compressors/lzmasdk/LzmaDec.c compressors/lzmasdk/LzFind.c compressors/lzmasdk/LzFindOpt.c compressors/lzmasdk/Alloc.c compressors/lzmasdk/CpuArch.c
 ZSTDSRC := compressors/zstd/zstd.c
-# (since 2.0.0 the program uses zpaqfranz's zstd, embedded: compressors/zstd only builds the zstd plugin)
+# (since 2.16.0 the program links this one, for -m8 and -ma:zstd, with -DZS_ZSTD_VENDORED: zpaqfranz's embedded copy is left out)
 # fl2 util.c uses POSIX (chown/lstat/__errno_location) not in MinGW.
 # Skip it on Windows cross-compile. fast-lzma2 only needs lzma2_*.c
 # and the range/dict_buffer helpers.
@@ -252,7 +252,8 @@ ZPAQ_CXXFLAGS := $(PICFLAG) -std=gnu++17 -Wall -pthread $(CXXFLAGS) -D_GLIBCXX_U
 ifneq (,$(findstring mingw,$(CROSS_COMPILE)))
   ZPAQ_CXXFLAGS += -mconsole -static -static-libgcc -static-libstdc++
 endif
-ZPAQ_CPPFLAGS := $(CPPFLAGS)
+# zstd: compressors/zstd linked into the program, for -m8 and -ma:zstd (zpaqfranz's embedded copy is left out)
+ZPAQ_CPPFLAGS := $(CPPFLAGS) -DZS_ZSTD_VENDORED
 
 # Intel-specific flags (added only on x86)
 INTEL_FLAGS := -DHWSHA2
@@ -405,6 +406,7 @@ PLUGOBJ := $(PLUGSRC:.cpp=.o)
 BZ2NGBUNDLE := compressors/bz2ng/bz2ng-bundle.o
 LZ5OBJ := $(LZ5SRC:.c=.o)
 LZ4OBJ := $(LZ4SRC:.c=.o)
+ZSTDOBJ := $(ZSTDSRC:.c=.o)
 LZ6OBJ := $(LZ6SRC:.c=.o)
 LZMAOBJ := $(LZMASRC:.c=.o)
 LIZOBJ := $(LIZSRC:.c=.o)
@@ -453,9 +455,7 @@ LZHAMOBJ := $(LZHAMSRC:.cpp=.o)
 # The codecs that become plugins, and what each plugin links: its adapter
 # (compressors/plug/zs_<name>.cpp), the include flags the adapter needs, and the
 # library's objects, built by the rules below like in the full build.
-PLUGIN_CODECS := zstd flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 lz6seq snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc
-PLUGLIB_zstd := compressors/zstd/zstd.c
-PLUGINC_zstd := -Icompressors/zstd
+PLUGIN_CODECS := flzma2 uflzma2 lzma lz bzip2 bz2 deflate lizard lz5 lz6 lz6seq snappy hs lzfse bzip3 brotli bsc lzh ppmd kanzi zxc
 PLUGLIB_flzma2 := $(FL2OBJ)
 PLUGLIB_uflzma2 := $(UFL2BUNDLE)
 PLUGLIB_lzma := $(LZMAOBJ)
@@ -509,14 +509,15 @@ ifdef PLUGINS
   # the core: no adapter and none of the plugins' libraries (filtered out of the
   # link below; the variables stay, the plugins' rules need them)
   ZPAQ_CPPFLAGS += -DZS_PLUGINS
-  CORE_DROP := $(PLUGOBJ) $(foreach c,$(PLUGIN_CODECS),$(PLUGLIB_$(c)))
+  # (zstd's adapter stays: zstd is linked into the core, see ZS_BUILTIN in zpaq-std.cpp)
+  CORE_DROP := $(filter-out compressors/plug/zs_zstd.o,$(PLUGOBJ)) $(foreach c,$(PLUGIN_CODECS),$(PLUGLIB_$(c)))
   ifeq (,$(findstring mingw,$(CROSS_COMPILE)))
     LDLIBS += -ldl
   endif
 endif
 # Everything the program links. make plugins leaves out CORE_DROP: the adapters
 # and the libraries that went into plugins.
-LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(B3OBJ) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
+LINKOBJS = $(DIVSUFOBJ) $(SOURCE) $(ZSTDOBJ) $(B3OBJ) $(FL2OBJ) $(UFL2BUNDLE) $(BZ2NGBUNDLE) $(PLUGOBJ) $(LZ4OBJ) $(LZ5OBJ) $(LZ6OBJ) $(LZMAOBJ) $(LIZOBJ) $(BZIP2OBJ) $(BZIP3OBJ) $(BROTLIOBJ) $(SNAPPYOBJ) $(LIBDEFLATEOBJ) $(LZLIBOBJ) $(HSOBJ) $(LZFSEOBJ) $(BSCOBJ) $(KANZIOBJ) $(LZHAMOBJ) $(PPMDOBJ) $(ZXCOBJ) $(WINRES)
 $(PROG): $(filter-out $(CORE_DROP),$(LINKOBJS))
 	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(ZSTDINC) $(HSINC) $(LZFSEINC) $(BSCINC) $(LZHAMINC) $(BROTLIINC) $(PPMDINC) $(LDFLAGS) $(filter-out $(CORE_DROP),$(LINKOBJS)) $(ZPAQ_WIN_LIBS) $(LDLIBS) -o $@
 	$(ZPAQ_POSTLINK)
@@ -530,6 +531,9 @@ win/manifest_res.o: win/zpaq-std.rc win/zpaq-std.manifest
 
 libdivsufsort/%.o: libdivsufsort/%.cpp
 	$(CXX) $(ZPAQ_CPPFLAGS) $(ZPAQ_CXXFLAGS) $(DIVSUFINC) -c $< -o $@
+
+compressors/zstd/%.o: compressors/zstd/%.c
+	$(CC) $(ZPAQ_CFLAGS) -Icompressors/zstd -c $< -o $@
 
 compressors/fl2/%.o: compressors/fl2/%.c
 	$(CC) $(ZPAQ_CFLAGS) $(FL2INC) -c $< -o $@

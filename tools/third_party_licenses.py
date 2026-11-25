@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (name, version, licence, authors, licence file(s), note)
 BUNDLED = [
-    ('zstd', '1.5.7', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Meta Platforms, Inc. and affiliates',
+    ('zstd', '1.6.0', 'BSD-3-Clause (dual BSD / GPLv2: BSD chosen)', 'Meta Platforms, Inc. and affiliates',
      ['compressors/zstd/LICENSE'], ''),
     ('brotli', '1.2.1', 'MIT', 'Google Inc.', ['compressors/brotli/LICENSE'], ''),
     ('LZMA SDK', '26.06', 'Public domain', 'Igor Pavlov', ['compressors/lzmasdk/LICENSE'], ''),
