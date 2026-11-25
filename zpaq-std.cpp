@@ -94652,12 +94652,19 @@ void getcpuid(uint32_t eax, uint32_t ecx, uint32_t& o_a,uint32_t& o_b,uint32_t& 
 #define bswap_uint64 __builtin_bswap64
 #define bswap_uint32 __builtin_bswap32
 #define bswap_uint16 __builtin_bswap16
-#define read_swap32(p) bswap_uint32(*(const uint32_t*)(const uint8_t*)(p))
-#define read_swap64(p) bswap_uint64(*(const uint64_t*)(const uint8_t*)(p))
+/// zpaq-std: the data is not aligned (a block of a StringBuffer): memcpy, the same
+/// code once compiled, and no load or store of a misaligned uint32_t (UBSan; ZF)
+static inline uint32_t zs_load32(const void* p) { uint32_t v; memcpy(&v, p, sizeof(v)); return v; }
+static inline uint64_t zs_load64(const void* p) { uint64_t v; memcpy(&v, p, sizeof(v)); return v; }
+static inline void zs_store16(void* p, uint16_t v) { memcpy(p, &v, sizeof(v)); }
+static inline void zs_store32(void* p, uint32_t v) { memcpy(p, &v, sizeof(v)); }
+static inline void zs_store64(void* p, uint64_t v) { memcpy(p, &v, sizeof(v)); }
+#define read_swap32(p) bswap_uint32(zs_load32(p))
+#define read_swap64(p) bswap_uint64(zs_load64(p))
 #define PREFETCH64(m) do { __builtin_prefetch(m, 0, 0); __builtin_prefetch(m+32, 0, 0); } while(0)
-#define write_swap16(p,v) (*(uint16_t*)(void*)(p)) = bswap_uint16(v)
-#define write_swap32(p,v) (*(uint32_t*)(void*)(p)) = bswap_uint32(v)
-#define write_swap64(p,v) (*(uint64_t*)(void*)(p)) = bswap_uint64(v)
+#define write_swap16(p,v) zs_store16((p), bswap_uint16(v))
+#define write_swap32(p,v) zs_store32((p), bswap_uint32(v))
+#define write_swap64(p,v) zs_store64((p), bswap_uint64(v))
 #define safe_strlen(str) ((((char*)(str))==NULL)?0:strlen(str))
 
 /* Includes for SHA-1 and SHA-256 intrinsics */
