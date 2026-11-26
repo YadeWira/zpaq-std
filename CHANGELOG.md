@@ -12,7 +12,12 @@
 
 #### Checked
 
-@CHECKED@
+- **The same archives, whatever the threads:** on Linux x64 with the release's binary, 33 cases (every `-ma` codec, `-ma:zstd:3` with `-m5` blocks and with a key, `-m8`, `-m1`) write with `-t1`, `-t8` and `-t16` the archive that 2.16.1 writes, byte for byte (`-nolfast -timestamp`), and 2.16.1 extracts the one of `-t16`. `-ma:sylz` and `-ma:sylzec` at levels 0, 1, 5 and 10, with the release's plugin: the same; six runs of `-ma:sylzec:5 -t16` in a row, one archive. With 8 threads `-ma:sylz:10` takes 3.5 s where 2.16.1 took 16.9, `-ma:sylzec:10` 4.4 s for 25.5.
+- **`-franztime`:** on Linux and on Windows 7 (x64 and x86) the report has its new lines; `t -t1` says 1.00 cores at the peak and `a -t4` over 4; with `-json` there is one `franztime` line, valid JSON, right before `end`.
+- **The battery** on the release's binary and plugins gives what 2.16.1's gave, line by line, every suite with nothing to review.
+- **Platforms:** on Linux x86 and AArch64 every method runs (with the threads the machine has), 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-sa` writes the same archive on x64, x86 and AArch64.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the four sets of 2.16.1 give what they gave. New here: ten `-ma` codecs write with `-t4` the archive of `-t1` and of 2.16.1, and 2.16.1 tests it; Linux reads them.
+- **CI,** the six platforms: every check passes, macOS's binary and plugins come from that run.
 
 ### [2.16.1] - 2026-11-25
 
