@@ -101253,6 +101253,27 @@ int ZPAQL::assemble() {
   put1a(0xe9, start-5);  // jmp near start
   return rsize;
 }
+/// zpaq-std (2.16.1): what the JIT uses to train a MIX: 0 nothing (one weight at a time, as
+/// libzpaq always did), 1 SSE4.1 (four at a time), 2 AVX2 (eight). SSE4.1 where the CPU has
+/// it. AVX2 only when asked (ZS_MIX=avx2 in the environment): on a Xeon E5 v4 it is slower
+/// than SSE4.1 (-m5: 12% faster than one at a time, against 19%; -m4: none, against 7%):
+/// a row has 8 to 20 weights, and the broadcasts and the vzeroupper of each update cost
+/// more than the wider registers give. ZS_MIX=scalar: one at a time, to compare
+static int zs_mix_simd() {
+  static const int v=[]() {
+    int tope=1;
+    const char* e=getenv("ZS_MIX");
+    if (e && !strcmp(e, "scalar")) tope=0;
+    if (e && !strcmp(e, "avx2")) tope=2;
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+    __builtin_cpu_init();
+    if (tope>=2 && __builtin_cpu_supports("avx2")) return 2;
+    if (tope>=1 && __builtin_cpu_supports("sse4.1")) return 1;
+#endif
+    return 0;
+  }();
+  return v;
+}
 //////////////////////// Predictor::assemble_p() /////////////////////
 // Assemble the ZPAQL code in the HCOMP section of z.header to pcomp and
 // return the number of bytes of x86 or x86-64 code written, or that would
@@ -101928,7 +101949,59 @@ int Predictor::assemble_p() {
         put2a(0x8bb7, offc(cm));       // mov esi, [edi+&cm]
         if (S==8) put1(0x48);          // rex.w
         put3(0x8d3486);                // lea esi, [esi+eax*4] ; wt
-        for (int k=0; k<cp[3]; ++k) {
+        /// zpaq-std (2.16.1): the weights four at a time (SSE4.1; eight with AVX2 if asked: see
+        /// zs_mix_simd); the ones left over, one by one as before. The same arithmetic: a 32-bit
+        /// product that wraps, + 4096, >> 13 (signed), + the weight, then at most 2^19-1 and at
+        /// least -2^19. Only xmm0..xmm5 (volatile in every ABI). The constants are made with
+        /// SSE before any 256-bit instruction, and vzeroupper ends the AVX2 part: no SSE code
+        /// (this one, or the rest of the JIT) runs with the upper halves in use.
+        { // (a block: kv is declared inside a case)
+        int kv=0;  // weights done by the vector code
+        if (zs_mix_simd()>0 && cp[3]>=4) {
+          put4(0x660f6ec1);            // movd xmm0, ecx ; err
+          put5(0x660f70c0, 0x00);      // pshufd xmm0, xmm0, 0
+          put1a(0xb8, 1<<12);          // mov eax, 1<<12
+          put4(0x660f6ec8);            // movd xmm1, eax
+          put5(0x660f70c9, 0x00);      // pshufd xmm1, xmm1, 0
+          put1a(0xb8, (1<<19)-1);      // mov eax, (1<<19)-1
+          put4(0x660f6ed0);            // movd xmm2, eax
+          put5(0x660f70d2, 0x00);      // pshufd xmm2, xmm2, 0
+          put1a(0xb8, 0xfff80000);     // mov eax, -1<<19
+          put4(0x660f6ed8);            // movd xmm3, eax
+          put5(0x660f70db, 0x00);      // pshufd xmm3, xmm3, 0
+          if (zs_mix_simd()>1 && cp[3]>=8) {
+            put5(0xc4e27d58, 0xc0);    // vpbroadcastd ymm0, xmm0
+            put5(0xc4e27d58, 0xc9);    // vpbroadcastd ymm1, xmm1
+            put5(0xc4e27d58, 0xd2);    // vpbroadcastd ymm2, xmm2
+            put5(0xc4e27d58, 0xdb);    // vpbroadcastd ymm3, xmm3
+            for (; kv+8<=cp[3]; kv+=8) {
+              put4(0xc4e27d40); put1a(0xa7, off(p[cp[2]+kv])); // vpmulld ymm4, ymm0, [edi+&p[j+kv]]
+              put4(0xc5ddfee1);        // vpaddd ymm4, ymm4, ymm1
+              put5(0xc5dd72e4, 0x0d);  // vpsrad ymm4, ymm4, 13
+              put4a(0xc5ddfea6, kv*4); // vpaddd ymm4, ymm4, [esi+kv*4]
+              put5(0xc4e25d39, 0xe2);  // vpminsd ymm4, ymm4, ymm2
+              put5(0xc4e25d3d, 0xe3);  // vpmaxsd ymm4, ymm4, ymm3
+              put4a(0xc5fe7fa6, kv*4); // vmovdqu [esi+kv*4], ymm4
+            }
+            put3(0xc5f877);            // vzeroupper
+          }
+          for (; kv+4<=cp[3]; kv+=4) {
+            put4a(0xf30f6fa7, off(p[cp[2]+kv])); // movdqu xmm4, [edi+&p[j+kv]]
+            put5(0x660f3840, 0xe0);    // pmulld xmm4, xmm0
+            put4(0x660ffee1);          // paddd xmm4, xmm1
+            put5(0x660f72e4, 0x0d);    // psrad xmm4, 13
+            put4a(0xf30f6fae, kv*4);   // movdqu xmm5, [esi+kv*4]
+            put4(0x660ffee5);          // paddd xmm4, xmm5
+            put5(0x660f3839, 0xe2);    // pminsd xmm4, xmm2
+            put5(0x660f383d, 0xe3);    // pmaxsd xmm4, xmm3
+            put4a(0xf30f7fa6, kv*4);   // movdqu [esi+kv*4], xmm4
+          }
+          if (kv<cp[3]) {
+            if (S==8) put1(0x48);      // rex.w
+            put2a(0x81c6, kv*4);       // add esi, kv*4 ; the weights left
+          }
+        }
+        for (int k=kv; k<cp[3]; ++k) {
           put2a(0x8b87,off(p[cp[2]+k]));//mov eax, [edi+&p[cp[2]+k]
           put3(0x0fafc1);              // imul eax, ecx
           put1a(0x05, 1<<12);          // add eax, 1<<12
@@ -101946,6 +102019,7 @@ int Predictor::assemble_p() {
             put3(0x83c604);            // add esi, 4
           }
         }
+        } // (kv)
         break;
       default:
         error("invalid ZPAQ component");
