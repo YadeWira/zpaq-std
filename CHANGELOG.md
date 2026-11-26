@@ -3,7 +3,7 @@
 **`a` with a `-ma` codec uses the threads: up to three times faster. `-franztime` says the peak of cores and the I/O speed, and writes a JSON line with `-json`.**
 
 - **`a -ma:X` compresses in the compressing threads.** The codec of a `-ma` block ran in the thread that reads the files, one block after the other, and the compressing threads only wrote what it gave: with any number of threads, a `-ma` codec used one core. `-ma:zstd:3` gave 100 MB/s with 8 threads where `-m8`, the very same zstd, gave 284. Now each block goes to its thread as it is and the codec runs there (as `-sa` did already). On 150 MB of text, Xeon E5 v4: `-ma:zstd:3` 93 to 220 MB/s with 4 threads, 100 to 295 with 8, 92 to 319 with 16; `-ma:zstd:1` 132 to 322 with 8. One thread: as before. **The archives are the same**, block for block and in the same order.
-- Still in the reading thread, as before: `-t1`; the codecs of someone else (`-mae`, `-mat`), that print as they go; `-ma:sylz` and `-ma:sylzec`, plugins in Free Pascal that were never asked to run from several threads at once; and a run with `-compress`, whose table counts the blocks there.
+- Every official `-ma` codec, the plugins sylz and sylzec too (their author confirmed that they take several threads at once). Still in the reading thread, as before: `-t1`; the codecs of someone else (`-mae`, `-mat`), that print as they go; and a run with `-compress`, whose table counts the blocks there.
 - **`-franztime`,** with what franztime 1.11 measures:
   - **`CPU peak`:** the cores in use in the busiest tenth of a second, next to the average (a thread samples the CPU time while the command runs). The average hides a run that uses one core most of the time.
   - **`I/O speed`:** MB/s read and written, the I/O over the wall time.

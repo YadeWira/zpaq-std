@@ -276662,20 +276662,14 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 /// <method>", and the thread does what ma_comprimir_bloque() does: same data in, same
 /// function, so the same block out, and the blocks are written in their order as always.
 /// Not deferred: one thread (-t1), the codecs of someone else (-mae, -mat: they print as
-/// they go), the plugin-only codecs (sylz, sylzec: Free Pascal, not asked to run from
-/// several threads at once), and -compress (its table counts the blocks as they come out
-/// of here).
+/// they go), and -compress (its table counts the blocks as they come out of here).
+/// sylz and sylzec too, since syc said their compress takes several threads at once (a
+/// context of its own for each call, the tables made when the plugin is loaded; aim #3828).
 static bool ma_diferir(int i_threads)
 {
 	if (i_threads<2 || g_ext_mode || g_cattivo || g_ma_algorithm=="")
 		return false;
-	const std::string plug=zs_plugin_name(g_ma_algorithm);
-	if (plug=="")
-		return false;
-	for (size_t k=0; k<sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0]); ++k)
-		if (plug==ZS_PLUGIN_ONLY[k])
-			return false;
-	return true;
+	return zs_plugin_name(g_ma_algorithm)!="";
 }
 static std::string ma_diferido(const std::string& i_m)
 {
