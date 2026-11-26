@@ -95202,8 +95202,11 @@ static void sha1_transform_x86(uint64_t state64[5], const uint8_t *data, size_t 
 /// none), W+K is stored, and the 80 rounds read it. The same function is compiled for SSSE3,
 /// for AVX and, on 64 bits, for AVX2+BMI2 (rorx); the CPU picks. About 1.3 to 1.7 times the
 /// SHA-1 in C. ZS_SHA1=c in the environment keeps the one in C; ssse3 and avx, no better than those.
+#endif // HWSHA2: what follows, up to ZS_SHA1X's #endif, is for every x86 build (2.16.1: the
+       // 32-bit Windows one has no HWSHA2, and its SHA-1, libzpaq's, calls this too)
 #if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
 #define ZS_SHA1X
+#include <immintrin.h>
 #define ZS_SHA1X_ROL(x,n) (((x)<<(n))|((x)>>(32-(n))))
 #define ZS_SHA1X_F1(b,c,d) ((d)^((b)&((c)^(d))))
 #define ZS_SHA1X_F2(b,c,d) ((b)^(c)^(d))
@@ -95285,6 +95288,7 @@ static zs_sha1x_fn zs_sha1x()
 	return f;
 }
 #endif // ZS_SHA1X
+#ifdef HWSHA2 // (again)
 
 /* Transform the message X which consists of 16 32-bit-words (SHA-1) */
 static void sha1_transform(SUM_CONTEXT *ctx, const uint8_t *data)
@@ -96472,6 +96476,19 @@ void SHA1::write(const char* buf, int64_t n)
 {
   const unsigned char* p=(const unsigned char*) buf;
   for (; n>0 && (U32(len)&511)!=0; --n) put(*p++);
+#ifdef ZS_SHA1X
+  /// zpaq-std (2.16.1): the full blocks with the SSE schedule, where the CPU has it (this is
+  /// the SHA-1 of the builds without HWSHA2: 32-bit Windows)
+  if (n>=64 && zs_sha1x()) {
+    uint64_t st[5]={h[0], h[1], h[2], h[3], h[4]};
+    const size_t k=(size_t)(n/64)*64;
+    zs_sha1x()(st, p, k);
+    for (unsigned int i=0; i<5; ++i) h[i]=(U32)st[i];
+    len+=U64(k)*8;
+    p+=k;
+    n-=(int64_t)k;
+  }
+#endif
   for (; n>=64; n-=64) {
     for (unsigned int i=0; i<16; ++i)
       w[i]=p[0]<<24|p[1]<<16|p[2]<<8|p[3], p+=4;
