@@ -186998,6 +186998,7 @@ void CompressJob::appendz(StringBuffer &s, const char *fn, const string &method,
 	}
 }
 void sa_comprimir_bloque(StringBuffer& sb, string& m, string& comment, const string& i_block);
+void ma_comprimir_diferido(StringBuffer& sb, string& m, string& comment);
 // Compress data in the background, one per buffer
 ThreadReturn compressThread(void *arg)
 {
@@ -187036,6 +187037,9 @@ ThreadReturn compressThread(void *arg)
 				/// -sae / -sat: the codec runs here, in the compressing thread
 				if (cj.method.compare(0, 8, "zsapend:")==0)
 					sa_comprimir_bloque(cj.in, cj.method, cj.comment, cj.filename);
+				/// -ma: the codec runs here too (see ma_diferir)
+				else if (cj.method.compare(0, 8, "zmapend:")==0)
+					ma_comprimir_diferido(cj.in, cj.method, cj.comment);
 				const int64_t insz= cj.in.size();
 				libzpaq::compressBlock(&cj.in, &cj.out, cj.method.c_str(),
 									   cj.filename.c_str(), cj.comment == "" ? 0 : cj.comment.c_str(),
@@ -276449,6 +276453,50 @@ static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 	}
 	ma_comprimir_con(sb, m, ma_comment, g_ma_algorithm, g_ma_level);
 }
+/// zpaq-std (2.17.0): the -ma codec of a block runs in the compressing thread of that
+/// block, not in the one that reads the files. It ran there: every block waited for the
+/// one before, and -ma:zstd:3 gave 100 MB/s with 8 threads where -m8, the same zstd, gave
+/// 284. The block goes to its thread as it is, with the method "zmapend:<codec>:<level>:
+/// <method>", and the thread does what ma_comprimir_bloque() does: same data in, same
+/// function, so the same block out, and the blocks are written in their order as always.
+/// Not deferred: one thread (-t1), the codecs of someone else (-mae, -mat: they print as
+/// they go), the plugin-only codecs (sylz, sylzec: Free Pascal, not asked to run from
+/// several threads at once), and -compress (its table counts the blocks as they come out
+/// of here).
+static bool ma_diferir(int i_threads)
+{
+	if (i_threads<2 || g_ext_mode || g_cattivo || g_ma_algorithm=="")
+		return false;
+	const std::string plug=zs_plugin_name(g_ma_algorithm);
+	if (plug=="")
+		return false;
+	for (size_t k=0; k<sizeof(ZS_PLUGIN_ONLY)/sizeof(ZS_PLUGIN_ONLY[0]); ++k)
+		if (plug==ZS_PLUGIN_ONLY[k])
+			return false;
+	return true;
+}
+static std::string ma_diferido(const std::string& i_m)
+{
+	return "zmapend:"+g_ma_algorithm+":"+itos(g_ma_level)+":"+i_m;
+}
+void ma_comprimir_diferido(StringBuffer& sb, string& m, string& comment)
+{
+	/// "zmapend:<codec>:<level>:<method>"
+	const size_t a=8;
+	const size_t b=m.find(':', a);
+	const size_t c= b==string::npos ? string::npos : m.find(':', b+1);
+	if (c==string::npos)
+		libzpaq::error("-ma: a deferred block without its codec");
+	const std::string algo=m.substr(a, b-a);
+	const int nivel=atoi(m.substr(b+1, c-b-1).c_str());
+	string resto=m.substr(c+1);
+	string etiqueta;
+	ma_comprimir_con(sb, resto, etiqueta, algo, nivel);
+	m=resto;
+	/// the tag goes before "jDC\x01", as ma_comprimir_bloque()'s caller puts it
+	if (!etiqueta.empty())
+		comment=etiqueta+" "+comment;
+}
 /// The -ma codecs, with the codec and its level given: -ma itself (the one above), and +rcmd,
 /// where each -sa codec recommends its own (in the compressing threads too: nothing global is read)
 static void ma_comprimir_con(StringBuffer& sb, string& m, string& ma_comment, const std::string& i_ma_algorithm, int i_ma_level)
@@ -281489,6 +281537,8 @@ int Jidac::add2()
 						if (g_sa_mode == 't')
 							sa_name_set(fn, sa_names);
 					}
+					else if (ma_diferir(howmanythreads) && method[0] != 'i')
+						m= ma_diferido(m); /// -ma, in the compressing thread (see ma_diferir)
 					else
 						ma_comprimir_bloque(sb, m, ma_comment); /// -ma (see ma_comprimir_bloque)
 					sa_blk_fi= -1;
@@ -282787,6 +282837,8 @@ int Jidac::add2()
 						if (g_sa_mode == 't')
 							sa_name_set(fn, sa_names);
 					}
+					else if (ma_diferir(howmanythreads) && method[0] != 'i')
+						m= ma_diferido(m); /// -ma, in the compressing thread (see ma_diferir)
 					else
 						ma_comprimir_bloque(sb, m, ma_comment); /// -ma (see ma_comprimir_bloque)
 					sa_blk_fi= -1;
