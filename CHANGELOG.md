@@ -4,11 +4,15 @@
 
 - **`-m4`, `-m5` and every model with a MIX, on x86** (`a`, `x`, `t`): the code that libzpaq's JIT writes to train a mixer went one weight at a time, with a product, a shift and two branches for each; it predicted with SSE2 already. Now it trains four weights at a time with SSE4.1 (`pmulld`, `pminsd`, `pmaxsd`), where the CPU has it (every Intel since Penryn, every AMD since Bulldozer). The arithmetic is the same, so are the archives. On one thread, 10 MB of text, Xeon E5 v4: `-m5` 28.4 to 23.0 s (19% less), `-m4` 8.6 to 8.0 s (7%); `t` the same; `-m3`, that has no mixer to speak of, as before.
 - **An AVX2 version (eight weights at a time) is in the code and is not used:** on that CPU it is slower than SSE4.1 (`-m5` 24.9 s). A row of weights has 8 to 20 of them, and filling the wide registers and clearing them at each update costs more than they give. `ZS_MIX=avx2` in the environment turns it on, `ZS_MIX=scalar` gives the old code, to compare.
-- **SHA-1 with the SSE message schedule in the 32-bit Windows build:** it has another SHA-1 (libzpaq's own, the build has no `HWSHA2`), that 2.16.0 left as it was. It now gives its full blocks to the same code. Less to gain with eight registers: 257 to 286 MB/s on Windows 7 x86.
+- **SHA-1 with the SSE message schedule in the 32-bit Windows build:** it has another SHA-1 (libzpaq's own, the build has no `HWSHA2`), that 2.16.0 left as it was. It now gives its full blocks to the same code. Less to gain with eight registers: from about 260 to 290-310 MB/s on Windows 7 x86.
 
 #### Checked
 
-@CHECKED@
+- **The mixer, same archives:** with the release's binaries on Linux x64 and x86, nine models (`-m3`, `-m4`, `-m5`, and six made by hand, with one to three mixers over CM, ICM, ISSE, MATCH and SSE components) write 2.16.0's archive with SSE4.1, with the old code (`ZS_MIX=scalar`), with AVX2 and with the interpreter (`-nojit`), but for the time in the block names; 2.16.0 tests what 2.16.1 writes and 2.16.1 extracts what 2.16.0 wrote.
+- **The battery** on the release's binary and plugins gives what 2.16.0's gave, line by line, every suite with nothing to review.
+- **Platforms:** on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-m1`..`-m5` write the same archive on x64, x86 and AArch64, and `-sa` too.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the four sets of 2.16.0 give what they gave, the digests and the `-m1`..`-m5` archives byte for byte. The 32-bit build's SHA-1: the digests of 225 files (210 of every size from 0 to 199 bytes and around 256, 4,096 and 65,536) are Linux's with the new code, with `ZS_SHA1=c` and with `ZS_SHA1=ssse3`; six methods write 2.16.0's archive; 260 to 312 MB/s in this run, 257 to 286 in the one before.
+- **CI,** the six platforms: every check passes, macOS's binary and plugins come from that run.
 
 ### [2.16.0] - 2026-11-25
 
