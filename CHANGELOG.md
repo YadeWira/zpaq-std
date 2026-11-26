@@ -1,3 +1,15 @@
+### [2.16.1] - 2026-11-25
+
+**`-m4` and `-m5` faster on x86: the JIT trains a mixer four weights at a time. The SHA-1 of 2.16.0 also in the 32-bit Windows build.**
+
+- **`-m4`, `-m5` and every model with a MIX, on x86** (`a`, `x`, `t`): the code that libzpaq's JIT writes to train a mixer went one weight at a time, with a product, a shift and two branches for each; it predicted with SSE2 already. Now it trains four weights at a time with SSE4.1 (`pmulld`, `pminsd`, `pmaxsd`), where the CPU has it (every Intel since Penryn, every AMD since Bulldozer). The arithmetic is the same, so are the archives. On one thread, 10 MB of text, Xeon E5 v4: `-m5` 28.4 to 23.0 s (19% less), `-m4` 8.6 to 8.0 s (7%); `t` the same; `-m3`, that has no mixer to speak of, as before.
+- **An AVX2 version (eight weights at a time) is in the code and is not used:** on that CPU it is slower than SSE4.1 (`-m5` 24.9 s). A row of weights has 8 to 20 of them, and filling the wide registers and clearing them at each update costs more than they give. `ZS_MIX=avx2` in the environment turns it on, `ZS_MIX=scalar` gives the old code, to compare.
+- **SHA-1 with the SSE message schedule in the 32-bit Windows build:** it has another SHA-1 (libzpaq's own, the build has no `HWSHA2`), that 2.16.0 left as it was. It now gives its full blocks to the same code. Less to gain with eight registers: 257 to 286 MB/s on Windows 7 x86.
+
+#### Checked
+
+@CHECKED@
+
 ### [2.16.0] - 2026-11-25
 
 **zpaqfranz 65.23 (`-tar` on Windows). Extraction up to three times faster on one thread. zstd 1.6.0, in the program; LZ4 and LZAV are plugins in the plugin build.**
