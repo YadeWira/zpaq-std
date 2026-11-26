@@ -1,3 +1,19 @@
+### [2.17.0] - 2026-11-26
+
+**`a` with a `-ma` codec uses the threads: up to three times faster. `-franztime` says the peak of cores and the I/O speed, and writes a JSON line with `-json`.**
+
+- **`a -ma:X` compresses in the compressing threads.** The codec of a `-ma` block ran in the thread that reads the files, one block after the other, and the compressing threads only wrote what it gave: with any number of threads, a `-ma` codec used one core. `-ma:zstd:3` gave 100 MB/s with 8 threads where `-m8`, the very same zstd, gave 284. Now each block goes to its thread as it is and the codec runs there (as `-sa` did already). On 150 MB of text, Xeon E5 v4: `-ma:zstd:3` 93 to 220 MB/s with 4 threads, 100 to 295 with 8, 92 to 319 with 16; `-ma:zstd:1` 132 to 322 with 8. One thread: as before. **The archives are the same**, block for block and in the same order.
+- Still in the reading thread, as before: `-t1`; the codecs of someone else (`-mae`, `-mat`), that print as they go; `-ma:sylz` and `-ma:sylzec`, plugins in Free Pascal that were never asked to run from several threads at once; and a run with `-compress`, whose table counts the blocks there.
+- **`-franztime`,** with what franztime 1.11 measures:
+  - **`CPU peak`:** the cores in use in the busiest tenth of a second, next to the average (a thread samples the CPU time while the command runs). The average hides a run that uses one core most of the time.
+  - **`I/O speed`:** MB/s read and written, the I/O over the wall time.
+  - **Windows 10 and 11: `Private WS peak` and `final`,** the private working set, the "Memory" of Task Manager. Windows gives it only as a sample; where it does not know it (Windows 7), the lines are not there.
+  - **With `-json`,** the report is also a line `{"ev":"franztime", ...}` on stdout, before the `end` line: seconds, cores, bytes, operations. A field is there only if it was measured.
+
+#### Checked
+
+@CHECKED@
+
 ### [2.16.1] - 2026-11-25
 
 **`-m4` and `-m5` faster on x86: the JIT trains a mixer four weights at a time. The SHA-1 of 2.16.0 also in the 32-bit Windows build.**
