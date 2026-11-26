@@ -90458,12 +90458,14 @@ static void json_svuota()
 	}
 }
 /// the last line: the exit code and the seconds. Once (seppuku, the end of zpaq_main_internal)
+void franztime_json(); /// -franztime -json: its line goes before "end"
 void json_fine(int i_rc)
 {
 	if ((!flagjson) || g_json_finito)
 		return;
 	g_json_finito= true;
 	json_svuota();
+	franztime_json();
 	char riga[128];
 	snprintf(riga, sizeof(riga), "{\"ev\":\"end\",\"rc\":%d,\"sec\":%.3f}", i_rc, (mtime() - g_start) / 1000.0);
 	json_riga(riga);
@@ -90476,6 +90478,7 @@ void json_alluscita()
 		return;
 	g_json_finito= true;
 	json_svuota();
+	franztime_json();
 	char riga[128];
 	snprintf(riga, sizeof(riga), "{\"ev\":\"end\",\"rc\":null,\"sec\":%.3f}", (mtime() - g_start) / 1000.0);
 	json_riga(riga);
@@ -200023,41 +200026,37 @@ typedef struct
 } ft_pmc;	/// PROCESS_MEMORY_COUNTERS_EX, without psapi.h
 typedef BOOL (WINAPI *ft_gpmi)(HANDLE, ft_pmc*, DWORD);
 #endif
-static void franztime_report()
+/// zpaq-std (2.17.0), as franztime 1.11: the highest number of cores in use (CPU time over
+/// a tenth of a second), and on Windows the private working set, that exists only as a
+/// sample. A thread takes them while -franztime is on (franztime_start, after the
+/// parameters are read). With -json the report is also a JSON line, before "end".
+static std::atomic<uint64_t> g_ft_picco_mc(0);	/// peak cores x 1000
+static std::atomic<uint64_t> g_ft_pws_picco(0), g_ft_pws_ultimo(0);
+static std::atomic<int>		 g_ft_campioni(0);
+static bool					 g_ft_json_fatto= false;
+static double ft_cpu_adesso()
 {
-	if (!flagfranztime)
-		return;
-	fflush(stdout);
-	const double wall=std::chrono::duration<double>(std::chrono::steady_clock::now()-g_ft_t0).count();
-	double user=0, kern=0;
-	fprintf(stderr, "\n-franztime: what zpaq-std used\n");
-	char b[128];
 #ifdef _WIN32
-	HANDLE h=GetCurrentProcess();
 	FILETIME c0, e0, k0, u0;
-	if (GetProcessTimes(h, &c0, &e0, &k0, &u0))
-	{
-		user=(double)(((uint64_t)u0.dwHighDateTime<<32)|u0.dwLowDateTime)/1e7;
-		kern=(double)(((uint64_t)k0.dwHighDateTime<<32)|k0.dwLowDateTime)/1e7;
-	}
+	if (!GetProcessTimes(GetCurrentProcess(), &c0, &e0, &k0, &u0))
+		return 0;
+	return (double)((((uint64_t)u0.dwHighDateTime<<32)|u0.dwLowDateTime)+(((uint64_t)k0.dwHighDateTime<<32)|k0.dwLowDateTime))/1e7;
 #else
-	struct rusage ru;
-	memset(&ru, 0, sizeof(ru));
-	getrusage(RUSAGE_SELF, &ru);
-	user=ru.ru_utime.tv_sec+ru.ru_utime.tv_usec/1e6;
-	kern=ru.ru_stime.tv_sec+ru.ru_stime.tv_usec/1e6;
+	struct timespec t;
+	if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &t)!=0)
+		return 0;
+	return t.tv_sec+t.tv_nsec/1e9;
 #endif
-	snprintf(b, sizeof(b), "%18.3f s", wall);               ft_line("Wall time", b);
-	snprintf(b, sizeof(b), "%18.3f s", user);               ft_line("CPU user", b);
-	snprintf(b, sizeof(b), "%18.3f s", kern);               ft_line("CPU kernel", b);
-	snprintf(b, sizeof(b), "%18.2f cores (CPU time / wall time)", wall>0 ? (user+kern)/wall : 0.0); ft_line("CPU average", b);
+}
 #ifdef _WIN32
-	ULONG64 cyc=0;
-	if (QueryProcessCycleTime(h, &cyc))
-	{
-		snprintf(b, sizeof(b), "%18s", ft_num(cyc).c_str());
-		ft_line("CPU cycles", b);
-	}
+typedef struct
+{
+	ft_pmc	base;
+	SIZE_T	PrivateWorkingSetSize;
+	ULONG64 SharedCommitUsage;
+} ft_pmc2;	/// PROCESS_MEMORY_COUNTERS_EX2 (newer Windows 10 and 11): the call fails where it is not known
+static ft_gpmi ft_trova_gpmi()
+{
 	ft_gpmi gp=(ft_gpmi)(void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "K32GetProcessMemoryInfo");
 	if (!gp)
 	{
@@ -200065,28 +200064,133 @@ static void franztime_report()
 		if (ps)
 			gp=(ft_gpmi)(void*)GetProcAddress(ps, "GetProcessMemoryInfo");
 	}
+	return gp;
+}
+static DWORD WINAPI ft_campiona(LPVOID)
+#else
+static void* ft_campiona(void*)
+#endif
+{
+#ifdef _WIN32
+	const ft_gpmi gp=ft_trova_gpmi();
+#endif
+	double cpu0=ft_cpu_adesso();
+	std::chrono::steady_clock::time_point t0=std::chrono::steady_clock::now();
+	while (true)
+	{
+#ifdef _WIN32
+		Sleep(100);
+#else
+		usleep(100000);
+#endif
+		const double cpu1=ft_cpu_adesso();
+		const std::chrono::steady_clock::time_point t1=std::chrono::steady_clock::now();
+		const double dt=std::chrono::duration<double>(t1-t0).count();
+		if (dt>0.02)
+		{
+			const uint64_t mc=(uint64_t)((cpu1-cpu0)/dt*1000.0+0.5);
+			if (mc>g_ft_picco_mc.load())
+				g_ft_picco_mc.store(mc);
+			g_ft_campioni++;
+		}
+		cpu0=cpu1;
+		t0=t1;
+#ifdef _WIN32
+		if (gp)
+		{
+			ft_pmc2 m;
+			memset(&m, 0, sizeof(m));
+			m.base.cb=sizeof(m);
+			if (gp(GetCurrentProcess(), (ft_pmc*)&m, sizeof(m)))
+			{
+				g_ft_pws_ultimo.store((uint64_t)m.PrivateWorkingSetSize);
+				if ((uint64_t)m.PrivateWorkingSetSize>g_ft_pws_picco.load())
+					g_ft_pws_picco.store((uint64_t)m.PrivateWorkingSetSize);
+			}
+		}
+#endif
+	}
+	return 0;
+}
+void franztime_start()
+{
+	static bool partito=false;
+	if (!flagfranztime || partito)
+		return;
+	partito=true;
+#ifdef _WIN32
+	HANDLE h=CreateThread(NULL, 0, ft_campiona, NULL, 0, NULL);
+	if (h)
+		CloseHandle(h);
+#else
+	pthread_t t;
+	if (pthread_create(&t, NULL, ft_campiona, NULL)==0)
+		pthread_detach(t);
+#endif
+}
+/// what the report says, measured once: for the lines on stderr and for the JSON line
+struct ft_dati
+{
+	double	 wall, user, kern;
+	bool	 ha_cicli, ha_mem, ha_io, ha_virt, ha_disco;
+	uint64_t cicli, res_picco, res_fine, commit_picco, commit_fine, virt_picco, fault, fault_major;
+	uint64_t letti, scritti, altri, op_r, op_w, op_a, disco_r, disco_w, blocchi_in, blocchi_out;
+};
+static void ft_misura(ft_dati& d)
+{
+	memset(&d, 0, sizeof(d));
+	d.wall=std::chrono::duration<double>(std::chrono::steady_clock::now()-g_ft_t0).count();
+#ifdef _WIN32
+	HANDLE h=GetCurrentProcess();
+	FILETIME c0, e0, k0, u0;
+	if (GetProcessTimes(h, &c0, &e0, &k0, &u0))
+	{
+		d.user=(double)(((uint64_t)u0.dwHighDateTime<<32)|u0.dwLowDateTime)/1e7;
+		d.kern=(double)(((uint64_t)k0.dwHighDateTime<<32)|k0.dwLowDateTime)/1e7;
+	}
+	ULONG64 cyc=0;
+	if (QueryProcessCycleTime(h, &cyc))
+	{
+		d.ha_cicli=true;
+		d.cicli=cyc;
+	}
+	const ft_gpmi gp=ft_trova_gpmi();
 	ft_pmc m;
 	memset(&m, 0, sizeof(m));
 	m.cb=sizeof(m);
 	if (gp && gp(h, &m, sizeof(m)))
 	{
-		ft_line("Working set peak", ft_bytes(m.PeakWorkingSetSize));
-		ft_line("Working set final", ft_bytes(m.WorkingSetSize));
-		ft_line("Private bytes peak", ft_bytes(m.PeakPagefileUsage)+"  (commit)");
-		ft_line("Private bytes final", ft_bytes(m.PrivateUsage));
-		snprintf(b, sizeof(b), "%18s", ft_num(m.PageFaultCount).c_str()); ft_line("Page faults", b);
+		d.ha_mem=true;
+		d.res_picco=m.PeakWorkingSetSize;
+		d.res_fine=m.WorkingSetSize;
+		d.commit_picco=m.PeakPagefileUsage;
+		d.commit_fine=m.PrivateUsage;
+		d.fault=m.PageFaultCount;
 	}
 	IO_COUNTERS io;
 	if (GetProcessIoCounters(h, &io))
 	{
-		ft_line("I/O read", ft_bytes(io.ReadTransferCount)+"  ("+ft_num(io.ReadOperationCount)+" ops)");
-		ft_line("I/O write", ft_bytes(io.WriteTransferCount)+"  ("+ft_num(io.WriteOperationCount)+" ops)");
-		ft_line("I/O other", ft_bytes(io.OtherTransferCount)+"  ("+ft_num(io.OtherOperationCount)+" ops)");
+		d.ha_io=true;
+		d.letti=io.ReadTransferCount;
+		d.scritti=io.WriteTransferCount;
+		d.altri=io.OtherTransferCount;
+		d.op_r=io.ReadOperationCount;
+		d.op_w=io.WriteOperationCount;
+		d.op_a=io.OtherOperationCount;
 	}
 #else
+	struct rusage ru;
+	memset(&ru, 0, sizeof(ru));
+	getrusage(RUSAGE_SELF, &ru);
+	d.user=ru.ru_utime.tv_sec+ru.ru_utime.tv_usec/1e6;
+	d.kern=ru.ru_stime.tv_sec+ru.ru_stime.tv_usec/1e6;
+	d.ha_mem=true;
+	d.fault=(uint64_t)(ru.ru_minflt+ru.ru_majflt);
+	d.fault_major=(uint64_t)ru.ru_majflt;
+	d.blocchi_in=(uint64_t)ru.ru_inblock;
+	d.blocchi_out=(uint64_t)ru.ru_oublock;
 #ifdef __linux__
 	/// /proc/self/status: VmHWM (resident peak), VmRSS, VmPeak (virtual peak)
-	uint64_t hwm=0, rss=0, vpeak=0;
 	FILE* f=fopen("/proc/self/status", "r");
 	if (f)
 	{
@@ -200094,28 +200198,15 @@ static void franztime_report()
 		while (fgets(l, sizeof(l), f))
 		{
 			unsigned long long v=0;
-			if (sscanf(l, "VmHWM: %llu", &v)==1) hwm=v*1024;
-			else if (sscanf(l, "VmRSS: %llu", &v)==1) rss=v*1024;
-			else if (sscanf(l, "VmPeak: %llu", &v)==1) vpeak=v*1024;
+			if (sscanf(l, "VmHWM: %llu", &v)==1) d.res_picco=v*1024;
+			else if (sscanf(l, "VmRSS: %llu", &v)==1) d.res_fine=v*1024;
+			else if (sscanf(l, "VmPeak: %llu", &v)==1) d.virt_picco=v*1024;
 		}
 		fclose(f);
+		d.ha_virt=true;
 	}
-	ft_line("Resident peak", ft_bytes(hwm)+"  (VmHWM)");
-	ft_line("Resident final", ft_bytes(rss));
-	ft_line("Virtual peak", ft_bytes(vpeak)+"  (VmPeak)");
-#else
-	/// getrusage's ru_maxrss: bytes on macOS, KB on the BSDs
-#ifdef __APPLE__
-	ft_line("Resident peak", ft_bytes((uint64_t)ru.ru_maxrss));
-#else
-	ft_line("Resident peak", ft_bytes((uint64_t)ru.ru_maxrss*1024));
-#endif
-#endif
-	snprintf(b, sizeof(b), "%18s  (%s major)", ft_num((uint64_t)(ru.ru_minflt+ru.ru_majflt)).c_str(), ft_num((uint64_t)ru.ru_majflt).c_str()); ft_line("Page faults", b);
-#ifdef __linux__
 	/// /proc/self/io: what went through read()/write() (rchar, wchar, syscr, syscw)
 	/// and what reached the disk (read_bytes, write_bytes)
-	uint64_t rc=0, wc=0, sr=0, sw=0, rb=0, wb=0;
 	f=fopen("/proc/self/io", "r");
 	if (f)
 	{
@@ -200123,21 +200214,131 @@ static void franztime_report()
 		while (fgets(l, sizeof(l), f))
 		{
 			unsigned long long v=0;
-			if (sscanf(l, "rchar: %llu", &v)==1) rc=v;
-			else if (sscanf(l, "wchar: %llu", &v)==1) wc=v;
-			else if (sscanf(l, "syscr: %llu", &v)==1) sr=v;
-			else if (sscanf(l, "syscw: %llu", &v)==1) sw=v;
-			else if (sscanf(l, "read_bytes: %llu", &v)==1) rb=v;
-			else if (sscanf(l, "write_bytes: %llu", &v)==1) wb=v;
+			if (sscanf(l, "rchar: %llu", &v)==1) d.letti=v;
+			else if (sscanf(l, "wchar: %llu", &v)==1) d.scritti=v;
+			else if (sscanf(l, "syscr: %llu", &v)==1) d.op_r=v;
+			else if (sscanf(l, "syscw: %llu", &v)==1) d.op_w=v;
+			else if (sscanf(l, "read_bytes: %llu", &v)==1) d.disco_r=v;
+			else if (sscanf(l, "write_bytes: %llu", &v)==1) d.disco_w=v;
 		}
 		fclose(f);
-		ft_line("I/O read", ft_bytes(rc)+"  ("+ft_num(sr)+" ops; "+ft_num(rb)+" from the disk)");
-		ft_line("I/O write", ft_bytes(wc)+"  ("+ft_num(sw)+" ops; "+ft_num(wb)+" to the disk)");
+		d.ha_io=true;
+		d.ha_disco=true;
 	}
 #else
-	snprintf(b, sizeof(b), "%18s in, %s out", ft_num((uint64_t)ru.ru_inblock).c_str(), ft_num((uint64_t)ru.ru_oublock).c_str()); ft_line("I/O blocks", b);
+	/// getrusage's ru_maxrss: bytes on macOS, KB on the BSDs
+#ifdef __APPLE__
+	d.res_picco=(uint64_t)ru.ru_maxrss;
+#else
+	d.res_picco=(uint64_t)ru.ru_maxrss*1024;
 #endif
 #endif
+#endif
+}
+/// -franztime -json: the report as a JSON line, before the "end" line (json_fine and
+/// json_alluscita call it). Bytes and seconds; a field is there only if it was measured
+void franztime_json()
+{
+	if (!flagfranztime || !flagjson || g_ft_json_fatto)
+		return;
+	g_ft_json_fatto=true;
+	ft_dati d;
+	ft_misura(d);
+	char b[160];
+	std::string r="{\"ev\":\"franztime\"";
+	snprintf(b, sizeof(b), ",\"wall\":%.3f,\"user\":%.3f,\"kernel\":%.3f,\"cores_avg\":%.2f", d.wall, d.user, d.kern, d.wall>0 ? (d.user+d.kern)/d.wall : 0.0);
+	r+=b;
+	if (g_ft_campioni.load()>0)
+	{
+		snprintf(b, sizeof(b), ",\"cores_peak\":%.2f", g_ft_picco_mc.load()/1000.0);
+		r+=b;
+	}
+	if (d.ha_cicli) { snprintf(b, sizeof(b), ",\"cycles\":%llu", (unsigned long long)d.cicli); r+=b; }
+	if (d.ha_mem)
+	{
+		snprintf(b, sizeof(b), ",\"mem_peak\":%llu", (unsigned long long)d.res_picco); r+=b;
+		if (d.res_fine) { snprintf(b, sizeof(b), ",\"mem_final\":%llu", (unsigned long long)d.res_fine); r+=b; }
+		if (d.commit_picco) { snprintf(b, sizeof(b), ",\"commit_peak\":%llu,\"commit_final\":%llu", (unsigned long long)d.commit_picco, (unsigned long long)d.commit_fine); r+=b; }
+		if (d.ha_virt) { snprintf(b, sizeof(b), ",\"virtual_peak\":%llu", (unsigned long long)d.virt_picco); r+=b; }
+		snprintf(b, sizeof(b), ",\"page_faults\":%llu", (unsigned long long)d.fault); r+=b;
+	}
+	if (g_ft_pws_picco.load()>0) { snprintf(b, sizeof(b), ",\"private_ws_peak\":%llu,\"private_ws_final\":%llu", (unsigned long long)g_ft_pws_picco.load(), (unsigned long long)g_ft_pws_ultimo.load()); r+=b; }
+	if (d.ha_io)
+	{
+		snprintf(b, sizeof(b), ",\"read\":%llu,\"read_ops\":%llu,\"write\":%llu,\"write_ops\":%llu", (unsigned long long)d.letti, (unsigned long long)d.op_r, (unsigned long long)d.scritti, (unsigned long long)d.op_w);
+		r+=b;
+		if (d.wall>0) { snprintf(b, sizeof(b), ",\"read_bps\":%.0f,\"write_bps\":%.0f", d.letti/d.wall, d.scritti/d.wall); r+=b; }
+	}
+	r+="}";
+	json_riga(r);
+}
+static void franztime_report()
+{
+	if (!flagfranztime)
+		return;
+	fflush(stdout);
+	ft_dati d;
+	ft_misura(d);
+	fprintf(stderr, "\n-franztime: what zpaq-std used\n");
+	char b[128];
+	snprintf(b, sizeof(b), "%18.3f s", d.wall);             ft_line("Wall time", b);
+	snprintf(b, sizeof(b), "%18.3f s", d.user);             ft_line("CPU user", b);
+	snprintf(b, sizeof(b), "%18.3f s", d.kern);             ft_line("CPU kernel", b);
+	snprintf(b, sizeof(b), "%18.2f cores (CPU time / wall time)", d.wall>0 ? (d.user+d.kern)/d.wall : 0.0); ft_line("CPU average", b);
+	if (g_ft_campioni.load()>0)
+	{
+		snprintf(b, sizeof(b), "%18.2f cores (the busiest tenth of a second)", g_ft_picco_mc.load()/1000.0);
+		ft_line("CPU peak", b);
+	}
+	if (d.ha_cicli)
+	{
+		snprintf(b, sizeof(b), "%18s", ft_num(d.cicli).c_str());
+		ft_line("CPU cycles", b);
+	}
+#ifdef _WIN32
+	if (d.ha_mem)
+	{
+		ft_line("Working set peak", ft_bytes(d.res_picco));
+		ft_line("Working set final", ft_bytes(d.res_fine));
+		ft_line("Private bytes peak", ft_bytes(d.commit_picco)+"  (commit)");
+		ft_line("Private bytes final", ft_bytes(d.commit_fine));
+		if (g_ft_pws_picco.load()>0)
+		{
+			ft_line("Private WS peak", ft_bytes(g_ft_pws_picco.load())+"  (the Memory of Task Manager, sampled)");
+			ft_line("Private WS final", ft_bytes(g_ft_pws_ultimo.load()));
+		}
+		snprintf(b, sizeof(b), "%18s", ft_num(d.fault).c_str()); ft_line("Page faults", b);
+	}
+	if (d.ha_io)
+	{
+		ft_line("I/O read", ft_bytes(d.letti)+"  ("+ft_num(d.op_r)+" ops)");
+		ft_line("I/O write", ft_bytes(d.scritti)+"  ("+ft_num(d.op_w)+" ops)");
+		ft_line("I/O other", ft_bytes(d.altri)+"  ("+ft_num(d.op_a)+" ops)");
+	}
+#else
+#ifdef __linux__
+	ft_line("Resident peak", ft_bytes(d.res_picco)+"  (VmHWM)");
+	ft_line("Resident final", ft_bytes(d.res_fine));
+	ft_line("Virtual peak", ft_bytes(d.virt_picco)+"  (VmPeak)");
+#else
+	ft_line("Resident peak", ft_bytes(d.res_picco));
+#endif
+	snprintf(b, sizeof(b), "%18s  (%s major)", ft_num(d.fault).c_str(), ft_num(d.fault_major).c_str()); ft_line("Page faults", b);
+	if (d.ha_disco)
+	{
+		ft_line("I/O read", ft_bytes(d.letti)+"  ("+ft_num(d.op_r)+" ops; "+ft_num(d.disco_r)+" from the disk)");
+		ft_line("I/O write", ft_bytes(d.scritti)+"  ("+ft_num(d.op_w)+" ops; "+ft_num(d.disco_w)+" to the disk)");
+	}
+	else
+	{
+		snprintf(b, sizeof(b), "%18s in, %s out", ft_num(d.blocchi_in).c_str(), ft_num(d.blocchi_out).c_str()); ft_line("I/O blocks", b);
+	}
+#endif
+	if (d.ha_io && d.wall>0)
+	{
+		snprintf(b, sizeof(b), "%18.2f MB/s read, %.2f MB/s written (I/O over the wall time)", d.letti/1048576.0/d.wall, d.scritti/1048576.0/d.wall);
+		ft_line("I/O speed", b);
+	}
 	fflush(stderr);
 }
 
@@ -200425,6 +200626,7 @@ int zpaq_main_internal(int argc, const char **argv)
     Jidac jidac;
     pjidac = &jidac;
     int risultatoparametri = jidac.loadparameters(argc, argv);
+    franztime_start(); /// -franztime: the samples of the peaks, from here
     if (flagjson)
     {
         flagcatpaqmode = true;  /// 65.21b: -json, no progress lines for a console (catpaqmode does it everywhere)
