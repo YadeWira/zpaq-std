@@ -51,7 +51,8 @@ whole is not.
 ## What it writes
 
 A standard ZPAQ stream (level 2, the streaming format): zpaq 7.15, zpaqfranz and zpaq-std read it. A
-`-ma` block carries its decoder as a ZPAQL program, as in zpaq-std, so those read it too.
+`-ma` block carries its decoder as a ZPAQL program, as in zpaq-std, so those read it too. `d` decodes such a block
+with the codec itself, as zpaq-std does.
 
 - **The bytes depend on the arguments and the data only**, never on the number of threads nor on the
   platform's word size beyond what zpaq-std's own `-ma` codecs do (a few of them write other bytes on 32
