@@ -64,7 +64,7 @@ BUNDLED = [
      ['compressors/blake3/LICENSE_CC0', 'compressors/blake3/LICENSE_A2', 'compressors/blake3/LICENSE_A2LLVM'],
      'The assembly for x86-64 and the NEON code, unmodified, linked into the x86-64 and AArch64\n'
      'builds since 2.14.0. BLAKE3\'s portable code and dispatch are in zpaq-std.cpp, from zpaqfranz.'),
-    ('zxc', '1.0.1', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
+    ('zxc', '1.0.2', 'BSD-3-Clause; rapidhash MIT', 'Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)',
      ['compressors/zxc/LICENSE', 'compressors/zxc/LICENSE-rapidhash'], ''),
     ('sylz and sylzec', 'syc v1.0.0', 'MIT', 'Yade Bravo (YadeWira)', ['compressors/sylz/LICENSE'],
      'Free Pascal, built only as plugins (both in codecs/sylz.dll or sylz.so): in the\n'

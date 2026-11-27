@@ -65,7 +65,7 @@ folder under compressors/.
   kanzi 2.6.0             Frederic Langlet                        Apache-2.0
   libdivsufsort 2.0 (stripped)
                           Yuta Mori                               MIT
-  zxc 1.0.1               Bertrand Lebonnois and contributors;    BSD-3-Clause
+  zxc 1.0.2               Bertrand Lebonnois and contributors;    BSD-3-Clause
                           Nicolas De Carli (rapidhash)
   sylz and sylzec syc v1.0.0
                           Yade Bravo (YadeWira)                   MIT

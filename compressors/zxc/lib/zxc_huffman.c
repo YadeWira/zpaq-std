@@ -71,6 +71,17 @@
 #include "zxc_internal.h"
 #include "zxc_pivco_tables.h"
 
+// SIMD variants drop the roles bound to _default; the primary copy keeps all.
+#if !defined(ZXC_VARIANT_PRIMARY) && defined(ZXC_ENCODER_DEFAULT)
+#define ZXC_HUF_NO_ENCODER
+#endif
+#if !defined(ZXC_VARIANT_PRIMARY) && defined(ZXC_ENTROPY_DECODER_DEFAULT)
+#define ZXC_HUF_NO_DECODER
+#endif
+#if !defined(ZXC_VARIANT_PRIMARY) && defined(ZXC_NO_DICT)
+#define ZXC_HUF_NO_DICT_SECTIONS
+#endif
+
 // ===========================================================================
 // Length-limited Huffman: boundary package-merge
 // ===========================================================================
@@ -82,6 +93,7 @@
 // ZXC_HUF_MAX_CODE_LEN_ULTRA gives the appearance count of each leaf, which is
 // its code length.
 
+#ifndef ZXC_HUF_NO_ENCODER
 typedef zxc_huf_pm_item_t pm_item_t;
 
 typedef zxc_huf_pm_leaf_t pm_leaf_t;
@@ -941,11 +953,13 @@ int zxc_huf_nudge_code_lengths(const uint32_t* RESTRICT freq, uint8_t* RESTRICT 
     return best >= 0;
 }
 #endif /* ZXC_VARIANT_PRIMARY */
+#endif /* !ZXC_HUF_NO_ENCODER */
 
 // ===========================================================================
 // 128-byte length header: 256 x 4-bit lengths, low nibble first.
 // =========================================================================
 
+#ifndef ZXC_HUF_NO_ENCODER
 void zxc_huf_pack_lengths(const uint8_t* RESTRICT code_len, uint8_t* RESTRICT out) {
     for (int i = 0; i < ZXC_HUF_NUM_SYMBOLS; i += 2) {
         const uint8_t lo = code_len[i] & 0x0F;
@@ -953,6 +967,8 @@ void zxc_huf_pack_lengths(const uint8_t* RESTRICT code_len, uint8_t* RESTRICT ou
         out[i >> 1] = (uint8_t)(lo | (hi << 4));
     }
 }
+
+#endif /* !ZXC_HUF_NO_ENCODER */
 
 int zxc_huf_unpack_lengths(const uint8_t* RESTRICT in, uint8_t* RESTRICT code_len) {
     int max_len = 0;
@@ -1004,6 +1020,7 @@ int zxc_huf_unpack_lengths(const uint8_t* RESTRICT in, uint8_t* RESTRICT code_le
 // ZXC_PAD_SIZE on dst (already true for lit/token buffers), and
 // ZXC_PIVCO_SCRATCH_PAD on scratch.
 
+#if !defined(ZXC_HUF_NO_ENCODER) || !defined(ZXC_HUF_NO_DECODER)
 static ZXC_ALWAYS_INLINE int zxc_pivco_popcnt32(const uint32_t v) { return (int)ZXC_POPCOUNT32(v); }
 
 static ZXC_ALWAYS_INLINE int zxc_pivco_popcnt64(const uint64_t v) { return (int)ZXC_POPCOUNT64(v); }
@@ -1125,7 +1142,9 @@ static int zxc_pivco_tree_build(const uint8_t* RESTRICT code_len, zxc_pivco_tree
     }
     return 0;
 }
+#endif
 
+#ifndef ZXC_HUF_NO_ENCODER
 /**
  * @brief Per-node symbol counts from the histogram (encoder / size estimate).
  *
@@ -1152,7 +1171,9 @@ static void zxc_pivco_codes(const zxc_pivco_tree_t* RESTRICT t, uint32_t* RESTRI
         for (int i = 0; i < zxc_pivco_leaves(t, d); i++)
             codes[t->syms[t->leaf_base[d] + i]] = (uint32_t)(t->node_base[d] + i - t->base[d]);
 }
+#endif /* !ZXC_HUF_NO_ENCODER */
 
+#if !defined(ZXC_HUF_NO_ENCODER) || !defined(ZXC_HUF_NO_DECODER)
 /**
  * @brief Byte size of one PivCo node's on-wire bit run.
  *
@@ -1178,7 +1199,9 @@ static void zxc_pivco_codes(const zxc_pivco_tree_t* RESTRICT t, uint32_t* RESTRI
 static ZXC_ALWAYS_INLINE size_t zxc_pivco_run_bytes(const uint32_t count, const uint8_t flat_d) {
     return flat_d ? ((size_t)count * flat_d + 7) / 8 : ((size_t)count + 7) / 8;
 }
+#endif
 
+#ifndef ZXC_HUF_NO_ENCODER
 /**
  * @brief Payload size, and each run's first bit as a cursor if @p cur is set.
  *
@@ -1314,6 +1337,7 @@ int zxc_huf_encode_section(const uint8_t* RESTRICT literals, const size_t n_lite
     return zxc_pivco_encode_core(literals, n_literals, freq, code_len, &t, codes, dst, dst_cap, 1);
 }
 
+#ifndef ZXC_HUF_NO_DICT_SECTIONS
 /**
  * @brief Encode a literal section against a shared dictionary table.
  *
@@ -1330,6 +1354,8 @@ int zxc_huf_encode_section_dict(const uint8_t* RESTRICT literals, const size_t n
     return zxc_pivco_encode_core(literals, n_literals, freq, code_len, tree, codes, dst, dst_cap,
                                  0);
 }
+#endif /* !ZXC_HUF_NO_DICT_SECTIONS */
+#endif /* !ZXC_HUF_NO_ENCODER */
 
 // ISA-independent cold dict setup
 #if defined(ZXC_VARIANT_PRIMARY)
@@ -1350,6 +1376,7 @@ int zxc_huf_dict_tree_build(const uint8_t* RESTRICT packed_lengths, zxc_pivco_tr
 }
 #endif /* ZXC_VARIANT_PRIMARY */
 
+#ifndef ZXC_HUF_NO_DECODER
 /**
  * @brief Advances the merge cursors past one fixed-width step.
  *
@@ -2290,6 +2317,7 @@ int zxc_huf_decode_section(const uint8_t* RESTRICT payload, const size_t payload
                                  dst, n, &t, scratch);
 }
 
+#ifndef ZXC_HUF_NO_DICT_SECTIONS
 /**
  * @brief Decode a shared-dictionary literal section (no inline header).
  *
@@ -2302,3 +2330,5 @@ int zxc_huf_decode_section_dict(const uint8_t* RESTRICT payload, const size_t pa
                                 const zxc_pivco_tree_t* RESTRICT tree, uint8_t* RESTRICT scratch) {
     return zxc_pivco_decode_core(payload, payload_size, dst, n, tree, scratch);
 }
+#endif /* !ZXC_HUF_NO_DICT_SECTIONS */
+#endif /* !ZXC_HUF_NO_DECODER */

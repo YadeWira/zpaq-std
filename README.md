@@ -1,6 +1,6 @@
 # zpaq-std
 
-**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.23.**
+**A fork by [YadeWira](https://github.com/YadeWira), based on `fcorbelli/zpaqfranz` 65.24.**
 
 A deduplicated, multi-version archiver (originally [zpaq](http://mattmahoney.net/dc/zpaq.html) by Matt Mahoney, with most of the code coming via Franco Corbelli's `zpaqfranz`), with **23 bundled, swappable compression libraries** (30 `-ma` switches, every one of them opening in any zpaq), lossless **JPEG, JPEG-LS and JPEG 2000** recompression with `-sa`, and **zero system dependencies**.
 
@@ -113,7 +113,7 @@ zpaq-std a media.zpaq /photos -ma:flzma2:9       # strong LZMA2
 | `-ma:lzh:N` | [lzham-ex](https://github.com/YadeWira/lzham-ex) 1.1.1 (LZHAM 1.0) | 1–4 | 4 |
 | `-ma:ppmd:N` / `ppmd:N:M` | PPMd var.H ([7-Zip SDK](https://www.7-zip.org/sdk.html)); N is the model order, M its memory in MB (1–1024, 64 unless told) | 2–32 | 6 |
 | `-ma:kanzi:N` | [kanzi](https://github.com/flanglet/kanzi-cpp) 2.6.0 | 1–9 | 2 |
-| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 1.0.1 | 1–7 | 3 |
+| `-ma:zxc:N` | [zxc](https://github.com/hellobertrand/zxc) 1.0.2 | 1–7 | 3 |
 | `-ma:lz6:N` / `lz6hc` | [lz6](https://github.com/YadeWira/lz6) 2.1.0: `lz6` is its seq engine (since 2.10.0; other zpaqs need 64 MiB a block to extract), `lz6hc` its LZ5 v1.5 profile (0 fast, 1–15 HC: what `-ma:lz6` was up to 2.9.0) | 1–13 / 0–15 | 7 / 0 |
 | `-ma:lz4:N` / `lz4hc` / `lz4f` | [LZ4](https://github.com/lz4/lz4) 1.11.1 | 1–12 | 9 |
 | `-ma:lzav:N` | [LZAV](https://github.com/avaneev/lzav) 7.2 | 0–1 | 1 |

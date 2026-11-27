@@ -1,3 +1,21 @@
+### [2.18.0] - 2026-11-26
+
+**zpaqfranz 65.24 (`-tar` on Windows with everything NTFS keeps). zxc 1.0.2. The source builds on Android.**
+
+- **Base: zpaqfranz 65.24** (65.24z). Everything of its open build since 65.23 is in:
+  - **`a -tar` on Windows keeps everything NTFS keeps** that a program can read: junctions and symbolic links, the alternate data streams, the files encrypted with EFS (raw), the compression (NTFS and WOF), the sparse files, the object IDs, the case sensitive folders, the four times to 100 ns, the folders that deny the administrators; `x -tar` gives all of it back. As an administrator (zpaqfranz's full build elevates itself; zpaq-std, as its open build, is started from an administrator's prompt).
+  - **`x -to` on Windows** no longer writes the files in their place when the case of the path is not the one stored (65.24p). zpaq-std had its own fix for this since pre59: zpaqfranz's is in its place now.
+  - **`-tar` on *nix: a name that leaves or joins a group of hard links** between two versions (issue #382, reported from zpaq-std) came back joined, or split, the wrong way. **The hard links are zpaqfranz's code now:** zpaq-std had fixed both cases on its own (2.15.x and before), zpaqfranz 65.24 fixes them too, and the two were compared on the same cases before zpaq-std's was taken out.
+  - `-vss` (a link left by a run that did not end is taken away; two at the same time are refused), `-index` with `-wim` and `-tar` refused (#383), `l -715` as zpaq 7.15 prints it, and the rest of 65.24's fixes.
+  - Not here, as they are of zpaqfranz's full build: `ac -tar`, `xc` and `fix` (the whole disk of Windows by its files).
+  - zpaqfranz 65.24 still carries zstd 1.5.7; zpaq-std keeps its own zstd 1.6.0 (2.16.0).
+- **zxc 1.0.2** (`-ma:zxc`; was 1.0.1): a maintenance release, same format 9, same API. The seven levels write the bytes of 1.0.1.
+- **The source builds on Android** (Termux, clang, API 24; by ZF, tested on a phone with Android 11, ARM64): Bionic declares `struct statx` but not `statx()` below API 30, and the build stopped there. On Android the birth time of a file is not read (the shared storage keeps none); nothing changes on any other system. No Android binaries in the release.
+
+#### Checked
+
+@CHECKED@
+
 ### [2.17.0] - 2026-11-26
 
 **`a` with a `-ma` codec uses the threads: up to three times faster. `-franztime` says the peak of cores and the I/O speed, and writes a JSON line with `-json`.**

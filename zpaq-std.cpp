@@ -84,7 +84,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 /// ZPAQSTD_VERSION "X.Y.Z-rcN" ("zpaq-std v1.1.0-rc1 | zf ...").
 /// Update ZPAQSTD_DATE by hand at each release (a __DATE__ would make every
 /// build differ, and the release binaries are reproducible).
-#define ZPAQSTD_VERSION "2.17.0"
+#define ZPAQSTD_VERSION "2.18.0"
 #define ZPAQSTD_DATE "(2026-11-26)"
 extern bool g_timestampfijo;
 /// zpaqfranz's version this code is based on, and its date.
@@ -107336,8 +107336,8 @@ static const zs_info_row ZS_INFO[]=
 	 "BSD-2-Clause", "v2.1.0, commit c929365", "LZ5 1.5 portable profile (frozen)", "what -ma:lz6 was up to 2.9.0: 0 fast, 1-15 HC"},
 	{"bz2", true, 1, 9, 9, "ZPAQBZ2", "bz2-ng 517948e", "Tim Fennell; Julian R Seward (bzip2); Eric Biggers (libdeflate); Yuta Mori (sais-lite); Ilya Grebnov (libsais)", "https://github.com/tfenne/bz2-ng",
 	 "MIT; parts BSD-style, MIT and Apache-2.0 WITH LLVM-exception", "commit 517948e (no release yet)", "bzip2 stream", "libbz2 1.0.8's format with a new encoder and decoder"},
-	{"zxc", false, 1, 7, 3, "ZPAQZXC", "zxc 1.0.1", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
-	 "BSD-3-Clause; rapidhash MIT", "v1.0.1, commit 1cb3e19", "zxc format 9", "levels 6 and 7 add Huffman"},
+	{"zxc", false, 1, 7, 3, "ZPAQZXC", "zxc 1.0.2", "Bertrand Lebonnois and contributors; Nicolas De Carli (rapidhash)", "https://github.com/hellobertrand/zxc",
+	 "BSD-3-Clause; rapidhash MIT", "v1.0.2, commit 6dcd798", "zxc format 9", "levels 6 and 7 add Huffman"},
 	{"sylz", false, 0, 10, 1, "ZPAQSYLZ4", "sylz (syc v1.0.0)", "Yade Bravo (YadeWira)", "https://github.com/YadeWira/syc",
 	 "MIT", "syc v1.0.0, commit 0d944d6", "sylz format v4 (frozen at syc v0.8.0); a block may be plain v2",
 	 "Free Pascal, so a plugin only (codecs/sylz). Up to 2.10.0 it wrote format v2 (ZPAQSYLZ), which is still read"},
