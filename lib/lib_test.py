@@ -61,6 +61,23 @@ for c in ma:
     r1 = run(['c', '-m12', '-ma:' + c, '-t1'], small, 'a1.z'); r4 = run(['c', '-m12', '-ma:' + c, '-t4'], small, 'a4.z')
     d4 = run(['d', '-t4'], 'a4.z', 'o4')
     check('-ma:' + c, r1 == 0 and r4 == 0 and d4 == 0 and sha('a1.z') == sha('a4.z') and sha('o4') == hs, f"{os.path.getsize('a1.z')} {sha('a1.z')}")
+# damaged -ma streams: the codec itself reads them now
+dm = ['zstd:3', 'lzma:6', 'flzma2:5', 'bsc:3', 'kanzi:2', 'kanzi:5', 'ppmd:6', 'brotli:5', 'zxc:3', 'bzip3:5', 'lz6:7', 'lzh:2', 'deflate:6', 'bz2:9', 'lizard:17', 'hs:1', 'snappy:2', 'lzfse:1']
+if quick: dm = ['zstd:3', 'bsc:3', 'kanzi:2', 'ppmd:6']
+open('dmsrc.bin', 'wb').write(open(src, 'rb').read()[:1500000]); hd = sha('dmsrc.bin'); good = 0; tot = 0
+for c in dm:
+    run(['c', '-m10', '-ma:' + c], 'dmsrc.bin', 'dm0.z'); z = open('dm0.z', 'rb').read()
+    for k in range(6 if quick else 25):
+        b = bytearray(z); p = rnd.randrange(300, len(b) - 300); b[p] ^= 1 << rnd.randrange(8)
+        if k % 5 == 4: b = b[:p]
+        open('dm.z', 'wb').write(b)
+        for t in ('-t1', '-t4'):
+            rc = run(['d', t], 'dm.z', 'dm.o'); tot += 1
+            ok = (rc == 4) or (rc == 0 and sha('dm.o') == hd); good += ok
+            if not ok: print('  damaged -ma', c, k, t, 'rc', rc)
+check('damaged -ma streams', good == tot, f'{good}/{tot} refused (or right)')
+for f in ('dmsrc.bin', 'dm0.z'):
+    if os.path.exists(f): os.remove(f)
 for f in ('a1.z', 'a8.z', 'a4.z', 'o1', 'o8', 'o4', 'sig.bin', 'sig.z', 'sig.o1', 'sig.o4', 'e.bin', 'b1.bin', 'e.z', 'e.o1', 'e.o4', 'g.z', 'dm.z', 'dm.o', 'ma.bin'):
     if os.path.exists(f): os.remove(f)
 print('BAD', bad)

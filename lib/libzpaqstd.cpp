@@ -310,6 +310,95 @@ struct errore_dati
 	const char *cosa;
 };
 
+/// A -ma block by its codec instead of by its ZPAQL program (zstd: 30 MB/s by the program, hundreds by
+/// the codec). The same rule as the program's reader (the chain after "LZ5 decompress segment data" in
+/// zpaq-std.cpp, to keep in step with this table): only with zpaq-std's tag in the comment and the very
+/// decoder zpaq-std writes in the block (PostProcessor::shortcut); then the segment is what the codec
+/// wrote, after what its ZPAQL decoder wants in front of it.
+struct nativo
+{
+	const char *tag;   /// "zpaqstd-ma2:<tag>:<level>:<original>"
+	const char *codec; /// zs_get()
+	int davanti;	   /// bytes in front of the codec's stream: -1 ppmd's header, -2 kanzi's
+};
+static const nativo NATIVI[]= {
+	{"zstd", "zstd", 0}, {"bzip3", "bzip3", 0}, {"bsc", "bsc", libzpaq::ZPAQBSC_PREFIJO}, {"lzh10", "lzh", 0},
+	{"brotli", "brotli", libzpaq::ZPAQBROTLI_PREFIJO}, {"lz6seq", "lz6seq", 0}, {"lzfse", "lzfse", 0},
+	{"bzip2", "bzip2", 0}, {"bz2", "bz2", 0}, {"zxc9", "zxc", 4}, {"lizard", "lizard", 4}, {"hs", "hs", 0},
+	{"deflate", "deflate", 4}, {"snappy", "snappy", 0}, {"flzma2", "flzma2", 4}, {"uflzma2", "uflzma2", 4},
+	{"lzma", "lzma", 0}, {"lz6", "lz6", 0}, {"lz5-lz6", "lz6", 0}, {"lz5", "lz5", 0}, {"lz5hc", "lz5", 0},
+	{"lz5f", "lz5", 0}, {"ppmd", "ppmd", -1}, {"kanzi", "kanzi", -2}};
+static const nativo *nativo_di(const std::string &i_tag)
+{
+	for (size_t i= 0; i < sizeof(NATIVI) / sizeof(NATIVI[0]); i++)
+		if (i_tag == NATIVI[i].tag)
+			return &NATIVI[i];
+	return NULL;
+}
+/// "…zpaqstd-ma2:<tag>:<level>:<original>…" of a comment
+static bool nativo_etichetta(const std::string &i_commento, std::string &o_tag, int64_t &o_orig)
+{
+	const size_t p= i_commento.find("zpaqstd-ma2:");
+	if (p == std::string::npos)
+		return false;
+	const size_t a= p + 12;
+	const size_t b= i_commento.find(':', a);
+	const size_t c= (b == std::string::npos) ? b : i_commento.find(':', b + 1);
+	if (c == std::string::npos)
+		return false;
+	o_tag= i_commento.substr(a, b - a);
+	o_orig= 0;
+	size_t q= c + 1;
+	if ((q >= i_commento.size()) || (!isdigit((unsigned char)i_commento[q])))
+		return false;
+	for (; (q < i_commento.size()) && isdigit((unsigned char)i_commento[q]) && (o_orig < ((int64_t)1 << 40)); q++)
+		o_orig= o_orig * 10 + (i_commento[q] - '0');
+	return (o_orig > 0) && (o_orig <= 0x7fffffff);
+}
+/// false: not what the codec wrote
+static bool nativo_decodifica(const nativo &i_n, const unsigned char *i_src, size_t i_len, char *o_dst, int64_t i_orig)
+{
+	const zs_codec *zc= zs_get(i_n.codec);
+	if (zc == NULL)
+		return false;
+	size_t davanti= 0;
+	int param= 0;
+	if (i_n.davanti == -1)
+	{
+		/// ppmd: order, memory, size
+		if (i_len <= (size_t)libzpaq::ZPAQPPMD_CABECERA)
+			return false;
+		const unsigned order= i_src[0];
+		const unsigned mem= (unsigned)i_src[1] | ((unsigned)i_src[2] << 8) | ((unsigned)i_src[3] << 16) | ((unsigned)i_src[4] << 24);
+		const int64_t n= (int64_t)((unsigned)i_src[5] | ((unsigned)i_src[6] << 8) | ((unsigned)i_src[7] << 16) | ((unsigned)i_src[8] << 24));
+		if ((order < 2) || (order > 64) || (mem == 0) || ((mem & 0xFFFFF) != 0) || (n != i_orig))
+			return false;
+		davanti= (size_t)libzpaq::ZPAQPPMD_CABECERA;
+		param= (int)(order | ((mem >> 20) << 8));
+	}
+	else if (i_n.davanti == -2)
+	{
+		/// kanzi: size, level, the dictionary from level 3 on
+		if (i_len < 6)
+			return false;
+		uint64_t hsz= 0;
+		for (int i= 0; i < 4; i++)
+			hsz|= (uint64_t)i_src[i] << (8 * i);
+		if ((int64_t)hsz != i_orig)
+			return false;
+		davanti= (i_src[4] >= 3) ? 5 + (size_t)libzpaq::ZPAQKANZI_DICT_LEN : 5;
+		param= i_src[4];
+	}
+	else
+		davanti= (size_t)i_n.davanti;
+	if (i_len < davanti + 1)
+		return false;
+	const long long r= zc->decompress(i_src + davanti, i_len - davanti, o_dst, (size_t)i_orig, param);
+	if (r == ZS_ERR_MEMORY)
+		throw std::bad_alloc();
+	return r == i_orig;
+}
+
 /// what a run of blocks gave: the SHA-1 and the size of each one, and the last block if it was there
 struct letto
 {
@@ -358,15 +447,51 @@ static void leggi_blocchi(libzpaq::Reader *i_in, libzpaq::Writer *i_out, letto &
 			libzpaq::StringBuffer commento;
 			const int64_t prima= conta.n;
 			d.readComment(&commento);
-			/// a -ma block is decoded by its own ZPAQL program, as any zpaq does it
-			d.setSHA1(&sha);
-			d.decompress();
+			const std::string c(commento.c_str(), commento.size());
 			char atteso[21]= {0};
-			d.readSegmentEnd(atteso);
-			const std::string suo(sha.result(), 20);
+			std::string suo;
+			std::string tag;
+			int64_t orig= 0;
+			const nativo *nat= (nativo_etichetta(c, tag, orig) && zs_native_ok(c)) ? nativo_di(tag) : NULL;
+			if (nat == NULL)
+			{
+				/// a block of zpaq, or a -ma one by its own ZPAQL program, as any zpaq does it
+				d.setNativeShortcut(false);
+				d.setSHA1(&sha);
+				d.decompress();
+				d.readSegmentEnd(atteso);
+				suo.assign(sha.result(), 20);
+			}
+			else
+			{
+				/// the segment to memory: the codec's stream if the block has zpaq-std's decoder (then the
+				/// codec decodes it), the data already if it has another one (its ZPAQL ran)
+				libzpaq::StringBuffer seg;
+				d.setNativeShortcut(true);
+				d.setOutput(&seg);
+				d.setSHA1(&sha);
+				d.decompress();
+				d.readSegmentEnd(atteso);
+				d.setOutput(&conta);
+				d.setNativeShortcut(false);
+				if ((int64_t)seg.size() == orig)
+				{
+					suo.assign(sha.result(), 20);
+					conta.write(seg.c_str(), (int)seg.size());
+				}
+				else
+				{
+					std::string dati((size_t)orig, 0);
+					if (!nativo_decodifica(*nat, (const unsigned char *)seg.c_str(), seg.size(), &dati[0], orig))
+						throw errore_testo{"damaged data: a block does not decode"};
+					libzpaq::SHA1 sha2;
+					sha2.write(dati.data(), orig);
+					suo.assign(sha2.result(), 20);
+					conta.write(dati.data(), (int)orig);
+				}
+			}
 			if ((!atteso[0]) || (memcmp(atteso + 1, suo.data(), 20) != 0))
 				throw errore_testo{"damaged data: the checksum of a block is not the stored one"};
-			const std::string c(commento.c_str(), commento.size());
 			const size_t p= c.find(FINE);
 			if (p != std::string::npos)
 			{
