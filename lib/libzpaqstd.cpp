@@ -588,7 +588,7 @@ ZPAQSTD_API const char *zpaqstd_version(void)
 	return "zpaq-std " ZPAQSTD_VERSION " (zpaqfranz " ZPAQ_VERSION ") library 1";
 }
 
-ZPAQSTD_API int zpaqstd_run(int argc, char **argv, intptr_t i_in, intptr_t i_out, intptr_t i_err)
+static int zpaqstd_corri(int argc, char **argv, intptr_t i_in, intptr_t i_out, intptr_t i_err)
 {
 	using namespace zslib;
 	const maniglia in= (maniglia)i_in, out= (maniglia)i_out, err= (maniglia)i_err;
@@ -676,4 +676,51 @@ ZPAQSTD_API int zpaqstd_run(int argc, char **argv, intptr_t i_in, intptr_t i_out
 	chiudi(out);
 	chiudi(err);
 	return rc;
+}
+
+#ifdef _WIN32
+/// Windows: the work runs in a thread of the library, never in the caller's. mingw-w64's static runtime
+/// keeps what C++ needs for each thread (exceptions, thread_local) in emulated TLS, freed when the thread
+/// ends or the DLL goes; if the caller's thread had used it here (d throws and catches), the C++ streams'
+/// destructor found it freed while the DLL was unloaded and wrote there: Windows 7 x64 ended the process
+/// with a corrupted heap (0xC0000374) in one FreeLibrary out of three, and now and then at exit.
+namespace zslib
+{
+struct chiamata
+{
+	int argc;
+	char **argv;
+	intptr_t in, out, err;
+	int rc;
+};
+static DWORD WINAPI filo(LPVOID i_p)
+{
+	chiamata *c= (chiamata *)i_p;
+	c->rc= zpaqstd_corri(c->argc, c->argv, c->in, c->out, c->err);
+	return 0;
+}
+} // namespace zslib
+#endif
+
+ZPAQSTD_API int zpaqstd_run(int argc, char **argv, intptr_t i_in, intptr_t i_out, intptr_t i_err)
+{
+#ifdef _WIN32
+	zslib::chiamata c= {argc, argv, i_in, i_out, i_err, 2};
+	HANDLE h= CreateThread(NULL, (SIZE_T)16 << 20, zslib::filo, &c, 0, NULL);
+	if (h == NULL)
+	{
+		static const char testo[]= "zpaqstd: cannot start a thread\n";
+		DWORD fatti= 0;
+		WriteFile((HANDLE)i_err, testo, (DWORD)(sizeof(testo) - 1), &fatti, NULL);
+		CloseHandle((HANDLE)i_in);
+		CloseHandle((HANDLE)i_out);
+		CloseHandle((HANDLE)i_err);
+		return 3;
+	}
+	WaitForSingleObject(h, INFINITE);
+	CloseHandle(h);
+	return c.rc;
+#else
+	return zpaqstd_corri(argc, argv, i_in, i_out, i_err);
+#endif
 }

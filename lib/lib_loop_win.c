@@ -35,6 +35,39 @@ static unsigned long long somma(const char *nome, long long *o_len)
 	fclose(f);
 	return h;
 }
+#include <malloc.h>
+static int heapbad(const char *dove, int g)
+{
+	HANDLE hh[64];
+	DWORD n= GetProcessHeaps(64, hh);
+	int bad= 0;
+	for (DWORD i= 0; i < n && i < 64; i++)
+		if (!HeapValidate(hh[i], 0, NULL))
+			bad++;
+	if (bad && getenv("LIBHEAP"))
+		printf("HEAP BAD %s round %d (%d of %lu heaps)\n", dove, g, bad, (unsigned long)n);
+	return bad;
+}
+static HMODULE g_lib= NULL;
+static LONG CALLBACK veh(EXCEPTION_POINTERS *e)
+{
+	const DWORD c= e->ExceptionRecord->ExceptionCode;
+	if ((c != 0xC0000374) && (c != 0xC0000005) && (c != 0xC0000409))
+		return EXCEPTION_CONTINUE_SEARCH;
+	void *st[48];
+	USHORT n= RtlCaptureStackBackTrace(0, 48, st, NULL);
+	printf("EXCEPTION %08lx at %p, dll base %p, exe base %p\n", (unsigned long)c, e->ExceptionRecord->ExceptionAddress, (void *)g_lib, (void *)GetModuleHandle(NULL));
+	for (USHORT i= 0; i < n; i++)
+	{
+		HMODULE m= NULL;
+		char nome[260]= "?";
+		if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)st[i], &m) && m)
+			GetModuleFileNameA(m, nome, sizeof(nome));
+		const char *b= strrchr(nome, '\\');
+		printf("  #%d %s+0x%llx\n", i, b ? b + 1 : nome, (unsigned long long)((char *)st[i] - (char *)m));
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
 static void stato(DWORD *o_handles, size_t *o_kb)
 {
 	PROCESS_MEMORY_COUNTERS pmc;
@@ -49,7 +82,10 @@ int main(int argc, char **argv)
 		return 2;
 	setvbuf(stdout, NULL, _IONBF, 0);
 	printf("loading\n");
+	if (getenv("LIBVEH"))
+		AddVectoredExceptionHandler(1, veh);
 	HMODULE lib= LoadLibraryA(argv[1]);
+	g_lib= lib;
 	printf("loaded\n");
 	if (!lib)
 	{
@@ -89,8 +125,16 @@ int main(int argc, char **argv)
 		const unsigned long long hz= somma(z, &lz);
 		if (g == 0)
 			hz0= hz, lz0= lz;
-		int rd= run(nd, dargs, (intptr_t)apri(z, 0), (intptr_t)apri(o, 1), (intptr_t)errori());
-		const unsigned long long h1= somma(o, &l1);
+		if (getenv("LIBHEAP")) heapbad("after c", g);
+		int rd= 0;
+		unsigned long long h1= h0;
+		l1= l0;
+		if (!getenv("LIBNOD"))
+		{
+			rd= run(nd, dargs, (intptr_t)apri(z, 0), (intptr_t)apri(o, 1), (intptr_t)errori());
+			h1= somma(o, &l1);
+		}
+		if (getenv("LIBHEAP")) heapbad("after d", g);
 		if (rc || rd || (h1 != h0) || (l1 != l0) || (hz != hz0) || (lz != lz0))
 		{
 			male++;
