@@ -1,0 +1,13 @@
+out/
+run64/
+w7/
+*.bin
+*.log
+*.so
+*.exe
+*.cmd
+lib_loop
+lib_loop32
+lib_loop_asan
+all_lib.sh
+ma_test.py

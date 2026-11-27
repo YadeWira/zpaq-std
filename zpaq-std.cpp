@@ -154280,6 +154280,9 @@ class franzVSS
 				 pUuidCreate(NULL), pUuidToStringA(NULL), pRpcStringFreeA(NULL),
 				 wmiInitialized(false), comInizializzato(false)
 	{
+#ifndef ZPAQSTD_LIB /// zpaq-std, libzpaqstd: g_myvss is a global, and in a DLL its constructor runs while
+		/// Windows loads the library: COM from there never comes back on Windows 7 (LoadLibrary hangs).
+		/// The library has no -vss.
 		if (loadFunctions())
 		{
 			if (initWMI())
@@ -154296,6 +154299,7 @@ class franzVSS
 		{
 			myprintf("Failed to load dynamic libraries\n");
 		}
+#endif
 	}
 
 	~franzVSS()
