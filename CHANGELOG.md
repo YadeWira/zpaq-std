@@ -14,7 +14,14 @@
 
 #### Checked
 
-@CHECKED@
+- **The same archives as 2.17.0:** on Linux x64, 18 methods (the `-m` levels, `-ma` codecs, and `-ma:zxc` at its seven levels with zxc 1.0.2) write the archive that 2.17.0 writes, byte for byte (`-nolfast -timestamp`), and 2.17.0 extracts them.
+- **Hard links in `-tar`,** with zpaqfranz's code in the place of zpaq-std's: the suite gives 7 of 7, and a name that leaves a group, one that joins it, and a link broken with the same date and size come back as they were on disk.
+- **`x -to` on Windows 7** (x64 and x86) with the path in another case: the files go to `-to` and nothing is written in the source, as in 2.17.0.
+- **The battery** on the release's binary and plugins gives what 2.17.0's gave, line by line, every suite with nothing to review.
+- **Platforms:** on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-sa` writes the same archive on x64, x86 and AArch64.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the four sets and the twenty thread cases of 2.17.0 give what they gave.
+- **Not checked here:** `a -tar` on Windows with what 65.24 adds (junctions, streams, EFS, sparse files) was not run in a Windows VM for this release; it is zpaqfranz's code as merged.
+- **CI,** the six platforms: every check passes, macOS's binary and plugins come from that run. Android is not in CI.
 
 ### [2.17.0] - 2026-11-26
 
