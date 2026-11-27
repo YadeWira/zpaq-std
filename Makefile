@@ -572,6 +572,16 @@ plugins/codecs/%$(PLUGEXT): compressors/plug/zs_%.cpp compressors/plug/zs_codec.
 	$(CXX) -std=gnu++17 -O3 -Wall -pthread $(filter -m32,$(CXXFLAGS)) -DZS_PLUGIN -D_GLIBCXX_USE_CXX11_ABI=0 $(PLUGINC_$*) $(PLUGLDFLAGS) $< $(PLUGLIB_$*) -o $@
 	$(if $(findstring mingw,$(CROSS_COMPILE)),SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) $(STRIP) --remove-section=.comment $@)
 
+# libzpaqstd: the compressor as a library (lib/README.md). It rebuilds every object for its target
+# (position-independent on Linux), so run make clean before going back to the program.
+#   make lib                 this machine (Linux x64)      make lib LIBTARGET=linux86 | win64 | win32
+LIBTARGET ?= linux64
+.PHONY: lib lib-check
+lib:
+	bash lib/build_lib.sh $(LIBTARGET)
+lib-check:
+	cd lib/out/linux64 && python3 ../../lib_test.py ./libzpaqstd.so ../../../$(SOURCE) quick
+
 plugins:
 	@mkdir -p plugins/codecs
 	$(MAKE) --no-print-directory PLUGINS=1 plugins/zpaq-std $(PLUGIN_FILES) $(FPC_PLUGIN_FILES)
