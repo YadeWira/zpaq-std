@@ -1,4 +1,4 @@
-zxc 1.0.2 (tag v1.0.2, commit 6dcd798, 2026-11-24, format version 9), copied unmodified: src/lib and
+zxc 1.0.2 (tag v1.0.2, commit 6aa1d02, 2026-11-24, format version 9), copied unmodified: src/lib and
 include. A maintenance release (build fixes for CMake, options to trim the SIMD variants, a new
 header, zxc_build.h); zpaq-std builds it as before, the three variants. Levels 1 to 7 write the
 bytes of 1.0.1. In zpaq-std 2.18.0.
