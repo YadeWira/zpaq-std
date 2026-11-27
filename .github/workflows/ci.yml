@@ -86,6 +86,69 @@ jobs:
           ${{ matrix.build }} CPPFLAGS=-DZS_JITTEST
           bash test/ci/jit_check.sh "$PWD/zpaq-std" test
 
+  # libzpaqstd (lib/README.md): the compressor as a library. Linux x64 with its whole check; the
+  # Windows DLLs are built here and run on Windows below
+  library:
+    name: library ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux64 }
+          - { target: linux86, deps: 'g++-multilib' }
+          - { target: win64, deps: 'mingw-w64', cc: x86_64-w64-mingw32-gcc }
+          - { target: win32, deps: 'mingw-w64', cc: i686-w64-mingw32-gcc }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        if: matrix.deps
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.deps }}
+      - name: Build
+        run: JOBS=4 make lib LIBTARGET=${{ matrix.target }} || { tail -30 lib/out/${{ matrix.target }}/*.log; exit 1; }
+      - name: 'Check: levels, threads, -ma codecs, damaged streams'
+        if: matrix.target == 'linux64'
+        run: make lib-check
+      - name: 'Check: many calls, the bytes of linux64'
+        if: matrix.target == 'linux64' || matrix.target == 'linux86'
+        run: bash test/ci/lib_loop.sh ${{ matrix.target }}
+      - name: The test program for Windows
+        if: matrix.cc
+        run: ${{ matrix.cc }} -O1 lib/lib_loop_win.c -o lib/out/${{ matrix.target }}/lib_loop.exe -lpsapi -static
+      - uses: actions/upload-artifact@v4
+        with:
+          name: library-${{ matrix.target }}
+          path: |
+            lib/out/${{ matrix.target }}/libzpaqstd.so
+            lib/out/${{ matrix.target }}/zpaqstd.dll
+            lib/out/${{ matrix.target }}/lib_loop.exe
+            lib/out/${{ matrix.target }}/hashes.txt
+
+  library-windows:
+    name: library ${{ matrix.target }} (run)
+    needs: library
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win64, win32]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: library-${{ matrix.target }}
+          path: bin
+      - uses: actions/download-artifact@v4
+        with:
+          name: library-linux64
+          path: ref
+      - name: 'Many calls, load and unload, the bytes of linux64'
+        run: bash test/ci/lib_loop.sh ${{ matrix.target }} bin ref/hashes.txt
+
   windows-build:
     name: windows-${{ matrix.arch }} (build)
     runs-on: ubuntu-24.04
