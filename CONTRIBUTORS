@@ -69,7 +69,7 @@ folder under compressors/.
                           Nicolas De Carli (rapidhash)
   sylz and sylzec syc v1.0.0
                           Yade Bravo (YadeWira)                   MIT
-  PJA 0.9.14              Yade Bravo (YadeWira)                   MIT
+  PJA 0.9.15              Yade Bravo (YadeWira)                   MIT
   PPA 0.7.0               Yade Bravo (YadeWira)                   MIT
 
 sylz (syc), PJA and PPA (Yade Bravo, MIT) are in Free Pascal and, by rule, never linked

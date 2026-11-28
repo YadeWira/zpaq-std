@@ -35,7 +35,7 @@ PART 1 - BUNDLED COMPRESSORS
   BLAKE3 (SIMD implementations) 1.8.2                        CC0-1.0 OR Apache-2.0 (with LLVM exceptions)
   zxc                  1.0.2                        BSD-3-Clause; rapidhash MIT
   sylz and sylzec      syc v1.0.0                   MIT
-  PJA                  0.9.14                       MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
+  PJA                  0.9.15                       MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
   PPA                  0.7.0                        MIT; parts ported from zlib (zlib license); copies of PJA, of libdeflate 1.26's compressor (MIT) and of zopfli 1.0.3's deflate (Apache-2.0)
   ZPAQLZMA decoder     -                            see text
 
@@ -2899,7 +2899,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ===============================================================================
-PJA 0.9.14
+PJA 0.9.15
 Licence: MIT; parts after libjpeg (IJG), CharLS (BSD-3-Clause) and OpenJPH (BSD-2-Clause)
 Copyright: Yade Bravo (YadeWira)
 The -sa codecs: pjax78 and pja78 (JPEG), pjall8 (lossless JPEG), pjals8 and pjalsx8 (JPEG-LS),
