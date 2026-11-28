@@ -214,6 +214,27 @@ each file and each block got.
 
 ---
 
+## The library: `libzpaqstd` (experimental, since 2.19.0)
+
+zpaq-std's compressor inside another program: a stream in, a stream out, with zpaq's levels
+(`-m0` to `-m5`) and the `-ma` codecs written in C or C++. It is the compressor only: no
+archive, no versions, none of the commands.
+
+```c
+int zpaqstd_run(int argc, char **argv, intptr_t in, intptr_t out, intptr_t err);
+const char *zpaqstd_version(void);
+```
+
+`c -m3 -t8` compresses what it reads from `in` to `out`, `d` gives it back; `in`, `out` and
+`err` are file descriptors (Linux) or handles (Windows), pipes too. It returns a code (0 right,
+4 damaged data) and never ends the process. What it writes is a standard ZPAQ stream, which any
+zpaq reads, the same bytes whatever the threads and the platform. Each release has it for Linux
+and Windows, x64 and x86 (`...-lib.zip`; the Windows DLLs need nothing but Windows, from
+Windows 7). Experimental: the stream is settled, an argument or a return code may still change.
+More: [lib/README.md](lib/README.md).
+
+---
+
 ## Build
 
 Only a C++ compiler (g++, clang++) and GNU make; no library to install. On macOS,
@@ -226,6 +247,7 @@ make CROSS_COMPILE=i686-w64-mingw32-      # 32-bit Windows (Windows 7 and later)
 make m32                                  # 32-bit Linux (needs g++-multilib)
 make CROSS_COMPILE=aarch64-linux-gnu-     # Linux AArch64
 make plugins                              # program + every codec as a plugin (make clean first)
+make lib                                  # libzpaqstd (LIBTARGET=linux64|linux86|win64|win32; make clean after)
 make install                              # to /usr/local/bin (or PREFIX=/opt)
 ```
 

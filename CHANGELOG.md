@@ -1,3 +1,22 @@
+### [2.19.0] - 2026-11-28
+
+**The compressor as a library (`libzpaqstd`, experimental). A `-sa` codec may bring its own model.**
+
+- **`libzpaqstd`, experimental:** zpaq-std's compressor inside another program, a stream in and a stream out (`lib/README.md`). Two functions, `zpaqstd_run(argc, argv, in, out, err)` and `zpaqstd_version()`; `c [-m<0..5>[<block>]] [-ma:<codec>:<level>] [-t<threads>]` compresses what comes from `in` (a file descriptor, a Windows handle, a pipe of any length) to `out`, `d [-t<threads>]` gives it back.
+  - zpaq's levels and the `-ma` codecs written in C or C++ (22 of them; not sylz and sylzec, which are Rust, nor lz4 and lzav yet). The archiver is not in it: no versions, no deduplication, none of the commands.
+  - It writes a standard ZPAQ stream: zpaq 7.15, zpaqfranz and zpaq-std read it, the `-ma` blocks too (each carries its ZPAQL decoder). The same bytes with any number of threads, on Linux and Windows, 64 and 32 bits.
+  - The last block of a stream has no data and says how many blocks and bytes came before it: a stream cut between two blocks, or with blocks missing or out of their order, is refused (a ZPAQ block does not say it is the last one). Damaged data give a code (4), never a crash; the library never ends the process.
+  - In each release for Linux and Windows, x64 and x86 (`-lib.zip`); `make lib` builds it. The Windows DLLs import system libraries only and run from Windows 7.
+  - Experimental: the stream is settled; an argument or a return code may still change until a program has used it for a while.
+- **`-sa`: a codec whose ZPAQL has a model** (components in its COMP section) **is judged after its model.** Such a codec gives more bytes than the file (it undoes a compression and leaves the data to its own context model), and the gain was measured on those bytes: its blocks were never taken. Now each of its blocks is compressed twice, with the codec's model and as `-m` says, and the smaller one is written; `-sat` shows both sizes. The codecs without a model (PJA, PPA) write the archives of 2.18.0.
+  - The reader takes the whole segment of a `-sa` block of one file (it stopped at the size of the data, which the output of a codec had never reached) and holds what the codec can write for the block (`bound()`).
+  - A zpaq-std up to 2.18.0 that has the plugin of such a codec does not read its blocks (31322); without the plugin it does, by the ZPAQL in the block, as any zpaq. No codec of zpaq-std has a model today.
+- `make lib`, `make lib-check`. CI builds the library for its four targets, checks it on Linux and runs the DLLs on Windows.
+
+#### Checked
+
+@CHECKED@
+
 ### [2.18.0] - 2026-11-26
 
 **zpaqfranz 65.24 (`-tar` on Windows with everything NTFS keeps). zxc 1.0.2. The source builds on Android.**
