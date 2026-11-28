@@ -16,7 +16,14 @@
 
 #### Checked
 
-@CHECKED@
+- **The library, Linux x64** (the release's `libzpaqstd.so`, `lib/lib_test.py`): the six levels and 24 `-ma` cases there and back, with the same bytes for 1, 4 and 8 threads on either side; a stream with the signature of a block inside its data; 108 damaged streams (cut anywhere, cut between two blocks, a block gone, two swapped, one repeated, bits flipped) and 900 damaged `-ma` ones, each refused with code 4 or given back right; 200 calls in one process leave no memory and no descriptor behind. With AddressSanitizer and LeakSanitizer: nothing. zpaq 7.15 reads its streams, `-ma` ones too.
+- **The library, the other three:** Linux x86 writes the bytes of x64. Windows 7 and Windows 10, x64 and x86, with the release's DLLs: 14 cases, the archives of Linux x64, 200 calls, and 100 runs that unload the DLL and 100 that end with it loaded, none ending badly. Two faults found there on Windows 7 and fixed before this release: the DLL hung while loading (the program's VSS object started COM in its constructor), and the 64-bit one corrupted the heap when unloaded after a `d` (the caller's thread had used the runtime's emulated TLS; the work runs in a thread of the library now).
+- **A `-sa` codec with a model**, with plzo's plugin (not part of zpaq-std) on 49 LZO files: the blocks its model wins are written with it, the others as `-m` says, the same bytes with 1 and 16 threads, and the files come back with the plugin, without it (the ZPAQL in the block) and with zpaq 7.15. **PJA and PPA:** `-sa`, `-sa -rcmd` and `-sa -t1` write the archives of 2.18.0 byte for byte, and each version reads the other's.
+- **The battery** on the release's binary and plugins gives what 2.18.0's gave, line by line, every suite with nothing to review; the library's suite is new in it (37 checks).
+- **Platforms:** on Linux x86 and AArch64 every method runs, 297 cross extractions are right, the same four methods write other bytes on 32 bits; `-sa` writes the same archive on x64, x86 and AArch64.
+- **Windows 7, x64 and x86,** with the release's binaries and plugins: the six sets of 2.18.0 give what they gave.
+- **Not checked here:** the library called from a program of someone else (ytool has read its interface, not loaded it yet); calls at the same time from several threads, which it does not promise.
+- **CI,** the six platforms and the library's four targets: every check passes, macOS's binary and plugins come from that run.
 
 ### [2.18.0] - 2026-11-26
 
