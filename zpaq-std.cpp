@@ -96226,8 +96226,14 @@ struct zs_sa_codec
 	/// gives none. For a codec whose ZPAQL decoder takes time by something that is not the bytes of
 	/// the files (PPA: the pixels of the images): the files' own weights come from ZS_QUERY_WEIGHT
 	int64_t		peso_tope;
-	zs_sa_codec() : level(0), segs(false), rcmd(false), rc_ok(false), rc_level(0), rc_n(-1), rc_pseudo(-1), rcmd_de(-1), peso_tope(0) {}
+	/// zpaq-std 2.19.0: its ZPAQL has a model (components in COMP), and so has the one of its "z"
+	/// variant: what the codec gives is still to be compressed by that model, and whether the block
+	/// gains is known only then (see "zpaqsam:" in compressBlock)
+	bool		modelo, zmodelo;
+	zs_sa_codec() : level(0), segs(false), rcmd(false), rc_ok(false), rc_level(0), rc_n(-1), rc_pseudo(-1), rcmd_de(-1), peso_tope(0), modelo(false), zmodelo(false) {}
 };
+/// (compressBlock tells the -sa layer what it chose for a "zpaqsam:" block; defined with g_sa_taken)
+void sa_modelo_resultado(bool i_codec, int64_t i_concodec, int64_t i_comom);
 int						 g_sa_mode= 0;	/// 'e' (-sae, and -sa), 't' (-sat) or 0
 #include <functional>
 extern int				 g_sa_threads;	/// -sa: threads a block's files may use (sa_parallel), -t
@@ -106681,6 +106687,42 @@ void compressBlock(StringBuffer* in, Writer* out, const char* method_,
   /// comprima como comprima (con preprocesado LZ77/BWT libzpaq ve menos bytes).
   const int64_t prog_n= in->size();
   assert(in);
+  /// zpaq-std 2.19.0, -sa with a codec whose ZPAQL has a model: "zpaqsam:<bytes of the codec>:<length
+  /// of the tag>:<method of the block>\x01<zpaqsa... method>". The block is what the codec gave and,
+  /// after it, the data as they were. What the codec gave is larger than the data or not, and says
+  /// nothing: its model compresses it. So both are compressed, the codec's with its model and the data
+  /// as -m says, and the smaller block is written: a -sa codec never makes an archive larger.
+  if (strncmp(method_, "zpaqsam:", 8)==0) {
+    const char* sep=strchr(method_, 1);
+    long long ncodec=0;
+    int ntag=0, letti=0;
+    if (sep==NULL || sscanf(method_+8, "%lld:%d:%n", &ncodec, &ntag, &letti)<2 || letti<=0 || ncodec<0 || (size_t)ncodec>in->size())
+      error("bad zpaqsam method");
+    const std::string metodo_m(method_+8+letti, (size_t)(sep-(method_+8+letti)));
+    const std::string metodo_c(sep+1);
+    if (metodo_m.empty() || metodo_c.empty() || ntag<0 || (comment ? strlen(comment) : 0)<(size_t)ntag)
+      error("bad zpaqsam method");
+    StringBuffer con_codec, como_m;
+    {
+      StringBuffer parte((size_t)ncodec+1);
+      parte.write((const char*)in->data(), (int)ncodec);
+      compressBlock(&parte, &con_codec, metodo_c.c_str(), filename, comment, dosha1, 0);
+    }
+    {
+      const size_t resto=in->size()-(size_t)ncodec;
+      StringBuffer parte(resto+1);
+      parte.write((const char*)in->data()+ncodec, (int)resto);
+      const char* c2=comment ? comment+ntag : 0;
+      compressBlock(&parte, &como_m, metodo_m.c_str(), filename, (c2 && *c2) ? c2 : 0, dosha1, 0);
+    }
+    const bool codec=con_codec.size()<como_m.size();
+    StringBuffer& elegido=codec ? con_codec : como_m;
+    out->write(elegido.c_str(), (int)elegido.size());
+    sa_modelo_resultado(codec, (int64_t)con_codec.size(), (int64_t)como_m.size());
+    in->resize(0);
+    if (prog) *prog+=prog_n;
+    return;
+  }
   assert(out);
   assert(method_);
   assert(method_[0]);
@@ -107969,6 +108011,24 @@ static int zs_ext_log2(int64_t i_n)
 }
 /// Compiles a ZPAQL configuration: its pcomp bytecode, or false and the error
 /// $3..$5 come packed in i_a345 (bits 0-7, 8-15, 16-23), as ZS_QUERY_ZPAQL_ARGS gives them
+/// how many components the COMP section of a configuration has (0: what goes in is stored as it is)
+static int zs_ext_componentes(const std::string& i_cfg)
+{
+	if (i_cfg.empty())
+		return 0;
+	try
+	{
+		libzpaq::ZPAQL hz, pz;
+		libzpaq::StringBuffer cmd;
+		int args[9]={24, 20, 20, 20, 20, 0, 0, 0, 0};
+		libzpaq::Compiler c(i_cfg.c_str(), args, hz, pz, &cmd);
+		return hz.header[6];
+	}
+	catch (std::exception&)
+	{
+		return 0;
+	}
+}
 static bool zs_ext_compile(const std::string& i_cfg, int i_a1, int i_a2, int i_a345, std::string* o_bc, std::string* o_err)
 {
 	try
@@ -180005,6 +180065,10 @@ int Jidac::loadparameters(int argc, const char** argv)
 			}
 			sc.cfg=xe->zpaql;
 			sc.segs=xe->segs && !xe->zpaql.empty();
+			sc.modelo=zs_ext_componentes(sc.cfg)>0;
+			if (sc.modelo && (g_sa_mode=='t' || flagverbose))
+				myprintf("00790: -sa%c:%s:%s: its ZPAQL has a model (%d components): each block is compressed with it and as -m says, and the smaller one is kept\n",
+				         g_sa_mode, sc.file.c_str(), sc.algo.c_str(), zs_ext_componentes(sc.cfg));
 			/// 2.9.0: a cap on the weight of a group, if the codec gives one (and it shares blocks)
 			if (c->query && sc.segs)
 			{
@@ -180024,6 +180088,7 @@ int Jidac::loadparameters(int argc, const char** argv)
 					myprintf("00731! -sa%c:%s:%s: the ZPAQL of %s does not compile: %s\n", g_sa_mode, sc.file.c_str(), sc.algo.c_str(), sa_zname(sc.file, sc.algo).c_str(), err.c_str());
 					seppuku(2);
 				}
+				sc.zmodelo=zs_ext_componentes(sc.zcfg)>0;
 				if (g_sa_mode=='t' && !sc.zcfg.empty())
 					myprintf("00733: -sat:%s:%s: and %s, LZ77 over each group's segments, where it takes fewer bytes\n",
 					         sc.file.c_str(), sc.algo.c_str(), sa_zname(sc.file, sc.algo).c_str());
@@ -193718,6 +193783,10 @@ ThreadReturn decompressThread(void *arg)
 						{
 							extp_mode=cs[me+10];	/// zpaqstd-ma<e|t> or zpaqstd-sa<e|t>
 							extp_sa=(cs[me+8]=='s');
+							/// zpaq-std 2.19.0: the segment to its very end, as a -ma one. It stopped at the size of
+							/// the data, which what a codec gave never reached; one whose ZPAQL has a model gives
+							/// more than the data (the model compresses it), and its plugin got half of it
+							ma_leer_todo=true;
 							const zs_ext* xe=zs_ext_get(extp_file, extp_algo);
 							if (xe && xe->c)
 							{
@@ -193728,6 +193797,11 @@ ThreadReturn decompressThread(void *arg)
 								{
 									d.setExtraBytecode(bc);
 									d.setNativeShortcut(true);
+									/// zpaq-std 2.19.0: what the codec wrote can be larger than the data (a codec
+									/// whose ZPAQL has a model): the most it writes for a block of this size
+									const size_t suo=(b.usize > 0 && b.usize <= 0x7FFFFFFF) ? xe->c->bound((size_t)b.usize, extp_lvl) : 0;
+									if (suo > 0)
+										out.setLimit(std::max(limiteblocco(b.usize, b.bsize), suo + 4 + 65536));
 								}
 							}
 						}
@@ -193791,6 +193865,18 @@ ThreadReturn decompressThread(void *arg)
 									{
 										d.setExtraBytecode(bc);
 										d.setNativeShortcut(true);
+										/// (2.19.0, as above: the most the codec writes for these segments)
+										size_t suo=0;
+										int64_t dati=0;
+										for (size_t i=0; i<extp_segs.size(); i++)
+										{
+											const int64_t o=extp_segs[i].first;
+											dati+=o;
+											if (o > 0 && o <= 0x7FFFFFFF && dati <= b.usize)
+												suo+=xe->c->bound((size_t)o, extp_lvl) + 4;
+										}
+										if (suo > 0 && dati <= b.usize)
+											out.setLimit(std::max(limiteblocco(b.usize, b.bsize), suo + 65536));
 									}
 								}
 							}
@@ -281129,6 +281215,28 @@ static void sa_name_set(const std::string& i_block, const std::string& i_file)
 	g_ext_print().leave();
 }
 static std::atomic<int> g_sa_taken(0);	/// blocks a -sa codec compressed
+/// zpaq-std 2.19.0: a codec whose ZPAQL has a model. The block becomes what the codec gave and the data
+/// after it, with the two methods ("zpaqsam:", see compressBlock): the smaller of the two is written.
+/// The comment has the codec's tag in front already: its length says where the block's own begins
+static void sa_modelo_arma(StringBuffer& sb, string& m, string& comment, const std::string& i_datos, const std::string& i_metodo_m)
+{
+	const size_t ncodec=sb.size();
+	const size_t ntag=comment.find(' ')==string::npos ? comment.size() : comment.find(' ')+1;
+	sb.write(i_datos.data(), (int)i_datos.size());
+	m="zpaqsam:"+itos((int64_t)ncodec)+":"+itos((int64_t)ntag)+":"+i_metodo_m+std::string(1, (char)1)+m;
+}
+void sa_modelo_resultado(bool i_codec, int64_t i_concodec, int64_t i_comom)
+{
+	if (!i_codec)
+		--g_sa_taken;
+	if (g_sa_mode=='t')
+	{
+		g_ext_print().enter();
+		myprintf("00789: -sat: a block with the codec's model %s bytes, as -m says %s bytes: %s\n", migliaia(i_concodec), migliaia2(i_comom),
+		         i_codec ? "the codec's is written" : "no gain, compressed as -m says");
+		g_ext_print().leave();
+	}
+}
 /// -sa: i_f(0) .. i_f(i_n-1), each once, by this thread and helpers while there are
 /// threads to spare: the compressing threads (-t) already run one block each, so the
 /// helpers of all the blocks together stay under -t (g_sa_helpers)
@@ -281320,7 +281428,8 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 	if (i_one && !z)
 		return false;
 	const int64_t bsize=z ? (int64_t)zout.size()+zzbc : (int64_t)out.size()+zbc;
-	if (bsize>=orig_size-16)
+	const bool conmodelo=z ? sc.zmodelo : sc.modelo; /// 2.19.0: then the gain is known after its model (compressBlock, "zpaqsam:")
+	if (bsize>=orig_size-16 && !conmodelo)
 	{
 		if (g_sa_mode=='t')
 		{
@@ -281412,6 +281521,8 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 	char hx[41];
 	for (int q=0; q<20; ++q)
 		snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+	const std::string datos(conmodelo ? std::string((const char*)sb.data(), (size_t)orig_size) : std::string());
+	const std::string metodo_m=m;
 	sb.reset();
 	sb.write(out.data(), out.size());
 	string ss, st;
@@ -281426,6 +281537,8 @@ static bool sa_comprimir_grupo(StringBuffer& sb, string& m, string& comment, con
 	comment=std::string(z ? "zpaqstd-sz" : "zpaqstd-sm")+(char)g_sa_mode+":"+sc.file+":"+sc.algo+":"
 	        +(sc.level<0 ? "-"+itos(-sc.level) : itos(sc.level))+":"+itos(orig_size)+":"+itos(a1)+":"+itos(a2)+":1:"+itos(a345)
 	        +":"+itos((int64_t)nseg)+":"+st+" "+comment;
+	if (conmodelo)
+		sa_modelo_arma(sb, m, comment, datos, metodo_m);
 	return true;
 }
 static void ma_comprimir_con(StringBuffer& sb, string& m, string& ma_comment, const std::string& i_ma_algorithm, int i_ma_level);
@@ -281573,7 +281686,7 @@ static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comme
 	const int64_t t0=mtime();
 	const long long r=zc->compress(sb.data(), (size_t)orig_size, buf+4, cap, sc.level);
 	const int64_t t1=mtime();
-	if (r<=0 || r+4>=orig_size-16)
+	if (r<=0 || (r+4>=orig_size-16 && !sc.modelo)) /// (with a model: known after it, see "zpaqsam:")
 	{
 		if (g_sa_mode=='t')
 		{
@@ -281601,7 +281714,7 @@ static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comme
 		return;
 	}
 	const int64_t zbc=zs_ext_bcsize(xe, a1, a2, a345);
-	if (r+4+zbc>=orig_size-16)
+	if (r+4+zbc>=orig_size-16 && !sc.modelo) /// (with a model: known after it, see "zpaqsam:")
 	{
 		if (g_sa_mode=='t')
 		{
@@ -281658,6 +281771,8 @@ static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comme
 	char hx[41];
 	for (int q=0; q<20; ++q)
 		snprintf(hx+2*q, 3, "%02x", (unsigned)(unsigned char)r1[q]);
+	const std::string datos(sc.modelo ? std::string((const char*)sb.data(), (size_t)orig_size) : std::string());
+	const std::string metodo_m=m;
 	sb.reset();
 	sb.write(buf, (size_t)seg);
 	delete[] buf;
@@ -281666,6 +281781,8 @@ static void sa_comprimir_bloque_codec(StringBuffer& sb, string& m, string& comme
 	comment=std::string("zpaqstd-sa")+(char)g_sa_mode+":"+sc.file+":"+sc.algo+":"
 	        +(sc.level<0 ? "-"+itos(-sc.level) : itos(sc.level))+":"+itos(orig_size)+":"+itos(a1)+":"+itos(a2)+":"+(sc.cfg.empty() ? "0" : "1")
 	        +(a345 ? ":"+itos(a345) : std::string(""))+" "+comment;
+	if (sc.modelo)
+		sa_modelo_arma(sb, m, comment, datos, metodo_m);
 }
 static void ma_comprimir_bloque(StringBuffer& sb, string& m, string& ma_comment)
 {
